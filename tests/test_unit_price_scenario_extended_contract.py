@@ -155,12 +155,14 @@ def test_partial_source_does_not_fall_back_to_legacy_profit_or_call_tax():
     assert tax.calls == []
 
 
-def test_strict_retained_mode_is_explicitly_unavailable_until_w12():
+def test_strict_retained_mode_requires_complete_cohort_evidence():
     result = UnitPriceScenarioService(TaxService()).calculate(
-        _inputs(), extended_scenario=_contract(mode="STRICT_RETAINED_COHORT"),
+        _inputs(), extended_scenario=_contract(
+            mode="STRICT_RETAINED_COHORT", components=[],
+        ),
     )
     assert result["available"] is False
-    assert result["extended_calculation"]["reason"] == "STRICT_RETAINED_COHORT_NOT_IMPLEMENTED"
+    assert result["extended_calculation"]["reason"] == "STRICT_COHORT_EVIDENCE_REQUIRED"
 
 
 def test_zero_or_invalid_denominator_fails_closed_without_a_tax_call():

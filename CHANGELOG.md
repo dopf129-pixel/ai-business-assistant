@@ -1,3 +1,8 @@
+# 2026-10-29 — W12: строгая когорта возвратов в canonical расчёте
+
+- Canonical `UnitPriceScenarioService` применяет точный return loss/unit только при `AVAILABLE` результате существующего W07 resolver и проверяет identity, delivered/returned/retained count, disposition units и сумму fees + irrecoverable COGS − компенсация. Strict cohort и window allocation нельзя смешивать; incomplete/unknown/credit review остаётся unavailable.
+- W05–W12 isolated profile: **184 passed in 2.75s**. Acceptance: `UNIT_ECONOMICS_W12_STRICT_RETAINED_CANONICAL_GATE_2026-10-29.md`.
+
 # 2026-10-29 — W11: единый расширенный расчёт экономики SKU
 
 - `UnitPriceScenarioService` аддитивно принимает versioned extended scenario; полный подтверждённый window expense allocation вычитается до существующего `TaxService`, без изменения legacy-вызовов. `calculate_components_only` и `compare` переиспользуют тот же контракт; неподдержанный strict cohort остаётся явно недоступен до W12.

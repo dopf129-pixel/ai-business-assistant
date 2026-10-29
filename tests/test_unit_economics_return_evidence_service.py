@@ -4,6 +4,8 @@ import pytest
 
 from services.unit_economics_expense_normalizer import UnitEconomicsExpenseNormalizer
 from services.unit_economics_return_evidence_service import UnitEconomicsReturnEvidenceService
+from services.tax_service import TaxService
+from services.unit_price_scenario_service import UnitPriceScenarioService
 
 
 IDENTITY = {
@@ -401,3 +403,174 @@ def test_resolver_never_returns_raw_cohort_reference_or_changes_business_data():
     assert result["read_only"] is True
     assert result["executed"] is False
     assert COHORT_REF not in repr(result)
+
+
+def _strict_scenario(denominator_units=100, components=None):
+    components = list(components or [])
+    return {
+        "schema_version": 1,
+        "calculation_mode": "STRICT_RETAINED_COHORT",
+        "expense_snapshot_ref": "c" * 64,
+        "quantity_evidence_ref": "d" * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": sorted(item["component_key"] for item in components),
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "STRICT_COHORT_LOSS_RUB",
+            "denominator": "RETAINED_UNITS_EXACT_COHORT",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "EXPERIMENT_PHASE_WINDOW",
+            "from_date": "2026-10-01",
+            "to_date": "2026-10-07",
+            "date_basis": "LOCAL_CALENDAR_DAY",
+            "timezone": "Europe/Moscow",
+        },
+        "denominator_units": denominator_units,
+        "components": components,
+    }
+
+
+def _unit_scenario_inputs():
+    return {
+        "price": "100", "cost": "20", "commission_rate": "10",
+        "logistics_per_unit": "5", "last_mile_per_unit": "1",
+        "acquiring_per_unit": "1", "advertising_rate": "12",
+        "discount_points_rate": "0", "tax_mode": "NONE",
+        "tax_rate": None, "minimum_tax_rate": None,
+    }
+
+
+def test_n02_strict_return_loss_from_resolver_enters_canonical_profit_once():
+    return_evidence = _resolve()
+    tax = TaxService()
+    service = UnitPriceScenarioService(tax)
+
+    result = service.calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(), strict_return_evidence=return_evidence,
+    )
+
+    assert return_evidence["quantity"]["delivered_units"] == 110
+    assert return_evidence["quantity"]["confirmed_returned_units_from_deliveries"] == 10
+    assert result["available"] is True
+    assert result["calculated"]["additional_unit_expenses"] == 3.5
+    assert result["calculated"]["profit_before_tax"] == 47.5
+    assert result["calculated"]["profit"] == 47.5
+    assert result["extended_calculation"]["strict_cohort_loss"] == {
+        "status": "APPLIED", "fee_loss_pool_rub": "300.00",
+        "inventory_loss_cogs_rub": "60.00", "compensation_deduction_rub": "10.00",
+        "loss_pool_rub": "350.00", "retained_units": 100,
+        "loss_per_retained_unit_rub": "3.50",
+    }
+    assert COHORT_REF not in repr(result)
+
+
+def test_strict_components_only_and_price_comparison_reuse_retained_unit_rate():
+    return_evidence = _resolve()
+    service = UnitPriceScenarioService(TaxService())
+    scenario = _strict_scenario()
+
+    components = service.calculate_components_only(
+        _unit_scenario_inputs(), extended_scenario=scenario,
+        strict_return_evidence=return_evidence, identity=deepcopy(IDENTITY),
+    )
+    comparison = service.compare(
+        _unit_scenario_inputs(), current_price="95", identity=deepcopy(IDENTITY),
+        extended_scenario=scenario, strict_return_evidence=return_evidence,
+    )
+
+    assert components["available"] is True
+    assert components["calculated"]["profit_before_tax"] == 47.5
+    assert comparison["available"] is True
+    assert comparison["calculated"]["additional_unit_expenses"] == 3.5
+    assert comparison["comparison"]["profit"] == 43.6
+
+
+@pytest.mark.parametrize("return_evidence", [
+    _resolve(quantity=_quantity(delivered=10, returned=10, retained=0)),
+    _resolve(quantity=_quantity(cohort_ref=OTHER_COHORT_REF)),
+    _resolve(inventory=_inventory([{
+        "disposition": "PENDING", "quantity": 10,
+        "irrecoverable_cogs_rub": None, "cogs_ownership": "UNKNOWN",
+        "compensation_rub": None, "compensation_treatment": "UNKNOWN",
+    }])),
+    _resolve(finance=_finance(
+        _part("return-charge", FEE_KEYS[0], "-200.00"),
+        _part("return-credit", FEE_KEYS[0], "250.00"),
+        _part("nonbuyout-fee", FEE_KEYS[1], "-100.00"),
+    )),
+])
+def test_strict_mode_rejects_zero_quantity_mismatched_cohort_pending_inventory_and_credit(return_evidence):
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(), strict_return_evidence=return_evidence,
+    )
+    assert result["available"] is False
+    assert result["calculated"]["profit"] is None
+    assert result["extended_calculation"]["status"] == "UNAVAILABLE"
+
+
+def test_strict_mode_checks_identity_denominator_and_resolver_arithmetic():
+    service = UnitPriceScenarioService(TaxService())
+    return_evidence = _resolve()
+
+    wrong_identity = {**IDENTITY, "store_id": "store-b"}
+    identity_result = service.calculate(
+        _unit_scenario_inputs(), identity=wrong_identity,
+        extended_scenario=_strict_scenario(), strict_return_evidence=return_evidence,
+    )
+    denominator_result = service.calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(denominator_units=99),
+        strict_return_evidence=return_evidence,
+    )
+    corrupt_evidence = deepcopy(return_evidence)
+    corrupt_evidence["strict_retained_cohort_loss"]["loss_pool_rub"] = "351.00"
+    arithmetic_result = service.calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(), strict_return_evidence=corrupt_evidence,
+    )
+
+    assert identity_result["extended_calculation"]["reason"] == "STRICT_COHORT_IDENTITY_MISMATCH"
+    assert denominator_result["extended_calculation"]["reason"] == "STRICT_COHORT_DENOMINATOR_MISMATCH"
+    assert arithmetic_result["extended_calculation"]["reason"] == "STRICT_COHORT_ARITHMETIC_INVALID"
+
+    malformed_status = deepcopy(return_evidence)
+    malformed_status["inventory"]["status"] = {}
+    malformed_result = service.calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(), strict_return_evidence=malformed_status,
+    )
+    assert malformed_result["available"] is False
+    assert malformed_result["extended_calculation"]["reason"] == "STRICT_COHORT_EVIDENCE_INCOMPLETE"
+
+
+def test_strict_return_evidence_cannot_be_mixed_with_window_allocation():
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario={
+            **_strict_scenario(), "calculation_mode": "WINDOW_COST_ALLOCATION",
+            "numerator_and_denominator_basis": {
+                "numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW",
+            },
+            "components": [],
+        },
+        strict_return_evidence=_resolve(),
+    )
+    assert result["available"] is False
+    assert result["extended_calculation"]["reason"] == "STRICT_COHORT_EVIDENCE_WITH_WINDOW_MODE"
+
+
+def test_strict_mode_rejects_window_expense_components_instead_of_mixing_denominators():
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        _unit_scenario_inputs(), identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(components=[{
+            "component_key": "STORAGE", "numerator_rub": "150.00", "ownership": "ADDITIONAL",
+        }]),
+        strict_return_evidence=_resolve(),
+    )
+    assert result["available"] is False
+    assert result["extended_calculation"]["reason"] == "STRICT_COHORT_WINDOW_COMPONENTS_MIXED"
