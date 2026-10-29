@@ -5510,9 +5510,20 @@ class AssistantButtonHandlerService:
         return {
             "error": False,
             "message": (
-                "Выберите товар для планирования цены:"
+                "Расширенная плановая экономика — сценарий «что если». "
+                "Выберите SKU, чтобы менять цену и допущения; расчёт не меняет данные на Ozon."
                 if calculator_selection
-                else "Выберите товар:"
+                else (
+                    "Базовая юнит-экономика показывает доступные текущие или исторические данные. "
+                    "Неизвестные расходы отмечаются отдельно и не считаются нулевыми. "
+                    "Выберите SKU или откройте «Плановая экономика» для сценария новой цены:"
+                    if self.unit_price_calculator_runtime_service is not None
+                    else (
+                        "Базовая юнит-экономика показывает доступные текущие или исторические данные. "
+                        "Неизвестные расходы отмечаются отдельно и не считаются нулевыми. "
+                        "Выберите SKU:"
+                    )
+                )
             ),
             "keyboard": keyboard,
         }
@@ -5586,6 +5597,12 @@ class AssistantButtonHandlerService:
             if callable(button_builder):
                 button = button_builder(user_id, sku)
                 output["keyboard"] = self.keyboard_service.build_unit_economics_detail_keyboard(button)
+                if button:
+                    output["message"] += (
+                        "\n\nБазовый режим: это оценка по доступным фактическим данным; "
+                        "пропуски выше не заменяются нулём. Для планирования новой цены и ручных "
+                        "допущений откройте плановую экономику кнопкой ниже."
+                    )
         return output
 
 

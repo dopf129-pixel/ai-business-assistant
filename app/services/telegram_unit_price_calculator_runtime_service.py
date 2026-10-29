@@ -907,7 +907,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if not token:
             return None
         return {
-            "text": "🧮 Подставить свою цену",
+            "text": "🧮 Планировать цену",
             "callback": "upc:p:" + token,
         }
 

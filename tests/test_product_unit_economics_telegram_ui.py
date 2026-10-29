@@ -136,7 +136,8 @@ def test_open_unit_economics_menu_lists_available_skus():
     result = handler.handle("unit_economics")
 
     assert result["error"] is False
-    assert result["message"] == "Выберите товар:"
+    assert "Базовая юнит-экономика" in result["message"]
+    assert "Плановая экономика» для сценария" not in result["message"]
     assert result["keyboard"]["buttons"] == [
         {
             "text": "hook-2",

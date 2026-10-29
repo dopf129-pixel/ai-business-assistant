@@ -1492,8 +1492,10 @@ def test_current_unit_economics_detail_has_entry_to_same_calculator_runtime():
     finally:
         reset_current_tenant_user_id(token)
 
-    assert result["keyboard"]["buttons"][0]["text"] == "🧮 Подставить свою цену"
+    assert result["keyboard"]["buttons"][0]["text"] == "🧮 Планировать цену"
     assert result["keyboard"]["buttons"][0]["callback"].startswith("upc:p:")
+    assert "Базовый режим" in result["message"]
+    assert "допущений" in result["message"]
     assert scenario["price_scenario"]["identity"]["sku"] == "3921245627"
 
 
@@ -1528,7 +1530,8 @@ def test_opening_calculator_clears_pending_period_and_expense_text_stages():
     finally:
         reset_current_tenant_user_id(token)
 
-    assert result["message"] == "Выберите товар для планирования цены:"
+    assert "Расширенная плановая экономика" in result["message"]
+    assert "не меняет данные на Ozon" in result["message"]
     assert result["keyboard"]["buttons"] == [{
         "text": "hook-2",
         "callback": result["keyboard"]["buttons"][0]["callback"],
@@ -1564,10 +1567,10 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
         reset_current_tenant_user_id(token)
 
     assert menu["keyboard"]["buttons"][0] == {
-        "text": "🧮 Калькулятор цены",
+        "text": "🧮 Плановая экономика",
         "callback": "upc:m",
     }
-    assert calculator_picker["message"] == "Выберите товар для планирования цены:"
+    assert "Расширенная плановая экономика" in calculator_picker["message"]
     assert calculator_picker["keyboard"]["buttons"] == [{
         "text": "hook-2",
         "callback": calculator_picker["keyboard"]["buttons"][0]["callback"],

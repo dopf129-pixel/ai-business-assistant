@@ -314,7 +314,7 @@ def test_v1089_valid_unit_menu_and_detail_remain_compatible():
     detail = handler.handle("unit_economics:hook-2")
 
     assert menu["error"] is False
-    assert menu["message"] == "Выберите товар:"
+    assert "Базовая юнит-экономика" in menu["message"]
     assert keyboard.unit_calls == 1
     assert detail["error"] is False
     assert detail["unit_economics"] is unit.result

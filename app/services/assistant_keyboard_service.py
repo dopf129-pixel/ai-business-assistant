@@ -536,7 +536,7 @@ class AssistantKeyboardService:
         buttons = []
         if calculator_callback:
             buttons.append({
-                "text": "🧮 Калькулятор цены",
+                "text": "🧮 Плановая экономика",
                 "callback": str(calculator_callback),
             })
         callbacks = list(product_callbacks or [])
