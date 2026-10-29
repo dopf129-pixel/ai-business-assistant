@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from services.ozon_account_repository import make_store_tenant_scope
 from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.unit_economics_experiment_snapshot_view_service import (
+    UnitEconomicsExperimentSnapshotViewService,
+)
 
 
 def _identity(owner="owner-1", store="store-a", sku="sku-1"):
@@ -505,6 +508,13 @@ def test_experiment_freezes_exact_tariff_and_observation_revisions(tmp_path):
         frozen = repo.get_price_experiment_frozen_snapshot(created["experiment_id"])
         assert frozen["error"] is False, frozen
         assert frozen["source_io"] is False
+        frozen_view = UnitEconomicsExperimentSnapshotViewService.project(frozen)
+        assert frozen_view["error"] is False, frozen_view
+        assert frozen_view["view"]["revisions"]["plan_revision"] == 1
+        assert frozen_view["view"]["revisions"]["tariff_revision"] == 1
+        assert frozen_view["view"]["revisions"]["quantity_result_revision"] == 1
+        assert frozen_view["view"]["economics"]["inputs"]["cost"] == "100.00"
+        assert frozen_view["view"]["source_io"] is False
         assert frozen["frozen_inputs"]["plan"]["revision"] == 1
         assert frozen["frozen_inputs"]["plan"]["payload"]["items"][0]["inputs"]["cost"] == "100.00"
         assert frozen["frozen_inputs"]["expense_snapshot"]["snapshot_id"] == snapshot["snapshot_id"]
