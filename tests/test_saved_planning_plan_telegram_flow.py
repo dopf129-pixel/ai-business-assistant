@@ -325,6 +325,24 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
             baseline["calculated"]["profit"] - 5.0
         )
 
+        copied = service.copy_document(
+            saved["document_id"], title="Extended plan copy", revision=1,
+            idempotency_key="w18-copy-extended01",
+        )
+        assert copied["error"] is False, copied
+        copied_document = service.get_document(copied["document_id"])["document"]
+        assert copied_document["revision"] == 1
+        assert copied_document["payload"]["items"][0]["extended_scenario"] == (
+            saved_item["extended_scenario"]
+        )
+        reopened_copy = reopened_single.restore_saved_plan(
+            copied_document["payload"], user_id="user-1",
+        )
+        assert reopened_copy["status"] == "UNIT_PRICE_SCENARIO_READY"
+        assert reopened_copy["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
+        assert reopened_copy["price_scenario"]["calculated"]["additional_unit_expenses"] == 5.0
+        assert len(source.calls) == 1
+
         payload_a = deepcopy(document["payload"])
         payload_a["sales_mix"] = {
             "period_label": "01.08.2026 - 31.08.2026",

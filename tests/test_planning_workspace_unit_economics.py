@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from services.ozon_account_repository import make_store_tenant_scope
@@ -421,6 +422,19 @@ def test_experiment_freezes_exact_tariff_and_observation_revisions(tmp_path):
             config, idempotency_key="w17-frozen-refs01",
         )
         assert created["error"] is False, created
+        phase = repo.create_price_experiment_phase(
+            created["experiment_id"], _phase_payload(snapshot["snapshot_id"]),
+            expected_state_revision=1, idempotency_key="w18-phase-create01",
+        )
+        assert phase["error"] is False, phase
+        first_result_payload = _result_payload(snapshot["snapshot_id"])
+        first_result = repo.append_price_experiment_result(
+            created["experiment_id"], phase["phase_id"], first_result_payload,
+            expected_state_revision=phase["experiment_state_revision"],
+            expected_phase_state_revision=1, expected_result_revision=0,
+            idempotency_key="w18-result-append01",
+        )
+        assert first_result["error"] is False, first_result
         reopened = repo.get_price_experiment(created["experiment_id"])["experiment"]
         assert reopened["config"]["source_references"]["tariff"] == {
             "profile_id": tariff["profile_id"], "revision": 1,
@@ -428,6 +442,100 @@ def test_experiment_freezes_exact_tariff_and_observation_revisions(tmp_path):
         assert reopened["config"]["source_references"]["observation"] == {
             "observation_id": observation["observation_id"], "result_revision": 1,
         }
+
+        plan_v2 = deepcopy(_plan_payload())
+        plan_v2["items"][0]["inputs"]["price"] = "600.00"
+        plan_v2["items"][0]["inputs"]["cost"] = "125.00"
+        updated_plan = repo.save_document(
+            title="Plan refreshed", payload=plan_v2,
+            document_id=plan["document_id"], expected_revision=1,
+            expected_state_revision=1, idempotency_key="w18-plan-refresh01",
+        )
+        assert updated_plan["error"] is False and updated_plan["revision"] == 2
+        updated_tariff = repo.update_tariff_profile(
+            tariff["profile_id"], {
+                "identity": {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1"},
+                "sale_schema": "FBO", "effective_from": "2026-10-01",
+                "effective_to": None, "confirmed_by_owner": True,
+                "bands": [{"price_from_cents": 9000, "price_to_cents": 12000,
+                           "commission_rate": "13"}],
+            }, expected_revision=1, expected_state_revision=1,
+            idempotency_key="w18-tariff-refresh01",
+        )
+        assert updated_tariff["error"] is False and updated_tariff["revision"] == 2
+        observation_result_v2 = deepcopy(observation_result)
+        observation_result_v2["sources"][0]["row_count"] = 4
+        observation_result_v2["sources"][0]["as_of"] = "2026-10-28T09:00:00Z"
+        observation_result_v2["metrics"]["cpc_spend"] = "11.00"
+        updated_observation = repo.append_unit_price_observation_result(
+            observation["observation_id"], observation_result_v2,
+            expected_state_revision=1, expected_result_revision=1,
+            idempotency_key="w18-observation-refresh01",
+        )
+        assert updated_observation["error"] is False
+        assert updated_observation["result_revision"] == 2
+        snapshot_v2_payload = _snapshot_payload()
+        snapshot_v2_payload["readiness"]["denominator"]["units"] = 12
+        snapshot_v2 = repo.create_unit_economics_expense_snapshot(snapshot_v2_payload)
+        assert snapshot_v2["error"] is False
+        assert snapshot_v2["snapshot_id"] != snapshot["snapshot_id"]
+        second_result_payload = _result_payload(
+            snapshot_v2["snapshot_id"], baseline="10.00", candidate="12.00", delta="2.00",
+        )
+        second_result_payload["snapshot_refs"] = [
+            snapshot["snapshot_id"], snapshot_v2["snapshot_id"],
+        ]
+        second_result_payload["source_as_of"] = "2026-11-07T12:00:00Z"
+        second_result = repo.append_price_experiment_result(
+            created["experiment_id"], phase["phase_id"], second_result_payload,
+            expected_state_revision=phase["experiment_state_revision"],
+            expected_phase_state_revision=1, expected_result_revision=1,
+            idempotency_key="w18-result-append02",
+        )
+        assert second_result["error"] is False, second_result
+        stored_results = repo.list_price_experiment_results(
+            created["experiment_id"], phase["phase_id"],
+        )
+        assert [item["result_revision"] for item in stored_results["items"]] == [2, 1]
+        assert stored_results["items"][1]["payload"] == first_result_payload
+        assert stored_results["items"][0]["payload"]["snapshot_refs"] == [
+            snapshot["snapshot_id"], snapshot_v2["snapshot_id"],
+        ]
+
+        frozen = repo.get_price_experiment_frozen_snapshot(created["experiment_id"])
+        assert frozen["error"] is False, frozen
+        assert frozen["source_io"] is False
+        assert frozen["frozen_inputs"]["plan"]["revision"] == 1
+        assert frozen["frozen_inputs"]["plan"]["payload"]["items"][0]["inputs"]["cost"] == "100.00"
+        assert frozen["frozen_inputs"]["expense_snapshot"]["snapshot_id"] == snapshot["snapshot_id"]
+        assert frozen["frozen_inputs"]["expense_snapshot"]["payload"]["readiness"][
+            "denominator"]["units"] == 10
+        assert frozen["frozen_inputs"]["tariff"]["revision"] == 1
+        assert frozen["frozen_inputs"]["tariff"]["profile"]["bands"][0][
+            "commission_rate"] == "12"
+        assert frozen["frozen_inputs"]["quantity"]["result_revision"] == 1
+        assert frozen["frozen_inputs"]["quantity"]["result"]["metrics"]["cpc_spend"] == "10.00"
+        refreshed_config = deepcopy(config)
+        refreshed_config["source_references"]["plan"]["revision"] = 2
+        refreshed_config["source_references"]["expense_snapshot_id"] = snapshot_v2["snapshot_id"]
+        refreshed_config["source_references"]["tariff"]["revision"] = 2
+        refreshed_config["source_references"]["observation"]["result_revision"] = 2
+        refreshed = repo.create_price_experiment(
+            refreshed_config, idempotency_key="w18-experiment-refresh01",
+        )
+        assert refreshed["error"] is False, refreshed
+        refreshed_inputs = repo.get_price_experiment_frozen_snapshot(
+            refreshed["experiment_id"],
+        )
+        assert refreshed_inputs["error"] is False, refreshed_inputs
+        assert refreshed_inputs["frozen_inputs"]["plan"]["revision"] == 2
+        assert refreshed_inputs["frozen_inputs"]["plan"]["payload"]["items"][0][
+            "inputs"]["cost"] == "125.00"
+        assert refreshed_inputs["frozen_inputs"]["expense_snapshot"]["snapshot_id"] == (
+            snapshot_v2["snapshot_id"]
+        )
+        assert refreshed_inputs["frozen_inputs"]["tariff"]["revision"] == 2
+        assert refreshed_inputs["frozen_inputs"]["quantity"]["result_revision"] == 2
         assert repo.create_price_experiment(
             {**config, "source_references": {
                 **config["source_references"],

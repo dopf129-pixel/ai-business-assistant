@@ -2271,6 +2271,121 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def get_price_experiment_frozen_snapshot(
+        self, experiment_id, *, owner_id=None, store_id=None,
+    ):
+        """Reopen the exact persisted inputs referenced by an experiment.
+
+        This deliberately resolves only immutable local revisions. It never
+        refreshes a plan, tariff, observation, or expense snapshot from a
+        provider; callers must request a separate refresh explicitly.
+        """
+        experiment_result = self.get_price_experiment(
+            experiment_id, owner_id=owner_id, store_id=store_id,
+        )
+        if experiment_result.get("error"):
+            return experiment_result
+        experiment = experiment_result["experiment"]
+        references = experiment["config"]["source_references"]
+        identity = {
+            key: experiment[key]
+            for key in ("owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema")
+        }
+
+        plan_ref = references["plan"]
+        plan_result = self.get_document(
+            plan_ref["document_id"], revision=plan_ref["revision"],
+            owner_id=identity["owner_id"], store_id=identity["store_id"],
+        )
+        if plan_result.get("error"):
+            return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_PLAN_UNAVAILABLE")
+        plan = plan_result["document"]
+        if not self._saved_plan_contains_observation_identity(
+            self._encode(plan["payload"]), identity, identity["store_id"],
+        ):
+            return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_PLAN_SCOPE_MISMATCH")
+
+        snapshot_id = references["expense_snapshot_id"]
+        expense_result = self.get_unit_economics_expense_snapshot(
+            snapshot_id, owner_id=identity["owner_id"], store_id=identity["store_id"],
+        )
+        if expense_result.get("error"):
+            return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_EXPENSE_UNAVAILABLE")
+        expense_payload = expense_result["payload"]
+        expense_identity = expense_payload["identity"]
+        if any(expense_identity.get(key) != identity[key] for key in (
+            "owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema",
+        )):
+            return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_EXPENSE_SCOPE_MISMATCH")
+
+        tariff_result = None
+        tariff_ref = references["tariff"]
+        if tariff_ref is not None:
+            tariff_result = self.get_tariff_profile(
+                tariff_ref["profile_id"], revision=tariff_ref["revision"],
+                owner_id=identity["owner_id"], store_id=identity["store_id"],
+            )
+            if tariff_result.get("error"):
+                return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_TARIFF_UNAVAILABLE")
+            tariff_identity = tariff_result["profile"]["identity"]
+            if any(tariff_identity.get(key) != identity[key] for key in (
+                "product_id", "offer_id", "sku",
+            )) or tariff_result["profile"].get("sale_schema") != identity["sale_schema"]:
+                return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_TARIFF_SCOPE_MISMATCH")
+
+        observation_result = None
+        observation_ref = references["observation"]
+        if observation_ref is not None:
+            observation_result = self.get_unit_price_observation(
+                observation_ref["observation_id"],
+                result_revision=observation_ref["result_revision"],
+                owner_id=identity["owner_id"], store_id=identity["store_id"],
+            )
+            if observation_result.get("error"):
+                return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_QUANTITY_UNAVAILABLE")
+            observation = observation_result["observation"]
+            observation_identity = observation.get("identity", {})
+            if observation.get("store_id") != identity["store_id"] or any(
+                observation_identity.get(key) != identity[key] for key in (
+                    "product_id", "offer_id", "sku", "sale_schema",
+                )
+            ) or observation_result.get("result") is None:
+                return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_QUANTITY_SCOPE_MISMATCH")
+
+        frozen_inputs = {
+            "plan": {
+                "document_id": plan["document_id"], "revision": plan["revision"],
+                "schema_version": plan["payload"]["schema_version"],
+                "calculation_version": plan["payload"]["calculation_version"],
+                "payload": plan["payload"],
+            },
+            "expense_snapshot": {
+                "snapshot_id": expense_result["snapshot_id"],
+                "schema_version": expense_result["schema_version"],
+                "payload": expense_payload,
+            },
+            "tariff": None if tariff_result is None else {
+                "profile_id": tariff_ref["profile_id"],
+                "revision": tariff_ref["revision"],
+                "profile": tariff_result["profile"],
+            },
+            "quantity": None if observation_result is None else {
+                "observation_id": observation_ref["observation_id"],
+                "result_revision": observation_ref["result_revision"],
+                "observation": observation_result["observation"],
+                "result": observation_result["result"]["payload"],
+            },
+        }
+        encoded = self._encode(frozen_inputs)
+        if (encoded is None or len(encoded.encode("utf-8"))
+                > 4 * self.MAX_PRICE_EXPERIMENT_PAYLOAD_BYTES + 4096):
+            return self._error("PLANNING_PRICE_EXPERIMENT_FROZEN_SNAPSHOT_TOO_LARGE")
+        return {
+            "error": False, "experiment": experiment,
+            "frozen_inputs": frozen_inputs, "read_only": True,
+            "source_io": False,
+        }
+
     def list_price_experiment_revisions(
         self, experiment_id, *, limit=10, offset=0, owner_id=None, store_id=None,
     ):
