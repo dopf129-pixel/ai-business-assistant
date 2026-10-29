@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W12 завершены; следующий доступный этап — W13.
+Статус: IN_PROGRESS. W00–W13 завершены; следующий доступный этап — W14.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -39,7 +39,7 @@
 | W10 | W09 | DONE | 29.10.2026: добавлена чистая `UnitEconomicsReadinessViewService`, которая проецирует один snapshot в безопасные component rows `INCLUDED`/`EXCLUDED`/`UNKNOWN`; source/applicability принимаются только из code allowlists, а reason codes генерируются самой проекцией, суммы/единицы берутся только из W09 evidence, unknown не становится zero, zero denominator блокирует ставку, но сохраняет наблюдаемую сумму. Reference/phase projection independent, overlapping windows переводят сравнение в `INCOMPARABLE`; вывод скрывает identity и raw source data, не делает API calls/storage writes. 15 regressions. Combined isolated W05–W10 profile: **131 passed in 2.00s**; `py_compile`, `git diff --check`, line-length scan PASS; `git diff -- data` empty. Acceptance: `UNIT_ECONOMICS_W10_READINESS_VIEW_2026-10-29.md`. Источники и Telegram navigation пока не интегрированы; следующий этап W11.
 | W11 | W03,W10 | DONE | 29.10.2026, commit `633a6d68`: `UnitPriceScenarioService` получил additive versioned extended contract. Full `WINDOW_COST_ALLOCATION` суммирует подтверждённый numerator, делит на совместимый знаменатель, округляет unit amount и вычитает его до существующего `TaxService` ровно одним canonical forward. `calculate_components_only` и `compare` используют тот же контракт; legacy calls без поля остаются прежними. Некорректный/incomplete evidence, двойной ownership, плохие вложенные типы и несовместимый cross-dock denominator fail closed; в базовом сценарии strict cohort явно unavailable. Added 19 regression tests. Combined isolated W05–W11 profile: **175 passed in 2.71s**. Acceptance: `UNIT_ECONOMICS_W11_CANONICAL_FORWARD_2026-10-29.md`. |
 | W12 | W07,W11 | DONE | 29.10.2026, commit `1bb32adf`: canonical `calculate` / `calculate_components_only` / `compare` consume only a complete `UnitEconomicsReturnEvidenceService` result for `STRICT_RETAINED_COHORT`. Checks exact identity, fee/quantity/inventory statuses, cohort match, delivered-returned-retained arithmetic, disposition count, positive denominator, nonnegative amounts and recomputed loss/unit rounding. Return loss is applied once before TaxService; incomplete, Q0, wrong cohort/identity, pending inventory, net credit and corrupt arithmetic block. Strict and window components cannot mix. 9 integration test functions (12 parameter cases), including actual W07 N02=3.50 ₽/retained unit. Combined isolated W05–W12 profile: **184 passed in 2.75s**; compile, line-length, `git diff --check` PASS; `git diff -- data` empty. Acceptance: `UNIT_ECONOMICS_W12_STRICT_RETAINED_CANONICAL_GATE_2026-10-29.md`. |
-| W13 | W11,W12 | NOT_STARTED | — |
+| W13 | W11,W12 | DONE | 29.10.2026, commit `ed8ecc11`: проверена совместимость расширенного gross profit с `NONE`, `USN_INCOME` (баллы 0/20), `USN_INCOME_MINUS_EXPENSES` и минимальным налогом. В canonical calculation extra expense уже уменьшает базу до единственного вызова TaxService; после налога он не вычитается повторно. Добавлены N09/N10 и minimum-tax regressions; существующий sales-mix gate подтверждает один aggregate tax call. W13 profile: **44 passed in 1.42s**; combined W05–W13 profile: **186 passed in 3.06s**. Compile, line-length, `git diff --check` PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W13_TAX_POLICY_PARITY_2026-10-29.md`. Изменений runtime не потребовалось. |
 | W14 | W06,W11 | NOT_STARTED | — |
 | W15 | W13,W14 | NOT_STARTED | — |
 | W16 | W15 | NOT_STARTED | — |
@@ -104,7 +104,7 @@
 - Offline проверки подготовки прошли: 40 уникальных упорядоченных стадий, ациклический граф, exact match зависимостей task/journal и 40 NOT_STARTED, 18 acceptance groups, 58 существующих опорных путей. Устаревшая ссылка period_profit_service.py заменена на действующий period_profit_query_service.py до публикации.
 - Numeric oracles через существующий pure canonical calculator: base profit 46.00; USN income 40.00; income с points20 — 41.20; income-minus-expenses — 39.10; candidate95/ads7 — 46.50. Дополнительные расходы в этих проверках арифметически сведены к сумме затрат только как oracle, это не будущая реализация подмены поля cost. Loss pool=350, extra/unit=5 и weighted200/110=1.82 проверены Decimal.
 - git diff --check прошёл; git diff -- data пустой. Новых code/tests нет; branch подготовки содержит только документацию. CI этой документационной ветки будет привязан к опубликованному SHA.
-- Полный pytest не выполнялся для новой реализации: она не начиналась. Проверки подготовки не закрывают этапы W00–W39.
+- W13 завершён: адресный профиль — **44 passed in 1.42s**, combined W05–W13 — **186 passed in 3.06s**. Полный pytest/CI новой реализации остаётся запланирован на W38–W39; ранние целевые прогоны не заменяют его.
 
 ## W02 проверки и ограничения
 

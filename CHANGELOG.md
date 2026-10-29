@@ -1,3 +1,8 @@
+# 2026-10-29 — W13: налоговая политика расширенной экономики SKU
+
+- Добавлены регрессии на расширенном сценарии для налоговых режимов NONE, USN_INCOME и USN_INCOME_MINUS_EXPENSES, discount points и минимального налога. Дополнительный расход уменьшает прибыль до налога и не вычитается повторно после него; grouped tax применяется один раз.
+- W13 profile: **44 passed in 1.42s**; combined W05–W13 profile: **186 passed in 3.06s**. Runtime-логика и пользовательские данные не менялись. Подробности: `project_brain/UNIT_ECONOMICS_W13_TAX_POLICY_PARITY_2026-10-29.md`.
+
 # 2026-10-29 — W12: строгая когорта возвратов в canonical расчёте
 
 - Canonical `UnitPriceScenarioService` применяет точный return loss/unit только при `AVAILABLE` результате существующего W07 resolver и проверяет identity, delivered/returned/retained count, disposition units и сумму fees + irrecoverable COGS − компенсация. Strict cohort и window allocation нельзя смешивать; incomplete/unknown/credit review остаётся unavailable.
