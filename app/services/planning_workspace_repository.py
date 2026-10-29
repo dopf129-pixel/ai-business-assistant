@@ -25,7 +25,7 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 
 
 class PlanningWorkspaceRepository:
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
     DATABASE_SCHEMA_VERSION = 5
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
@@ -113,7 +113,7 @@ class PlanningWorkspaceRepository:
         "status", "available", "missing_inputs", "invalid_inputs", "revenue",
         "discount_points", "taxable_revenue", "commission", "advertising",
         "fees", "profit_before_tax", "tax", "effective_tax_rate", "profit",
-        "margin_percent", "cross_docking",
+        "margin_percent", "cross_docking", "additional_unit_expenses",
     })
     _SOURCE_FIELDS = frozenset({
         "periods", "as_of", "loaded_at", "completeness", "cross_docking",
@@ -1989,17 +1989,19 @@ class PlanningWorkspaceRepository:
             return None
         calc = payload.get("calculation_version", 1)
         schema = payload.get("schema_version", calc)
-        supported_versions = {1: 1, 2: 2, 3: 2}
+        supported_versions = {1: 1, 2: 2, 3: 2, 4: 2}
         if (type(schema) is not int or schema not in supported_versions
                 or type(calc) is not int or supported_versions[schema] != calc):
             return None
         if schema == 3 and kind != "single":
             return None
+        has_extended_scenario = False
         normalized_items = []
         seen = set()
         for item in items:
             if not isinstance(item, dict) or set(item) - {
                 "row_id", "identity", "inputs", "provenance", "sources", "projection",
+                "extended_scenario", "strict_return_evidence",
             }:
                 return None
             identity = item.get("identity")
@@ -2107,7 +2109,7 @@ class PlanningWorkspaceRepository:
                 elif (rate is not None or cross_docking.get("amount_per_unit") is not None
                       or cross_docking.get("applicable_to_sku") is True):
                     return None
-            if schema == 3:
+            if schema == 3 or (schema == 4 and "tariff_resolution" in clean_sources):
                 from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
                 tariff_resolution = clean_sources.get("tariff_resolution")
                 frozen_identity = {
@@ -2124,9 +2126,11 @@ class PlanningWorkspaceRepository:
                     return None
                 clean_sources["tariff_resolution"] = normalized_tariff
                 advertising_basis = clean_sources.get("advertising_basis")
-                if not isinstance(advertising_basis, dict):
+                if advertising_basis is None and schema == 3:
                     return None
-                if advertising_basis.get("mode") == "SAME_DRR":
+                if advertising_basis is not None and not isinstance(advertising_basis, dict):
+                    return None
+                if isinstance(advertising_basis, dict) and advertising_basis.get("mode") == "SAME_DRR":
                     if (set(advertising_basis) != {"mode", "revenue_basis", "rate", "origin"}
                             or advertising_basis.get("revenue_basis") != "SELLER_REVENUE"
                             or advertising_basis.get("rate") != clean_inputs.get("advertising_rate")
@@ -2134,7 +2138,7 @@ class PlanningWorkspaceRepository:
                             or "advertising_mode" in clean_inputs
                             or "advertising_cost_per_unit" in clean_inputs):
                         return None
-                elif advertising_basis.get("mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+                elif isinstance(advertising_basis, dict) and advertising_basis.get("mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
                     if (set(advertising_basis) != {
                             "mode", "denominator", "amount_per_unit", "origin",
                         }
@@ -2147,7 +2151,7 @@ class PlanningWorkspaceRepository:
                             != "ABSOLUTE_PER_SUCCESSFUL_UNIT"
                             or "advertising_rate" in clean_inputs):
                         return None
-                else:
+                elif isinstance(advertising_basis, dict):
                     return None
                 if (clean_sources.get("tariff_resolution", {}).get("status")
                         in UnitPriceTariffSnapshotAdapter.AVAILABLE_STATUSES
@@ -2158,8 +2162,39 @@ class PlanningWorkspaceRepository:
                     return None
             elif "tariff_resolution" in clean_sources or "advertising_basis" in clean_sources:
                 return None
+            extended_scenario = item.get("extended_scenario")
+            strict_return_evidence = item.get("strict_return_evidence")
+            if schema == 4:
+                from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
+                if extended_scenario is not None:
+                    extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                        extended_scenario
+                    )
+                    if extended_scenario is None:
+                        return None
+                    has_extended_scenario = True
+                    if strict_return_evidence is not None:
+                        expected_strict_identity = {
+                            "owner_id": scope["owner_id"],
+                            "store_id": scope["store_id"],
+                            "product_id": product_id,
+                            "offer_id": offer_id,
+                            "sku": sku,
+                            "sale_schema": str(identity.get("scheme") or "FBO").upper(),
+                        }
+                        strict_return_evidence = (
+                            PlanningExtendedScenarioAdapter.project_strict_evidence(
+                                strict_return_evidence, expected_strict_identity,
+                            )
+                        )
+                        if strict_return_evidence is None:
+                            return None
+                elif strict_return_evidence is not None:
+                    return None
+            elif "extended_scenario" in item or "strict_return_evidence" in item:
+                return None
             row_id = self._short_text(item.get("row_id"), 64, optional=True)
-            normalized_items.append({
+            normalized_item = {
                 "row_id": row_id,
                 "identity": {
                     "product_id": product_id, "offer_id": offer_id, "sku": sku,
@@ -2171,7 +2206,14 @@ class PlanningWorkspaceRepository:
                 "provenance": clean_provenance,
                 "sources": clean_sources,
                 "projection": clean_projection,
-            })
+            }
+            if schema == 4 and extended_scenario is not None:
+                normalized_item["extended_scenario"] = extended_scenario
+                if strict_return_evidence is not None:
+                    normalized_item["strict_return_evidence"] = strict_return_evidence
+            normalized_items.append(normalized_item)
+        if schema == 4 and not has_extended_scenario:
+            return None
         if kind == "single" and len(normalized_items) != 1:
             return None
         sales_mix = payload.get("sales_mix")

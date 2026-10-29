@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
 from services.period_profit_operation_diagnostics import current_period_profit_trace
 from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
@@ -440,6 +441,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             "snapshot": snapshot,
             "identity": snapshot_identity,
             "inputs": deepcopy(row.get("inputs") or {}),
+            "extended_scenario": deepcopy(row.get("extended_scenario")),
+            "strict_return_evidence": deepcopy(row.get("strict_return_evidence")),
             "provenance": deepcopy(row.get("provenance") or {}),
             "sources": {
                 "periods": periods,
@@ -478,6 +481,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             context.get("inputs"), batch.get("target_margin_percent"),
             identity=context.get("identity"), provenance=context.get("provenance"),
             sources=context.get("sources"),
+            **self._extended_scenario_kwargs(context),
         )
         fresh = (
             context.get("source_ttl_seconds", 0) > 0
@@ -541,6 +545,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             context.get("inputs"), batch.get("target_margin_percent"),
             identity=context.get("identity"), provenance=context.get("provenance"),
             sources=context.get("sources"),
+            **self._extended_scenario_kwargs(context),
         )
         key = action.get("criterion")
         outcome = (fresh_cap.get(key) or {}) if isinstance(fresh_cap, dict) else {}
@@ -618,11 +623,42 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "tenant_scope": scope["tenant_scope"], "sku": sku,
                 "product_id": product_id, "offer_id": offer_id,
             }
+            extended_scenario = row.get("extended_scenario")
+            strict_return_evidence = row.get("strict_return_evidence")
+            if extended_scenario is not None:
+                extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                    extended_scenario
+                )
+                identity_for_calc.update({
+                    "owner_id": scope["owner_id"],
+                    "sale_schema": str(product.get("scheme") or row.get("scheme") or "FBO").upper(),
+                })
+                if extended_scenario is None:
+                    return self._stale()
+            elif strict_return_evidence is not None:
+                return self._stale()
             projection_result = self.batch_plan_service.scenario_service.calculate(
                 inputs, identity=identity_for_calc, provenance=provenance,
                 sources={"periods": sources["periods"], "as_of": sources["as_of"],
                          "completeness": sources["completeness"]},
+                **self._extended_scenario_kwargs({
+                    "extended_scenario": extended_scenario,
+                    "strict_return_evidence": strict_return_evidence,
+                }),
             )
+            if extended_scenario is not None and (
+                projection_result.get("available") is not True
+                or (projection_result.get("extended_calculation") or {}).get("status") != "APPLIED"
+            ):
+                return self._stale()
+            if strict_return_evidence is not None:
+                strict_return_evidence = PlanningExtendedScenarioAdapter.project_strict_evidence(
+                    strict_return_evidence,
+                    {key: identity_for_calc.get(key) for key in
+                     PlanningExtendedScenarioAdapter.STRICT_IDENTITY_FIELDS},
+                )
+                if strict_return_evidence is None:
+                    return self._stale()
             calculated = projection_result.get("calculated") or {}
             projection = {
                 "status": str(row.get("status") or "INCOMPLETE_INPUTS"),
@@ -636,7 +672,11 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "effective_tax_rate", "profit", "margin_percent", "cross_docking",
             ):
                 projection[field] = calculated.get(field)
-            rows.append({
+            if extended_scenario is not None:
+                projection["additional_unit_expenses"] = calculated.get(
+                    "additional_unit_expenses"
+                )
+            saved_row = {
                 "row_id": str(row.get("row_id") or "")[:64],
                 "identity": {
                     "product_id": product_id, "offer_id": offer_id, "sku": sku,
@@ -646,14 +686,23 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 },
                 "inputs": inputs, "provenance": provenance,
                 "sources": sources, "projection": projection,
-            })
+            }
+            if extended_scenario is not None:
+                saved_row["extended_scenario"] = extended_scenario
+                if strict_return_evidence is not None:
+                    saved_row["strict_return_evidence"] = strict_return_evidence
+            rows.append(saved_row)
         return {
             "error": False,
             "batch_id": batch["batch_id"],
             "version": batch["version"],
             "tenant_scope": scope["tenant_scope"],
             "payload": {
-                "plan_kind": "batch", "schema_version": PlanningCrossDockingAdapter.CURRENT_VERSION,
+                "plan_kind": "batch",
+                "schema_version": (
+                    4 if any(row.get("extended_scenario") is not None for row in rows)
+                    else PlanningCrossDockingAdapter.CURRENT_VERSION
+                ),
                 "calculation_version": self.batch_plan_service.scenario_service.VERSION,
                 "target_margin_percent": batch.get("target_margin_percent"),
                 "items": rows,
@@ -692,6 +741,30 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 not sku or not product_id or not offer_id
                 or str(identity.get("store_id") or "") != str(scope["store_id"] or "")
             ):
+                return self._stale()
+            extended_scenario = None
+            strict_return_evidence = None
+            if payload.get("schema_version") == 4 and item.get("extended_scenario") is not None:
+                extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                    item.get("extended_scenario")
+                )
+                if extended_scenario is None:
+                    return self._stale()
+                if item.get("strict_return_evidence") is not None:
+                    strict_return_evidence = (
+                        PlanningExtendedScenarioAdapter.project_strict_evidence(
+                            item.get("strict_return_evidence"),
+                            {
+                                "owner_id": scope["owner_id"],
+                                "store_id": str(identity.get("store_id") or ""),
+                                "product_id": product_id, "offer_id": offer_id, "sku": sku,
+                                "sale_schema": str(identity.get("scheme") or "FBO").upper(),
+                            },
+                        )
+                    )
+                    if strict_return_evidence is None:
+                        return self._stale()
+            elif item.get("strict_return_evidence") is not None:
                 return self._stale()
             snapshot_identity = {
                 "user_id": scope["owner_id"], "store_id": scope["store_id"],
@@ -732,11 +805,23 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             }
             result = scenario_service.calculate(
                 inputs,
-                identity={**snapshot_identity, "batch_id": "saved", "batch_version": 1, "row_id": row_id},
+                identity={**snapshot_identity, "batch_id": "saved", "batch_version": 1, "row_id": row_id,
+                          **({"owner_id": scope["owner_id"],
+                             "sale_schema": str(identity.get("scheme") or "FBO").upper()}
+                             if extended_scenario is not None else {})},
                 provenance=provenance,
                 sources={"periods": periods, "as_of": sources.get("as_of"),
                          "completeness": snapshot["source_completeness"]},
+                **self._extended_scenario_kwargs({
+                    "extended_scenario": extended_scenario,
+                    "strict_return_evidence": strict_return_evidence,
+                }),
             )
+            if extended_scenario is not None and (
+                result.get("available") is not True
+                or (result.get("extended_calculation") or {}).get("status") != "APPLIED"
+            ):
+                return self._stale()
             manual = {
                 field: {"value": value}
                 for field, value in inputs.items()
@@ -750,6 +835,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "reason": "HISTORICAL_ASSUMPTIONS", "inputs": inputs,
                 "provenance": provenance, "manual_assumptions": manual,
                 "snapshot": snapshot, "scenario": result, "planning": {},
+                "extended_scenario": deepcopy(extended_scenario),
+                "strict_return_evidence": deepcopy(strict_return_evidence),
                 "missing_inputs": result.get("missing_inputs") or [],
                 "source_as_of": periods, "source_age_seconds_at_load": 0,
                 "source_loaded_at": self.clock(), "source_ttl_seconds": 0,
@@ -828,6 +915,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             or current.get("inputs") != source_context.get("inputs")
             or current.get("provenance") != source_context.get("provenance")
             or current.get("sources") != source_context.get("sources")
+            or current.get("extended_scenario") != source_context.get("extended_scenario")
+            or current.get("strict_return_evidence") != source_context.get("strict_return_evidence")
             or current.get("source_age_seconds", float("inf"))
             >= current.get("source_ttl_seconds", 0)
             or current.get("source_ttl_seconds", 0) > self.SNAPSHOT_TTL_SECONDS
@@ -1465,6 +1554,19 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             "keyboard": keyboard or self._main_keyboard(),
             "read_only": True,
             "executed": False,
+        }
+
+    @staticmethod
+    def _extended_scenario_kwargs(value):
+        if not isinstance(value, dict):
+            return {}
+        extended = value.get("extended_scenario")
+        strict = value.get("strict_return_evidence")
+        if extended is None and strict is None:
+            return {}
+        return {
+            "extended_scenario": deepcopy(extended),
+            "strict_return_evidence": deepcopy(strict),
         }
 
     def _context_error(self):

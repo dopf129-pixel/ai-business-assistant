@@ -112,6 +112,89 @@ def _confirmed_cross_docking_source(rate="12.00", supplied_units=100):
     }
 
 
+def _extended_expense_contract(amount="500.00", units=100):
+    return {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": "a" * 64,
+        "quantity_evidence_ref": "b" * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["ADDITIONAL_SERVICE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB",
+            "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01", "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "Europe/Moscow",
+        },
+        "denominator_units": units,
+        "components": [{
+            "component_key": "ADDITIONAL_SERVICE",
+            "numerator_rub": amount,
+            "ownership": "ADDITIONAL",
+        }],
+    }
+
+
+def _strict_extended_contract():
+    contract = _extended_expense_contract("0.00", 100)
+    contract.update({
+        "calculation_mode": "STRICT_RETAINED_COHORT",
+        "numerator_and_denominator_basis": {
+            "numerator": "STRICT_COHORT_LOSS_RUB",
+            "denominator": "RETAINED_UNITS_EXACT_COHORT",
+        },
+        "scope": {
+            "scope_kind": "EXPERIMENT_PHASE_WINDOW",
+            "from_date": "2026-10-01", "to_date": "2026-10-07",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "Europe/Moscow",
+        },
+        "components": [],
+        "included_component_keys": [],
+    })
+    return contract
+
+
+def _strict_return_evidence():
+    return {
+        "error": False, "status": "COMPLETE",
+        "identity": {
+            "owner_id": "user-1", "store_id": "store-a",
+            "product_id": "product-1", "offer_id": "offer-1",
+            "sku": "sku-1", "sale_schema": "FBO",
+        },
+        "fees": {
+            "status": "COMPLETE", "cohort_matches": True,
+            "additional_exact_cohort_rub": "300.00", "return_id": "private-return-id",
+        },
+        "quantity": {
+            "status": "COMPLETE", "cohort_matches": True,
+            "delivered_units": 110,
+            "confirmed_returned_units_from_deliveries": 10,
+            "retained_units": 100,
+        },
+        "inventory": {
+            "status": "COMPLETE", "disposition_units": 10,
+            "inventory_loss_cogs_rub": "60.00",
+            "compensation_deduction_rub": "10.00",
+            "supply_id": "private-supply-id",
+        },
+        "strict_retained_cohort_loss": {
+            "status": "AVAILABLE", "model_scope": "STRICT_RETAINED_COHORT",
+            "denominator_kind": "RETAINED_UNITS_EXACT_COHORT",
+            "denominator_units": 100, "fee_loss_pool_rub": "300.00",
+            "loss_pool_rub": "350.00", "loss_per_retained_unit_rub": "3.50",
+        },
+        "read_only": True, "executed": False,
+        "raw_response": {"private": True},
+    }
+
+
 def _button(result, label):
     return next(button["callback"] for button in result["keyboard"]["buttons"] if button["text"] == label)
 
@@ -201,6 +284,96 @@ def test_single_save_list_open_and_continue_uses_historical_snapshot_without_sou
         assert len(source.calls) == 1
         saved_doc = restarted_service.list_documents()["items"][0]
         assert saved_doc["title"] == "План осень"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_comparison(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        single._scenarios[scenario_id]["extended_scenario"] = _extended_expense_contract()
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        assert capture["error"] is False
+        assert capture["payload"]["schema_version"] == 4
+        saved_item = capture["payload"]["items"][0]
+        assert saved_item["projection"]["additional_unit_expenses"] == 5.0
+        assert saved_item["extended_scenario"] == _extended_expense_contract()
+
+        saved = service.save_capture("Extended plan", capture)
+        assert saved["error"] is False, saved
+        document_result = service.get_document(saved["document_id"])
+        assert "document" in document_result, document_result
+        document = document_result["document"]
+        reopened_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = reopened_single.restore_saved_plan(document["payload"], user_id="user-1")
+        assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
+        assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
+        assert reopened["price_scenario"]["calculated"]["additional_unit_expenses"] == 5.0
+        baseline = single.scenario_service.calculate(saved_item["inputs"])
+        assert reopened["price_scenario"]["calculated"]["profit_before_tax"] == pytest.approx(
+            baseline["calculated"]["profit_before_tax"] - 5.0
+        )
+        assert reopened["price_scenario"]["calculated"]["profit"] == pytest.approx(
+            baseline["calculated"]["profit"] - 5.0
+        )
+
+        payload_a = deepcopy(document["payload"])
+        payload_a["sales_mix"] = {
+            "period_label": "01.08.2026 - 31.08.2026",
+            "quantities": {payload_a["items"][0]["identity"]["sku"]: 10},
+            "expenses": [], "confirmed": True,
+        }
+        payload_b = deepcopy(payload_a)
+        payload_b["items"][0]["inputs"]["price"] = "550"
+        mix_a = saved_runtime.plan_comparison_service._project_mix(payload_a, "user-1")
+        mix_b = saved_runtime.plan_comparison_service._project_mix(payload_b, "user-1")
+        assert mix_a["components"]["additional_unit_expenses"] == "50.00"
+        assert mix_b["components"]["additional_unit_expenses"] == "50.00"
+        assert len(source.calls) == 1
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        single._scenarios[scenario_id]["extended_scenario"] = _strict_extended_contract()
+        single._scenarios[scenario_id]["strict_return_evidence"] = _strict_return_evidence()
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        assert capture["error"] is False
+        saved = service.save_capture("Strict return plan", capture)
+        assert saved["error"] is False
+        stored = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
+        assert stored["strict_return_evidence"]["strict_retained_cohort_loss"]["loss_per_retained_unit_rub"] == "3.50"
+        assert "private-return-id" not in repr(stored)
+        assert "private-supply-id" not in repr(stored)
+        assert "raw_response" not in repr(stored)
+
+        reopened_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = reopened_single.restore_saved_plan(
+            service.get_document(saved["document_id"])["document"]["payload"],
+            user_id="user-1",
+        )
+        assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
+        assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
+        assert reopened["price_scenario"]["calculated"]["additional_unit_expenses"] == 3.5
+        assert len(source.calls) == 1
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -1050,6 +1223,73 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
         assert recaptured["error"] is False
         scope = plan_service.repository._scope("user-1", "store-a")
         assert plan_service.repository._payload(recaptured["payload"], scope) is not None
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_batch_saved_plan_captures_and_reopens_extended_expenses_per_sku(tmp_path):
+    keyboard = AssistantKeyboardService()
+    scenario = UnitPriceScenarioService(TaxService())
+    batch_builder = _BatchBuilder(scenario)
+    batch_runtime = TelegramUnitPriceBatchPlanRuntimeService(
+        batch_plan_service=batch_builder, product_overview_service=_Overview(),
+        keyboard_service=keyboard,
+    )
+    source = _Source()
+    single = TelegramUnitPriceCalculatorRuntimeService(
+        source=source, scenario_service=scenario, keyboard_service=keyboard,
+        target_planning_service=UnitPriceTargetPlanningService(scenario),
+    )
+    plan_service = SavedPlanningPlanService(
+        PlanningWorkspaceRepository(db_path=tmp_path / "plans.sqlite"), scenario,
+    )
+    saved = TelegramSavedPlanningPlanRuntimeService(
+        plan_service, single, batch_runtime, keyboard,
+    )
+    handler = AssistantButtonHandlerService(
+        assistant=None, unit_price_batch_plan_runtime_service=batch_runtime,
+        saved_planning_plan_runtime_service=saved,
+    )
+    tenant = _activate()
+    try:
+        batch_runtime.begin_from_overview_selection("user-1")
+        current = batch_runtime.handle_text("25", user_id="user-1")
+        assert current["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+        scope = batch_runtime._scope("user-1")
+        with batch_runtime._lock:
+            live_batch = batch_runtime._batches[scope["key"]]["batch"]
+            live_batch["rows"][0]["extended_scenario"] = _extended_expense_contract("500.00", 100)
+            live_batch["rows"][1]["extended_scenario"] = _extended_expense_contract("250.00", 50)
+
+        prompt = handler.handle(_button(current, "💾 Сохранить план"), user_id="user-1")
+        assert prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        result = handler.handle_text("Extended batch", user_id="user-1")
+        assert result.get("error") is False, result
+        assert result["status"] == "PLANNING_DOCUMENT_SAVED"
+        document_result = plan_service.get_document(result["document_id"])
+        assert "document" in document_result, document_result
+        document = document_result["document"]
+        payload = document["payload"]
+        assert payload["schema_version"] == 4
+        assert [row["projection"]["additional_unit_expenses"] for row in payload["items"]] == ["5.0", "5.0"]
+
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(_button(listing, "Extended batch · v1"), user_id="user-1")
+        reopened = handler.handle(
+            _button(detail, "Продолжить по сохранённым допущениям"), user_id="user-1",
+        )
+        assert reopened["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+        rows = reopened["batch_plan"]["rows"]
+        assert [row["scenario"]["calculated"]["additional_unit_expenses"] for row in rows] == [5.0, 5.0]
+        recaptured = batch_runtime.get_saved_plan_capture(
+            reopened["batch_plan"]["batch_id"], reopened["batch_plan"]["version"],
+            user_id="user-1",
+        )
+        assert recaptured["error"] is False
+        assert recaptured["payload"]["schema_version"] == 4
+        assert plan_service.repository._payload(
+            recaptured["payload"], plan_service.repository._scope("user-1", "store-a"),
+        ) is not None
     finally:
         reset_current_tenant_user_id(tenant)
 

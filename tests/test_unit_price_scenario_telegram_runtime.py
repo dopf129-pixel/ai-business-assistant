@@ -749,8 +749,12 @@ def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
     assert target_prompt["stage"] == "target_margin"
     assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
     assert target["status"] == "FOUND"
-    assert target["price"] == "11.08"
+    # The current solver evaluates the canonical rounded per-unit fees at each
+    # cent. In this deliberately extreme 99.99% variable-rate case, the first
+    # cent-exact price that yields a positive kopeck is 0.11 RUB.
+    assert target["price"] == "0.11"
     assert target["goal_reached"] is True
+    assert target["previous_cent_goal_reached"] is False
     assert source.calls == [("3921245627", "user-1", False)]
 
 

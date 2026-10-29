@@ -94,6 +94,8 @@ class UnitPriceBatchPlanService:
         previous_batch=None,
         batch_id=None,
         version=1,
+        extended_scenarios_by_sku=None,
+        strict_return_evidence_by_sku=None,
     ):
         user, tenant_scope, store_id, scope_error = self._scope(user_id)
         if scope_error:
@@ -110,6 +112,19 @@ class UnitPriceBatchPlanService:
         normalized = self._normalize_selection(items)
         if isinstance(normalized, dict):
             return normalized
+        selected_skus = {item["identity"]["catalog_sku"] for item in normalized}
+        for evidence_map in (extended_scenarios_by_sku, strict_return_evidence_by_sku):
+            if evidence_map is not None and (
+                not isinstance(evidence_map, dict)
+                or any(not isinstance(key, str) or key not in selected_skus for key in evidence_map)
+                or any(not isinstance(value, dict) for value in evidence_map.values())
+            ):
+                return self._error("BATCH_PLAN_EXTENDED_EVIDENCE_SCOPE_INVALID")
+        if strict_return_evidence_by_sku and any(
+            sku not in (extended_scenarios_by_sku or {})
+            for sku in strict_return_evidence_by_sku
+        ):
+            return self._error("BATCH_PLAN_EXTENDED_EVIDENCE_SCOPE_INVALID")
 
         target = parsed_target["value"]
         batch_id = batch_id or uuid4().hex[:20]
@@ -130,6 +145,15 @@ class UnitPriceBatchPlanService:
                 row["manual_assumptions"] = deepcopy(
                     previous.get("manual_assumptions") or {}
                 )
+                row["extended_scenario"] = deepcopy(previous.get("extended_scenario"))
+                row["strict_return_evidence"] = deepcopy(previous.get("strict_return_evidence"))
+            sku = row["identity"]["catalog_sku"]
+            if extended_scenarios_by_sku is not None:
+                row["extended_scenario"] = deepcopy(extended_scenarios_by_sku.get(sku))
+                if strict_return_evidence_by_sku is None:
+                    row["strict_return_evidence"] = None
+            if strict_return_evidence_by_sku is not None:
+                row["strict_return_evidence"] = deepcopy(strict_return_evidence_by_sku.get(sku))
         batch = {
             "error": False,
             "kind": "UNIT_PRICE_BATCH_PLAN",
@@ -248,6 +272,7 @@ class UnitPriceBatchPlanService:
                 identity=self._scenario_identity(batch, row),
                 provenance=row["provenance"],
                 sources=self._scenario_sources(snapshot),
+                **self._extended_kwargs(row),
             )
             if not self._source_scheme_supported(source_completeness, scheme):
                 row.update(status="UNSUPPORTED_SCHEME", reason="SOURCE_SCHEME_UNCONFIRMED")
@@ -272,6 +297,7 @@ class UnitPriceBatchPlanService:
                 provenance=row["provenance"],
                 sources=self._scenario_sources(snapshot),
                 max_evaluations=evaluation_limit,
+                **self._extended_kwargs(row),
                 **self._tariff_planning_kwargs(batch, row),
             )
             row["evaluation_count"] = int(planning.get("evaluation_count") or 0)
@@ -377,6 +403,7 @@ class UnitPriceBatchPlanService:
             identity=self._scenario_identity(cloned, row),
             provenance=candidate_provenance,
             sources=self._scenario_sources(row["snapshot"]),
+            **self._extended_kwargs(row),
         )
         if field in (validation.get("invalid_inputs") or []):
             return self._error("BATCH_PLAN_ASSUMPTION_INVALID")
@@ -456,6 +483,7 @@ class UnitPriceBatchPlanService:
                 identity=self._scenario_identity(cloned, row),
                 provenance=row.get("provenance") or {},
                 sources=self._scenario_sources(row["snapshot"]),
+                **self._extended_kwargs(row),
             )
             if "advertising_rate" in (checked.get("invalid_inputs") or []):
                 return self._error("BATCH_PLAN_ADVERTISING_PREVIEW_INVALID")
@@ -511,6 +539,7 @@ class UnitPriceBatchPlanService:
                 identity=self._scenario_identity(cloned, row),
                 provenance=row.get("provenance") or {},
                 sources=self._scenario_sources(row["snapshot"]),
+                **self._extended_kwargs(row),
             )
             if "advertising_rate" in (checked.get("invalid_inputs") or []):
                 return self._error("BATCH_PLAN_ADVERTISING_PREVIEW_INVALID")
@@ -583,6 +612,7 @@ class UnitPriceBatchPlanService:
             identity=self._scenario_identity(batch, row),
             provenance=row.get("provenance") or {},
             sources=self._scenario_sources(row["snapshot"]),
+            **self._extended_kwargs(row),
         )
         row["scenario"] = scenario
         row["missing_inputs"] = list(scenario.get("missing_inputs") or [])
@@ -618,6 +648,7 @@ class UnitPriceBatchPlanService:
             provenance=row.get("provenance") or {},
             sources=self._scenario_sources(row["snapshot"]),
             max_evaluations=evaluation_limit,
+            **self._extended_kwargs(row),
             **self._tariff_planning_kwargs(batch, row),
         )
         row["planning"] = planning
@@ -951,6 +982,7 @@ class UnitPriceBatchPlanService:
                 identity=self._scenario_identity(batch, row),
                 provenance=row.get("provenance") or {},
                 sources=self._scenario_sources(row["snapshot"]),
+                **self._extended_kwargs(row),
             )
             if field in (checked.get("invalid_inputs") or []):
                 continue
@@ -1034,7 +1066,7 @@ class UnitPriceBatchPlanService:
 
     @staticmethod
     def _scenario_identity(batch, row):
-        return {
+        identity = {
             "user_id": batch["owner_id"],
             "store_id": batch["store_id"],
             "tenant_scope": batch["tenant_scope"],
@@ -1044,6 +1076,23 @@ class UnitPriceBatchPlanService:
             "batch_id": batch["batch_id"],
             "batch_version": batch["version"],
             "row_id": row["row_id"],
+        }
+        if row.get("extended_scenario") is not None:
+            identity.update({
+                "owner_id": batch["owner_id"],
+                "sale_schema": str(row.get("scheme") or "FBO").upper(),
+            })
+        return identity
+
+    @staticmethod
+    def _extended_kwargs(row):
+        extended = row.get("extended_scenario")
+        strict = row.get("strict_return_evidence")
+        if extended is None and strict is None:
+            return {}
+        return {
+            "extended_scenario": deepcopy(extended),
+            "strict_return_evidence": deepcopy(strict),
         }
 
     @staticmethod
