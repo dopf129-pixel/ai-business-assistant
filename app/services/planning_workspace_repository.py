@@ -3426,12 +3426,15 @@ class PlanningWorkspaceRepository:
     def append_price_experiment_result(
         self, experiment_id, phase_id, payload, *, expected_state_revision,
         expected_phase_state_revision, expected_result_revision, idempotency_key,
-        owner_id=None, store_id=None,
+        owner_id=None, store_id=None, comparison_guard=None,
     ):
         scope = self._scope(owner_id, store_id)
         key = self._idempotency_key(idempotency_key)
         normalized = PlanningUnitEconomicsExperimentAdapter.normalize_result(payload)
         encoded = self._encode(normalized) if normalized is not None else None
+        guard = self._normalize_price_experiment_comparison_guard(comparison_guard)
+        if comparison_guard is not None and guard is None:
+            return self._error("PLANNING_PRICE_EXPERIMENT_RESULT_INVALID")
         if (scope.get("error") or key is None or not self._valid_uuid_hex(experiment_id)
                 or not self._valid_uuid_hex(phase_id)
                 or type(expected_state_revision) is not int or expected_state_revision < 1
@@ -3441,12 +3444,15 @@ class PlanningWorkspaceRepository:
                 or encoded is None or len(encoded.encode("utf-8"))
                 > self.MAX_PRICE_EXPERIMENT_PAYLOAD_BYTES):
             return self._error("PLANNING_PRICE_EXPERIMENT_RESULT_INVALID")
-        request_hash = self._price_experiment_request_hash({
+        request_payload = {
             "operation": "append_result", "experiment_id": experiment_id,
             "phase_id": phase_id, "expected_state_revision": expected_state_revision,
             "expected_phase_state_revision": expected_phase_state_revision,
             "expected_result_revision": expected_result_revision, "payload": normalized,
-        })
+        }
+        if guard is not None:
+            request_payload["comparison_guard"] = guard
+        request_hash = self._price_experiment_request_hash(request_payload)
         if request_hash is None:
             return self._error("PLANNING_PRICE_EXPERIMENT_RESULT_INVALID")
         try:
@@ -3491,6 +3497,43 @@ class PlanningWorkspaceRepository:
             if phase["status"] == "ARCHIVED":
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_ARCHIVED")
+            if guard is not None:
+                baseline = connection.execute(
+                    "SELECT state_revision,result_revision,status,kind FROM planning_price_experiment_phases "
+                    "WHERE phase_id=? AND experiment_id=? AND owner_id=? AND store_id=?",
+                    (guard["baseline_phase_id"], experiment_id,
+                     scope["owner_id"], scope["store_id"]),
+                ).fetchone()
+                if (baseline is None or baseline["status"] == "ARCHIVED"
+                        or baseline["kind"] != "BASELINE" or phase["kind"] != "CANDIDATE"
+                        or guard["baseline_phase_id"] == phase_id
+                        or baseline["state_revision"] != guard["baseline_state_revision"]
+                        or baseline["result_revision"] != guard["baseline_result_revision"]):
+                    connection.rollback()
+                    return self._error("PLANNING_PRICE_EXPERIMENT_COMPARISON_CONFLICT")
+                for guarded_phase_id, expected_collection_id, expected_event_revision in (
+                    (guard["baseline_phase_id"], guard["baseline_collection_id"],
+                     guard["baseline_control_event_revision"]),
+                    (phase_id, guard["candidate_collection_id"],
+                     guard["candidate_control_event_revision"]),
+                ):
+                    latest_collection = connection.execute(
+                        "SELECT collection_id FROM planning_price_experiment_phase_collections "
+                        "WHERE phase_id=? AND experiment_id=? AND owner_id=? AND store_id=? "
+                        "ORDER BY collection_revision DESC LIMIT 1",
+                        (guarded_phase_id, experiment_id, scope["owner_id"], scope["store_id"]),
+                    ).fetchone()
+                    latest_event = connection.execute(
+                        "SELECT COALESCE(MAX(event_revision),0) AS revision "
+                        "FROM planning_price_experiment_events WHERE phase_id=? AND experiment_id=? "
+                        "AND owner_id=? AND store_id=?",
+                        (guarded_phase_id, experiment_id, scope["owner_id"], scope["store_id"]),
+                    ).fetchone()
+                    if (latest_collection is None
+                            or latest_collection["collection_id"] != expected_collection_id
+                            or latest_event["revision"] != expected_event_revision):
+                        connection.rollback()
+                        return self._error("PLANNING_PRICE_EXPERIMENT_COMPARISON_CONFLICT")
             expected_refs = {experiment["expense_snapshot_id"], phase["expense_snapshot_id"]}
             if not expected_refs.issubset(set(normalized["snapshot_refs"])):
                 connection.rollback()
@@ -3571,6 +3614,28 @@ class PlanningWorkspaceRepository:
             return self._error("PLANNING_STORAGE_UNAVAILABLE")
         finally:
             connection.close()
+
+    @classmethod
+    def _normalize_price_experiment_comparison_guard(cls, value):
+        if value is None:
+            return None
+        fields = {
+            "baseline_phase_id", "baseline_state_revision", "baseline_result_revision",
+            "baseline_collection_id", "candidate_collection_id",
+            "baseline_control_event_revision", "candidate_control_event_revision",
+        }
+        if (not isinstance(value, dict) or set(value) != fields
+                or not cls._valid_uuid_hex(value.get("baseline_phase_id"))
+                or any(type(value.get(key)) is not int or value[key] < minimum for key, minimum in (
+                    ("baseline_state_revision", 1), ("baseline_result_revision", 0),
+                    ("baseline_control_event_revision", 0),
+                    ("candidate_control_event_revision", 0),
+                ))
+                or any(not isinstance(value.get(key), str)
+                       or re.fullmatch(r"[a-f0-9]{64}", value[key]) is None
+                       for key in ("baseline_collection_id", "candidate_collection_id"))):
+            return None
+        return dict(value)
 
     def get_price_experiment(
         self, experiment_id, *, owner_id=None, store_id=None,

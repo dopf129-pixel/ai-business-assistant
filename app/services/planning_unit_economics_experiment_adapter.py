@@ -1,8 +1,8 @@
 """Strict allowlists for durable unit-economics experiment projections."""
 
 from copy import deepcopy
-from datetime import date
-from decimal import Decimal, InvalidOperation
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -19,7 +19,7 @@ class PlanningUnitEconomicsExperimentAdapter:
     EXPERIMENT_SCHEMA_VERSION = 1
     EXPERIMENT_PLAN_SCHEMA_VERSION = 1
     PHASE_SCHEMA_VERSION = 1
-    RESULT_SCHEMA_VERSION = 1
+    RESULT_SCHEMA_VERSION = 2
     MAX_SNAPSHOT_BYTES = 64 * 1024
     MAX_AMOUNT = Decimal("999999999999.99")
     _HEX_256 = re.compile(r"^[a-f0-9]{64}$")
@@ -381,19 +381,21 @@ class PlanningUnitEconomicsExperimentAdapter:
 
     @classmethod
     def normalize_result(cls, payload):
-        fields = {
+        base_fields = {
             "schema_version", "status", "source_as_of", "snapshot_refs",
             "baseline_profit_per_unit_rub", "candidate_profit_per_unit_rub",
             "delta_profit_per_unit_rub", "quantity_basis", "window",
             "quality_gates", "limitations", "outcome",
         }
+        schema_version = payload.get("schema_version") if isinstance(payload, dict) else None
+        fields = base_fields if schema_version == 1 else base_fields | {"comparison"}
         statuses = {
             "READY", "WAITING_FOR_DATA", "INSUFFICIENT_DATA", "INCOMPARABLE",
             "NO_CLEAR_DIFFERENCE", "BETTER", "WORSE", "TIE",
         }
         if (not isinstance(payload, dict) or set(payload) != fields
                 or type(payload.get("schema_version")) is not int
-                or payload["schema_version"] != cls.RESULT_SCHEMA_VERSION
+                or payload["schema_version"] not in {1, cls.RESULT_SCHEMA_VERSION}
                 or payload.get("status") not in statuses
                 or payload.get("outcome") not in cls._OUTCOMES
                 or payload.get("quantity_basis") not in {
@@ -460,13 +462,227 @@ class PlanningUnitEconomicsExperimentAdapter:
                        for item in limitations)
                 or len(set(limitations)) != len(limitations)):
             return None
-        return {
-            "schema_version": cls.RESULT_SCHEMA_VERSION, "status": payload["status"],
+        normalized = {
+            "schema_version": payload["schema_version"], "status": payload["status"],
             "source_as_of": as_of, "snapshot_refs": list(refs), **amounts,
             "quantity_basis": payload["quantity_basis"], "window": window,
             "quality_gates": normalized_gates, "limitations": list(limitations),
             "outcome": payload["outcome"],
         }
+        if payload["schema_version"] == cls.RESULT_SCHEMA_VERSION:
+            comparison = cls._normalize_experiment_comparison(payload.get("comparison"))
+            if payload.get("comparison") is not None and comparison is None:
+                return None
+            if comparison is not None:
+                expected_delta = (
+                    Decimal(comparison["candidate"]["profit_per_unit_rub"])
+                    - Decimal(comparison["baseline"]["profit_per_unit_rub"])
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if amounts["delta_profit_per_unit_rub"] != format(expected_delta, ".2f"):
+                    return None
+                baseline_profit = Decimal(comparison["baseline"]["profit_per_unit_rub"])
+                expected_relative = None
+                if baseline_profit > 0:
+                    expected_relative = format(
+                        (expected_delta / baseline_profit * Decimal("100")).quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP,
+                        ), ".2f",
+                    )
+                if comparison["relative_delta_percent"] != expected_relative:
+                    return None
+                expected_outcome, expected_status = (
+                    ("NO_CLEAR_DIFFERENCE", "NO_CLEAR_DIFFERENCE")
+                    if expected_delta == 0 or abs(expected_delta) < Decimal(comparison["decision_threshold_rub"])
+                    else ("CANDIDATE_BETTER_IN_MODEL", "BETTER") if expected_delta > 0
+                    else ("BASELINE_BETTER_IN_MODEL", "WORSE")
+                )
+                if (amounts["baseline_profit_per_unit_rub"]
+                        != comparison["baseline"]["profit_per_unit_rub"]
+                        or amounts["candidate_profit_per_unit_rub"]
+                        != comparison["candidate"]["profit_per_unit_rub"]
+                        or payload["quantity_basis"] != "SOLD_UNITS_WINDOW"
+                        or payload["outcome"] != expected_outcome
+                        or payload["status"] != expected_status
+                        or window != comparison["candidate"]["window"]):
+                    return None
+            elif any(amounts[key] is not None for key in amounts) or payload["quantity_basis"] is not None:
+                return None
+            normalized["comparison"] = comparison
+        return normalized
+
+    @classmethod
+    def _normalize_experiment_comparison(cls, value):
+        fields = {
+            "schema_version", "decision_threshold_rub", "profit_basis",
+            "relative_delta_percent", "baseline_collection_hash", "candidate_collection_hash",
+            "baseline_readiness_revision", "candidate_readiness_revision",
+            "baseline_phase_state_revision", "candidate_phase_state_revision",
+            "baseline_control_event_revision", "candidate_control_event_revision",
+            "baseline", "candidate",
+        }
+        if (not isinstance(value, dict) or set(value) != fields
+                or type(value.get("schema_version")) is not int
+                or value["schema_version"] != 1
+                or value.get("profit_basis") != "FINANCE_NET_MINUS_SAVED_COGS_AND_TAX"):
+            return None
+        threshold = cls._money(value.get("decision_threshold_rub"), nonnegative=True)
+        if threshold is None or Decimal(threshold) < Decimal("0.01"):
+            return None
+        for key in ("baseline_collection_hash", "candidate_collection_hash"):
+            if (not isinstance(value.get(key), str)
+                    or cls._HEX_256.fullmatch(value[key]) is None):
+                return None
+        for key in (
+            "baseline_readiness_revision", "candidate_readiness_revision",
+            "baseline_phase_state_revision", "candidate_phase_state_revision",
+            "baseline_control_event_revision", "candidate_control_event_revision",
+        ):
+            minimum = 0 if key.endswith("control_event_revision") else 1
+            if type(value.get(key)) is not int or value[key] < minimum:
+                return None
+        relative = cls._money(value.get("relative_delta_percent"), optional=True)
+        if value.get("relative_delta_percent") is not None and relative is None:
+            return None
+        phases = {}
+        money_keys = {
+            "gross_seller_revenue_rub", "discount_points_rub", "finance_net_rub",
+            "acquiring_rub", "commission_rub", "logistics_rub", "other_fees_rub",
+            "performance_cpc_reconciliation_rub", "saved_cogs_per_unit_rub",
+            "saved_cogs_total_rub", "tax_rub", "profit_before_tax_rub",
+            "profit_total_rub", "profit_per_unit_rub",
+        }
+        nonnegative_money = {
+            "gross_seller_revenue_rub", "discount_points_rub",
+            "performance_cpc_reconciliation_rub", "saved_cogs_per_unit_rub",
+            "saved_cogs_total_rub", "tax_rub",
+        }
+        phase_fields = {
+            "window", "source_as_of", "seller_price_cents", "quantity_basis",
+            "sold_units", "tax_mode", "tax_rate_percent",
+            "minimum_tax_rate_percent", *money_keys,
+        }
+        for name in ("baseline", "candidate"):
+            phase = value.get(name)
+            if not isinstance(phase, dict) or set(phase) != phase_fields:
+                return None
+            window = phase.get("window")
+            if (not isinstance(window, dict)
+                    or set(window) != {"from_date", "to_date", "timezone"}):
+                return None
+            start, end = cls._date(window.get("from_date")), cls._date(window.get("to_date"))
+            try:
+                ZoneInfo(window.get("timezone"))
+            except (ZoneInfoNotFoundError, TypeError, ValueError, OSError):
+                return None
+            as_of = cls._timestamp(phase.get("source_as_of"))
+            price = phase.get("seller_price_cents")
+            units = phase.get("sold_units")
+            if (start is None or end is None or start > end or (end - start).days < 2
+                    or (end - start).days >= 28
+                    or not isinstance(window.get("timezone"), str)
+                    or len(window["timezone"]) > 128
+                    or as_of is None or type(price) is not int or price < 1
+                    or phase.get("quantity_basis") != "SOLD_UNITS_WINDOW"
+                    or type(units) is not int or not 1 <= units <= 1_000_000_000
+                    or phase.get("tax_mode") not in {"NONE", "USN_INCOME", "USN_INCOME_MINUS_EXPENSES"}):
+                return None
+            tax_rate = cls._money(phase.get("tax_rate_percent"), optional=True, nonnegative=True)
+            minimum_tax_rate = cls._money(
+                phase.get("minimum_tax_rate_percent"), optional=True, nonnegative=True,
+            )
+            if ((phase["tax_mode"] == "NONE" and (tax_rate is not None or minimum_tax_rate is not None))
+                    or (phase["tax_mode"] == "USN_INCOME" and (tax_rate is None or minimum_tax_rate is not None))
+                    or (phase["tax_mode"] == "USN_INCOME_MINUS_EXPENSES"
+                        and (tax_rate is None or minimum_tax_rate is None))):
+                return None
+            money = {}
+            for key in money_keys:
+                normalized_amount = cls._money(
+                    phase.get(key), nonnegative=key in nonnegative_money,
+                )
+                if normalized_amount is None:
+                    return None
+                money[key] = normalized_amount
+            if Decimal(money["saved_cogs_total_rub"]) != (
+                Decimal(money["saved_cogs_per_unit_rub"]) * units
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+                return None
+            if Decimal(money["profit_before_tax_rub"]) != (
+                Decimal(money["finance_net_rub"]) - Decimal(money["saved_cogs_total_rub"])
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+                return None
+            if Decimal(money["profit_total_rub"]) != (
+                Decimal(money["profit_before_tax_rub"]) - Decimal(money["tax_rub"])
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+                return None
+            if Decimal(money["profit_per_unit_rub"]) != (
+                Decimal(money["profit_total_rub"]) / units
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+                return None
+            phases[name] = {
+                "window": {"from_date": start.isoformat(), "to_date": end.isoformat(),
+                           "timezone": window["timezone"]},
+                "source_as_of": as_of, "seller_price_cents": price,
+                "quantity_basis": phase["quantity_basis"], "sold_units": units,
+                "tax_mode": phase["tax_mode"], "tax_rate_percent": tax_rate,
+                "minimum_tax_rate_percent": minimum_tax_rate, **money,
+            }
+        if relative is not None and Decimal(phases["baseline"]["profit_per_unit_rub"]) <= 0:
+            return None
+        if phases["baseline"]["tax_mode"] != phases["candidate"]["tax_mode"]:
+            return None
+        if (phases["baseline"]["tax_rate_percent"] != phases["candidate"]["tax_rate_percent"]
+                or phases["baseline"]["minimum_tax_rate_percent"]
+                != phases["candidate"]["minimum_tax_rate_percent"]
+                or phases["baseline"]["saved_cogs_per_unit_rub"]
+                != phases["candidate"]["saved_cogs_per_unit_rub"]):
+            return None
+        if not cls._comparison_windows_match(phases["baseline"], phases["candidate"]):
+            return None
+        return {
+            "schema_version": 1, "decision_threshold_rub": threshold,
+            "profit_basis": "FINANCE_NET_MINUS_SAVED_COGS_AND_TAX",
+            "relative_delta_percent": relative, **phases,
+            "baseline_collection_hash": value["baseline_collection_hash"],
+            "candidate_collection_hash": value["candidate_collection_hash"],
+            "baseline_readiness_revision": value["baseline_readiness_revision"],
+            "candidate_readiness_revision": value["candidate_readiness_revision"],
+            "baseline_phase_state_revision": value["baseline_phase_state_revision"],
+            "candidate_phase_state_revision": value["candidate_phase_state_revision"],
+            "baseline_control_event_revision": value["baseline_control_event_revision"],
+            "candidate_control_event_revision": value["candidate_control_event_revision"],
+        }
+
+    @classmethod
+    def _comparison_windows_match(cls, baseline, candidate):
+        base_window, candidate_window = baseline["window"], candidate["window"]
+        if base_window["timezone"] != candidate_window["timezone"]:
+            return False
+        base_start = date.fromisoformat(base_window["from_date"])
+        base_end = date.fromisoformat(base_window["to_date"])
+        candidate_start = date.fromisoformat(candidate_window["from_date"])
+        candidate_end = date.fromisoformat(candidate_window["to_date"])
+        base_days = (base_end - base_start).days + 1
+        candidate_days = (candidate_end - candidate_start).days + 1
+        if (base_end >= candidate_start or base_days != candidate_days
+                or cls._weekday_counts(base_start, base_end)
+                != cls._weekday_counts(candidate_start, candidate_end)):
+            return False
+        zone = ZoneInfo(base_window["timezone"])
+        baseline_as_of = datetime.fromisoformat(baseline["source_as_of"].replace("Z", "+00:00"))
+        candidate_as_of = datetime.fromisoformat(candidate["source_as_of"].replace("Z", "+00:00"))
+        baseline_lag = (baseline_as_of.astimezone(zone).date() - base_end).days
+        candidate_lag = (candidate_as_of.astimezone(zone).date() - candidate_end).days
+        return baseline_lag >= 0 and candidate_lag >= 0 and abs(baseline_lag - candidate_lag) <= 1
+
+    @staticmethod
+    def _weekday_counts(start, end):
+        counts = [0] * 7
+        current = start
+        while current <= end:
+            counts[current.weekday()] += 1
+            current = date.fromordinal(current.toordinal() + 1)
+        return tuple(counts)
 
     @classmethod
     def normalize_phase_collection(cls, payload, scope):
