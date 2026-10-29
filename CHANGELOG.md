@@ -1,3 +1,8 @@
+# 2026-10-29 — W18: точное открытие замороженных версий эксперимента
+
+- Commit `731be723`: `PlanningWorkspaceRepository.get_price_experiment_frozen_snapshot` восстанавливает exact saved-plan revision, expense snapshot, tariff revision и quantity observation result из локального planning storage; источники не перезапрашиваются, отсутствующие/чужие/повреждённые ссылки закрываются fail-closed.
+- Регрессии подтверждают сохранность старых снимков и результатов после явного обновления версий, новый эксперимент на обновлённых refs и точную копию/восстановление расширенного плана. Связанный профиль: **79 passed in 5.77s**. Подробности: `project_brain/UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`.
+
 # 2026-10-29 — W17: хранилище снимков экономики и экспериментов
 
 - Аддитивная миграция `PlanningWorkspaceRepository` v5→v6 добавляет immutable снимки готовности расходов, эксперименты, фазы и append-only ревизии результатов с exact-scope ссылками, CAS/idempotency и ограниченными квотами.

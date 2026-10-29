@@ -5919,3 +5919,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_planning_workspace_repository.py` проверяет additive migration к schema v6, поддержанные старые версии, invalid/future schema и сохранность legacy plans. `tests/test_unit_price_observation_repository.py` сохраняет миграционные гарантии observation при переходе к v6.
 - Изолированный W17 linked profile: **89 passed in 3.58s**; полный isolated repository `pytest`: **4,166 passed in 36.99s**. `py_compile` и `git diff --check` PASS; после очистки временного fixture `git diff -- data` пустой.
 - Repository принимает только нормализованные allowlisted evidence, не выполняет Ozon/Telegram/API/source I/O и не запускает сборщик. Evidence: `project_brain/UNIT_ECONOMICS_W17_EXPERIMENT_REPOSITORY_2026-10-29.md`.
+
+# W18 — точное открытие замороженных входов эксперимента
+
+- `tests/test_planning_workspace_unit_economics.py::test_experiment_freezes_exact_tariff_and_observation_revisions` обновляет plan/cost, tariff, quantity observation и expense snapshot, затем проверяет, что старый experiment восстанавливает исходные ревизии и новый явно привязанный experiment — обновлённые. Также проверяет append-only correction result: прежний result payload сохраняется неизменным.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_comparison` дополнительно копирует сохранённый schema-4 план и восстанавливает тот же extended expense contract без дополнительного source call.
+- Связанный профиль W18 across planning repository/migrations/tariff/observation/saved-plan suites: **79 passed in 5.77s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Полный suite назначен на W38–W39.
+- `get_price_experiment_frozen_snapshot` читает только локальные exact revisions и fail-closed проверяет scope/hash/наличие; live sources не вызываются. Evidence: `project_brain/UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`.
