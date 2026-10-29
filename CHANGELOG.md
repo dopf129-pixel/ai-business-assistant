@@ -1,3 +1,42 @@
+# 2026-10-29 — W37: backup/restore истории unit economics
+
+- Добавлена synthetic сквозная проверка восстановления плана с себестоимостью, expense snapshot, тарифа, эксперимента, фазы, collection/result и append-only журнала в новый storage root с открытием новым repository instance.
+- После восстановления проверены tenant isolation, schema version, corrupt/future experiment и phase payloads fail closed. Связанный migration/restore профиль: **46 passed in 2.94s**; производственная логика backup/restore не менялась. Evidence: `project_brain/UNIT_ECONOMICS_W37_BACKUP_RESTORE_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W36: конкурентность и ограниченные ресурсы
+
+- Добавлен конечный acceptance-набор для одновременного подтверждения baseline, сбора одной фазы, edit/archive и fixed-seed журнала на 64 события. Проверены единственный победитель CAS, отсутствие дублированных snapshot/result, последовательные revisions, приватность полей и чтение истории страницами по 10.
+- Существующие regressions подтверждают rollback/квоты, cooperative cancellation, поздний ответ, shared HTTP/time budget, store scope, privacy allowlist и отказ на oversized payload. Связанный профиль: **64 passed in 4.36s**; новые гонки отдельно: **4 passed in 0.99s**. Evidence: `project_brain/UNIT_ECONOMICS_W36_CONCURRENCY_RESOURCE_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W35: сквозная числовая приёмка unit economics
+
+- Добавлены точные public-route assertions для восстановления Returns, модельной прибыли при ценах 100/95 ₽, нескольких единиц в отправлении, финансовой корректировки и атомарного отката фазы.
+- Обновлены устаревшие schema-version expectations двух planning repository tests: они теперь сверяют версию с текущим `DATABASE_SCHEMA_VERSION`.
+- W35 acceptance profile: **667 passed in 16.53s**; evidence и N01–N18 consumer map: `project_brain/UNIT_ECONOMICS_W35_CROSS_ROUTE_NUMERICAL_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W34: инструкция по приёмке эксперимента
+
+- Добавлено пошаговое руководство по фактическим Telegram кнопкам, missing/partial/corrected sources и локальной offline-проверке одного synthetic SKU; явно зафиксированы два пользовательских блокера: source snapshot acquisition и создание candidate-фазы через Telegram.
+- Руководство не обещает несуществующий путь и не требует платных отчётов/API credentials; команда использует проектное `.venv`. Offline one-SKU selector: **3 passed in 0.45s**. Первый запуск без IANA timezone database упал на 2 тестах; повтор с уже установленной локальной базой прошёл, код не менялся. Используется только временная БД; W31–W33 без реальных Ozon/Telegram вызовов. Evidence: `project_brain/UNIT_ECONOMICS_W34_OWNER_GUIDE_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W33: выгрузка истории ценового эксперимента
+
+- Из карточки эксперимента доступны JSON/CSV для всех сохранённых версий, фаз, снимков сбора, сравнений, событий и решений владельца. Экспорт использует существующий документный канал и exact frozen view без повторного чтения источников или пересчёта.
+- Store scope, SHA-256 content references, history quotas, pagination, serializer size and Telegram document allowlist are enforced. Direct tenant/product/phase identifiers are omitted; concurrent history changes fail closed.
+- Linked W31–W33 synthetic profile: **113 passed in 4.47s**; shared export/document profile: **17 passed in 0.96s**; `py_compile`, `git diff --check` PASS; `git diff -- data` empty. No live Ozon/Telegram/bot. W31 source-snapshot acquisition blocker remains. Evidence: `project_brain/UNIT_ECONOMICS_W33_TELEGRAM_HISTORY_EXPORT_2026-10-29.md`.
+
+# 2026-10-29 — W32: история и результаты ценовых экспериментов в Telegram
+
+- Список экспериментов стал открываемым; добавлены карточки эксперимента и фазы, постраничная история revisions/results, объяснение результата/quality gates и повторное открытие точного frozen snapshot без Ozon I/O.
+- Активная фаза ведёт в уже связанное наблюдение цены. «Обновить карточку» повторно читает локальные данные, поэтому поздно сохранённый результат становится доступен; callbacks переживают перезапуск через повторный вход в меню, а старые transient tokens безопасно истекают.
+- W32 isolated screen profile: **24 passed in 1.19s**; linked W31/W32 profile: **111 passed in 4.43s**. `py_compile`, `git diff --check` pass, `git diff -- data` empty; callbacks ≤64 bytes, long messages use the shared 3,800 UTF-16 splitter. Synthetic storage only, no live API/bot. Evidence: `project_brain/UNIT_ECONOMICS_W32_TELEGRAM_EXPERIMENT_HISTORY_2026-10-29.md`.
+
+# 2026-10-29 — W31: Telegram-мастер ценовых экспериментов
+
+- Добавлен tenant-scoped вход и мастер от сохранённого FBO-плана к подтверждённой baseline-фазе. Он требует полный точный 56-дневный snapshot, принимает цены и подтверждение цены обычным текстом, поддерживает отмену и проверяет текущий store/revision.
+- Неполные/неизвестные снимки блокируют создание. Источник автоматического сбора 56-дневного snapshot в приложении пока не подключён; пользовательский первый запуск остаётся заблокирован до отдельной source integration.
+- W31 profile: 96 passed in 3.72s; синтетическое хранилище, без реальных Ozon API/бота. Evidence: project_brain/UNIT_ECONOMICS_W31_GUIDED_EXPERIMENT_WIZARD_2026-10-29.md.
+
 # 2026-10-29 — W27: maturity и quality gates результата ценового эксперимента
 
 - Добавлена оценка только новейшего сохранённого снимка завершённой фазы: 7 полных локальных дней, минимум 30 пригодных единиц, подтверждённые финансы/возвраты/CPC, согласованный знаменатель выкупленных единиц и полный бюджет сбора.

@@ -344,6 +344,13 @@ def test_window_must_be_complete_before_any_source_is_called(tmp_path):
 def test_snapshot_and_result_rollback_together_when_result_insert_fails(tmp_path):
     repo, token, experiment, phase, confirmed = _active_phase(tmp_path)
     try:
+        experiment_revisions_before = repo.list_price_experiment_revisions(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["items"]
+        phase_revisions_before = repo.list_price_experiment_phase_revisions(
+            experiment["experiment_id"], phase["phase_id"],
+            owner_id="owner-1", store_id="store-a",
+        )["items"]
         connection = repo.get_connection()
         try:
             connection.execute("""CREATE TRIGGER reject_w26_result BEFORE INSERT
@@ -362,5 +369,21 @@ def test_snapshot_and_result_rollback_together_when_result_insert_fails(tmp_path
         assert repo.list_price_experiment_results(
             experiment["experiment_id"], phase["phase_id"],
         )["items"] == []
+        experiment_after = repo.get_price_experiment(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["experiment"]
+        phase_after = repo.list_price_experiment_phases(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["items"][0]
+        assert experiment_after["result_revision"] == 0
+        assert phase_after["result_revision"] == 0
+        assert phase_after["state_revision"] == confirmed["phase_state_revision"]
+        assert repo.list_price_experiment_revisions(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["items"] == experiment_revisions_before
+        assert repo.list_price_experiment_phase_revisions(
+            experiment["experiment_id"], phase["phase_id"],
+            owner_id="owner-1", store_id="store-a",
+        )["items"] == phase_revisions_before
     finally:
         reset_current_tenant_user_id(token)

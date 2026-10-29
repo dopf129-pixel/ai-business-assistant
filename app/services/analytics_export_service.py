@@ -932,6 +932,24 @@ class AnalyticsExportService:
             columns, [{"snapshot": view}], metadata,
         )
 
+    def export_unit_economics_experiment_history(self, rows, metadata, file_format):
+        """Export bounded, already-normalized experiment history without source I/O."""
+        if not isinstance(rows, list) or not isinstance(metadata, dict):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = [
+            self._column("record_type", "Тип записи", "status"),
+            self._column("revision", "Ревизия", "integer"),
+            self._column("state", "Статус", "status"),
+            self._column("created_at", "Сохранено", "text"),
+            self._column("phase", "Фаза", "text"),
+            self._column("payload", "Данные записи", "json"),
+            self._column("content_hash", "Хэш содержимого", "text"),
+        ]
+        return self.serializer.serialize(
+            "unit_economics_experiment_history", file_format,
+            columns, rows, metadata,
+        )
+
     def export_unit_price_tariff_profile(self, scenario_context, file_format):
         """Export only the active scenario's frozen, identity-matched tariff set."""
         result = scenario_context.get("result") if isinstance(scenario_context, dict) else None

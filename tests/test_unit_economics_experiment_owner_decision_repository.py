@@ -197,6 +197,16 @@ def test_decision_requires_latest_candidate_result_and_valid_selection(tmp_path)
             expected_result_revision=1, idempotency_key="w29-candidate-result02",
         )
         assert appended["error"] is False
+        history = repo.list_price_experiment_results(
+            experiment["experiment_id"], candidate_id,
+        )["items"]
+        assert [item["result_revision"] for item in history] == [2, 1]
+        assert history[0]["payload"]["baseline_profit_per_unit_rub"] == "10.00"
+        assert history[0]["payload"]["candidate_profit_per_unit_rub"] == "9.00"
+        assert history[0]["payload"]["delta_profit_per_unit_rub"] == "-1.00"
+        assert history[1]["payload"]["baseline_profit_per_unit_rub"] == "10.00"
+        assert history[1]["payload"]["candidate_profit_per_unit_rub"] == "11.50"
+        assert history[1]["payload"]["delta_profit_per_unit_rub"] == "1.50"
         assert repo.record_price_experiment_owner_decision(
             experiment["experiment_id"], stale, expected_state_revision=3,
             idempotency_key="w29-stale-decision01",

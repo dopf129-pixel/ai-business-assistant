@@ -1,3 +1,47 @@
+# 2026-10-29 — W37: backup/restore acceptance
+
+- A new synthetic test restores plan/cost inputs, expense snapshot, tariff, experiment, phase, collection/result and event history into a new root, then reopens them with a new repository instance. Restore schema version is current; another store sees none of the restored records.
+- Corrupt/future experiment and phase payload versions fail closed. Linked backup/migration profile: **46 passed in 2.94s**. Backup/restore implementation and real `data/` were untouched. Evidence: `UNIT_ECONOMICS_W37_BACKUP_RESTORE_ACCEPTANCE_2026-10-29.md`.
+- W31 first-run reference snapshot acquisition and Telegram candidate-phase setup remain owner-visible blockers.
+
+# 2026-10-29 — W36: конкурентность и ограниченные ресурсы
+
+- W36 added four deterministic regressions: competing baseline confirmation, competing phase collection, draft edit vs archive, and a 64-event fixed-seed finite soak. Exactly one concurrent writer wins each CAS; append-only history stays consistent and paginates within the 10-row limit.
+- Linked W36 profile: **64 passed in 4.36s**; isolated concurrency/soak tests: **4 passed in 0.99s**. Existing linked cases cover cancellation, rollback, shared request/time budgets, quotas, privacy and oversized responses. No production code or `data/` changed. Evidence: `UNIT_ECONOMICS_W36_CONCURRENCY_RESOURCE_ACCEPTANCE_2026-10-29.md`.
+- W31 first-run reference snapshot acquisition and Telegram candidate-phase setup remain owner-visible blockers; synthetic tests do not claim full live readiness.
+
+# 2026-10-29 — W35: числовая приёмка сквозных маршрутов
+
+- W35 linked Windows profile: **667 passed in 16.53s** across 47 test modules, covering N01–N18, price/expense consumers, experiment revisions, migrations, exports and public Telegram routes.
+- New assertions confirm modeled profit 36.00 ₽ at price 100 ₽ and 33.60 ₽ at price 95 ₽ in the synthetic Q30 route; these are estimates from frozen assumptions, not observed store profit. Incomplete returns recover in a new READY revision, prior finance result remains immutable, one posting with 3 units stays `posting_count=1/units=3`, and a failed collection transaction writes no partial history.
+- Two old repository tests expected schema version 10 although the current migration version is 12; assertions now use the repository’s declared version. Production behavior was not changed by W35.
+- W31 first-run source snapshot acquisition and Telegram candidate-phase setup remain owner-visible blockers; no live API/bot was used. Evidence: `UNIT_ECONOMICS_W35_CROSS_ROUTE_NUMERICAL_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W34: инструкция владельца и офлайн-приёмка
+
+- Добавлено руководство с точными существующими Telegram кнопками, поведением при missing/partial/corrected source и воспроизводимым offline synthetic test. Оно честно показывает, что реальный первый запуск блокируют отсутствие автоматического 56-дневного источника и отсутствие Telegram шага candidate-фазы.
+- Offline one-SKU case: **3 passed in 0.45s**. В изолированной Windows среде потребовалось явно указать уже установленную IANA timezone database; реальная Ozon/Telegram приёмка и передача ключей не нужны. См. `UNIT_ECONOMICS_W34_OWNER_GUIDE_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W33: экспорт истории ценового эксперимента
+
+- Telegram карточка сохранённого эксперимента теперь предлагает JSON/CSV со всеми имеющимися в квотах версиями, фазами, сбором, результатами/сравнениями и решениями. Экспорт tenant/store scoped, не раскрывает прямые идентификаторы, сохраняет content hashes/revisions, не читает Ozon и не пересчитывает экономику.
+- Изолированный профиль: **113 passed in 4.47s**; общий export/document профиль: **17 passed in 0.96s**; `py_compile` и `git diff --check` PASS, `git diff -- data` пусто. См. `UNIT_ECONOMICS_W33_TELEGRAM_HISTORY_EXPORT_2026-10-29.md`.
+- W31 остаётся заблокирован для первого пользовательского запуска до подключения приложения к сбору полного 56-дневного reference snapshot.
+
+# 2026-10-29 — W32: история и результаты экспериментов в Telegram
+
+- В меню экспериментов доступны сохранённые записи; карточки показывают phase/result revisions и дают открыть точный frozen-plan/snapshot view без загрузки источников. Истории ограничены пагинацией по 10 записей.
+- Экран результата использует существующий recommendation service: объясняет исход и причины quality gates, не заявляет причинность и не меняет цену. Из активной фазы можно перейти к уже созданному наблюдению цены; повторное чтение карточки показывает поздние локальные результаты.
+- После перезапуска меню восстанавливает историю из Planning Workspace; старые memory-only callbacks безопасно отклоняются. Windows isolated W32 profile: **24 passed**; linked W31/W32 profile: **111 passed in 4.43s**; `py_compile`/diff-check pass, data diff empty. См. `UNIT_ECONOMICS_W32_TELEGRAM_EXPERIMENT_HISTORY_2026-10-29.md`.
+- W31 остаётся BLOCKED для обычного первого запуска: приложение ещё не создаёт полный 56-дневный reference snapshot через пользовательский flow. Эксперименты не создаются с неизвестными источниками. Следующий независимый этап — W33, связать сохранённые снимки/результаты с экспортом.
+
+# 2026-10-29 — W31: мастер ценового эксперимента в Telegram (условная готовность)
+
+- Новый experiment Telegram runtime подключён к текущему unit-economics меню и общему tenant-scoped Planning Workspace. При наличии точного полного 56-дневного снимка можно пройти пользовательское подтверждение baseline до BASELINE_ACTIVE; цены вводятся обычным текстом, история цены Ozon не заявляется.
+- Проверки: 96 passed in 3.72s, py_compile PASS, git diff --check PASS, git diff -- data пустой; synthetic data only.
+- Блокер полноценного W31: приложение не создаёт такой reference snapshot из доступных API внутри Telegram. Для обычного пользователя flow пока остановится с явным REFERENCE_SNAPSHOT_REQUIRED. Неполнота не маскируется нулём/полнотой. См. UNIT_ECONOMICS_W31_GUIDED_EXPERIMENT_WIZARD_2026-10-29.md.
+- Независимо доступная следующая работа: W32 — история/детали сохранённых экспериментальных записей. Полный пользовательский launch остаётся закрыт до подтверждённой интеграции источников.
+
 # 2026-10-29 — W30: понятные режимы экономики в Telegram
 
 - Базовый экран описывает доступную текущую/историческую экономику, а неизвестные расходы явно остаются неизвестными. Плановая экономика отдельно обозначена как модельный сценарий «что если», который не меняет данные Ozon.

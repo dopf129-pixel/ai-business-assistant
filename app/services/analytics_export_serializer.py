@@ -27,6 +27,7 @@ class AnalyticsExportSerializer:
         "unit_price_tariff_profile": "Тарифный профиль комиссии",
         "unit_price_observation": "Наблюдение цены",
         "unit_economics_experiment_snapshot": "Снимок экономики ценового эксперимента",
+        "unit_economics_experiment_history": "История ценового эксперимента",
     }
     VALUE_TYPES = {"text", "status", "money", "decimal", "integer", "boolean", "json"}
     FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")

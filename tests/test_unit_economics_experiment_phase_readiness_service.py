@@ -367,3 +367,73 @@ def test_late_return_refresh_appends_new_collection_and_new_readiness_revision(t
         assert results[0]["payload"]["baseline_profit_per_unit_rub"] is None
     finally:
         reset_current_tenant_user_id(token)
+
+
+def test_incomplete_return_collection_recovers_to_ready_without_rewriting_history(tmp_path):
+    repo, token, experiment, phase, confirmed = _active_phase(tmp_path)
+    try:
+        evidence = _evidence(returns_status="PARTIAL")
+        collector = PhaseEvidenceCollector(evidence)
+        first_collection = _collect(repo, experiment, phase, confirmed, collector)
+        first_readiness = _readiness(
+            repo, experiment, phase, confirmed,
+            now=datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc),
+            result_revision=first_collection["result_revision"],
+            key="w35-incomplete-readiness01",
+        )
+        assert first_readiness["error"] is False
+        assert first_readiness["status"] == "INSUFFICIENT_DATA"
+        first_result = repo.list_price_experiment_results(
+            experiment["experiment_id"], phase["phase_id"],
+        )["items"][0]["payload"]
+        first_gates = {item["gate"]: item for item in first_result["quality_gates"]}
+        assert first_gates["RETURNS_COVERAGE"]["status"] == "FAIL"
+        assert first_gates["SOLD_UNIT_DENOMINATOR"]["reason_code"] == (
+            "RETURN_SOURCE_INCOMPLETE"
+        )
+        assert first_result["quantity_basis"] is None
+
+        evidence["collected_at"] = "2026-11-14T12:00:00Z"
+        next(item for item in evidence["sources"] if item["name"] == "RETURNS").update(
+            {"status": "COMPLETE", "reason": "NONE"},
+        )
+        evidence["metrics"].update({
+            "successful_sale_units": 30,
+            "delivered_units": 30,
+            "buyout_sample_size": 35,
+            "ordered_units": 40,
+            "cancelled_units": 5,
+            "returned_units": 4,
+            "buyout_rate_percent": "85.71",
+        })
+        refreshed = _collect(
+            repo, experiment, phase, confirmed, collector,
+            result_revision=first_readiness["result_revision"],
+            key="w35-complete-refresh01",
+        )
+        assert refreshed["error"] is False
+        assert refreshed["collection_revision"] == 2
+        second_readiness = _readiness(
+            repo, experiment, phase, confirmed,
+            now=datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc),
+            result_revision=refreshed["result_revision"],
+            key="w35-complete-readiness01",
+        )
+        assert second_readiness["error"] is False
+        assert second_readiness["status"] == "READY"
+        collections = repo.list_price_experiment_phase_collections(
+            experiment["experiment_id"], phase["phase_id"],
+        )["items"]
+        assert len(collections) == 2
+        assert collections[0]["payload"]["metrics"]["returned_units"] == 4
+        assert collections[1]["payload"]["metrics"]["returned_units"] is None
+        results = repo.list_price_experiment_results(
+            experiment["experiment_id"], phase["phase_id"],
+        )["items"]
+        assert len(results) == 4
+        assert results[0]["payload"]["status"] == "READY"
+        assert results[2]["payload"]["status"] == "INSUFFICIENT_DATA"
+        assert refreshed["collection_id"] in results[0]["payload"]["snapshot_refs"]
+        assert first_collection["collection_id"] in results[2]["payload"]["snapshot_refs"]
+    finally:
+        reset_current_tenant_user_id(token)

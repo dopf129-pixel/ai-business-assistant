@@ -666,6 +666,14 @@ def test_public_flow_incomplete_buyout_then_modelled_rate_and_comparison(
         assert "Модельная прибыль:" in base_detail["message"]
         assert "Возвраты в окне: 1 шт." in base_detail["message"]
         assert "расходы не вычтены из модельной прибыли/шт." in base_detail["message"]
+        recovered_base = runtime.repository.get_unit_price_observation(
+            base_observation["observation_id"], result_revision=2,
+            owner_id=user_id, store_id=store_id,
+        )["result"]["payload"]
+        assert recovered_base["status"] == "AVAILABLE"
+        assert recovered_base["metrics"]["successful_sale_units"] == 4
+        assert recovered_base["metrics"]["weighted_ad_spend_numerator"] == "100.00"
+        assert recovered_base["metrics"]["profit_per_unit"] == "36.00"
 
         finished_base = handler.handle(
             _button(base_card, "Завершить наблюдение")["callback"],
@@ -681,11 +689,20 @@ def test_public_flow_incomplete_buyout_then_modelled_rate_and_comparison(
         lower_history = handler.handle(
             _button(lower_card, "История результатов")["callback"], user_id=user_id,
         )
-        lower_result = handler.handle(
-            next(button["callback"] for button in lower_history["keyboard"]["buttons"]
-                 if button["text"] == "Открыть результат #1"),
-            user_id=user_id,
+        lower_result_callback = next(
+            button["callback"] for button in lower_history["keyboard"]["buttons"]
+            if button["text"] == "Открыть результат #1"
         )
+        lower_result = handler.handle(lower_result_callback, user_id=user_id)
+        lower_observation_id = lower_result_callback.split(":")[2]
+        modeled_lower = runtime.repository.get_unit_price_observation(
+            lower_observation_id, result_revision=1,
+            owner_id=user_id, store_id=store_id,
+        )["result"]["payload"]
+        assert modeled_lower["status"] == "AVAILABLE"
+        assert modeled_lower["metrics"]["successful_sale_units"] == 4
+        assert modeled_lower["metrics"]["weighted_ad_spend_numerator"] == "100.00"
+        assert modeled_lower["metrics"]["profit_per_unit"] == "33.60"
         comparison = handler.handle(
             _button(lower_result, "Сравнить прибыль по наблюдениям SKU")["callback"],
             user_id=user_id,

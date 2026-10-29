@@ -269,6 +269,32 @@ def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
     ]
 
 
+def test_one_posting_and_return_event_keep_multi_unit_quantities():
+    postings = [{
+        "posting_number": "multi-unit-posting",
+        "status": "delivered",
+        "products": [{"offer_id": "hook-2", "sku": 3921245627, "quantity": 3}],
+    }]
+    returns_response = {
+        "returns": [
+            _return_item(
+                21, "multi-unit-posting", "ClientReturn", "Покупатель передумал",
+                quantity=2,
+            ),
+        ],
+        "has_next": False,
+    }
+    result = ReturnsBuyoutFactsSource(
+        FakeOzonClient({"result": {"postings": postings}}, returns_response=returns_response),
+    ).get("hook-2", "2026-08-01", "2026-08-31")
+
+    assert result["posting_count"] == 1
+    assert result["total_units"] == 3
+    assert result["delivered_units"] == 3
+    assert result["customer_return_units"] == 2
+    assert result["return_events"][0]["quantity"] == 2
+
+
 def test_classifies_confirmed_uncollected_order_as_non_buyout():
     returns_response = {
         "returns": [

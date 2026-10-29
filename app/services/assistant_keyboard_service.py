@@ -532,12 +532,18 @@ class AssistantKeyboardService:
         skus,
         calculator_callback=None,
         product_callbacks=None,
+        experiment_callback=None,
     ):
         buttons = []
         if calculator_callback:
             buttons.append({
                 "text": "🧮 Плановая экономика",
                 "callback": str(calculator_callback),
+            })
+        if experiment_callback:
+            buttons.append({
+                "text": "🧪 Эксперименты цен",
+                "callback": str(experiment_callback),
             })
         callbacks = list(product_callbacks or [])
         buttons.extend([
