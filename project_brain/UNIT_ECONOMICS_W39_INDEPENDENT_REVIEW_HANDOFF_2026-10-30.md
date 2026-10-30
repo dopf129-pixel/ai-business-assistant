@@ -2,7 +2,7 @@
 
 ## Addendum: remediation review R1–R5, 30.10.2026
 
-Пять подтверждённых замечаний исправлены локально в working tree ветки реализации, на базе исходного code HEAD `762c5cd53359962a90fec6f8bdf512dc5dfdb246`. Изменения пока не committed/pushed; опубликованный PR #722 на SHA `b1b81592199348df40cdb6133b464f59fbe0768e` ещё не содержит исправлений.
+Пять подтверждённых замечаний исправлены и опубликованы в PR #722 коммитом `3dd56343ac29339e83d5fbcb4f8d563010876384`, на базе исходного code HEAD `762c5cd53359962a90fec6f8bdf512dc5dfdb246`. Exact-head Windows и full-verification CI успешно завершились в runs [41051047996](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41051047996) и [41051054590](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41051054590); full verification включает compile, полный suite, Docker build/smoke и SHA-bound report. Документирующий follow-up может обновить текущий PR SHA; перед повторным review проверить live CI на актуальной голове.
 
 - **R1:** `COMPLETE` требует не только весь диапазон дат, но и complete evidence каждого сегмента/компонента.
 - **R2:** история контрольных событий читается страницами максимум по 10, с проверкой offsets и общим пределом в 100 записей.
@@ -12,10 +12,10 @@
 
 Фактические проверки: связанный Windows профиль **127 passed in 6.60s**, полный Windows pytest **4,346 passed in 42.30s**. При первом полном запуске была задана неподходящая `AI_ASSISTANT_STORAGE_ROOT`, из-за чего падали 7 тестов относительных tenant-путей; штатный повтор без неё прошёл. Полный pytest создал временный `data/tasks.json.lock`; `data/tasks.json` восстановлен байт-в-байт из pre-run копии, lock удалён, итоговый `git diff -- data` пустой. `git diff --check` PASS.
 
-Следующий шаг: включить эти локальные изменения в PR, проверить Windows/Linux/Docker CI на новом exact SHA и повторить независимый review. Live API, реальный бот, merge и deployment не запускались. Проверка владельцем на реальном SKU остаётся pending.
+Следующий шаг: проверить exact-head CI на последнем документирующем commit и пройти повторное независимое review. Live API, реальный бот, merge и deployment не запускались. Проверка владельцем на реальном SKU остаётся pending.
 
 Дата: 30.10.2026
-Статус: W39 engineering handoff завершён; PR готов к независимому архитектурному review. Exact-head Verify зелёный на `b1b81592199348df40cdb6133b464f59fbe0768e` (run `40956765471`); текущий HEAD и workflow проверяются live в PR #722.
+Статус: W39 engineering handoff завершён; remediation R1–R5 опубликована, code SHA `3dd56343ac29339e83d5fbcb4f8d563010876384` прошёл Windows/full-verification CI (runs `41051047996`, `41051054590`). Текущий PR HEAD мог обновиться последующим documentation-only commit; его checks нужно перепроверить live перед независимым review.
 PR реализации: https://github.com/dopf129-pixel/ai-business-assistant/pull/722
 Зависимость: PR #721, ветка `codex/full-unit-economics-experiments-spec-20261028`.
 Ветка реализации: `codex/full-unit-economics-experiments-implementation-20261028`.
@@ -66,9 +66,9 @@ Base-to-head diff относительно spec SHA `f76d2dd90e4298113c037278666
 
 ## Известные ограничения и пользовательская приёмка
 
-Два прежних инженерных блокера W31 (первый сбор полного 56-дневного reference snapshot и Telegram lifecycle candidate-фазы) исправлены в локальной W40 working tree; детали и регрессии приведены в addendum выше и `UNIT_ECONOMICS_W40_REVIEW_REMEDIATION_2026-10-30.md`. Сбор сохраняет только snapshot с доказанной полнотой, а синтетический end-to-end путь не меняет цену в Ozon.
+Два прежних инженерных блокера W31 (первый сбор полного 56-дневного reference snapshot и Telegram lifecycle candidate-фазы) исправлены и опубликованы в PR #722; детали и регрессии приведены в addendum выше и `UNIT_ECONOMICS_W40_REVIEW_REMEDIATION_2026-10-30.md`. Сбор сохраняет только snapshot с доказанной полнотой, а синтетический end-to-end путь не меняет цену в Ozon.
 
-До включения W40 исправлений в PR, зелёного CI на новом exact SHA и повторного независимого review не использовать текущий публичный PR как подтверждённо исправленный. После этого всё ещё требуется owner acceptance на настроенном магазине и реальном SKU. Проверка реального магазина, owner backup и runtime остаются pending и не заменяются synthetic tests. Не вводить вручную выкупы или неизвестные расходы. Owner guide: `UNIT_ECONOMICS_W34_OWNER_GUIDE_ACCEPTANCE_2026-10-29.md`.
+Исправления W40 имеют зелёный CI на code SHA `3dd56343ac29339e83d5fbcb4f8d563010876384`; перед повторным независимым review проверить, что документирующий commit на текущей голове PR также прошёл CI. Всё ещё требуется owner acceptance на настроенном магазине и реальном SKU. Проверка реального магазина, owner backup и runtime остаются pending и не заменяются synthetic tests. Не вводить вручную выкупы или неизвестные расходы. Owner guide: `UNIT_ECONOMICS_W34_OWNER_GUIDE_ACCEPTANCE_2026-10-29.md`.
 
 Рекомендация сравнивает наблюдаемые сопоставимые условия и не доказывает причинность «цена вызвала рост конверсии/снижение ДРР». Maturity sample gate — инженерная защита, не статистическая гарантия.
 

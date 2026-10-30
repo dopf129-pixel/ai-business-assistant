@@ -52,6 +52,7 @@
 - `tests/test_telegram_unit_economics_experiment_runtime.py`: проверяет кнопку первого сбора и полный synthetic Telegram путь baseline → candidate → collect → maturity → finish → compare → owner decision. Все действия tenant scoped; цена в Ozon не меняется.
 - `tests/test_planning_workspace_unit_economics.py`: атомарное завершение фазы, связь с latest READY результатом, закрытие observation и конфликт устаревшей ревизии.
 - Связанный профиль по 10 файлам: **127 passed in 6.60s**. Полный Windows `pytest`: **4,346 passed in 42.30s**. Synthetic/local storage only; no Ozon/Telegram live calls or owner data. `git diff --check` PASS; `git diff -- data` empty after removal of a test-generated lock.
+- Опубликованный exact code SHA `3dd56343ac29339e83d5fbcb4f8d563010876384`: Windows и full-verification jobs прошли в runs [41051047996](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41051047996) и [41051054590](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41051054590); full verification включает полный suite, production Docker build и smoke. Следующий docs-only commit требует проверки текущего exact PR head.
 - Evidence: `project_brain/UNIT_ECONOMICS_W40_REVIEW_REMEDIATION_2026-10-30.md`.
 
 # План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W30 verified 29.10.2026)
