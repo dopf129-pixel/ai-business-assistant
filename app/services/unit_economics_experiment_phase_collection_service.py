@@ -83,11 +83,22 @@ class UnitEconomicsExperimentPhaseCollectionService:
                       if item.get("phase_id") == phase_id), None)
         if phase is None:
             return self._error("EXPERIMENT_PHASE_NOT_FOUND")
-        expected_status = {
+        active_experiment_status = {
             "BASELINE": "BASELINE_ACTIVE", "CANDIDATE": "CANDIDATE_ACTIVE",
         }.get(phase.get("kind"))
-        if (phase.get("status") != "ACTIVE"
-                or experiment.get("status") != expected_status
+        finished_experiment_statuses = {
+            "BASELINE": {"BASELINE_REVIEW", "CANDIDATE_READY", "CANDIDATE_ACTIVE", "CANDIDATE_REVIEW"},
+            "CANDIDATE": {"CANDIDATE_REVIEW"},
+        }.get(phase.get("kind"), set())
+        active_phase = (
+            phase.get("status") == "ACTIVE"
+            and experiment.get("status") == active_experiment_status
+        )
+        correction_phase = (
+            phase.get("status") == "FINISHED"
+            and experiment.get("status") in finished_experiment_statuses
+        )
+        if (not (active_phase or correction_phase)
                 or phase.get("observation_id") is None
                 or phase.get("confirmation") is None):
             return self._error("EXPERIMENT_PHASE_NOT_ACTIVE")
@@ -132,8 +143,9 @@ class UnitEconomicsExperimentPhaseCollectionService:
             observation, experiment, phase,
         ):
             return self._error("EXPERIMENT_PHASE_OBSERVATION_MISMATCH")
-        if observation.get("status") != "ACTIVE":
-            return self._error("EXPERIMENT_PHASE_OBSERVATION_NOT_ACTIVE")
+        expected_observation_status = "ACTIVE" if active_phase else "FINISHED"
+        if observation.get("status") != expected_observation_status:
+            return self._error("EXPERIMENT_PHASE_OBSERVATION_STATE_MISMATCH")
 
         parent = operation_trace or current_period_profit_trace()
         time_budget_seconds, request_budget = self._effective_budgets(

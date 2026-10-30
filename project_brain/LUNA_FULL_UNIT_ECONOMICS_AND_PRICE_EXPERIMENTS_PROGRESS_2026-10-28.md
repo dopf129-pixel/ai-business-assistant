@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: W40 исправления R1–R5 опубликованы в PR #722 code SHA `3dd56343ac29339e83d5fbcb4f8d563010876384`; targeted profile и полный Windows suite зелёные, exact-head Windows/full-verification CI успешен (runs `41051047996`, `41051054590`). Документирующий follow-up требует проверки нового exact PR head; независимое повторное review и owner acceptance остаются pending. W31 source acquisition и Telegram candidate lifecycle реализованы и проверены синтетически.
+Статус: W41 исправления повторного review готовы локально; связанный профиль (113) и полный Windows pytest (4,351) зелёные. Новый commit/push, exact-head CI и независимое review ожидаются. Merge/deploy/live Ozon/Telegram не выполнялись; owner acceptance остаётся pending.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -72,6 +72,14 @@
 | W37 | W36 | DONE | 29.10.2026: расширен `tests/test_unit_price_backup_restore.py` synthetic full experiment lifecycle: plan/cost, expense snapshot, tariff, experiment, active baseline phase, collection/result и control event сохраняются, архив проверяется и восстанавливается в новый storage root; новый repository instance открывает точные структуры и current schema. Cross-store reads скрыты. Corrupt/future experiment и phase payload fail closed. Linked backup/migration/repository profile **46 passed in 2.94s**; production backup/migration code и `data/` не менялись. Evidence: `UNIT_ECONOMICS_W37_BACKUP_RESTORE_ACCEPTANCE_2026-10-29.md`. Owner/live backup validation и W31 blockers remain. |
 | W38 | W37 | DONE | 30.10.2026: на кодовом SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64` полный disposable Windows verification: Python 3.12.10, `compileall` PASS, **4,335 passed in 50.37s**. Исправлены два hardcoded schema-11 assertions и keyboard mock, production code не менялся. Без storage-root override; `PYTHONTZPATH` указывает на установленную IANA базу. Legacy suite изменила только `data/tasks.json`/lock во временной копии; source checkout чистый. Exact-head Windows/Linux/Docker CI подтверждён в W39. Evidence: `UNIT_ECONOMICS_W38_FULL_VERIFICATION_2026-10-30.md`. |
 | W39 | W38 | FIXED / EXACT-HEAD CI GREEN / RE-REVIEW PENDING | 30.10.2026: исходный exact HEAD `b1b81592199348df40cdb6133b464f59fbe0768e` имел пять подтверждённых замечаний R1–R5. Исправления опубликованы в code SHA `3dd56343ac29339e83d5fbcb4f8d563010876384`; linked profile 127 passed, full pytest 4,346 passed, Windows и full-verification CI успешны в runs `41051047996`/`41051054590`. Handoff: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`; detailed evidence: `UNIT_ECONOMICS_W40_REVIEW_REMEDIATION_2026-10-30.md`. Повторное независимое review pending; merge/deploy/live API/bot не выполнялись. |
+
+## W41 — remediation повторного review (30.10.2026)
+
+- Исправлены пять дефектов: maturity привязана к `collected_at` evidence; persisted PLANNED confirmation можно продолжить/отменить после restart; FINISHED phase принимает только append-only позднюю коррекцию и инвалидирует старое comparison; Finish callback привязан к точным experiment/phase/result revisions; неполный компонент остаётся PARTIAL.
+- Связанный профиль из 8 модулей: **113 passed in 6.73s**. Полный локальный Windows pytest: **4,351 passed in 44.59s**.
+- Legacy suite временно изменила `data/tasks.json` и создала пустой lock; tracked fixture восстановлен из начального HEAD, lock удалён; `git diff -- data` пустой. `git diff --check` PASS. Нет реальных API/bot запросов и storage-root override.
+- Следующее: commit/push в PR #722, дождаться exact-head CI и провести повторный независимый review; merge не выполнять.
+- Подробности: `UNIT_ECONOMICS_W41_REVIEW_REMEDIATION_2026-10-30.md`.
 
 ## W40 — remediation по независимому review (30.10.2026)
 

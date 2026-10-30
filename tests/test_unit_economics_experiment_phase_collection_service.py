@@ -8,6 +8,9 @@ from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.unit_economics_experiment_phase_collection_service import (
     UnitEconomicsExperimentPhaseCollectionService,
 )
+from services.unit_economics_experiment_phase_readiness_service import (
+    UnitEconomicsExperimentPhaseReadinessService,
+)
 from services.tenant_context import reset_current_tenant_user_id
 
 from test_planning_workspace_unit_economics import (
@@ -139,6 +142,106 @@ def test_collects_exact_completed_phase_and_atomically_links_pending_result(tmp_
         assert collection["collection_id"] in saved_result["snapshot_refs"]
         assert len(saved_result["snapshot_refs"]) == 2
         assert "raw" not in repr(payload).lower()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_finished_phase_accepts_late_correction_as_append_only_revision(tmp_path):
+    repo, token, experiment, phase, confirmed = _active_phase(tmp_path)
+    try:
+        now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
+        evidence = _evidence()
+        evidence["collected_at"] = now.isoformat().replace("+00:00", "Z")
+        evidence["metrics"].update({
+            "successful_sale_units": 30, "delivered_units": 30,
+            "buyout_sample_size": 35, "ordered_units": 40,
+            "cancelled_units": 5, "returned_units": 0,
+            "buyout_rate_percent": "85.71",
+        })
+        collector = PhaseEvidenceCollector(evidence)
+        first_collection = _service(repo, collector, now=now).collect_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            expected_result_revision=0, idempotency_key="w41-before-finish01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert first_collection["error"] is False
+        readiness = UnitEconomicsExperimentPhaseReadinessService(
+            repo, clock=lambda: now,
+        ).evaluate_latest(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            expected_result_revision=first_collection["result_revision"],
+            idempotency_key="w41-ready-before-finish01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert readiness["error"] is False
+        assert readiness["status"] == "READY"
+
+        finished = repo.finish_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            expected_result_revision=readiness["result_revision"],
+            idempotency_key="w41-finish-before-correction01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert finished["error"] is False
+        assert finished["phase_status"] == "FINISHED"
+        assert repo.get_unit_price_observation(confirmed["observation_id"])[
+            "observation"]["status"] == "FINISHED"
+
+        evidence["collected_at"] = "2026-11-14T12:00:00Z"
+        corrected_now = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
+        correction = _service(
+            repo, collector, now=corrected_now,
+        ).collect_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=finished["state_revision"],
+            expected_phase_state_revision=finished["phase_state_revision"],
+            expected_result_revision=finished["result_revision"],
+            idempotency_key="w41-late-correction01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert correction["error"] is False
+        assert correction["collection_revision"] == 2
+        assert correction["result_revision"] == finished["result_revision"] + 1
+        current_experiment = repo.get_price_experiment(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["experiment"]
+        current_phase = repo.list_price_experiment_phases(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["items"][0]
+        assert current_experiment["status"] == "BASELINE_REVIEW"
+        assert current_experiment["state_revision"] == finished["state_revision"] + 1
+        assert current_phase["status"] == "FINISHED"
+        assert current_phase["result_revision"] == correction["result_revision"]
+
+        corrected_readiness = UnitEconomicsExperimentPhaseReadinessService(
+            repo, clock=lambda: corrected_now,
+        ).evaluate_latest(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=current_experiment["state_revision"],
+            expected_phase_state_revision=current_phase["state_revision"],
+            expected_result_revision=correction["result_revision"],
+            idempotency_key="w41-ready-after-correction01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert corrected_readiness["error"] is False
+        assert corrected_readiness["status"] == "READY"
+        results = repo.list_price_experiment_results(
+            experiment["experiment_id"], phase["phase_id"], limit=10,
+            owner_id="owner-1", store_id="store-a",
+        )["items"]
+        assert len(results) == 4
+        assert results[2]["payload"]["source_as_of"] == "2026-11-13T12:00:00Z"
+        assert results[0]["payload"]["source_as_of"] == "2026-11-14T12:00:00Z"
+        assert repo.list_price_experiment_phase_collections(
+            experiment["experiment_id"], phase["phase_id"], limit=10,
+            owner_id="owner-1", store_id="store-a",
+        )["items"][0]["collection_id"] == correction["collection_id"]
     finally:
         reset_current_tenant_user_id(token)
 

@@ -3451,21 +3451,46 @@ class PlanningWorkspaceRepository:
                     or phase["result_revision"] != expected_result_revision):
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_RESULT_CONFLICT")
-            expected_phase_status = {
+            try:
+                phase_config = json.loads(phase["payload_json"])
+            except (TypeError, ValueError):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_CORRUPT")
+            active_experiment_status = {
                 "BASELINE": "BASELINE_ACTIVE", "CANDIDATE": "CANDIDATE_ACTIVE",
             }.get(phase["kind"])
-            if (phase["status"] != "ACTIVE" or experiment["status"] != expected_phase_status
+            finished_experiment_statuses = {
+                "BASELINE": {
+                    "BASELINE_REVIEW", "CANDIDATE_READY", "CANDIDATE_ACTIVE",
+                    "CANDIDATE_REVIEW",
+                },
+                "CANDIDATE": {"CANDIDATE_REVIEW"},
+            }.get(phase["kind"], set())
+            active_phase = (
+                phase["status"] == "ACTIVE"
+                and experiment["status"] == active_experiment_status
+            )
+            correction_phase = (
+                phase["status"] == "FINISHED"
+                and experiment["status"] in finished_experiment_statuses
+            )
+            if (not (active_phase or correction_phase)
                     or collection["observation_id"] != phase["observation_id"]
                     or any(collection["identity"].get(field) != experiment[field] for field in (
                         "owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema",
                     ))):
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_COLLECTION_STATE_CONFLICT")
-            try:
-                phase_config = json.loads(phase["payload_json"])
-            except (TypeError, ValueError):
+            observation = connection.execute(
+                "SELECT status FROM planning_unit_price_observations WHERE observation_id=? "
+                "AND owner_id=? AND store_id=?",
+                (phase["observation_id"], scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            expected_observation_status = "ACTIVE" if active_phase else "FINISHED"
+            if (observation is None
+                    or observation["status"] != expected_observation_status):
                 connection.rollback()
-                return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_CORRUPT")
+                return self._error("PLANNING_PRICE_EXPERIMENT_OBSERVATION_STATE_CONFLICT")
             if collection["seller_price_cents"] != phase_config.get("planned_price_cents"):
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_COLLECTION_PRICE_MISMATCH")
@@ -3530,23 +3555,36 @@ class PlanningWorkspaceRepository:
             changed = connection.execute(
                 "UPDATE planning_price_experiment_phases SET result_revision=?,updated_at=? "
                 "WHERE phase_id=? AND experiment_id=? AND owner_id=? AND store_id=? "
-                "AND status='ACTIVE' AND state_revision=? AND result_revision=?",
+                "AND status=? AND state_revision=? AND result_revision=?",
                 (phase_result_revision, now, phase_id, experiment_id, scope["owner_id"],
-                 scope["store_id"], expected_phase_state_revision, expected_result_revision),
+                 scope["store_id"], phase["status"], expected_phase_state_revision,
+                 expected_result_revision),
             ).rowcount
             if changed != 1:
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_RESULT_CONFLICT")
+            next_state_revision = expected_state_revision + (1 if correction_phase else 0)
             changed = connection.execute(
-                "UPDATE planning_price_experiments SET result_revision=?,updated_at=? "
+                "UPDATE planning_price_experiments SET result_revision=?,state_revision=?,updated_at=? "
                 "WHERE experiment_id=? AND owner_id=? AND store_id=? AND state_revision=? "
                 "AND status=?",
-                (experiment_result_revision, now, experiment_id, scope["owner_id"],
-                 scope["store_id"], expected_state_revision, expected_phase_status),
+                (experiment_result_revision, next_state_revision, now, experiment_id,
+                 scope["owner_id"], scope["store_id"], expected_state_revision,
+                 experiment["status"]),
             ).rowcount
             if changed != 1:
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            if correction_phase:
+                decoded_experiment = self._decode_price_experiment(experiment, scope)
+                if decoded_experiment.get("error"):
+                    connection.rollback()
+                    return self._error("PLANNING_PRICE_EXPERIMENT_RECORD_CORRUPT")
+                self._insert_price_experiment_revision(
+                    connection, experiment_id, scope, next_state_revision,
+                    next_state_revision, experiment["status"],
+                    decoded_experiment["experiment"]["config"], now,
+                )
             revision_payload = {
                 "schema_version": PlanningUnitEconomicsExperimentAdapter.PHASE_SCHEMA_VERSION,
                 "phase_id": phase_id, "experiment_id": experiment_id,
@@ -3568,7 +3606,7 @@ class PlanningWorkspaceRepository:
                 "collection_id": collection_id, "collection_revision": collection_revision,
                 "result_revision": phase_result_revision,
                 "experiment_result_revision": experiment_result_revision,
-                "state_revision": expected_state_revision,
+                "state_revision": next_state_revision,
                 "phase_state_revision": expected_phase_state_revision,
             }
             self._remember_price_experiment_idempotency(
@@ -4509,6 +4547,7 @@ class PlanningWorkspaceRepository:
                         or selected["segment_number"] != 1):
                     connection.rollback()
                     return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_SELECTION_INVALID")
+
             elif decision_type == "SELECT_EVALUATED_CANDIDATE":
                 if (selected_phase_id != normalized["result_phase_id"]
                         or result_payload["outcome"] not in {
@@ -4518,6 +4557,39 @@ class PlanningWorkspaceRepository:
                         or result_payload.get("comparison") is None):
                     connection.rollback()
                     return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_SELECTION_INVALID")
+
+            if (decision_type in {"KEEP_BASELINE_PRICE", "SELECT_EVALUATED_CANDIDATE"}
+                    and result_payload.get("comparison") is not None):
+                baseline = connection.execute(
+                    "SELECT phase_id FROM planning_price_experiment_phases "
+                    "WHERE experiment_id=? AND owner_id=? AND store_id=? "
+                    "AND kind='BASELINE' AND segment_number=1",
+                    (experiment_id, scope["owner_id"], scope["store_id"]),
+                ).fetchone()
+                latest_baseline_collection = (
+                    connection.execute(
+                        "SELECT collection_id FROM planning_price_experiment_phase_collections "
+                        "WHERE experiment_id=? AND phase_id=? AND owner_id=? AND store_id=? "
+                        "ORDER BY collection_revision DESC LIMIT 1",
+                        (experiment_id, baseline["phase_id"], scope["owner_id"],
+                         scope["store_id"]),
+                    ).fetchone() if baseline is not None else None
+                )
+                latest_candidate_collection = connection.execute(
+                    "SELECT collection_id FROM planning_price_experiment_phase_collections "
+                    "WHERE experiment_id=? AND phase_id=? AND owner_id=? AND store_id=? "
+                    "ORDER BY collection_revision DESC LIMIT 1",
+                    (experiment_id, candidate["phase_id"], scope["owner_id"],
+                     scope["store_id"]),
+                ).fetchone()
+                if (latest_baseline_collection is None
+                        or latest_candidate_collection is None
+                        or latest_baseline_collection["collection_id"]
+                        not in result_payload["snapshot_refs"]
+                        or latest_candidate_collection["collection_id"]
+                        not in result_payload["snapshot_refs"]):
+                    connection.rollback()
+                    return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_COMPARISON_STALE")
 
             count = connection.execute(
                 "SELECT COUNT(*) FROM planning_price_experiment_decisions "

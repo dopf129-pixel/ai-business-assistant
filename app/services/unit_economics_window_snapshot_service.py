@@ -253,7 +253,10 @@ class UnitEconomicsWindowSnapshotService:
             units = sum(segment["units"] for segment in eligible_segments)
             all_component_days = eligible_days == sum(segment["days"] for segment in eligible_segments)
             observed_rate = cls._rate(known_amount, units) if all_component_days else None
-            full_coverage = full_dates and not mixed_denominators and all_component_days
+            full_coverage = (
+                full_dates and len(complete_days) == requested_days
+                and not mixed_denominators and all_component_days
+            )
             status = cls._snapshot_status(
                 spec, full_coverage, observed_days, requested_days, budget,
                 mixed_denominators, short_history,

@@ -88,15 +88,38 @@ def test_maturity_boundary_uses_seven_complete_local_days_and_keeps_price_histor
         assert saved_waiting["baseline_profit_per_unit_rub"] is None
         assert saved_waiting["candidate_profit_per_unit_rub"] is None
 
-        # 21:00 UTC is midnight Nov 13 in Moscow: seven full local dates have elapsed.
-        ready = _readiness(
+        # Waiting does not mature the immutable Nov 6 snapshot. It was collected
+        # before the seven-day correction window had elapsed.
+        still_waiting = _readiness(
             repo, experiment, phase, confirmed,
             now=datetime(2026, 11, 12, 21, 0, tzinfo=timezone.utc),
             result_revision=waiting["result_revision"], key="w27-maturity-ready01",
         )
+        assert still_waiting["error"] is False
+        assert still_waiting["status"] == "WAITING_FOR_DATA"
+        stale_payload = repo.list_price_experiment_results(
+            experiment["experiment_id"], phase["phase_id"],
+        )["items"][0]["payload"]
+        stale_gates = {item["gate"]: item for item in stale_payload["quality_gates"]}
+        assert stale_payload["source_as_of"] == "2026-11-06T12:00:00Z"
+        assert stale_gates["MATURITY_DELAY"]["reason_code"] == "MATURITY_PENDING"
+
+        collector.evidence["collected_at"] = "2026-11-12T21:00:00Z"
+        refreshed = _collect(
+            repo, experiment, phase, confirmed, collector,
+            result_revision=still_waiting["result_revision"], key="w27-maturity-refresh01",
+        )
+        ready = _readiness(
+            repo, experiment, phase, confirmed,
+            now=datetime(2026, 11, 12, 21, 0, tzinfo=timezone.utc),
+            result_revision=refreshed["result_revision"], key="w27-maturity-after-refresh01",
+        )
         assert ready["error"] is False
         assert ready["status"] == "READY"
-        assert collector.calls == [(confirmed["observation_id"], "2026-10-30", "2026-11-05")]
+        assert collector.calls == [
+            (confirmed["observation_id"], "2026-10-30", "2026-11-05"),
+            (confirmed["observation_id"], "2026-10-30", "2026-11-05"),
+        ]
         results = repo.list_price_experiment_results(
             experiment["experiment_id"], phase["phase_id"],
         )["items"]
@@ -118,7 +141,7 @@ def test_maturity_boundary_uses_seven_complete_local_days_and_keeps_price_histor
         replay = _readiness(
             repo, experiment, phase, confirmed,
             now=datetime(2026, 11, 12, 21, 0, tzinfo=timezone.utc),
-            result_revision=waiting["result_revision"], key="w27-maturity-ready01",
+            result_revision=refreshed["result_revision"], key="w27-maturity-after-refresh01",
         )
         assert replay["error"] is False
         assert replay["result_revision"] == ready["result_revision"]
@@ -148,11 +171,13 @@ def test_maturity_day_boundary_uses_phase_timezone_not_utc_date(tmp_path):
         pacific_phase["confirmation"]["timezone"] = "America/Los_Angeles"
         collection = deepcopy(stored["payload"])
         collection["window"]["timezone"] = "America/Los_Angeles"
+        collection["collected_at"] = "2026-11-13T07:59:00Z"
 
         before_local_midnight = UnitEconomicsExperimentPhaseMaturityService.evaluate(
             pacific_experiment, pacific_phase, collection, stored["collection_id"], [],
             datetime(2026, 11, 13, 7, 59, tzinfo=timezone.utc),
         )
+        collection["collected_at"] = "2026-11-13T08:00:00Z"
         at_local_midnight = UnitEconomicsExperimentPhaseMaturityService.evaluate(
             pacific_experiment, pacific_phase, collection, stored["collection_id"], [],
             datetime(2026, 11, 13, 8, 0, tzinfo=timezone.utc),
@@ -325,6 +350,7 @@ def test_late_return_refresh_appends_new_collection_and_new_readiness_revision(t
     repo, token, experiment, phase, confirmed = _active_phase(tmp_path)
     try:
         evidence = _mature_evidence(sample=35, delivered=30)
+        evidence["collected_at"] = "2026-11-13T12:00:00Z"
         collector = PhaseEvidenceCollector(evidence)
         first_collection = _collect(repo, experiment, phase, confirmed, collector)
         first_readiness = _readiness(
@@ -361,7 +387,7 @@ def test_late_return_refresh_appends_new_collection_and_new_readiness_revision(t
         assert refreshed["collection_id"] in latest_refs
         assert first_collection["collection_id"] in previous_refs
         assert latest_refs != previous_refs
-        assert results[2]["payload"]["source_as_of"] == "2026-11-06T12:00:00Z"
+        assert results[2]["payload"]["source_as_of"] == "2026-11-13T12:00:00Z"
         assert results[0]["payload"]["source_as_of"] == "2026-11-14T12:00:00Z"
         assert results[2]["payload"]["baseline_profit_per_unit_rub"] is None
         assert results[0]["payload"]["baseline_profit_per_unit_rub"] is None

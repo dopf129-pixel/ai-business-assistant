@@ -220,6 +220,63 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             pending["created_at"] = self.monotonic_clock()
             self._save_pending(scope, pending)
             return self._control_confirmation_prompt(scope, "candidate_controls")
+        if pending.get("stage") == "phase_confirmation_resume":
+            parsed = self._parse_baseline_input(text)
+            if parsed is None or parsed["price_cents"] != pending.get("price_cents"):
+                return self._result(
+                    "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_INPUT_INVALID",
+                    "Цена должна совпадать с сохранённой фазой. Формат: "
+                    "цена; ГГГГ-ММ-ДД ЧЧ:ММ.", self._cancel_keyboard(),
+                )
+            context = self._phase_action_context(scope, pending)
+            if context is None:
+                self.clear_pending(user_id)
+                return self._stale()
+            experiment, phase = context
+            expected_status = (
+                "READY" if pending.get("phase_kind") == "BASELINE" else "CANDIDATE_READY"
+            )
+            if (experiment.get("state_revision") != pending.get("expected_state_revision")
+                    or phase.get("state_revision") != pending.get("expected_phase_state_revision")
+                    or phase.get("status") != "PLANNED"
+                    or experiment.get("status") != expected_status):
+                self.clear_pending(user_id)
+                return self._stale()
+            preview = self.repository.preview_price_experiment_phase_confirmation(
+                pending["experiment_id"], pending["phase_id"],
+                seller_price_cents=parsed["price_cents"],
+                effective_from=parsed["effective_from"],
+                owner_id=scope["owner_id"], store_id=scope["store_id"],
+            )
+            if not isinstance(preview, dict) or preview.get("error") is True:
+                return self._error("UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_PREVIEW_FAILED")
+            confirm_token = self._remember_action(scope, {
+                "kind": "confirm", "phase_kind": pending["phase_kind"],
+                "experiment_id": pending["experiment_id"],
+                "phase_id": pending["phase_id"],
+                "price_cents": parsed["price_cents"],
+                "effective_from": parsed["effective_from"],
+                "experiment_revision": preview["experiment_state_revision"],
+                "phase_revision": preview["phase_state_revision"],
+                "idempotency_key": token_hex(16),
+            })
+            if not confirm_token:
+                return self._error("UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_UNAVAILABLE")
+            self.clear_pending(user_id)
+            config = phase["config"]
+            return self._result(
+                "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_REQUIRED",
+                f"Проверьте сохранённую фазу {config['planned_from_date']} — "
+                f"{config['planned_to_date']} ({config['timezone']}). Цена: "
+                f"{self._format_price(parsed['price_cents'])} ₽. Первая полная дата: "
+                f"{preview.get('first_full_local_day')}. Время установки вы ввели заново; "
+                "подтверждение остаётся за вами. Бот не меняет цену в Ozon.",
+                self._keyboard([
+                    {"text": "✅ Подтверждаю и начать",
+                     "callback": f"uex:a:{confirm_token}"},
+                    {"text": "Отмена", "callback": "uex:c"},
+                ]),
+            )
         self.clear_pending(user_id)
         return self._stale()
 
@@ -334,9 +391,12 @@ class TelegramUnitEconomicsExperimentRuntimeService:
     def _handle_read_action(self, scope, action):
         handlers = {
             "experiment": self._show_experiment,
+            "experiment_cancel_prompt": self._cancel_experiment_prompt,
+            "experiment_cancel": self._cancel_experiment,
             "experiment_revision": self._show_experiment_revision,
             "experiment_history": self._show_experiment_history,
             "phase": self._show_phase,
+            "phase_resume_confirmation": self._resume_phase_confirmation,
             "phase_revision": self._show_phase_revision,
             "phase_history": self._show_phase_history,
             "phase_results": self._show_phase_results,
@@ -417,6 +477,19 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 })
         if not phases.get("items"):
             lines.append("Пока нет сохранённых фаз.")
+        planned_phase = next((item for item in phases.get("items", [])
+                              if item.get("status") == "PLANNED"), None)
+        if (planned_phase is not None
+                and experiment.get("status") in {"READY", "CANDIDATE_READY"}):
+            cancel_token = self._remember_action(scope, {
+                "kind": "experiment_cancel_prompt", "experiment_id": experiment_id,
+                "expected_state_revision": experiment.get("state_revision"),
+            })
+            if cancel_token:
+                buttons.append({
+                    "text": "🗑 Отменить незапущенный эксперимент",
+                    "callback": f"uex:read:{cancel_token}",
+                })
         if experiment.get("status") in {"BASELINE_REVIEW", "CANDIDATE_REVIEW"}:
             baseline = next((item for item in phases.get("items", [])
                              if item.get("kind") == "BASELINE"), None)
@@ -614,7 +687,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 f"{self._outcome_label(payload['outcome'])} · {latest_result['created_at']}"
             )
         buttons = []
-        if phase.get("status") == "ACTIVE":
+        if phase.get("status") in {"ACTIVE", "FINISHED"}:
             if self.phase_collection_service is not None:
                 collect_token = self._remember_action(scope, {
                     "kind": "phase_collect", "experiment_id": experiment_id,
@@ -635,32 +708,56 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                         "text": "🧮 Оценить зрелость данных",
                         "callback": f"uex:read:{evaluate_token}",
                     })
-            for value, label in (
-                ("UNCHANGED", "✅ Условия не менялись"),
-                ("UNKNOWN", "⚠️ Условия изменились / не уверен"),
-            ):
-                flags = {key: value for key in (
-                    "inventory", "promotion", "advertising", "card", "cost", "tariff",
-                )}
-                control_token = self._remember_action(scope, {
-                    "kind": "phase_control_update", "experiment_id": experiment_id,
-                    "phase_id": phase_id, "control_flags": flags,
-                })
-                if control_token:
-                    buttons.append({
-                        "text": label, "callback": f"uex:read:{control_token}",
+            if phase.get("status") == "ACTIVE":
+                for value, label in (
+                    ("UNCHANGED", "✅ Условия не менялись"),
+                    ("UNKNOWN", "⚠️ Условия изменились / не уверен"),
+                ):
+                    flags = {key: value for key in (
+                        "inventory", "promotion", "advertising", "card", "cost", "tariff",
+                    )}
+                    control_token = self._remember_action(scope, {
+                        "kind": "phase_control_update", "experiment_id": experiment_id,
+                        "phase_id": phase_id, "control_flags": flags,
                     })
-            if (latest_result
+                    if control_token:
+                        buttons.append({
+                            "text": label, "callback": f"uex:read:{control_token}",
+                        })
+            if (phase.get("status") == "ACTIVE" and latest_result
                     and latest_result.get("payload", {}).get("status") == "READY"):
                 finish_token = self._remember_action(scope, {
                     "kind": "phase_finish", "experiment_id": experiment_id,
                     "phase_id": phase_id,
+                    "expected_state_revision": experiment["state_revision"],
+                    "expected_phase_state_revision": phase["state_revision"],
+                    "expected_result_revision": phase["result_revision"],
                 })
                 if finish_token:
                     buttons.append({
                         "text": "⏹ Завершить фазу",
                         "callback": f"uex:read:{finish_token}",
                     })
+            elif phase.get("status") == "FINISHED":
+                lines.append(
+                    "Фаза остаётся завершённой. Повторный сбор создаст новую неизменяемую "
+                    "ревизию, чтобы учесть поздние начисления и возвраты."
+                )
+        elif (phase.get("status") == "PLANNED"
+              and experiment.get("status") == (
+                  "READY" if phase.get("kind") == "BASELINE" else "CANDIDATE_READY"
+              )):
+            resume_token = self._remember_action(scope, {
+                "kind": "phase_resume_confirmation", "experiment_id": experiment_id,
+                "phase_id": phase_id,
+                "expected_state_revision": experiment.get("state_revision"),
+                "expected_phase_state_revision": phase.get("state_revision"),
+            })
+            if resume_token:
+                buttons.append({
+                    "text": "▶️ Продолжить подтверждение запуска",
+                    "callback": f"uex:read:{resume_token}",
+                })
         if (phase.get("kind") == "CANDIDATE" and phase.get("status") == "FINISHED"
                 and experiment.get("status") == "CANDIDATE_REVIEW"
                 and self.phase_comparison_service is not None):
@@ -704,7 +801,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         experiment, phase = context
         if service is None:
             return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_UNAVAILABLE")
-        if phase.get("status") != "ACTIVE":
+        if phase.get("status") not in {"ACTIVE", "FINISHED"}:
             return self._stale()
         collected = service.collect_phase(
             action["experiment_id"], action["phase_id"],
@@ -717,10 +814,16 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         if not isinstance(collected, dict) or collected.get("error") is True:
             return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_FAILED")
         refreshed = self._show_phase(scope, action)
+        message = (
+            "Поздняя корректировка сохранена новой ревизией. Фаза остаётся завершённой; "
+            "после этого отдельно оцените зрелость данных."
+            if phase.get("status") == "FINISHED"
+            else "Снимок источников сохранён. Он ещё не является оценкой зрелости: "
+            "проверьте результат и отдельно запустите оценку. Данные Ozon не менялись."
+        )
         return self._result(
             "UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_SAVED",
-            "Снимок источников сохранён. Он ещё не является оценкой зрелости: "
-            "проверьте результат и отдельно запустите оценку. Данные Ozon не менялись.",
+            message,
             refreshed.get("keyboard", self._keyboard([])),
         )
 
@@ -759,6 +862,12 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         if context is None:
             return self._stale()
         experiment, phase = context
+        if any(action.get(field) != current for field, current in (
+            ("expected_state_revision", experiment.get("state_revision")),
+            ("expected_phase_state_revision", phase.get("state_revision")),
+            ("expected_result_revision", phase.get("result_revision")),
+        )):
+            return self._stale()
         if (phase.get("status") != "ACTIVE" or phase.get("result_revision", 0) < 1
                 or self._latest_phase_result_status(scope, action) != "READY"):
             return self._result(
@@ -782,6 +891,102 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             "UNIT_ECONOMICS_EXPERIMENT_PHASE_FINISHED",
             f"{label.capitalize()} завершена. Сбор наблюдений закрыт; данные сохранены.",
             detail.get("keyboard", self._keyboard([])),
+        )
+
+    def _resume_phase_confirmation(self, scope, action):
+        context = self._phase_action_context(scope, action)
+        if context is None:
+            return self._stale()
+        experiment, phase = context
+        expected_status = (
+            "READY" if phase.get("kind") == "BASELINE" else "CANDIDATE_READY"
+        )
+        if (phase.get("status") != "PLANNED"
+                or experiment.get("status") != expected_status
+                or action.get("expected_state_revision") != experiment.get("state_revision")
+                or action.get("expected_phase_state_revision") != phase.get("state_revision")):
+            return self._stale()
+        price = (phase.get("config") or {}).get("planned_price_cents")
+        if type(price) is not int or price < 1:
+            return self._stale()
+        self._set_pending(scope, {
+            "stage": "phase_confirmation_resume",
+            "experiment_id": action["experiment_id"],
+            "phase_id": action["phase_id"],
+            "phase_kind": phase["kind"],
+            "price_cents": price,
+            "expected_state_revision": experiment["state_revision"],
+            "expected_phase_state_revision": phase["state_revision"],
+            "created_at": self.monotonic_clock(),
+        })
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_INPUT_REQUIRED",
+            f"Фаза сохранена, но ещё не запущена. Введите подтверждённую цену "
+            f"{self._format_price(price)} ₽ и время её установки в Ozon: "
+            f"{self._format_price(price)}; ГГГГ-ММ-ДД ЧЧ:ММ ({self.default_timezone}). "
+            "После этого бот снова покажет отдельное подтверждение запуска. "
+            "Он не меняет цену и не восстанавливает дату автоматически.",
+            self._cancel_keyboard(),
+        )
+
+    def _cancel_experiment_prompt(self, scope, action):
+        loaded = self.repository.get_price_experiment(
+            action.get("experiment_id"), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        experiment = loaded.get("experiment") if isinstance(loaded, dict) else None
+        phases = self._load_phase_rows(scope, action.get("experiment_id"))
+        if (not isinstance(experiment, dict)
+                or experiment.get("state_revision") != action.get("expected_state_revision")
+                or experiment.get("status") not in {"READY", "CANDIDATE_READY"}
+                or not any(item.get("status") == "PLANNED" for item in phases)):
+            return self._stale()
+        confirm = self._remember_action(scope, {
+            "kind": "experiment_cancel",
+            "experiment_id": action["experiment_id"],
+            "expected_state_revision": experiment["state_revision"],
+        })
+        back = self._remember_action(scope, {
+            "kind": "experiment", "experiment_id": action["experiment_id"],
+        })
+        buttons = []
+        if confirm:
+            buttons.append({
+                "text": "Да, отменить эксперимент",
+                "callback": f"uex:read:{confirm}",
+            })
+        if back:
+            buttons.append({"text": "Назад", "callback": f"uex:read:{back}"})
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_CANCELLATION_CONFIRMATION_REQUIRED",
+            "Отменить весь эксперимент? Сохранённая история останется доступна, "
+            "но запустить эту фазу будет нельзя.", self._keyboard(buttons),
+        )
+
+    def _cancel_experiment(self, scope, action):
+        loaded = self.repository.get_price_experiment(
+            action.get("experiment_id"), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        experiment = loaded.get("experiment") if isinstance(loaded, dict) else None
+        phases = self._load_phase_rows(scope, action.get("experiment_id"))
+        if (not isinstance(experiment, dict)
+                or experiment.get("state_revision") != action.get("expected_state_revision")
+                or experiment.get("status") not in {"READY", "CANDIDATE_READY"}
+                or not any(item.get("status") == "PLANNED" for item in phases)):
+            return self._stale()
+        cancelled = self.repository.transition_price_experiment(
+            action["experiment_id"], "cancel",
+            expected_state_revision=experiment["state_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(cancelled, dict) or cancelled.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_CANCELLATION_FAILED")
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_CANCELLED",
+            "Незапущенный эксперимент отменён. История и сохранённые данные оставлены.",
+            self._home_keyboard(),
         )
 
     def _compare_phase(self, scope, action):
@@ -971,6 +1176,34 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             if token:
                 buttons.append({"text": "✅ " + label, "callback": f"uex:read:{token}"})
 
+    def _comparison_matches_latest_evidence(
+        self, scope, experiment_id, candidate_phase_id, result_payload,
+    ):
+        refs = result_payload.get("snapshot_refs") if isinstance(result_payload, dict) else None
+        if not isinstance(refs, list):
+            return False
+        phases = self._load_phase_rows(scope, experiment_id)
+        baseline = next((item for item in phases if item.get("kind") == "BASELINE"
+                         and item.get("segment_number") == 1), None)
+        candidate = next((item for item in phases if item.get("phase_id") == candidate_phase_id), None)
+        if (baseline is None or candidate is None
+                or baseline.get("status") != "FINISHED"
+                or candidate.get("kind") != "CANDIDATE"
+                or candidate.get("status") != "FINISHED"):
+            return False
+        for phase in (baseline, candidate):
+            collections = self.repository.list_price_experiment_phase_collections(
+                experiment_id, phase["phase_id"], limit=1,
+                owner_id=scope["owner_id"], store_id=scope["store_id"],
+            )
+            if (not isinstance(collections, dict) or collections.get("error") is True
+                    or not collections.get("items")):
+                return False
+            latest_collection_id = collections["items"][0].get("collection_id")
+            if not isinstance(latest_collection_id, str) or latest_collection_id not in refs:
+                return False
+        return True
+
     def _show_phase_history(self, scope, action):
         experiment_id, phase_id = action.get("experiment_id"), action.get("phase_id")
         offset = action.get("offset", 0)
@@ -1132,11 +1365,22 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         experiment = (loaded_experiment.get("experiment")
                       if isinstance(loaded_experiment, dict) else None)
         phase = self._load_phase(scope, experiment_id, phase_id)
+        comparison_current = (
+            self._comparison_matches_latest_evidence(
+                scope, experiment_id, phase_id, payload,
+            ) if payload.get("comparison") is not None else True
+        )
+        if payload.get("comparison") is not None and not comparison_current:
+            lines.append(
+                "Сравнение устарело после нового сбора данных. Вернитесь к фазе, "
+                "оцените последние снимки и выполните сравнение заново."
+            )
         if (isinstance(experiment, dict) and isinstance(phase, dict)
                 and experiment.get("status") == "CANDIDATE_REVIEW"
                 and phase.get("kind") == "CANDIDATE"
                 and phase.get("status") == "FINISHED"
-                and phase.get("result_revision") == revision):
+                and phase.get("result_revision") == revision
+                and comparison_current):
             self._append_owner_decision_buttons(
                 scope, experiment_id, phase_id, revision, payload, buttons,
             )

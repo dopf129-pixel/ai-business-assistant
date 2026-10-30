@@ -52,6 +52,9 @@ class UnitEconomicsExperimentPhaseMaturityService:
             observed_end = date.fromisoformat(collection["window"]["to_date"])
             local_today = now.astimezone(zone).date()
             source_as_of = cls._aware(collection.get("collected_at"))
+            source_as_of_local_date = (
+                source_as_of.astimezone(zone).date() if source_as_of is not None else None
+            )
         except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError, OSError):
             return cls._error("EXPERIMENT_PHASE_WINDOW_INVALID")
         if (source_as_of is None or source_as_of > now
@@ -79,7 +82,10 @@ class UnitEconomicsExperimentPhaseMaturityService:
         if (minimum_days != cls.MIN_MATURITY_DAYS
                 or minimum_units != cls.MIN_MATURITY_UNITS):
             return cls._error("EXPERIMENT_MATURITY_POLICY_INVALID")
-        elapsed_completed_days = max(0, (local_today - end).days - 1)
+        # Maturity belongs to the evidence snapshot. Evaluating an old snapshot
+        # again later must not make late returns/corrections appear to have been
+        # included in that snapshot.
+        elapsed_completed_days = max(0, (source_as_of_local_date - end).days - 1)
         maturity_ready = elapsed_completed_days >= minimum_days
 
         source_statuses = collection.get("source_statuses")

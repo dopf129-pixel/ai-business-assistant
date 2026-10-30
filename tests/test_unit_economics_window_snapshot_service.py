@@ -5,6 +5,7 @@ from services.period_profit_operation_diagnostics import (
     current_period_profit_trace,
 )
 from services.unit_economics_window_snapshot_service import UnitEconomicsWindowSnapshotService as Service
+from services.unit_economics_readiness_view_service import UnitEconomicsReadinessViewService
 
 
 IDENTITY = {
@@ -183,6 +184,18 @@ def test_partial_segment_covering_tail_dates_does_not_make_window_complete():
     assert result["coverage"]["complete"] is False
     assert result["complete_days"] == 28
     assert result["total_unit_expense_rub"] is None
+    component = result["components"]["ADS"]
+    assert component["status"] == "PARTIAL"
+    assert component["observed_unit_expense_rub"] == "1.00"
+    assert component["unit_expense_rub"] is None
+    assert component["covered_days"] == 28
+    projected = UnitEconomicsReadinessViewService.build(
+        result, {"ADS": {"source": "OZON_PERFORMANCE", "applicability": "WINDOW_MODEL_INPUT"}},
+    )
+    assert projected["error"] is False
+    assert projected["status"] == "PARTIAL"
+    assert projected["components"][0]["evidence_status"] == "PARTIAL"
+    assert projected["components"][0]["status"] == "UNKNOWN"
 
 
 def test_identity_mismatch_overlap_and_negative_credit_fail_closed():

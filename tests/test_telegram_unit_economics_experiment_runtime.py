@@ -175,6 +175,18 @@ def _activate_experiment(repo, runtime, user_id="owner-1"):
     return experiment, phase, selected_snapshot
 
 
+def _create_unconfirmed_baseline(repo, runtime, user_id="owner-1"):
+    _seed(repo)
+    plans = runtime.handle_callback("uex:new", user_id=user_id)
+    selected_plan = runtime.handle_callback(_button(plans, "uex:a:"), user_id=user_id)
+    runtime.handle_callback(_button(selected_plan, "uex:a:"), user_id=user_id)
+    runtime.handle_text("95; 105", user_id=user_id)
+    controls = runtime.handle_text("100; 2026-10-29 12:00", user_id=user_id)
+    return runtime.handle_callback(
+        _button_text(controls, "Все условия без изменений"), user_id=user_id,
+    )
+
+
 def test_guided_wizard_creates_and_activates_owner_confirmed_baseline(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     now = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
@@ -309,7 +321,7 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
         _seed(repo)
         experiment, baseline, _ = _activate_experiment(repo, runtime)
         evidence_collector.prices[baseline["observation_id"]] = 10_000
-        now.now = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+        now.now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
 
         experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
         experiment_detail = runtime.handle_callback(
@@ -331,7 +343,7 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
             user_id="owner-1",
         )
         assert collected["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_SAVED"
-        now.now = datetime(2026, 11, 12, 21, 0, tzinfo=timezone.utc)
+        now.now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
         evaluated = runtime.handle_callback(
             _button_action(collected, runtime, "phase_evaluate", "uex:read:"),
             user_id="owner-1",
@@ -370,7 +382,7 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
         )
         candidate = next(item for item in phases["items"] if item["kind"] == "CANDIDATE")
         evidence_collector.prices[candidate["observation_id"]] = 9_500
-        now.now = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+        now.now = datetime(2026, 11, 29, 12, 0, tzinfo=timezone.utc)
         experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
         experiment_detail = runtime.handle_callback(
             _button(experiment_list, "uex:read:"), user_id="owner-1",
@@ -391,7 +403,7 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
             _button_action(candidate_controls_updated, runtime, "phase_collect", "uex:read:"),
             user_id="owner-1",
         )
-        now.now = datetime(2026, 11, 28, 21, 0, tzinfo=timezone.utc)
+        now.now = datetime(2026, 11, 29, 12, 0, tzinfo=timezone.utc)
         candidate_evaluated = runtime.handle_callback(
             _button_action(candidate_collected, runtime, "phase_evaluate", "uex:read:"),
             user_id="owner-1",
@@ -438,6 +450,78 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
         )["experiment"]
         assert stored["status"] == "COMPLETED"
         assert len(evidence_collector.calls) == 2
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_old_finish_button_cannot_finish_a_newer_result_revision(tmp_path):
+    now = SimpleNamespace(now=datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite", clock=lambda: now.now,
+    )
+    evidence_collector = _RuntimePhaseEvidenceCollector(now)
+    collection_service = UnitEconomicsExperimentPhaseCollectionService(
+        repo, evidence_collector, clock=lambda: now.now,
+    )
+    readiness_service = UnitEconomicsExperimentPhaseReadinessService(
+        repo, clock=lambda: now.now,
+    )
+    runtime = TelegramUnitEconomicsExperimentRuntimeService(
+        repository=repo, phase_collection_service=collection_service,
+        phase_readiness_service=readiness_service,
+        clock=lambda: now.now, monotonic_clock=lambda: 100.0,
+    )
+    token = _enter_context()
+    try:
+        _seed(repo)
+        experiment, phase, _ = _activate_experiment(repo, runtime)
+        evidence_collector.prices[phase["observation_id"]] = 10_000
+        now.now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
+        experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
+        experiment_detail = runtime.handle_callback(
+            _button(experiment_list, "uex:read:"), user_id="owner-1",
+        )
+        phase_detail = runtime.handle_callback(
+            _button_action(experiment_detail, runtime, "phase", "uex:read:"),
+            user_id="owner-1",
+        )
+        collected = runtime.handle_callback(
+            _button_action(phase_detail, runtime, "phase_collect", "uex:read:"),
+            user_id="owner-1",
+        )
+        evaluated = runtime.handle_callback(
+            _button_action(collected, runtime, "phase_evaluate", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert evaluated["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_EVALUATED"
+        old_finish_callback = _button_action(
+            evaluated, runtime, "phase_finish", "uex:read:",
+        )
+
+        current_experiment = repo.get_price_experiment(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["experiment"]
+        current_phase = repo.list_price_experiment_phases(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["items"][0]
+        newer_result = readiness_service.evaluate_latest(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=current_experiment["state_revision"],
+            expected_phase_state_revision=current_phase["state_revision"],
+            expected_result_revision=current_phase["result_revision"],
+            idempotency_key="w41-newer-ready-result01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert newer_result["error"] is False
+        assert newer_result["status"] == "READY"
+
+        stale_finish = runtime.handle_callback(old_finish_callback, user_id="owner-1")
+        assert stale_finish["status"] == "UNIT_ECONOMICS_EXPERIMENT_ACTION_STALE"
+        phase_after = repo.list_price_experiment_phases(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["items"][0]
+        assert phase_after["status"] == "ACTIVE"
+        assert phase_after["result_revision"] == newer_result["result_revision"]
     finally:
         reset_current_tenant_user_id(token)
 
@@ -600,6 +684,94 @@ def test_experiment_history_reopens_after_runtime_restart_and_links_observation(
         assert "данные Ozon не запрашивались" in snapshot["message"]
         assert all(len(button["callback"].encode("utf-8")) <= 64
                    for button in detail["keyboard"]["buttons"])
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_unconfirmed_phase_can_resume_or_cancel_after_runtime_restart(tmp_path):
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite", clock=lambda: now,
+    )
+    first_runtime = TelegramUnitEconomicsExperimentRuntimeService(
+        repository=repo, clock=lambda: now, monotonic_clock=lambda: 100.0,
+    )
+    token = _enter_context()
+    try:
+        preview = _create_unconfirmed_baseline(repo, first_runtime)
+        assert preview["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_REQUIRED"
+
+        restarted = TelegramUnitEconomicsExperimentRuntimeService(
+            repository=repo, clock=lambda: now, monotonic_clock=lambda: 101.0,
+        )
+        menu = restarted.open_menu("owner-1")
+        experiment_detail = restarted.handle_callback(
+            _button(menu, "uex:read:"), user_id="owner-1",
+        )
+        cancel_prompt = restarted.handle_callback(
+            _button_text(experiment_detail, "Отменить незапущенный"),
+            user_id="owner-1",
+        )
+        assert cancel_prompt["status"] == (
+            "UNIT_ECONOMICS_EXPERIMENT_CANCELLATION_CONFIRMATION_REQUIRED"
+        )
+        assert "Отменить весь эксперимент" in cancel_prompt["message"]
+        experiment_detail = restarted.handle_callback(
+            _button_text(cancel_prompt, "Назад"), user_id="owner-1",
+        )
+        phase_detail = restarted.handle_callback(
+            _button_action(experiment_detail, restarted, "phase", "uex:read:"),
+            user_id="owner-1",
+        )
+        resume = restarted.handle_callback(
+            _button_text(phase_detail, "Продолжить подтверждение"),
+            user_id="owner-1",
+        )
+        assert resume["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_INPUT_REQUIRED"
+        assert "100,00 ₽" in resume["message"]
+
+        confirmation = restarted.handle_text(
+            "100; 2026-10-29 12:00", user_id="owner-1",
+        )
+        assert confirmation["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_REQUIRED"
+        assert "2026-10-30" in confirmation["message"]
+        started = restarted.handle_callback(
+            _button_text(confirmation, "Подтверждаю и начать"), user_id="owner-1",
+        )
+        assert started["status"] == "UNIT_ECONOMICS_EXPERIMENT_BASELINE_ACTIVE"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_unconfirmed_experiment_can_be_explicitly_cancelled_from_reopened_card(tmp_path):
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite", clock=lambda: now,
+    )
+    runtime = TelegramUnitEconomicsExperimentRuntimeService(
+        repository=repo, clock=lambda: now, monotonic_clock=lambda: 100.0,
+    )
+    token = _enter_context()
+    try:
+        _create_unconfirmed_baseline(repo, runtime)
+        menu = runtime.open_menu("owner-1")
+        detail = runtime.handle_callback(_button(menu, "uex:read:"), user_id="owner-1")
+        prompt = runtime.handle_callback(
+            _button_text(detail, "Отменить незапущенный"), user_id="owner-1",
+        )
+        cancelled = runtime.handle_callback(
+            _button_text(prompt, "Да, отменить эксперимент"), user_id="owner-1",
+        )
+        assert cancelled["status"] == "UNIT_ECONOMICS_EXPERIMENT_CANCELLED"
+        experiments = repo.list_price_experiments(
+            owner_id="owner-1", store_id="store-a", limit=10,
+        )
+        assert experiments["items"][0]["status"] == "CANCELLED"
+        phases = repo.list_price_experiment_phases(
+            experiments["items"][0]["experiment_id"], owner_id="owner-1",
+            store_id="store-a", limit=10,
+        )
+        assert phases["items"][0]["status"] == "PLANNED"
     finally:
         reset_current_tenant_user_id(token)
 

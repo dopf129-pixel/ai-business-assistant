@@ -300,6 +300,53 @@ def test_continue_decision_does_not_allow_completion_and_decision_history_is_imm
         reset_current_tenant_user_id(token)
 
 
+def test_candidate_decision_is_rejected_after_baseline_collection_is_refreshed(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "stale-baseline.sqlite")
+    token = _context()
+    try:
+        experiment, snapshot, baseline_id, candidate_id, _ = (
+            _candidate_review_repository(repo)
+        )
+        comparison = _append_valid_comparison(
+            repo, experiment, snapshot, baseline_id, candidate_id,
+        )
+        assert comparison["error"] is False
+
+        new_collection_id = "3" * 64
+        payload_json = "{}"
+        digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        connection = repo.get_connection()
+        try:
+            connection.execute(
+                """INSERT INTO planning_price_experiment_phase_collections
+                   (experiment_id,phase_id,owner_id,store_id,collection_revision,
+                    collection_id,payload_json,content_hash,created_at)
+                   VALUES (?, ?, 'owner-1', 'store-a', 2, ?, ?, ?, ?)""",
+                (experiment["experiment_id"], baseline_id, new_collection_id,
+                 payload_json, digest, "2026-11-14T12:00:00Z"),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        rejected = repo.record_price_experiment_owner_decision(
+            experiment["experiment_id"], {
+                "schema_version": 1,
+                "decision_type": "SELECT_EVALUATED_CANDIDATE",
+                "result_phase_id": candidate_id,
+                "result_revision": 2,
+                "selected_phase_id": candidate_id,
+            }, expected_state_revision=3,
+            idempotency_key="w41-stale-baseline-decision01",
+        )
+        assert rejected["error"] is True
+        assert rejected["code"] == (
+            "PLANNING_PRICE_EXPERIMENT_DECISION_COMPARISON_STALE"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_schema_v11_to_v12_adds_decision_table_and_preserves_existing_plan(tmp_path):
     path = tmp_path / "planning.sqlite"
     repo = PlanningWorkspaceRepository(db_path=path)
