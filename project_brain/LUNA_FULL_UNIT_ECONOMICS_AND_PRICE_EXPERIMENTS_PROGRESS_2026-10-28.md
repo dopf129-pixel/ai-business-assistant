@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: W41 исправления повторного review готовы локально; связанный профиль (113) и полный Windows pytest (4,351) зелёные. Новый commit/push, exact-head CI и независимое review ожидаются. Merge/deploy/live Ozon/Telegram не выполнялись; owner acceptance остаётся pending.
+Статус: W41 исправления опубликованы в commit `b0ad8f392630bd39ab40e75d5bbaae8969db417d`; связанный профиль (113), полный Windows pytest (4,351) и exact-head Windows/full-verification CI (runs `41063476652`, `41063468992`) зелёные. Независимое review и owner acceptance ожидаются. Merge/deploy/live Ozon/Telegram не выполнялись.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -78,7 +78,8 @@
 - Исправлены пять дефектов: maturity привязана к `collected_at` evidence; persisted PLANNED confirmation можно продолжить/отменить после restart; FINISHED phase принимает только append-only позднюю коррекцию и инвалидирует старое comparison; Finish callback привязан к точным experiment/phase/result revisions; неполный компонент остаётся PARTIAL.
 - Связанный профиль из 8 модулей: **113 passed in 6.73s**. Полный локальный Windows pytest: **4,351 passed in 44.59s**.
 - Legacy suite временно изменила `data/tasks.json` и создала пустой lock; tracked fixture восстановлен из начального HEAD, lock удалён; `git diff -- data` пустой. `git diff --check` PASS. Нет реальных API/bot запросов и storage-root override.
-- Следующее: commit/push в PR #722, дождаться exact-head CI и провести повторный независимый review; merge не выполнять.
+- Exact-head Windows/full-verification CI прошло на `b0ad8f392630bd39ab40e75d5bbaae8969db417d`: Windows, full suite, production Docker build и smoke успешны в runs `41063476652`/`41063468992`; только non-blocking runner notices про Node 20.
+- Следующее: повторное независимое review PR #722; merge не выполнять.
 - Подробности: `UNIT_ECONOMICS_W41_REVIEW_REMEDIATION_2026-10-30.md`.
 
 ## W40 — remediation по независимому review (30.10.2026)

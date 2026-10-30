@@ -3,7 +3,7 @@
 Дата: 30.10.2026
 Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
 Базовая голова до исправлений: `a84da1a111d63b98e3fc33a4c28a9bb7f69c8050`
-Статус: исправления и локальные проверки готовы; CI и независимое review должны быть привязаны к точной опубликованной голове.
+Статус: исправления опубликованы и exact-head CI прошло; независимое повторное review ожидается.
 
 ## Исправленные замечания
 
@@ -27,9 +27,10 @@
 - Связанный профиль из 8 модулей: **113 passed in 6.73s**.
 - Полный Windows `pytest`: **4,351 passed in 44.59s**.
 - `git diff --check`: PASS.
+- Exact-head Windows/full-verification jobs успешны на `b0ad8f392630bd39ab40e75d5bbaae8969db417d`: runs [41063476652](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41063476652) и [41063468992](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41063468992). Full verification включает полный suite, production Docker build и smoke. Есть только non-blocking notices о миграции GitHub runner с Node 20.
 - Полный suite временно изменил демонстрационный `data/tasks.json` и создал `data/tasks.json.lock`; tracked JSON восстановлен, lock удалён. Итоговый `git diff -- data` пустой.
 - Запуски без `AI_ASSISTANT_STORAGE_ROOT`, credentials, реальных Ozon API-запросов и Telegram-бота.
 
 ## Review boundary и следующий шаг
 
-Изменения расширяют lifecycle и persistence/revision guards и затрагивают более пяти исходных файлов; классификация — **Architecture Review Required**. После commit/push требуется CI точной головы и повторное независимое review. PR #722 не сливать до их завершения. Deployment, live API/bot и owner acceptance не входят в эту проверку.
+Изменения расширяют lifecycle и persistence/revision guards и затрагивают более пяти исходных файлов; классификация — **Architecture Review Required**. Commit `b0ad8f39` опубликован, exact-head CI прошло; PR #722 готов к повторному независимому review. Не сливать до его завершения. Deployment, live API/bot и owner acceptance не входят в эту проверку.

@@ -4,7 +4,7 @@
 - `tests/test_telegram_unit_economics_experiment_runtime.py`: восстановление явного подтверждения и отмена незапущенной фазы после restart; устаревшая Finish-кнопка ссылается на точные revisions и не завершает фазу после нового результата.
 - `tests/test_unit_economics_experiment_phase_collection_service.py` и `tests/test_unit_economics_experiment_owner_decision_repository.py`: поздняя поправка добавляется к FINISHED фазе как новая неизменяемая revision; фаза не переоткрывается; после обновления baseline старое сравнение не может зафиксировать решение.
 - `tests/test_unit_economics_window_snapshot_service.py`: неполный компонент остаётся PARTIAL, observed rate сохраняется только как диагностика, применённая ставка неизвестна.
-- Связанный профиль (8 модулей): **113 passed in 6.73s**. Полный Windows pytest: **4,351 passed in 44.59s**. `git diff --check` PASS; после очистки известных тестовых побочных файлов `git diff -- data` пустой.
+- Связанный профиль (8 модулей): **113 passed in 6.73s**. Полный Windows pytest: **4,351 passed in 44.59s**. `git diff --check` PASS; после очистки известных тестовых побочных файлов `git diff -- data` пустой. Exact-head Windows/full-verification CI PASS на `b0ad8f392630bd39ab40e75d5bbaae8969db417d` (runs `41063476652`, `41063468992`).
 - Evidence: `project_brain/UNIT_ECONOMICS_W41_REVIEW_REMEDIATION_2026-10-30.md`.
 
 # W39 — review handoff / W38 full verification (2026-10-30)
