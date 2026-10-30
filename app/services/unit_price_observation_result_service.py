@@ -83,13 +83,22 @@ class UnitPriceObservationResultService:
         price = Decimal(base["seller_price_cents"]) / Decimal("100")
         cpc_per_unit = Decimal(cost_basis["amount_per_unit"])
         inputs["price"] = format(price, ".2f")
-        inputs["advertising_rate"] = format(cpc_per_unit * Decimal("100") / price, "f")
+        advertising_mode = str(inputs.get("advertising_mode") or "PERCENT_OF_SELLER_REVENUE")
+        if advertising_mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            inputs.pop("advertising_rate", None)
+            inputs["advertising_cost_per_unit"] = format(cpc_per_unit, ".2f")
+            advertising_provenance_key = "advertising_cost_per_unit"
+        else:
+            inputs.pop("advertising_cost_per_unit", None)
+            inputs["advertising_mode"] = "PERCENT_OF_SELLER_REVENUE"
+            inputs["advertising_rate"] = format(cpc_per_unit * Decimal("100") / price, "f")
+            advertising_provenance_key = "advertising_rate"
         planner_provenance = deepcopy(provenance or {})
         if not isinstance(planner_provenance, dict):
             planner_provenance = {}
         planner_provenance.update({
             "price": "OWNER_DECLARED_OBSERVATION_PRICE",
-            "advertising_rate": "OBSERVED_CPC_PER_SUCCESSFUL_UNIT",
+            advertising_provenance_key: "OBSERVED_CPC_PER_SUCCESSFUL_UNIT",
         })
         scenario_identity = deepcopy(identity) if isinstance(identity, dict) else {}
         if (

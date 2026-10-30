@@ -10,8 +10,10 @@ from services.unit_economics_experiment_phase_comparison_service import (
 from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.tenant_context import reset_current_tenant_user_id
 from test_planning_workspace_unit_economics import (
+    _confirm_baseline_phase,
     _context,
     _phase_payload,
+    _ready_baseline_phase,
     _result_payload,
     _seed,
 )
@@ -136,6 +138,55 @@ def test_compatible_mature_phases_compare_observed_net_without_double_subtractin
     assert result["comparison"]["baseline"]["profit_total_rub"] == "700.00"
     assert result["comparison"]["relative_delta_percent"] == "14.32"
     assert "OBSERVED_WINDOW_MODEL_NOT_CAUSAL_PRICE_EFFECT" in result["limitations"]
+
+
+def test_phase_events_are_read_using_repository_page_limit():
+    class PagedRepository:
+        def __init__(self):
+            self.calls = []
+
+        def list_price_experiment_events(self, experiment_id, *, phase_id, limit, offset,
+                                        owner_id, store_id):
+            self.calls.append((limit, offset))
+            assert 1 <= limit <= 10
+            rows = [{"event_revision": revision} for revision in range(1, 12)]
+            page = rows[offset:offset + limit]
+            has_more = offset + limit < len(rows)
+            return {
+                "error": False, "items": page, "has_more": has_more,
+                "next_offset": offset + limit if has_more else None,
+            }
+
+    repository = PagedRepository()
+    result = UnitEconomicsExperimentPhaseComparisonService(repository)._phase_events(
+        "experiment", "phase", "owner", "store",
+    )
+
+    assert result["error"] is False
+    assert len(result["items"]) == 11
+    assert result["latest_revision"] == 11
+    assert repository.calls == [(10, 0), (10, 10)]
+
+
+def test_phase_event_scan_fails_closed_after_bounded_history_limit():
+    class PagedRepository:
+        def list_price_experiment_events(self, experiment_id, *, phase_id, limit, offset,
+                                        owner_id, store_id):
+            return {
+                "error": False,
+                "items": [{"event_revision": offset + index + 1} for index in range(limit)],
+                "has_more": True,
+                "next_offset": offset + limit,
+            }
+
+    result = UnitEconomicsExperimentPhaseComparisonService(PagedRepository())._phase_events(
+        "experiment", "phase", "owner", "store",
+    )
+
+    assert result == {
+        "error": True, "code": "EXPERIMENT_PHASE_EVENT_HISTORY_INCOMPLETE",
+        "read_only": True, "source_io": False,
+    }
 
 
 def test_threshold_uses_rounded_rub_per_unit_and_reports_no_clear_difference():
@@ -302,36 +353,73 @@ def test_v2_result_is_allowlisted_and_v1_result_remains_readable():
 
 
 def test_repository_rejects_comparison_if_baseline_revision_changed_before_append(tmp_path):
-    repo = PlanningWorkspaceRepository(db_path=tmp_path / "comparison-guard.sqlite")
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "comparison-guard.sqlite",
+        clock=lambda: datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc),
+    )
     saved, snapshot, experiment = _seed(repo)
     token = _context()
     try:
-        baseline = repo.create_price_experiment_phase(
-            experiment["experiment_id"],
-            _phase_payload(snapshot["snapshot_id"], kind="BASELINE", segment=1, price=10_000),
-            expected_state_revision=1, idempotency_key="w28-base-phase01",
-        )
-        candidate = repo.create_price_experiment_phase(
-            experiment["experiment_id"],
-            _phase_payload(snapshot["snapshot_id"], kind="CANDIDATE", segment=2, price=9_900),
-            expected_state_revision=2, idempotency_key="w28-cand-phase01",
-        )
-        assert baseline["error"] is False and candidate["error"] is False
+        baseline = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, baseline)
+        assert confirmed["error"] is False
+        ready_payload = _result_payload(snapshot["snapshot_id"])
+        ready_payload.update({"status": "READY", "outcome": "CONTINUE_COLLECTING"})
         first = repo.append_price_experiment_result(
-            experiment["experiment_id"], baseline["phase_id"],
-            _result_payload(snapshot["snapshot_id"]),
-            expected_state_revision=3, expected_phase_state_revision=1,
+            experiment["experiment_id"], baseline["phase_id"], ready_payload,
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
             expected_result_revision=0, idempotency_key="w28-base-result01",
         )
         assert first["error"] is False
+        finished = repo.finish_price_experiment_phase(
+            experiment["experiment_id"], baseline["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            expected_result_revision=1, idempotency_key="w28-base-finish01",
+        )
+        assert finished["error"] is False
+        candidate_payload = _phase_payload(
+            snapshot["snapshot_id"], kind="CANDIDATE", segment=2, price=9_900,
+        )
+        candidate_payload.update({
+            "planned_from_date": "2026-11-07", "planned_to_date": "2026-11-13",
+        })
+        candidate = repo.create_price_experiment_phase(
+            experiment["experiment_id"], candidate_payload,
+            expected_state_revision=finished["state_revision"],
+            idempotency_key="w28-cand-phase01",
+        )
+        assert candidate["error"] is False
+        confirmed_candidate = repo.confirm_price_experiment_phase(
+            experiment["experiment_id"], candidate["phase_id"],
+            seller_price_cents=9_900,
+            effective_from="2026-11-06T12:00:00+03:00", owner_confirmed=True,
+            expected_state_revision=candidate["experiment_state_revision"],
+            expected_phase_state_revision=candidate["phase_state_revision"],
+            idempotency_key="w28-confirm-candidate1",
+        )
+        assert confirmed_candidate["error"] is False
+        baseline_row = repo.list_price_experiment_phases(
+            experiment["experiment_id"], limit=10,
+        )["items"][0]
+        changed_baseline = repo.append_price_experiment_result(
+            experiment["experiment_id"], baseline["phase_id"], ready_payload,
+            expected_state_revision=confirmed_candidate["state_revision"],
+            expected_phase_state_revision=baseline_row["state_revision"],
+            expected_result_revision=1, idempotency_key="w28-base-result02",
+        )
+        assert changed_baseline["error"] is False
         stale = repo.append_price_experiment_result(
             experiment["experiment_id"], candidate["phase_id"],
             _result_payload(snapshot["snapshot_id"]),
-            expected_state_revision=3, expected_phase_state_revision=1,
+            expected_state_revision=confirmed_candidate["state_revision"],
+            expected_phase_state_revision=confirmed_candidate["phase_state_revision"],
             expected_result_revision=0, idempotency_key="w28-stale-compare01",
             comparison_guard={
                 "baseline_phase_id": baseline["phase_id"],
-                "baseline_state_revision": 1, "baseline_result_revision": 0,
+                "baseline_state_revision": finished["phase_state_revision"],
+                "baseline_result_revision": 1,
                 "baseline_collection_id": "1" * 64,
                 "candidate_collection_id": "2" * 64,
                 "baseline_control_event_revision": 0,

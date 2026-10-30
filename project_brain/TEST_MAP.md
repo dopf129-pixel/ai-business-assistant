@@ -43,6 +43,17 @@
 - W31 fail-closed coverage: without a complete 56-day snapshot, no experiment is written. Production snapshot collection is not yet connected to Telegram, so positive lifecycle tests use prepared synthetic repository evidence; they do not prove first-run source acquisition.
 - py_compile: PASS; git diff --check: PASS; git diff -- data: empty. No live API or bot used. Evidence: UNIT_ECONOMICS_W31_GUIDED_EXPERIMENT_WIZARD_2026-10-29.md.
 
+# W40 — исправления независимого review W39 (2026-10-30)
+
+- `tests/test_unit_economics_window_snapshot_service.py`: окно не считается `COMPLETE`, если даты присутствуют, но сегмент/компонент не имеет полного source evidence.
+- `tests/test_unit_economics_experiment_phase_comparison_service.py`: чтение контрольных событий использует страницы до 10 строк, проверяет последовательность offsets и прекращает чтение на общем лимите 100.
+- `tests/test_unit_price_observation_result_service.py`: абсолютная рекламная сумма на единицу остаётся `advertising_cost_per_unit` и не превращается в процентный режим.
+- Новый `tests/test_unit_economics_reference_snapshot_collection_service.py`: точный 56-дневный snapshot сохраняется только при полном finance + FBO знаменателе; неполный Returns, неподдержанные типы, нулевой знаменатель и кредитовые суммы не маркируются как полный снимок.
+- `tests/test_telegram_unit_economics_experiment_runtime.py`: проверяет кнопку первого сбора и полный synthetic Telegram путь baseline → candidate → collect → maturity → finish → compare → owner decision. Все действия tenant scoped; цена в Ozon не меняется.
+- `tests/test_planning_workspace_unit_economics.py`: атомарное завершение фазы, связь с latest READY результатом, закрытие observation и конфликт устаревшей ревизии.
+- Связанный профиль по 10 файлам: **127 passed in 6.60s**. Полный Windows `pytest`: **4,346 passed in 42.30s**. Synthetic/local storage only; no Ozon/Telegram live calls or owner data. `git diff --check` PASS; `git diff -- data` empty after removal of a test-generated lock.
+- Evidence: `project_brain/UNIT_ECONOMICS_W40_REVIEW_REMEDIATION_2026-10-30.md`.
+
 # План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W30 verified 29.10.2026)
 
 - W30: `tests/test_product_unit_economics_telegram_ui.py` verifies base-vs-planning scope copy; `tests/test_unit_price_scenario_telegram_runtime.py` verifies guided mode labels and the SKU detail planning action; `tests/test_telegram_unit_price_tariff_profile_runtime.py::test_public_telegram_flow_previews_and_persists_manual_ranges_idempotently` verifies return to the same scenario after confirming a manual tariff while retaining seller price and COGS; financial Telegram exception containment stays green. Isolated Windows profile: **69 passed in 2.11s**. Synthetic storage; no live Ozon/Telegram. Evidence: `UNIT_ECONOMICS_W30_TELEGRAM_GUIDED_ENTRY_2026-10-29.md`.

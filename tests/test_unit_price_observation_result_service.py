@@ -138,6 +138,24 @@ def test_complete_compatible_evidence_builds_only_an_explicit_cpc_model():
     assert PlanningWorkspaceRepository._normalize_unit_price_observation_result(result) is not None
 
 
+def test_absolute_advertising_plan_uses_absolute_observed_cpc_cost():
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+    inputs.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "3.00",
+    })
+
+    result = _service().evaluate(
+        _evidence(), scenario_inputs=inputs, identity=_SCENARIO_IDENTITY,
+    )
+
+    assert result["status"] == "AVAILABLE"
+    assert result["metrics"]["scenario_profit_per_unit"] == "61.00"
+    assert result["metrics"]["advertising_status"] == "CPC_ONLY_MODEL"
+    assert PlanningWorkspaceRepository._normalize_unit_price_observation_result(result) is not None
+
+
 def test_confirmed_tariff_provenance_is_preserved_in_result_completeness():
     result = _service().evaluate(
         _evidence(), scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,

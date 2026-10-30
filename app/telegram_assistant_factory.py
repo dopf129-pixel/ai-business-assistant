@@ -131,6 +131,18 @@ from services.analytics_export_service import AnalyticsExportService
 from services.unit_economics_experiment_history_export_service import (
     UnitEconomicsExperimentHistoryExportService,
 )
+from services.unit_economics_reference_snapshot_collection_service import (
+    UnitEconomicsReferenceSnapshotCollectionService,
+)
+from services.unit_economics_experiment_phase_collection_service import (
+    UnitEconomicsExperimentPhaseCollectionService,
+)
+from services.unit_economics_experiment_phase_readiness_service import (
+    UnitEconomicsExperimentPhaseReadinessService,
+)
+from services.unit_economics_experiment_phase_comparison_service import (
+    UnitEconomicsExperimentPhaseComparisonService,
+)
 from services.app_build_metadata_service import AppBuildMetadataService
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
@@ -428,6 +440,20 @@ def create_telegram_assistant():
             repository=planning_workspace_repository,
             keyboard_service=keyboard,
             observation_runtime_service=unit_price_observation_runtime_service,
+            reference_snapshot_collection_service=UnitEconomicsReferenceSnapshotCollectionService(
+                repository=planning_workspace_repository,
+                evidence_collection_service=unit_price_observation_collection_service,
+            ) if unit_price_observation_collection_service is not None else None,
+            phase_collection_service=UnitEconomicsExperimentPhaseCollectionService(
+                repository=planning_workspace_repository,
+                observation_collection_service=unit_price_observation_collection_service,
+            ) if unit_price_observation_collection_service is not None else None,
+            phase_readiness_service=UnitEconomicsExperimentPhaseReadinessService(
+                repository=planning_workspace_repository,
+            ),
+            phase_comparison_service=UnitEconomicsExperimentPhaseComparisonService(
+                repository=planning_workspace_repository,
+            ),
             history_export_service=UnitEconomicsExperimentHistoryExportService(
                 repository=planning_workspace_repository,
                 analytics_export_service=analytics_export_service,

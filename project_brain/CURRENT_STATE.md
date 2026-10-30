@@ -1,3 +1,9 @@
+# 2026-10-30 — Review-remediation для W39
+
+- Исправлены пять подтверждённых замечаний независимого review PR #722: полный source coverage обязателен для COMPLETE; история контрольных событий читается постранично по 10 с общим пределом; результат сохраняет режим абсолютной рекламы; первый запуск умеет запросить 56-дневный reference snapshot; Telegram предоставляет пользовательские действия для всего цикла фаз и решения.
+- Windows linked profile: **127 passed in 6.60s**. Полный Windows `pytest`: **4,346 passed in 42.30s**. `git diff --check` PASS; `git diff -- data` пустой после очистки временного test lock.
+- Изменения находятся в незакоммиченном working tree ветки `codex/full-unit-economics-experiments-implementation-20261028`, исходный code HEAD `762c5cd53359962a90fec6f8bdf512dc5dfdb246`. Для обновлённого PR требуется новый exact-head CI и повторное независимое review; merge/deploy/live Ozon/API/bot не выполнялись. Реальная приёмка владельцем остаётся отдельным шагом.
+
 # 2026-10-30 — W39: review handoff и зелёный CI
 
 - PR #722 открыт поверх спецификации PR #721; пакет независимого архитектурного review: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`. Exact HEAD `b1b81592199348df40cdb6133b464f59fbe0768e` прошёл Windows/Linux/Docker Verify: [run 40956765471](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40956765471). Текущую голову PR и Checks проверять live в GitHub.

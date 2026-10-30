@@ -134,6 +134,53 @@ class UnitPriceObservationCollectionService:
         finally:
             reset_period_profit_trace(token)
 
+    def collect_reference_window(self, identity, *, date_from, date_to, timezone_name):
+        """Collect bounded SKU finance/quantity evidence without a saved observation.
+
+        This is used only by an explicit owner action to build a reference
+        snapshot. It does not infer historical seller price or request CPC.
+        """
+        if not isinstance(identity, dict) or set(identity) != {
+            "owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema",
+        } or any(not isinstance(value, str) or not value.strip() for value in identity.values()):
+            return self._error("UNIT_ECONOMICS_REFERENCE_IDENTITY_INVALID")
+        if identity.get("sale_schema") != "FBO":
+            return self._error("UNIT_ECONOMICS_REFERENCE_SCHEME_UNSUPPORTED")
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+            zone = ZoneInfo(timezone_name)
+            now = self.clock()
+            if not isinstance(now, datetime) or now.tzinfo is None:
+                raise ValueError("clock must return an aware datetime")
+            local_today = now.astimezone(zone).date()
+        except (TypeError, ValueError, ZoneInfoNotFoundError, OSError):
+            return self._error("UNIT_ECONOMICS_REFERENCE_WINDOW_INVALID")
+        if start > end or (end - start).days + 1 != 56 or end >= local_today:
+            return self._error("UNIT_ECONOMICS_REFERENCE_WINDOW_NOT_COMPLETED")
+
+        parent = current_period_profit_trace()
+        trace = PeriodProfitOperationTrace(
+            operation="unit_economics_reference_collection",
+            time_budget_seconds=self.TIME_BUDGET_SECONDS,
+            ozon_request_budget=self.HTTP_ATTEMPT_BUDGET,
+            parent=parent,
+        )
+        token = activate_period_profit_trace(trace)
+        try:
+            return self._collect(
+                identity={key: identity[key] for key in (
+                    "store_id", "product_id", "offer_id", "sku", "sale_schema",
+                )},
+                observation=None,
+                start=start,
+                end=end,
+                timezone_name=timezone_name,
+                trace=trace,
+            )
+        finally:
+            reset_period_profit_trace(token)
+
     def _collect(self, *, identity, observation, start, end, timezone_name, trace):
         finance_totals = {field: Decimal("0") for field in self.FINANCE_FIELDS}
         successful_days = 0
@@ -224,8 +271,14 @@ class UnitPriceObservationCollectionService:
             **({"reason": finance_reason} if finance_reason else {}),
         }]
 
-        performance = self._load_advertising(
-            identity["sku"], start, end, timezone_name, trace,
+        performance = (
+            self._load_advertising(
+                identity["sku"], start, end, timezone_name, trace,
+            ) if observation is not None else self._performance_unavailable(
+                "REFERENCE_SNAPSHOT_DOES_NOT_REQUEST_ADVERTISING",
+                status="NOT_REQUESTED", start=start, end=end,
+                timezone_name=timezone_name,
+            )
         )
         performance["source"]["requested_at"] = trace.started_at_utc
         performance["source"]["received_at"] = self._timestamp(self.clock())
@@ -235,20 +288,24 @@ class UnitPriceObservationCollectionService:
             timezone_name=timezone_name, trace=trace,
         )
         observed_at = self._timestamp(self.clock())
-        price_effective_local_date = self._aware_datetime(
-            observation["effective_from"]
-        ).astimezone(ZoneInfo(timezone_name)).date()
         warnings = [
-            "PRICE_HISTORY_UNCONFIRMED: manual confirmation does not prove per-sale price history.",
-            "Finance amounts use accrual-date basis; CPC is a separate Performance source and is not deducted here.",
+            "Finance amounts use accrual-date basis; the reference snapshot is reconciliation-only.",
         ]
-        if start == price_effective_local_date:
-            warnings.append(
-                "WINDOW_INCLUDES_EFFECTIVE_DATE: a price change during this local day may create mixed-price evidence."
-            )
+        if observation is not None:
+            price_effective_local_date = self._aware_datetime(
+                observation["effective_from"]
+            ).astimezone(ZoneInfo(timezone_name)).date()
+            warnings.extend([
+                "PRICE_HISTORY_UNCONFIRMED: manual confirmation does not prove per-sale price history.",
+                "CPC is a separate Performance source and is not deducted here.",
+            ])
+            if start == price_effective_local_date:
+                warnings.append(
+                    "WINDOW_INCLUDES_EFFECTIVE_DATE: a price change during this local day may create mixed-price evidence."
+                )
         if not finance_complete:
             warnings.append("FINANCE_WINDOW_PARTIAL: missing days are not filled with zero.")
-        if performance["source"]["status"] != "COMPLETE":
+        if observation is not None and performance["source"]["status"] != "COMPLETE":
             warnings.append("PERFORMANCE_CPC_SCOPE_ONLY: missing CPC does not mean zero advertising spend.")
         if returns["successful_sale_units"] is not None:
             warnings.extend([
@@ -297,14 +354,14 @@ class UnitPriceObservationCollectionService:
             "error": False,
             "status": status,
             "identity": identity,
-            "seller_price_cents": observation["seller_price_cents"],
+            "seller_price_cents": observation.get("seller_price_cents") if observation else None,
             "window": {
                 "from": start.isoformat(),
                 "to": end.isoformat(),
                 "timezone": timezone_name,
                 "date_basis": "SOURCE_CALENDAR_DATE",
             },
-            "sources": sources + [{
+            "sources": sources + ([{
                 "name": "OWNER_DECLARED_PRICE",
                 "status": "COMPLETE",
                 "complete": True,
@@ -323,8 +380,6 @@ class UnitPriceObservationCollectionService:
                 "complete": False,
                 "reason": "This collection does not require a Premium Analytics subscription; unit counts are not inferred.",
             }, {
-                **returns["source"],
-            }, {
                 "name": "TARIFF",
                 "status": "NOT_REQUESTED",
                 "complete": False,
@@ -339,6 +394,8 @@ class UnitPriceObservationCollectionService:
                 "status": "NOT_REQUESTED",
                 "complete": False,
                 "reason": "Tax is not recomputed from the collected accrual aggregates.",
+            }] if observation is not None else []) + [{
+                **returns["source"],
             }],
             "metrics": metrics,
             "completeness": {

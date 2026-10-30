@@ -161,6 +161,30 @@ def test_gap_or_incomplete_pages_do_not_become_full_window():
     assert limited["coverage"]["complete"] is False
 
 
+def test_partial_segment_covering_tail_dates_does_not_make_window_complete():
+    spec = _full_reference()
+    start = date.fromisoformat(spec["window"]["from_date"])
+    end = date.fromisoformat(spec["window"]["to_date"])
+    complete = _segment(start, start + timedelta(days=27), 100, 100)
+    partial = _segment(start + timedelta(days=28), end, 900, 100, status="PARTIAL")
+    partial["quantity"] = {
+        "status": "PARTIAL", "units": None, "denominator_kind": None,
+    }
+    partial["coverage"] = {
+        "complete": False, "page_count": 1, "stop_reason": "MORE_PAGES",
+    }
+
+    result = Service.build_snapshot(
+        spec, IDENTITY, [complete, partial], ["ADS"], BUDGET,
+    )
+
+    assert result["coverage"]["full_requested_window"] is True
+    assert result["coverage"]["status"] == "PARTIAL"
+    assert result["coverage"]["complete"] is False
+    assert result["complete_days"] == 28
+    assert result["total_unit_expense_rub"] is None
+
+
 def test_identity_mismatch_overlap_and_negative_credit_fail_closed():
     spec = _full_reference()
     start = date.fromisoformat(spec["window"]["from_date"])

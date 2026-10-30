@@ -10,9 +10,19 @@ from services.analytics_export_service import AnalyticsExportService
 from services.unit_economics_experiment_history_export_service import (
     UnitEconomicsExperimentHistoryExportService,
 )
+from services.unit_economics_experiment_phase_collection_service import (
+    UnitEconomicsExperimentPhaseCollectionService,
+)
+from services.unit_economics_experiment_phase_comparison_service import (
+    UnitEconomicsExperimentPhaseComparisonService,
+)
+from services.unit_economics_experiment_phase_readiness_service import (
+    UnitEconomicsExperimentPhaseReadinessService,
+)
 from services.telegram_unit_economics_experiment_runtime_service import (
     TelegramUnitEconomicsExperimentRuntimeService,
 )
+from test_unit_economics_experiment_phase_readiness_service import _mature_evidence
 
 
 def _identity():
@@ -84,6 +94,49 @@ def _button_text(result, text):
     )
 
 
+def _button_action(result, runtime, kind, prefix, *, predicate=None):
+    scope = runtime._scope("owner-1")
+    for button in result["keyboard"]["buttons"]:
+        callback = button["callback"]
+        if not callback.startswith(prefix):
+            continue
+        action = runtime._get_action(callback.rsplit(":", 1)[-1], scope)
+        if (isinstance(action, dict) and action.get("kind") == kind
+                and (predicate is None or predicate(action))):
+            return callback
+    raise AssertionError(f"button action not found: {kind}")
+
+
+class _PartialReferenceSnapshotCollector:
+    def __init__(self):
+        self.calls = []
+
+    def collect(self, identity, *, owner_id, store_id, timezone_name):
+        self.calls.append((identity, owner_id, store_id, timezone_name))
+        return {
+            "error": False, "status": "PARTIAL", "reason_code": "RETURNS_PARTIAL",
+            "read_only": True, "source_io": True,
+        }
+
+
+class _RuntimePhaseEvidenceCollector:
+    def __init__(self, clock):
+        self.clock = clock
+        self.prices = {}
+        self.calls = []
+
+    def collect_window(self, observation_id, *, date_from, date_to):
+        self.calls.append((observation_id, date_from, date_to))
+        evidence = _mature_evidence()
+        evidence["seller_price_cents"] = self.prices[observation_id]
+        evidence["window"] = {
+            "from": date_from, "to": date_to, "timezone": "Europe/Moscow",
+            "date_basis": "SOURCE_CALENDAR_DATE",
+        }
+        evidence["collected_at"] = self.clock.now.isoformat().replace("+00:00", "Z")
+        return evidence
+
+
 def _seed(repo, *, with_snapshot=True):
     saved = repo.save_document(
         title="SKU plan", payload=_plan_payload(), idempotency_key="uex-plan-save01",
@@ -103,8 +156,13 @@ def _activate_experiment(repo, runtime, user_id="owner-1"):
         _button(selected_plan, "uex:a:"), user_id=user_id,
     )
     runtime.handle_text("95; 105", user_id=user_id)
-    preview = runtime.handle_text("100; 2026-10-29 12:00", user_id=user_id)
-    active = runtime.handle_callback(_button(preview, "uex:a:"), user_id=user_id)
+    controls = runtime.handle_text("100; 2026-10-29 12:00", user_id=user_id)
+    preview = runtime.handle_callback(
+        _button_text(controls, "Все условия без изменений"), user_id=user_id,
+    )
+    active = runtime.handle_callback(
+        _button_text(preview, "Подтверждаю и начать"), user_id=user_id,
+    )
     assert active["status"] == "UNIT_ECONOMICS_EXPERIMENT_BASELINE_ACTIVE"
     experiments = repo.list_price_experiments(
         owner_id="owner-1", store_id="store-a", limit=10,
@@ -139,8 +197,12 @@ def test_guided_wizard_creates_and_activates_owner_confirmed_baseline(tmp_path):
         assert prices_prompt["status"] == "UNIT_ECONOMICS_EXPERIMENT_PRICES_REQUIRED"
         baseline_prompt = runtime.handle_text("95; 99,90; 105", user_id="owner-1")
         assert baseline_prompt["status"] == "UNIT_ECONOMICS_EXPERIMENT_BASELINE_INPUT_REQUIRED"
-        preview = runtime.handle_text(
+        controls = runtime.handle_text(
             "100; 2026-10-29 12:00", user_id="owner-1",
+        )
+        assert controls["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONTROL_CONFIRMATION_REQUIRED"
+        preview = runtime.handle_callback(
+            _button_text(controls, "Все условия без изменений"), user_id="owner-1",
         )
         assert preview["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_REQUIRED"
         assert "2026-10-30 — 2026-11-05" in preview["message"]
@@ -157,7 +219,7 @@ def test_guided_wizard_creates_and_activates_owner_confirmed_baseline(tmp_path):
         assert experiment["status"] == "BASELINE_ACTIVE"
         assert experiment["config"]["candidate_prices_cents"] == [9500, 9990, 10500]
         assert experiment["config"]["control_flags"] == {
-            key: "UNKNOWN" for key in (
+            key: "UNCHANGED" for key in (
                 "inventory", "promotion", "advertising", "card", "cost", "tariff",
             )
         }
@@ -178,11 +240,204 @@ def test_wizard_blocks_when_no_full_reference_snapshot_exists(tmp_path):
         assert selected_plan["status"] == (
             "UNIT_ECONOMICS_EXPERIMENT_REFERENCE_SNAPSHOT_REQUIRED"
         )
-        assert "не подключён" in selected_plan["message"]
+        assert "CPC" in selected_plan["message"]
+        assert "56" in selected_plan["message"]
         experiments = repo.list_price_experiments(
             owner_id="owner-1", store_id="store-a", limit=10,
         )
         assert experiments["items"] == []
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_wizard_exposes_and_runs_first_reference_collection_action(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    collector = _PartialReferenceSnapshotCollector()
+    runtime = TelegramUnitEconomicsExperimentRuntimeService(
+        repository=repo, reference_snapshot_collection_service=collector,
+    )
+    token = _enter_context()
+    try:
+        _seed(repo, with_snapshot=False)
+        plans = runtime.handle_callback("uex:new", user_id="owner-1")
+        selected_plan = runtime.handle_callback(
+            _button(plans, "uex:a:"), user_id="owner-1",
+        )
+        assert selected_plan["status"] == (
+            "UNIT_ECONOMICS_EXPERIMENT_REFERENCE_SNAPSHOT_REQUIRED"
+        )
+        collect_callback = _button_text(selected_plan, "Собрать снимок за 56 дней")
+
+        partial = runtime.handle_callback(collect_callback, user_id="owner-1")
+
+        assert partial["status"] == (
+            "UNIT_ECONOMICS_EXPERIMENT_REFERENCE_COLLECTION_PARTIAL"
+        )
+        assert collector.calls == [(_identity(), "owner-1", "store-a", "Europe/Moscow")]
+        assert _button_text(partial, "Повторить сбор").startswith("uex:a:")
+        experiments = repo.list_price_experiments(
+            owner_id="owner-1", store_id="store-a", limit=10,
+        )
+        assert experiments["items"] == []
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecycle(tmp_path):
+    now = SimpleNamespace(now=datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite", clock=lambda: now.now,
+    )
+    evidence_collector = _RuntimePhaseEvidenceCollector(now)
+    phase_collection = UnitEconomicsExperimentPhaseCollectionService(
+        repo, evidence_collector, clock=lambda: now.now,
+    )
+    phase_readiness = UnitEconomicsExperimentPhaseReadinessService(
+        repo, clock=lambda: now.now,
+    )
+    phase_comparison = UnitEconomicsExperimentPhaseComparisonService(
+        repo, clock=lambda: now.now,
+    )
+    runtime = TelegramUnitEconomicsExperimentRuntimeService(
+        repository=repo, phase_collection_service=phase_collection,
+        phase_readiness_service=phase_readiness,
+        phase_comparison_service=phase_comparison,
+        clock=lambda: now.now, monotonic_clock=lambda: 100.0,
+    )
+    token = _enter_context()
+    try:
+        _seed(repo)
+        experiment, baseline, _ = _activate_experiment(repo, runtime)
+        evidence_collector.prices[baseline["observation_id"]] = 10_000
+        now.now = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+
+        experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
+        experiment_detail = runtime.handle_callback(
+            _button(experiment_list, "uex:read:"), user_id="owner-1",
+        )
+        baseline_detail = runtime.handle_callback(
+            _button_action(experiment_detail, runtime, "phase", "uex:read:"),
+            user_id="owner-1",
+        )
+        controls_updated = runtime.handle_callback(
+            _button_action(
+                baseline_detail, runtime, "phase_control_update", "uex:read:",
+                predicate=lambda action: set(action["control_flags"].values()) == {"UNCHANGED"},
+            ), user_id="owner-1",
+        )
+        assert controls_updated["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONTROLS_UPDATED"
+        collected = runtime.handle_callback(
+            _button_action(controls_updated, runtime, "phase_collect", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert collected["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_SAVED"
+        now.now = datetime(2026, 11, 12, 21, 0, tzinfo=timezone.utc)
+        evaluated = runtime.handle_callback(
+            _button_action(collected, runtime, "phase_evaluate", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert evaluated["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_EVALUATED"
+        baseline_finished = runtime.handle_callback(
+            _button_action(evaluated, runtime, "phase_finish", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert baseline_finished["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_FINISHED"
+        candidate_action = _button_action(
+            baseline_finished, runtime, "start_candidate", "uex:a:",
+            predicate=lambda action: action.get("price_cents") == 9500,
+        )
+
+        now.now = datetime(2026, 11, 14, 13, 0, tzinfo=timezone.utc)
+        runtime.handle_callback(candidate_action, user_id="owner-1")
+        candidate_controls = runtime.handle_text(
+            "95; 2026-11-14 15:00", user_id="owner-1",
+        )
+        candidate_confirmation = runtime.handle_callback(
+            _button_action(
+                candidate_controls, runtime, "candidate_controls", "uex:a:",
+                predicate=lambda action: set(action["control_flags"].values()) == {"UNCHANGED"},
+            ), user_id="owner-1",
+        )
+        candidate_started = runtime.handle_callback(
+            _button_action(candidate_confirmation, runtime, "confirm", "uex:a:"),
+            user_id="owner-1",
+        )
+        assert candidate_started["status"] == "UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_ACTIVE"
+
+        phases = repo.list_price_experiment_phases(
+            experiment["experiment_id"], limit=10,
+            owner_id="owner-1", store_id="store-a",
+        )
+        candidate = next(item for item in phases["items"] if item["kind"] == "CANDIDATE")
+        evidence_collector.prices[candidate["observation_id"]] = 9_500
+        now.now = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+        experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
+        experiment_detail = runtime.handle_callback(
+            _button(experiment_list, "uex:read:"), user_id="owner-1",
+        )
+        candidate_detail = runtime.handle_callback(
+            _button_action(
+                experiment_detail, runtime, "phase", "uex:read:",
+                predicate=lambda action: action.get("phase_id") == candidate["phase_id"],
+            ), user_id="owner-1",
+        )
+        candidate_controls_updated = runtime.handle_callback(
+            _button_action(
+                candidate_detail, runtime, "phase_control_update", "uex:read:",
+                predicate=lambda action: set(action["control_flags"].values()) == {"UNCHANGED"},
+            ), user_id="owner-1",
+        )
+        candidate_collected = runtime.handle_callback(
+            _button_action(candidate_controls_updated, runtime, "phase_collect", "uex:read:"),
+            user_id="owner-1",
+        )
+        now.now = datetime(2026, 11, 28, 21, 0, tzinfo=timezone.utc)
+        candidate_evaluated = runtime.handle_callback(
+            _button_action(candidate_collected, runtime, "phase_evaluate", "uex:read:"),
+            user_id="owner-1",
+        )
+        candidate_results = repo.list_price_experiment_results(
+            experiment["experiment_id"], candidate["phase_id"], limit=1,
+            owner_id="owner-1", store_id="store-a",
+        )
+        latest_candidate = candidate_results["items"][0]["payload"]
+        assert latest_candidate["status"] == "READY", [
+            (gate["gate"], gate["status"], gate["reason_code"])
+            for gate in latest_candidate["quality_gates"]
+        ]
+        candidate_finished = runtime.handle_callback(
+            _button_action(candidate_evaluated, runtime, "phase_finish", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert candidate_finished["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_FINISHED"
+
+        experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
+        experiment_detail = runtime.handle_callback(
+            _button(experiment_list, "uex:read:"), user_id="owner-1",
+        )
+        candidate_detail = runtime.handle_callback(
+            _button_action(
+                experiment_detail, runtime, "phase", "uex:read:",
+                predicate=lambda action: action.get("phase_id") == candidate["phase_id"],
+            ), user_id="owner-1",
+        )
+        comparison = runtime.handle_callback(
+            _button_action(candidate_detail, runtime, "phase_compare", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert comparison["status"] == "UNIT_ECONOMICS_EXPERIMENT_RESULT_DETAIL"
+        completed = runtime.handle_callback(
+            _button_action(
+                comparison, runtime, "owner_decision", "uex:read:",
+                predicate=lambda action: action.get("decision_type") == "STOP_WITHOUT_PRICE_CHANGE",
+            ), user_id="owner-1",
+        )
+        assert completed["status"] == "UNIT_ECONOMICS_EXPERIMENT_OWNER_DECISION_SAVED"
+        stored = repo.get_price_experiment(
+            experiment["experiment_id"], owner_id="owner-1", store_id="store-a",
+        )["experiment"]
+        assert stored["status"] == "COMPLETED"
+        assert len(evidence_collector.calls) == 2
     finally:
         reset_current_tenant_user_id(token)
 
@@ -241,10 +496,13 @@ def test_cancel_invalidates_confirmation_and_cancels_unstarted_experiment(tmp_pa
         )
         runtime.handle_callback(_button(selected_plan, "uex:a:"), user_id="owner-1")
         runtime.handle_text("95; 105", user_id="owner-1")
-        preview = runtime.handle_text(
+        controls = runtime.handle_text(
             "100; 2026-10-29 12:00", user_id="owner-1",
         )
-        confirm_callback = _button(preview, "uex:a:")
+        preview = runtime.handle_callback(
+            _button_text(controls, "Все условия без изменений"), user_id="owner-1",
+        )
+        confirm_callback = _button_text(preview, "Подтверждаю и начать")
         cancelled = runtime.handle_callback("uex:c", user_id="owner-1")
         assert "Отменён" in cancelled["message"]
         stale = runtime.handle_callback(confirm_callback, user_id="owner-1")

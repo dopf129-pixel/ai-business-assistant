@@ -19,6 +19,8 @@ class UnitEconomicsExperimentPhaseComparisonService:
     MAX_PHASES = 10
     MAX_RESULTS = 20
     RESULT_PAGE_SIZE = 10
+    MAX_EVENTS = 100
+    EVENT_PAGE_SIZE = 10
     MAX_SOURCE_AS_OF_LAG_DAYS = 1
     _CENT = Decimal("0.01")
 
@@ -501,15 +503,32 @@ class UnitEconomicsExperimentPhaseComparisonService:
         return {"error": False, "item": listed["items"][0] if listed.get("items") else None}
 
     def _phase_events(self, experiment_id, phase_id, owner_id, store_id):
-        listed = self.repository.list_price_experiment_events(
-            experiment_id, phase_id=phase_id, limit=100, offset=0,
-            owner_id=owner_id, store_id=store_id,
-        )
-        if listed.get("error"):
-            return listed
-        if listed.get("has_more") is True:
+        items = []
+        offset = 0
+        while len(items) < self.MAX_EVENTS:
+            limit = min(self.EVENT_PAGE_SIZE, self.MAX_EVENTS - len(items))
+            listed = self.repository.list_price_experiment_events(
+                experiment_id, phase_id=phase_id, limit=limit, offset=offset,
+                owner_id=owner_id, store_id=store_id,
+            )
+            if not isinstance(listed, dict) or listed.get("error") is True:
+                return listed if isinstance(listed, dict) else self._error(
+                    "EXPERIMENT_PHASE_EVENT_HISTORY_UNAVAILABLE",
+                )
+            page_items = listed.get("items")
+            if not isinstance(page_items, list) or len(page_items) > limit:
+                return self._error("EXPERIMENT_PHASE_EVENT_HISTORY_INVALID")
+            items.extend(page_items)
+            if listed.get("has_more") is not True:
+                break
+            next_offset = listed.get("next_offset")
+            if type(next_offset) is not int or next_offset <= offset or not page_items:
+                return self._error("EXPERIMENT_PHASE_EVENT_HISTORY_INVALID")
+            if len(items) >= self.MAX_EVENTS:
+                return self._error("EXPERIMENT_PHASE_EVENT_HISTORY_INCOMPLETE")
+            offset = next_offset
+        else:
             return self._error("EXPERIMENT_PHASE_EVENT_HISTORY_INCOMPLETE")
-        items = listed.get("items", [])
         revisions = [item.get("event_revision") for item in items
                      if type(item.get("event_revision")) is int]
         return {

@@ -288,8 +288,9 @@ class UnitEconomicsWindowSnapshotService:
             cls._rate(total_amount, total_units)
             if observed_components_complete and total_units > 0 else None
         )
+        full_evidence_window = full_dates and len(complete_days) == requested_days
         snapshot_status = cls._snapshot_status(
-            spec, full_dates and observed_components_complete, observed_days, requested_days,
+            spec, full_evidence_window and observed_components_complete, observed_days, requested_days,
             budget, mixed_denominators, short_history,
         )
         result = {

@@ -1244,6 +1244,101 @@ def test_experiment_phase_result_replay_cas_and_append_only_history(tmp_path):
     finally:
         reset_current_tenant_user_id(token)
 
+
+def test_ready_phase_finishes_atomically_and_releases_observation_guard(tmp_path):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "phase-finish.sqlite",
+        clock=lambda: datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc),
+    )
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        assert confirmed["error"] is False
+        current_experiment = repo.get_price_experiment(experiment["experiment_id"])["experiment"]
+        current_phase = repo.list_price_experiment_phases(
+            experiment["experiment_id"], limit=10,
+        )["items"][0]
+        ready_result = {
+            "schema_version": 1, "status": "READY",
+            "source_as_of": "2026-11-20T12:00:00Z",
+            "snapshot_refs": [snapshot["snapshot_id"]],
+            "baseline_profit_per_unit_rub": None,
+            "candidate_profit_per_unit_rub": None,
+            "delta_profit_per_unit_rub": None, "quantity_basis": None,
+            "window": {"from_date": "2026-10-30", "to_date": "2026-11-05",
+                       "timezone": "Europe/Moscow"},
+            "quality_gates": [], "limitations": [],
+            "outcome": "CONTINUE_COLLECTING",
+        }
+        appended = repo.append_price_experiment_result(
+            experiment["experiment_id"], phase["phase_id"], ready_result,
+            expected_state_revision=current_experiment["state_revision"],
+            expected_phase_state_revision=current_phase["state_revision"],
+            expected_result_revision=0, idempotency_key="w39-ready-phase-result01",
+        )
+        assert appended["error"] is False
+
+        finished = repo.finish_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=current_experiment["state_revision"],
+            expected_phase_state_revision=current_phase["state_revision"],
+            expected_result_revision=1, idempotency_key="w39-finish-phase001",
+        )
+        assert finished["error"] is False
+        assert finished["status"] == "BASELINE_REVIEW"
+        assert finished["phase_status"] == "FINISHED"
+        phase_after = repo.list_price_experiment_phases(
+            experiment["experiment_id"], limit=10,
+        )["items"][0]
+        assert phase_after["status"] == "FINISHED"
+        observation = repo.get_unit_price_observation(phase_after["observation_id"])
+        assert observation["error"] is False
+        assert observation["observation"]["status"] == "FINISHED"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_phase_cannot_finish_from_a_non_ready_latest_result(tmp_path):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "phase-not-ready.sqlite",
+        clock=lambda: datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc),
+    )
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        current_phase = repo.list_price_experiment_phases(
+            experiment["experiment_id"], limit=10,
+        )["items"][0]
+        result = _result_payload(snapshot["snapshot_id"])
+        result["status"] = "BETTER"
+        appended = repo.append_price_experiment_result(
+            experiment["experiment_id"], phase["phase_id"], result,
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=current_phase["state_revision"],
+            expected_result_revision=0, idempotency_key="w39-not-ready-result01",
+        )
+        assert appended["error"] is False
+        rejected = repo.finish_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=current_phase["state_revision"],
+            expected_result_revision=1, idempotency_key="w39-reject-finish001",
+        )
+        assert rejected["error"] is True
+        assert rejected["code"] == "PLANNING_PRICE_EXPERIMENT_PHASE_NOT_READY"
+        phase_after = repo.list_price_experiment_phases(
+            experiment["experiment_id"], limit=10,
+        )["items"][0]
+        assert phase_after["status"] == "ACTIVE"
+        observation = repo.get_unit_price_observation(phase_after["observation_id"])
+        assert observation["observation"]["status"] == "ACTIVE"
+    finally:
+        reset_current_tenant_user_id(token)
+
     connection = sqlite3.connect(repo.db_path)
     try:
         try:

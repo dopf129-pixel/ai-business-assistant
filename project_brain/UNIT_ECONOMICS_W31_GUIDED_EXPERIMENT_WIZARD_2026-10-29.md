@@ -1,9 +1,9 @@
 # W31 — мастер ценового эксперимента в Telegram
 
-Дата: 29.10.2026
+Дата исходного этапа: 29.10.2026
 Ветка: codex/full-unit-economics-experiments-implementation-20261028
 Входной code HEAD: fd2aee75
-Стадия: реализован условный flow; полный первый запуск заблокирован отсутствующим сборщиком reference snapshot.
+Стадия исходного этапа: условный flow. Инженерные блокеры первого сбора и candidate lifecycle закрыты в W40; см. addendum в конце этого документа и `UNIT_ECONOMICS_W40_REVIEW_REMEDIATION_2026-10-30.md`.
 
 ## Что добавлено
 
@@ -41,3 +41,9 @@
 ## Архитектурное влияние
 
 Minor architectural extension: новый tenant-scoped Telegram runtime использует существующие PlanningWorkspaceRepository, callback router, tenant context и transient-state limits. Схема базы, расчётная математика, Ozon clients и существующий observation collector не менялись. Новый продуктовый слой источника 56-дневных данных не создавался и остаётся незакрытой зависимостью.
+
+## Addendum — remediation R4/R5 (30.10.2026)
+
+Статус выше описывает состояние 29.10.2026. В W40 review-remediation добавлено подключение `UnitEconomicsReferenceSnapshotCollectionService` к существующему read-only finance + FBO denominator collector; в Telegram мастер получил кнопку первого сбора. Сохраняется только полный exact 56-day snapshot. Неполный Returns, unsupported finance types, нулевой знаменатель и net-credit категории дают PARTIAL/review reason без записи COMPLETE.
+
+Также теперь доступен owner path candidate-phase и операции по обеим фазам: collect, evaluate maturity, update control flags, finish; для завершённого candidate — compare и owner decision. Сквозной synthetic Telegram test проверяет обе фазы от baseline activation до решения. W40 linked profile: 127 passed in 6.60s; full pytest: 4,346 passed in 42.30s. Реальные API/бот/магазин не использовались. Новый exact-head CI и повторное независимое review остаются pending.

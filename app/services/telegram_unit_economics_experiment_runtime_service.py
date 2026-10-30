@@ -34,12 +34,18 @@ class TelegramUnitEconomicsExperimentRuntimeService:
     _PRICE_LIST_SEPARATOR = re.compile(r"\s*;\s*")
 
     def __init__(self, *, repository, keyboard_service=None, observation_runtime_service=None,
-                 history_export_service=None, default_timezone="Europe/Moscow",
+                 history_export_service=None, reference_snapshot_collection_service=None,
+                 phase_collection_service=None, phase_readiness_service=None,
+                 phase_comparison_service=None, default_timezone="Europe/Moscow",
                  clock=None, monotonic_clock=None):
         self.repository = repository
         self.keyboard_service = keyboard_service
         self.observation_runtime_service = observation_runtime_service
         self.history_export_service = history_export_service
+        self.reference_snapshot_collection_service = reference_snapshot_collection_service
+        self.phase_collection_service = phase_collection_service
+        self.phase_readiness_service = phase_readiness_service
+        self.phase_comparison_service = phase_comparison_service
         self.default_timezone = default_timezone
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.monotonic_clock = monotonic_clock or monotonic
@@ -116,6 +122,42 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 return self._select_snapshot(scope, action)
             if action.get("kind") == "confirm":
                 return self._confirm_baseline(scope, action)
+            if action.get("kind") == "baseline_controls":
+                with self._lock:
+                    pending = deepcopy(self._pending.get(scope["key"]))
+                if (not isinstance(pending, dict) or pending.get("stage") != "baseline_controls"
+                        or not isinstance(pending.get("baseline_input"), dict)):
+                    return self._stale()
+                return self._create_and_preview_baseline(
+                    scope, pending, pending["baseline_input"], action.get("control_flags"),
+                )
+            if action.get("kind") == "start_candidate":
+                experiment_id = action.get("experiment_id")
+                price_cents = action.get("price_cents")
+                if type(price_cents) is not int or price_cents < 1:
+                    return self._stale()
+                self._set_pending(scope, {
+                    "stage": "candidate_price_time", "experiment_id": experiment_id,
+                    "price_cents": price_cents, "candidate_key": token_hex(16),
+                    "created_at": self.monotonic_clock(),
+                })
+                return self._result(
+                    "UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_INPUT_REQUIRED",
+                    f"Вы выбрали цену {self._format_price(price_cents)} ₽. Введите фактическую цену "
+                    "и время её установки в Ozon: цена; ГГГГ-ММ-ДД ЧЧ:ММ. "
+                    "Бот не меняет цену и не подтверждает её историю.", self._cancel_keyboard(),
+                )
+            if action.get("kind") == "candidate_controls":
+                with self._lock:
+                    pending = deepcopy(self._pending.get(scope["key"]))
+                if (not isinstance(pending, dict) or pending.get("stage") != "candidate_controls"
+                        or not isinstance(pending.get("candidate_input"), dict)):
+                    return self._stale()
+                return self._create_and_preview_candidate(
+                    scope, pending, pending["candidate_input"], action.get("control_flags"),
+                )
+            if action.get("kind") == "collect_reference_snapshot":
+                return self._collect_reference_snapshot(scope, action)
         return self._stale()
 
     def handle_text(self, text, *, user_id=None):
@@ -160,7 +202,24 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                     "100; 2026-10-29 12:30. Дата и время должны быть прошедшими.",
                     self._cancel_keyboard(),
                 )
-            return self._create_and_preview_baseline(scope, pending, parsed)
+            pending["stage"] = "baseline_controls"
+            pending["baseline_input"] = parsed
+            pending["created_at"] = self.monotonic_clock()
+            self._save_pending(scope, pending)
+            return self._control_confirmation_prompt(scope, "baseline_controls")
+        if pending.get("stage") == "candidate_price_time":
+            parsed = self._parse_baseline_input(text)
+            if parsed is None or parsed["price_cents"] != pending.get("price_cents"):
+                return self._result(
+                    "UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_INPUT_INVALID",
+                    "Цена должна совпадать с выбранным кандидатом. Формат: "
+                    "цена; ГГГГ-ММ-ДД ЧЧ:ММ.", self._cancel_keyboard(),
+                )
+            pending["stage"] = "candidate_controls"
+            pending["candidate_input"] = parsed
+            pending["created_at"] = self.monotonic_clock()
+            self._save_pending(scope, pending)
+            return self._control_confirmation_prompt(scope, "candidate_controls")
         self.clear_pending(user_id)
         return self._stale()
 
@@ -282,6 +341,13 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             "phase_history": self._show_phase_history,
             "phase_results": self._show_phase_results,
             "result": self._show_result,
+            "phase_collect": self._collect_phase,
+            "phase_evaluate": self._evaluate_phase,
+            "phase_finish": self._finish_phase,
+            "phase_compare": self._compare_phase,
+            "phase_control_update": self._update_phase_controls,
+            "owner_decision": self._record_owner_decision,
+            "experiment_complete": self._complete_experiment,
             "snapshot": self._show_frozen_snapshot,
             "export_menu": self._show_export_menu,
             "export": self._export_history,
@@ -351,6 +417,36 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 })
         if not phases.get("items"):
             lines.append("Пока нет сохранённых фаз.")
+        if experiment.get("status") in {"BASELINE_REVIEW", "CANDIDATE_REVIEW"}:
+            baseline = next((item for item in phases.get("items", [])
+                             if item.get("kind") == "BASELINE"), None)
+            baseline_flags = baseline.get("config", {}).get("control_flags", {}) if baseline else {}
+            controls_stable = bool(baseline_flags) and all(
+                value in {"UNCHANGED", "NOT_APPLICABLE"}
+                for value in baseline_flags.values()
+            )
+            if controls_stable:
+                used_prices = {
+                    item.get("config", {}).get("planned_price_cents")
+                    for item in phases.get("items", []) if item.get("kind") == "CANDIDATE"
+                }
+                for price in config.get("candidate_prices_cents", []):
+                    if price in used_prices:
+                        continue
+                    candidate_token = self._remember_action(scope, {
+                        "kind": "start_candidate", "experiment_id": experiment_id,
+                        "price_cents": price,
+                    })
+                    if candidate_token:
+                        buttons.append({
+                            "text": f"▶️ Проверить цену {self._format_price(price)} ₽",
+                            "callback": f"uex:a:{candidate_token}",
+                        })
+            else:
+                lines.append(
+                    "Новый кандидат не предложен: владелец не подтвердил неизменность "
+                    "контрольных условий базовой фазы."
+                )
         history_token = self._remember_action(scope, {
             "kind": "experiment_history", "experiment_id": experiment_id,
         })
@@ -369,6 +465,23 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         })
         if export_token:
             buttons.append({"text": "⬇️ Выгрузить историю", "callback": f"uex:read:{export_token}"})
+        if experiment.get("status") == "CANDIDATE_REVIEW":
+            decisions = self.repository.list_price_experiment_owner_decisions(
+                experiment_id, limit=1, owner_id=scope["owner_id"],
+                store_id=scope["store_id"],
+            )
+            decision_items = (decisions.get("items") if isinstance(decisions, dict)
+                              and decisions.get("error") is False else None)
+            if (isinstance(decision_items, list) and decision_items
+                    and decision_items[0].get("state_revision") == experiment.get("state_revision")):
+                complete_token = self._remember_action(scope, {
+                    "kind": "experiment_complete", "experiment_id": experiment_id,
+                })
+                if complete_token:
+                    buttons.append({
+                        "text": "🏁 Завершить по сохранённому решению",
+                        "callback": f"uex:read:{complete_token}",
+                    })
         if refresh_token:
             buttons.append({"text": "↻ Обновить карточку", "callback": f"uex:read:{refresh_token}"})
         buttons.extend([
@@ -459,6 +572,13 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         if loaded is None:
             return self._stale()
         phase = loaded
+        experiment_result = self.repository.get_price_experiment(
+            experiment_id, owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        experiment = (experiment_result.get("experiment")
+                      if isinstance(experiment_result, dict) else None)
+        if not isinstance(experiment, dict):
+            return self._stale()
         config = phase["config"]
         collections = self.repository.list_price_experiment_phase_collections(
             experiment_id, phase_id, limit=1,
@@ -494,6 +614,65 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 f"{self._outcome_label(payload['outcome'])} · {latest_result['created_at']}"
             )
         buttons = []
+        if phase.get("status") == "ACTIVE":
+            if self.phase_collection_service is not None:
+                collect_token = self._remember_action(scope, {
+                    "kind": "phase_collect", "experiment_id": experiment_id,
+                    "phase_id": phase_id,
+                })
+                if collect_token:
+                    buttons.append({
+                        "text": "🔄 Собрать данные Ozon",
+                        "callback": f"uex:read:{collect_token}",
+                    })
+            if latest_collection and self.phase_readiness_service is not None:
+                evaluate_token = self._remember_action(scope, {
+                    "kind": "phase_evaluate", "experiment_id": experiment_id,
+                    "phase_id": phase_id,
+                })
+                if evaluate_token:
+                    buttons.append({
+                        "text": "🧮 Оценить зрелость данных",
+                        "callback": f"uex:read:{evaluate_token}",
+                    })
+            for value, label in (
+                ("UNCHANGED", "✅ Условия не менялись"),
+                ("UNKNOWN", "⚠️ Условия изменились / не уверен"),
+            ):
+                flags = {key: value for key in (
+                    "inventory", "promotion", "advertising", "card", "cost", "tariff",
+                )}
+                control_token = self._remember_action(scope, {
+                    "kind": "phase_control_update", "experiment_id": experiment_id,
+                    "phase_id": phase_id, "control_flags": flags,
+                })
+                if control_token:
+                    buttons.append({
+                        "text": label, "callback": f"uex:read:{control_token}",
+                    })
+            if (latest_result
+                    and latest_result.get("payload", {}).get("status") == "READY"):
+                finish_token = self._remember_action(scope, {
+                    "kind": "phase_finish", "experiment_id": experiment_id,
+                    "phase_id": phase_id,
+                })
+                if finish_token:
+                    buttons.append({
+                        "text": "⏹ Завершить фазу",
+                        "callback": f"uex:read:{finish_token}",
+                    })
+        if (phase.get("kind") == "CANDIDATE" and phase.get("status") == "FINISHED"
+                and experiment.get("status") == "CANDIDATE_REVIEW"
+                and self.phase_comparison_service is not None):
+            compare_token = self._remember_action(scope, {
+                "kind": "phase_compare", "experiment_id": experiment_id,
+                "phase_id": phase_id,
+            })
+            if compare_token:
+                buttons.append({
+                    "text": "⚖️ Сравнить с базовой фазой",
+                    "callback": f"uex:read:{compare_token}",
+                })
         phase_history_token = self._remember_action(scope, {
             "kind": "phase_history", "experiment_id": experiment_id, "phase_id": phase_id,
         })
@@ -516,6 +695,281 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         return self._result(
             "UNIT_ECONOMICS_EXPERIMENT_PHASE_DETAIL", "\n".join(lines), self._keyboard(buttons),
         )
+
+    def _collect_phase(self, scope, action):
+        service = self.phase_collection_service
+        context = self._phase_action_context(scope, action)
+        if context is None:
+            return self._stale()
+        experiment, phase = context
+        if service is None:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_UNAVAILABLE")
+        if phase.get("status") != "ACTIVE":
+            return self._stale()
+        collected = service.collect_phase(
+            action["experiment_id"], action["phase_id"],
+            expected_state_revision=experiment["state_revision"],
+            expected_phase_state_revision=phase["state_revision"],
+            expected_result_revision=phase["result_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(collected, dict) or collected.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_FAILED")
+        refreshed = self._show_phase(scope, action)
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_PHASE_COLLECTION_SAVED",
+            "Снимок источников сохранён. Он ещё не является оценкой зрелости: "
+            "проверьте результат и отдельно запустите оценку. Данные Ozon не менялись.",
+            refreshed.get("keyboard", self._keyboard([])),
+        )
+
+    def _evaluate_phase(self, scope, action):
+        service = self.phase_readiness_service
+        context = self._phase_action_context(scope, action)
+        if context is None:
+            return self._stale()
+        experiment, phase = context
+        if service is None:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_EVALUATION_UNAVAILABLE")
+        evaluated = service.evaluate_latest(
+            action["experiment_id"], action["phase_id"],
+            expected_state_revision=experiment["state_revision"],
+            expected_phase_state_revision=phase["state_revision"],
+            expected_result_revision=phase["result_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(evaluated, dict) or evaluated.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_EVALUATION_FAILED")
+        refreshed = self._show_phase(scope, action)
+        status = evaluated.get("status")
+        message = (
+            "Данные готовы к завершению фазы." if status == "READY"
+            else "Оценка сохранена, но фаза пока не готова к завершению. "
+            "Откройте детали и проверьте причины/ограничения."
+        )
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_PHASE_EVALUATED", message,
+            refreshed.get("keyboard", self._keyboard([])),
+        )
+
+    def _finish_phase(self, scope, action):
+        context = self._phase_action_context(scope, action)
+        if context is None:
+            return self._stale()
+        experiment, phase = context
+        if (phase.get("status") != "ACTIVE" or phase.get("result_revision", 0) < 1
+                or self._latest_phase_result_status(scope, action) != "READY"):
+            return self._result(
+                "UNIT_ECONOMICS_EXPERIMENT_PHASE_NOT_READY",
+                "Завершить фазу можно только после последней оценки со статусом READY.",
+                self._keyboard([{"text": "↻ Обновить фазу", "callback": self._phase_callback(scope, action)}]),
+            )
+        finished = self.repository.finish_price_experiment_phase(
+            action["experiment_id"], action["phase_id"],
+            expected_state_revision=experiment["state_revision"],
+            expected_phase_state_revision=phase["state_revision"],
+            expected_result_revision=phase["result_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(finished, dict) or finished.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_FINISH_FAILED")
+        detail = self._show_experiment(scope, {"experiment_id": action["experiment_id"]})
+        label = "базовая фаза" if phase.get("kind") == "BASELINE" else "фаза-кандидат"
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_PHASE_FINISHED",
+            f"{label.capitalize()} завершена. Сбор наблюдений закрыт; данные сохранены.",
+            detail.get("keyboard", self._keyboard([])),
+        )
+
+    def _compare_phase(self, scope, action):
+        service = self.phase_comparison_service
+        context = self._phase_action_context(scope, action)
+        if context is None:
+            return self._stale()
+        experiment, candidate = context
+        if service is None or candidate.get("kind") != "CANDIDATE" \
+                or candidate.get("status") != "FINISHED":
+            return self._stale()
+        phases = self._load_phase_rows(scope, action["experiment_id"])
+        baseline = next((item for item in phases if item.get("kind") == "BASELINE"
+                         and item.get("segment_number") == 1), None)
+        if baseline is None or baseline.get("status") != "FINISHED":
+            return self._stale()
+        compared = service.compare(
+            action["experiment_id"], baseline["phase_id"], action["phase_id"],
+            expected_state_revision=experiment["state_revision"],
+            expected_candidate_phase_state_revision=candidate["state_revision"],
+            expected_candidate_result_revision=candidate["result_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(compared, dict) or compared.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_COMPARISON_FAILED")
+        return self._show_result(scope, {
+            "experiment_id": action["experiment_id"], "phase_id": action["phase_id"],
+            "result_revision": compared.get("result_revision"), "offset": 0,
+        })
+
+    def _update_phase_controls(self, scope, action):
+        context = self._phase_action_context(scope, action)
+        flags = action.get("control_flags")
+        if context is None or not isinstance(flags, dict):
+            return self._stale()
+        experiment, phase = context
+        updated = self.repository.record_price_experiment_control_update(
+            action["experiment_id"], action["phase_id"], flags,
+            expected_state_revision=experiment["state_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(updated, dict) or updated.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_CONTROL_UPDATE_FAILED")
+        refreshed = self._show_phase(scope, action)
+        text = (
+            "Отмечено со слов владельца: контрольные условия не изменялись."
+            if all(value == "UNCHANGED" for value in flags.values())
+            else "Зафиксировано со слов владельца: условия менялись или неизвестны. "
+            "Сопоставимость будет проверена заново."
+        )
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_CONTROLS_UPDATED", text,
+            refreshed.get("keyboard", self._keyboard([])),
+        )
+
+    def _record_owner_decision(self, scope, action):
+        context = self._phase_action_context(scope, action)
+        if context is None:
+            return self._stale()
+        experiment, phase = context
+        payload = {
+            "schema_version": 1,
+            "decision_type": action.get("decision_type"),
+            "result_phase_id": action["phase_id"],
+            "result_revision": action.get("result_revision"),
+            "selected_phase_id": action.get("selected_phase_id"),
+        }
+        saved = self.repository.record_price_experiment_owner_decision(
+            action["experiment_id"], payload,
+            expected_state_revision=experiment["state_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(saved, dict) or saved.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_OWNER_DECISION_FAILED")
+        completed = self.repository.transition_price_experiment(
+            action["experiment_id"], "complete",
+            expected_state_revision=experiment["state_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if isinstance(completed, dict) and completed.get("error") is not True:
+            detail = self._show_experiment(scope, {"experiment_id": action["experiment_id"]})
+            return self._result(
+                "UNIT_ECONOMICS_EXPERIMENT_OWNER_DECISION_SAVED",
+                "Ваше решение сохранено, эксперимент завершён. Бот не менял цену в Ozon.",
+                detail.get("keyboard", self._keyboard([])),
+            )
+        detail = self._show_experiment(scope, {"experiment_id": action["experiment_id"]})
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_DECISION_SAVED_COMPLETION_PENDING",
+            "Решение сохранено. Статус эксперимента не удалось закрыть автоматически; "
+            "откройте карточку и повторите завершение.",
+            detail.get("keyboard", self._keyboard([])),
+        )
+
+    def _complete_experiment(self, scope, action):
+        loaded = self.repository.get_price_experiment(
+            action.get("experiment_id"), owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        experiment = loaded.get("experiment") if isinstance(loaded, dict) else None
+        if not isinstance(experiment, dict) or experiment.get("status") != "CANDIDATE_REVIEW":
+            return self._stale()
+        completed = self.repository.transition_price_experiment(
+            action["experiment_id"], "complete",
+            expected_state_revision=experiment["state_revision"],
+            idempotency_key=token_hex(16), owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(completed, dict) or completed.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_COMPLETION_FAILED")
+        detail = self._show_experiment(scope, {"experiment_id": action["experiment_id"]})
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_COMPLETED",
+            "Эксперимент завершён. Цена в Ozon не менялась ботом.",
+            detail.get("keyboard", self._keyboard([])),
+        )
+
+    def _phase_action_context(self, scope, action):
+        experiment_id, phase_id = action.get("experiment_id"), action.get("phase_id")
+        loaded = self.repository.get_price_experiment(
+            experiment_id, owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        experiment = loaded.get("experiment") if isinstance(loaded, dict) else None
+        phase = self._load_phase(scope, experiment_id, phase_id)
+        if (not isinstance(experiment, dict) or not isinstance(phase, dict)
+                or type(experiment.get("state_revision")) is not int
+                or type(phase.get("state_revision")) is not int
+                or type(phase.get("result_revision")) is not int):
+            return None
+        return experiment, phase
+
+    def _load_phase_rows(self, scope, experiment_id):
+        listed = self.repository.list_price_experiment_phases(
+            experiment_id, limit=10, owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        if not isinstance(listed, dict) or listed.get("error") is True:
+            return []
+        rows = listed.get("items")
+        return rows if isinstance(rows, list) else []
+
+    def _latest_phase_result_status(self, scope, action):
+        listed = self.repository.list_price_experiment_results(
+            action.get("experiment_id"), action.get("phase_id"), limit=1,
+            owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        items = listed.get("items") if isinstance(listed, dict) and not listed.get("error") else None
+        if not isinstance(items, list) or not items:
+            return None
+        payload = items[0].get("payload")
+        return payload.get("status") if isinstance(payload, dict) else None
+
+    def _phase_callback(self, scope, action):
+        token = self._remember_action(scope, {
+            "kind": "phase", "experiment_id": action.get("experiment_id"),
+            "phase_id": action.get("phase_id"),
+        })
+        return f"uex:read:{token}" if token else "uex:m"
+
+    def _append_owner_decision_buttons(
+        self, scope, experiment_id, candidate_phase_id, result_revision, payload, buttons,
+    ):
+        if type(result_revision) is not int or not isinstance(payload, dict):
+            return
+        options = []
+        if (payload.get("comparison") is not None
+                and payload.get("outcome") in {
+                    "NO_CLEAR_DIFFERENCE", "CANDIDATE_BETTER_IN_MODEL",
+                    "BASELINE_BETTER_IN_MODEL",
+                }):
+            phases = self._load_phase_rows(scope, experiment_id)
+            baseline = next((item for item in phases if item.get("kind") == "BASELINE"
+                             and item.get("segment_number") == 1), None)
+            if baseline is not None and baseline.get("status") == "FINISHED":
+                options.append(("KEEP_BASELINE_PRICE", baseline["phase_id"], "Оставить базовую цену"))
+            options.append(("SELECT_EVALUATED_CANDIDATE", candidate_phase_id,
+                            "Выбрать проверенную цену-кандидат"))
+        options.append(("STOP_WITHOUT_PRICE_CHANGE", None, "Завершить без изменения цены"))
+        for decision_type, selected_phase_id, label in options:
+            token = self._remember_action(scope, {
+                "kind": "owner_decision", "experiment_id": experiment_id,
+                "phase_id": candidate_phase_id, "result_revision": result_revision,
+                "decision_type": decision_type, "selected_phase_id": selected_phase_id,
+            })
+            if token:
+                buttons.append({"text": "✅ " + label, "callback": f"uex:read:{token}"})
 
     def _show_phase_history(self, scope, action):
         experiment_id, phase_id = action.get("experiment_id"), action.get("phase_id")
@@ -672,6 +1126,20 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             "и не меняет цену в Ozon."
         )
         buttons = []
+        loaded_experiment = self.repository.get_price_experiment(
+            experiment_id, owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        experiment = (loaded_experiment.get("experiment")
+                      if isinstance(loaded_experiment, dict) else None)
+        phase = self._load_phase(scope, experiment_id, phase_id)
+        if (isinstance(experiment, dict) and isinstance(phase, dict)
+                and experiment.get("status") == "CANDIDATE_REVIEW"
+                and phase.get("kind") == "CANDIDATE"
+                and phase.get("status") == "FINISHED"
+                and phase.get("result_revision") == revision):
+            self._append_owner_decision_buttons(
+                scope, experiment_id, phase_id, revision, payload, buttons,
+            )
         self._append_phase_back_button(scope, experiment_id, phase_id, buttons)
         return self._result(
             "UNIT_ECONOMICS_EXPERIMENT_RESULT_DETAIL", "\n".join(lines), self._keyboard(buttons),
@@ -924,12 +1392,24 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 ]),
             )
         if not complete:
+            collect_token = self._remember_action(scope, {
+                "kind": "collect_reference_snapshot",
+                "document_id": action["document_id"], "revision": action["revision"],
+                "item_index": index, "identity": identity,
+            })
+            buttons = []
+            if collect_token and self.reference_snapshot_collection_service is not None:
+                buttons.append({
+                    "text": "🔄 Собрать снимок за 56 дней",
+                    "callback": f"uex:a:{collect_token}",
+                })
             return self._result(
                 "UNIT_ECONOMICS_EXPERIMENT_REFERENCE_SNAPSHOT_REQUIRED",
                 f"Для SKU {identity['sku']} нет полного снимка расходов за 56 завершённых дней. "
-                "Я не подставляю нули и не запускаю неполный эксперимент. В текущем мастере "
-                "автоматический сбор такого базового снимка пока не подключён.",
-                self._keyboard([
+                "Я не подставляю нули и не запускаю неполный эксперимент. Можно запросить "
+                "только чтение финансовых начислений и FBO-количества за окно; CPC и "
+                "история цены не запрашиваются, а расходы сохраняются только для сверки.",
+                self._keyboard(buttons + [
                     {"text": "↩️ Выбрать план", "callback": "uex:b"},
                     {"text": "↩️ Сохранённые планы", "callback": "upp:m"},
                     {"text": "Отмена", "callback": "uex:c"},
@@ -950,6 +1430,63 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             "UNIT_ECONOMICS_EXPERIMENT_SNAPSHOT_SELECTION",
             f"Выберите сохранённый полный снимок расходов для SKU {identity['sku']}:",
             self._keyboard(buttons),
+        )
+
+    def _collect_reference_snapshot(self, scope, action):
+        service = self.reference_snapshot_collection_service
+        if service is None:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_REFERENCE_COLLECTION_UNAVAILABLE")
+        loaded = self.repository.get_document(
+            action.get("document_id"), revision=action.get("revision"),
+            owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        document = loaded.get("document") if isinstance(loaded, dict) else None
+        payload = document.get("payload") if isinstance(document, dict) else None
+        items = payload.get("items") if isinstance(payload, dict) else None
+        index, identity = action.get("item_index"), action.get("identity")
+        if (not isinstance(document, dict) or document.get("status") != "ACTIVE"
+                or not isinstance(items, list) or type(index) is not int
+                or not 0 <= index < len(items)
+                or self._plan_identity(items[index], scope) != identity):
+            return self._stale()
+        collected = service.collect(
+            identity, owner_id=scope["owner_id"], store_id=scope["store_id"],
+            timezone_name=self.default_timezone,
+        )
+        if not isinstance(collected, dict) or collected.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_REFERENCE_COLLECTION_FAILED")
+        if collected.get("status") != "COMPLETE":
+            reasons = {
+                "FINANCE_PARTIAL": "Финансовые данные неполны за все 56 дней.",
+                "RETURNS_PARTIAL": "Не удалось подтвердить полное количество FBO-единиц.",
+                "UNSUPPORTED_FINANCE_TYPES": "Есть нераспознанные типы начислений.",
+                "EXPENSE_CREDIT_REQUIRES_REVIEW": "В окне есть возвратные/кредитовые начисления, требующие сверки.",
+                "ZERO_UNIT_DENOMINATOR": "За период нет подтверждённых заказанных единиц.",
+                "SNAPSHOT_INCOMPLETE": "Источники не подтвердили полный снимок.",
+                "SOURCE_UNAVAILABLE": "Источник Ozon сейчас недоступен.",
+            }
+            message = reasons.get(collected.get("reason_code"), "Снимок неполный; он не сохранён.")
+            retry_token = self._remember_action(scope, action)
+            buttons = []
+            if retry_token:
+                buttons.append({"text": "🔄 Повторить сбор", "callback": f"uex:a:{retry_token}"})
+            buttons.extend([
+                {"text": "↩️ Выбрать план", "callback": "uex:b"},
+                {"text": "Отмена", "callback": "uex:c"},
+            ])
+            return self._result(
+                "UNIT_ECONOMICS_EXPERIMENT_REFERENCE_COLLECTION_PARTIAL",
+                message + " Полные данные не записаны как COMPLETE; неизвестные расходы не стали нулём.",
+                self._keyboard(buttons),
+            )
+        refreshed = self._select_plan(scope, action)
+        if refreshed.get("error") is True:
+            return refreshed
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_REFERENCE_SNAPSHOT_COLLECTED",
+            f"Снимок за {collected['window']['from_date']} — {collected['window']['to_date']} "
+            "сохранён только для сверки. Выберите его, чтобы продолжить эксперимент.",
+            refreshed.get("keyboard", self._keyboard([])),
         )
 
     def _select_snapshot(self, scope, action):
@@ -994,7 +1531,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             self._cancel_keyboard(),
         )
 
-    def _create_and_preview_baseline(self, scope, pending, parsed):
+    def _create_and_preview_baseline(self, scope, pending, parsed, control_flags=None):
         identity = pending.get("identity")
         document = self.repository.get_document(
             pending.get("document_id"), revision=pending.get("revision"),
@@ -1025,7 +1562,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
 
         prices = pending.get("candidate_prices_cents")
         minimum, maximum = min(prices), max(prices)
-        flags = {key: "UNKNOWN" for key in (
+        flags = control_flags or {key: "UNKNOWN" for key in (
             "inventory", "promotion", "advertising", "card", "cost", "tariff",
         )}
         now = self._aware_now()
@@ -1093,7 +1630,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         if not isinstance(preview, dict) or preview.get("error") is True:
             return self._error("UNIT_ECONOMICS_EXPERIMENT_BASELINE_PREVIEW_FAILED")
         token = self._remember_action(scope, {
-            "kind": "confirm", "experiment_id": created["experiment_id"],
+            "kind": "confirm", "phase_kind": "BASELINE",
+            "experiment_id": created["experiment_id"],
             "phase_id": phase["phase_id"], "price_cents": parsed["price_cents"],
             "effective_from": parsed["effective_from"],
             "experiment_revision": preview["experiment_state_revision"],
@@ -1116,6 +1654,110 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             ]),
         )
 
+    def _create_and_preview_candidate(self, scope, pending, parsed, control_flags=None):
+        experiment_id = pending.get("experiment_id")
+        loaded = self.repository.get_price_experiment(
+            experiment_id, owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        experiment = loaded.get("experiment") if isinstance(loaded, dict) else None
+        if not isinstance(experiment, dict):
+            return self._stale()
+        price_cents = pending.get("price_cents")
+        config = experiment.get("config") or {}
+        if price_cents not in config.get("candidate_prices_cents", []):
+            return self._stale()
+        phases = self.repository.list_price_experiment_phases(
+            experiment_id, limit=10, owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        if not isinstance(phases, dict) or phases.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_PHASE_HISTORY_UNAVAILABLE")
+        if any(item.get("kind") == "CANDIDATE"
+               and item.get("config", {}).get("planned_price_cents") == price_cents
+               for item in phases.get("items", [])):
+            return self._result(
+                "UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_ALREADY_CREATED",
+                "Эта цена уже есть среди фаз эксперимента. Откройте карточку и продолжите сохранённую фазу.",
+                self._home_keyboard(),
+            )
+        flags = control_flags or {key: "UNKNOWN" for key in (
+            "inventory", "promotion", "advertising", "card", "cost", "tariff",
+        )}
+        now = self._aware_now()
+        if now is None:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_CLOCK_UNAVAILABLE")
+        zone = ZoneInfo(self.default_timezone)
+        start = now.astimezone(zone).date() + timedelta(days=1)
+        duration = config.get("planned_duration_days", self.DEFAULT_DURATION_DAYS)
+        end = start + timedelta(days=duration - 1)
+        phase = self.repository.create_price_experiment_phase(
+            experiment_id,
+            {
+                "schema_version": 1, "kind": "CANDIDATE",
+                "segment_number": len(phases.get("items", [])) + 1,
+                "planned_price_cents": price_cents,
+                "expense_snapshot_id": config.get("source_references", {}).get("expense_snapshot_id"),
+                "planned_from_date": start.isoformat(), "planned_to_date": end.isoformat(),
+                "timezone": self.default_timezone, "control_flags": flags,
+            },
+            expected_state_revision=experiment["state_revision"],
+            idempotency_key=pending.get("candidate_key") or token_hex(16),
+            owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        if not isinstance(phase, dict) or phase.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_PHASE_FAILED")
+        preview = self.repository.preview_price_experiment_phase_confirmation(
+            experiment_id, phase["phase_id"], seller_price_cents=price_cents,
+            effective_from=parsed["effective_from"], owner_id=scope["owner_id"],
+            store_id=scope["store_id"],
+        )
+        if not isinstance(preview, dict) or preview.get("error") is True:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_PREVIEW_FAILED")
+        token = self._remember_action(scope, {
+            "kind": "confirm", "phase_kind": "CANDIDATE",
+            "experiment_id": experiment_id, "phase_id": phase["phase_id"],
+            "price_cents": price_cents, "effective_from": parsed["effective_from"],
+            "experiment_revision": preview["experiment_state_revision"],
+            "phase_revision": preview["phase_state_revision"],
+            "idempotency_key": token_hex(16),
+        })
+        self.clear_pending(scope["owner_id"])
+        if not token:
+            return self._error("UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_UNAVAILABLE")
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_CONFIRMATION_REQUIRED",
+            f"Проверьте цену-кандидат {self._format_price(price_cents)} ₽: {start.isoformat()} — "
+            f"{end.isoformat()} ({self.default_timezone}). Цена и время подтверждаются вами; "
+            "бот не меняет цену. Новые фактические условия могут сделать сравнение несопоставимым.",
+            self._keyboard([
+                {"text": "✅ Подтверждаю и начать", "callback": f"uex:a:{token}"},
+                {"text": "Отмена", "callback": "uex:c"},
+            ]),
+        )
+
+    def _control_confirmation_prompt(self, scope, action_kind):
+        buttons = []
+        for value, label in (
+            ("UNCHANGED", "✅ Все условия без изменений"),
+            ("UNKNOWN", "⚠️ Есть изменения или не уверен"),
+        ):
+            flags = {key: value for key in (
+                "inventory", "promotion", "advertising", "card", "cost", "tariff",
+            )}
+            token = self._remember_action(scope, {
+                "kind": action_kind, "control_flags": flags,
+            })
+            if token:
+                buttons.append({"text": label, "callback": f"uex:a:{token}"})
+        buttons.append({"text": "Отмена", "callback": "uex:c"})
+        return self._result(
+            "UNIT_ECONOMICS_EXPERIMENT_CONTROL_CONFIRMATION_REQUIRED",
+            "Подтвердите контрольные условия для базовой фазы: остатки, продвижение, "
+            "реклама, карточка товара, себестоимость и тариф. Это только ваше сообщение, "
+            "Ozon их автоматически не подтверждает. Если хотя бы один пункт неизвестен "
+            "или менялся, выберите второй вариант — сравнение будет помечено как несопоставимое.",
+            self._keyboard(buttons),
+        )
+
     def _confirm_baseline(self, scope, action):
         result = self.repository.confirm_price_experiment_phase(
             action["experiment_id"], action["phase_id"],
@@ -1130,9 +1772,16 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             return self._error("UNIT_ECONOMICS_EXPERIMENT_CONFIRMATION_FAILED")
         self.clear_pending(scope["owner_id"])
         self._clear_actions(scope)
+        phase_kind = action.get("phase_kind", "BASELINE")
+        status = (
+            "UNIT_ECONOMICS_EXPERIMENT_CANDIDATE_ACTIVE"
+            if phase_kind == "CANDIDATE"
+            else "UNIT_ECONOMICS_EXPERIMENT_BASELINE_ACTIVE"
+        )
         return self._result(
-            "UNIT_ECONOMICS_EXPERIMENT_BASELINE_ACTIVE",
-            "Базовая фаза запущена. Цена и время отмечены как подтверждённые вами; "
+            status,
+            ("Фаза-кандидат запущена." if phase_kind == "CANDIDATE" else "Базовая фаза запущена.")
+            + " Цена и время отмечены как подтверждённые вами; "
             "это не доказательство истории цены Ozon. Бот не менял цену и не выполнял API-запросов.",
             self._home_keyboard(),
         )
