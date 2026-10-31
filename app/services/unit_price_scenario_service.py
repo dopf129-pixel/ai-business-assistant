@@ -9,6 +9,7 @@ class UnitPriceScenarioService:
     """Pure calculator for one-unit seller-price planning scenarios."""
 
     VERSION = 2
+    PRE_AD_PROJECTION_VERSION = 1
     MONEY_FIELDS = (
         "price",
         "cost",
@@ -24,6 +25,11 @@ class UnitPriceScenarioService:
     ADVERTISING_MODES = frozenset({
         "PERCENT_OF_SELLER_REVENUE",
         "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+    })
+    ADVERTISING_INPUT_FIELDS = frozenset({
+        "advertising_mode",
+        "advertising_rate",
+        "advertising_cost_per_unit",
     })
     TAX_RATE_FIELDS = ("tax_rate", "minimum_tax_rate")
     REQUIRED_FIELDS = (
@@ -90,7 +96,7 @@ class UnitPriceScenarioService:
             extended, extended_error = self._normalize_extended_scenario(extended_scenario)
             if extended_error:
                 return self._extended_unavailable_result(
-                    extended_error, extended_scenario, identity, sources,
+                    extended_error, extended_scenario, identity, sources, inputs,
                 )
             if extended["calculation_mode"] == "STRICT_RETAINED_COHORT":
                 strict_evidence, strict_error = self._normalize_strict_return_evidence(
@@ -98,12 +104,12 @@ class UnitPriceScenarioService:
                 )
                 if strict_error:
                     return self._extended_unavailable_result(
-                        strict_error, extended_scenario, identity, sources,
+                        strict_error, extended_scenario, identity, sources, inputs,
                     )
                 if strict_evidence["denominator_units"] != extended["denominator_units"]:
                     return self._extended_unavailable_result(
                         "STRICT_COHORT_DENOMINATOR_MISMATCH",
-                        extended_scenario, identity, sources,
+                        extended_scenario, identity, sources, inputs,
                     )
                 extended["additional_expense_per_unit"] = strict_evidence["loss_per_unit"]
                 extended["total_numerator_rub"] = strict_evidence["loss_pool"]
@@ -112,17 +118,17 @@ class UnitPriceScenarioService:
             elif strict_return_evidence is not None:
                 return self._extended_unavailable_result(
                     "STRICT_COHORT_EVIDENCE_WITH_WINDOW_MODE",
-                    extended_scenario, identity, sources,
+                    extended_scenario, identity, sources, inputs,
                 )
             if extended["source_completeness"] != "COMPLETE":
                 return self._extended_unavailable_result(
                     "SOURCE_EVIDENCE_" + extended["source_completeness"],
-                    extended_scenario, identity, sources,
+                    extended_scenario, identity, sources, inputs,
                 )
             if self._has_unscoped_cross_docking(inputs):
                 return self._extended_unavailable_result(
                     "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE",
-                    extended_scenario, identity, sources,
+                    extended_scenario, identity, sources, inputs,
                 )
         normalized, missing, invalid = self._normalize(inputs)
         try:
@@ -175,6 +181,19 @@ class UnitPriceScenarioService:
                 "profit": None,
                 "margin_percent": None,
             })
+        pre_ad_projection = self._build_pre_ad_projection(
+            normalized=normalized,
+            tax_mode=tax_mode,
+            missing=missing,
+            invalid=invalid,
+            additional_expenses=(
+                extended["additional_expense_per_unit"]
+                if extended is not None
+                else None
+            ),
+            extended=extended,
+            sources=sources,
+        )
         all_missing = list(dict.fromkeys(missing))
         all_invalid = list(dict.fromkeys(invalid))
         calculated = {
@@ -226,6 +245,7 @@ class UnitPriceScenarioService:
             "as_of": sources.get("as_of"),
             "source_completeness": sources.get("completeness", {}),
             "calculated": calculated,
+            "pre_ad_margin": pre_ad_projection,
             "missing_inputs": all_missing,
             "invalid_inputs": all_invalid,
             "included_scope": [
@@ -332,8 +352,14 @@ class UnitPriceScenarioService:
                 normalized,
                 additional_expenses=(extended["additional_expense_per_unit"] if extended else None),
             )
+            pre_ad_components = self._calculate_components(
+                normalized,
+                additional_expenses=(extended["additional_expense_per_unit"] if extended else None),
+                include_advertising=False,
+            )
         except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
             calculated = self._empty_calculation()
+            pre_ad_components = self._empty_calculation()
             invalid.append("calculation")
         calculated = {
             key: float(value) if isinstance(value, Decimal) else value
@@ -345,6 +371,12 @@ class UnitPriceScenarioService:
         calculated["cost"] = (
             float(self._money_decimal(normalized_cost))
             if normalized_cost is not None else None
+        )
+        pre_ad_profit_before_tax = pre_ad_components.get("profit_before_tax")
+        calculated["pre_ad_profit_before_tax"] = (
+            float(pre_ad_profit_before_tax)
+            if isinstance(pre_ad_profit_before_tax, Decimal)
+            else None
         )
         result = {
             "error": False,
@@ -480,7 +512,12 @@ class UnitPriceScenarioService:
                     missing.append(field)
         return normalized, missing, invalid
 
-    def _calculate_components(self, values, additional_expenses=None):
+    def _calculate_components(
+        self,
+        values,
+        additional_expenses=None,
+        include_advertising=True,
+    ):
         price = values.get("price")
         cost = values.get("cost")
         commission_rate = values.get("commission_rate")
@@ -500,7 +537,11 @@ class UnitPriceScenarioService:
             if price is not None and commission_rate is not None
             else None
         )
-        if values.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+        if not include_advertising:
+            # This zero exists only inside the independent no-ad branch. It is
+            # never written back to inputs or serialized as owner-provided spend.
+            advertising = Decimal("0.00")
+        elif values.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
             advertising = self._money_decimal(values.get("advertising_cost_per_unit"))
         elif price is not None and ad_rate is not None:
             advertising = self._money_decimal(price * ad_rate / self._HUNDRED)
@@ -552,6 +593,132 @@ class UnitPriceScenarioService:
         if additional_expenses is not None:
             result["additional_unit_expenses"] = self._money_decimal(additional_expenses)
         return result
+
+    def _build_pre_ad_projection(
+        self,
+        *,
+        normalized,
+        tax_mode,
+        missing,
+        invalid,
+        additional_expenses,
+        extended,
+        sources,
+    ):
+        """Build a versioned no-ad projection without changing legacy outputs."""
+        ad_fields = self.ADVERTISING_INPUT_FIELDS
+        after_ad_only_fields = ad_fields | {"calculation", "tax_calculation"}
+        blocking_missing = [field for field in missing if field not in ad_fields]
+        blocking_invalid = [
+            field for field in invalid
+            if field not in after_ad_only_fields
+        ]
+        source_periods = sources.get("periods")
+        if not isinstance(source_periods, dict):
+            source_periods = {}
+        base = {
+            "schema_version": self.PRE_AD_PROJECTION_VERSION,
+            "basis": "PRICE_SCENARIO_NO_AD",
+            "tax_basis": "NO_ADVERTISING_SCENARIO",
+            "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+            "currency": "RUB",
+            "unit_basis": "ONE_SUCCESSFUL_UNIT",
+            "status": "UNAVAILABLE",
+            "price_per_unit_rub": self._money(normalized.get("price"))
+            if normalized.get("price") is not None else None,
+            "profit_per_unit_rub": None,
+            "margin_percent": None,
+            "tax_per_unit_rub": None,
+            "advertising_status": "EXCLUDED_BY_DEFINITION",
+            "expense_scope": {
+                "status": "UNKNOWN",
+                "known_non_ad_expenses_rub": {},
+                "unknown_non_ad_expense_keys": [],
+                "excluded_expense_keys": ["ADVERTISING"],
+            },
+            "missing_inputs": list(dict.fromkeys(blocking_missing)),
+            "invalid_inputs": list(dict.fromkeys(blocking_invalid)),
+            "source_periods": dict(source_periods),
+            "as_of": sources.get("as_of"),
+            "read_only": True,
+            "executed": False,
+        }
+        if blocking_missing or blocking_invalid:
+            base["reason"] = (
+                "NO_AD_REQUIRED_INPUTS_MISSING"
+                if blocking_missing
+                else "NO_AD_INPUTS_INVALID"
+            )
+            return base
+
+        normalized_mode = str(tax_mode or "").upper()
+        if normalized_mode not in self.tax_service.SUPPORTED_MODES:
+            base["reason"] = "NO_AD_TAX_POLICY_UNAVAILABLE"
+            return base
+
+        try:
+            components = self._calculate_components(
+                normalized,
+                additional_expenses=additional_expenses,
+                include_advertising=False,
+            )
+        except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
+            base["reason"] = "NO_AD_COMPONENT_CALCULATION_UNAVAILABLE"
+            return base
+        tax_and_profit = self._calculate_tax_and_profit(
+            normalized,
+            normalized_mode,
+            components,
+        )
+        if any(
+            tax_and_profit.get(field) is None
+            for field in ("tax", "profit", "margin_percent")
+        ):
+            base["reason"] = "NO_AD_TAX_CALCULATION_UNAVAILABLE"
+            return base
+
+        known_expenses = {
+            "COGS": normalized["cost"],
+            "OZON_COMMISSION": components["commission"],
+            "LOGISTICS": normalized["logistics_per_unit"],
+            "LAST_MILE": normalized["last_mile_per_unit"],
+            "ACQUIRING": normalized["acquiring_per_unit"],
+        }
+        unknown_expenses = [
+            "STORAGE",
+            "RETURNS_AND_CANCELLATIONS",
+            "FIXED_STORE_OVERHEAD",
+            "UNMAPPED_NON_AD_EXPENSES",
+        ]
+        cross_docking = normalized.get("cross_docking_per_unit")
+        if cross_docking is None:
+            unknown_expenses.append("CROSS_DOCKING")
+        else:
+            known_expenses["CROSS_DOCKING"] = cross_docking
+        if additional_expenses is not None:
+            known_expenses["CONFIRMED_ADDITIONAL_EXPENSES"] = additional_expenses
+            if extended:
+                for key, status in extended["excluded_component_statuses"].items():
+                    if status == "UNKNOWN":
+                        unknown_expenses.append(key)
+
+        base.update({
+            "status": "AVAILABLE",
+            "profit_per_unit_rub": float(tax_and_profit["profit"]),
+            "margin_percent": float(tax_and_profit["margin_percent"]),
+            "tax_per_unit_rub": float(tax_and_profit["tax"]),
+            "expense_scope": {
+                "status": "PARTIAL" if unknown_expenses else "COMPLETE",
+                "known_non_ad_expenses_rub": {
+                    key: float(value)
+                    for key, value in sorted(known_expenses.items())
+                },
+                "unknown_non_ad_expense_keys": sorted(set(unknown_expenses)),
+                "excluded_expense_keys": ["ADVERTISING"],
+            },
+            "reason": "UNMODELED_NON_AD_EXPENSES" if unknown_expenses else None,
+        })
+        return base
 
     def _normalize_extended_scenario(self, value):
         expected = {
@@ -862,12 +1029,50 @@ class UnitPriceScenarioService:
             }
         return result
 
-    def _extended_unavailable_result(self, reason, raw_contract, identity, sources):
+    def _extended_unavailable_result(self, reason, raw_contract, identity, sources, inputs=None):
         mode = None
         if isinstance(raw_contract, dict):
             raw_mode = raw_contract.get("calculation_mode")
             if isinstance(raw_mode, str) and raw_mode in self.EXTENDED_MODES:
                 mode = raw_mode
+        raw_inputs = dict(inputs or {})
+        pre_ad_inputs = dict(raw_inputs)
+        if reason == "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE":
+            # Do not combine the supplied-unit rate with a sold-unit extended
+            # pool. The partial subtotal explicitly omits that component.
+            pre_ad_inputs.pop("cross_docking_per_unit", None)
+        normalized, missing, invalid = self._normalize(pre_ad_inputs)
+        if raw_inputs.get("tax_mode") in (None, ""):
+            missing.append("tax_mode")
+        elif str(raw_inputs.get("tax_mode")).upper() not in self.tax_service.SUPPORTED_MODES:
+            invalid.append("tax_mode")
+        elif str(raw_inputs.get("tax_mode")).upper() != "NONE":
+            if normalized.get("tax_rate") is None and "tax_rate" not in invalid:
+                missing.append("tax_rate")
+            if (
+                str(raw_inputs.get("tax_mode")).upper() == "USN_INCOME_MINUS_EXPENSES"
+                and normalized.get("minimum_tax_rate") is None
+                and "minimum_tax_rate" not in invalid
+            ):
+                missing.append("minimum_tax_rate")
+        pre_ad_projection = self._build_pre_ad_projection(
+            normalized=normalized,
+            tax_mode=raw_inputs.get("tax_mode"),
+            missing=missing,
+            invalid=invalid,
+            additional_expenses=None,
+            extended=None,
+            sources=sources,
+        )
+        if pre_ad_projection.get("status") == "AVAILABLE":
+            scope = pre_ad_projection["expense_scope"]
+            unknown = set(scope.get("unknown_non_ad_expense_keys") or [])
+            unknown.add("EXTENDED_EXPENSE_EVIDENCE")
+            if reason == "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE":
+                unknown.add("CROSS_DOCKING")
+            scope["unknown_non_ad_expense_keys"] = sorted(unknown)
+            scope["status"] = "PARTIAL"
+            pre_ad_projection["reason"] = "EXTENDED_EXPENSE_EVIDENCE_UNAVAILABLE"
         return {
             "error": False,
             "available": False,
@@ -880,6 +1085,7 @@ class UnitPriceScenarioService:
             "as_of": sources.get("as_of"),
             "source_completeness": sources.get("completeness", {}),
             "calculated": self._empty_calculation(),
+            "pre_ad_margin": pre_ad_projection,
             "missing_inputs": [],
             "invalid_inputs": [],
             "extended_calculation": {

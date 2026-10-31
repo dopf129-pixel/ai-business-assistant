@@ -5126,3 +5126,8 @@ Completed:
 # 2026-10-27 — unit-price observation Q18
 
 - Q18 добавил pure normalizer для денег, окон/дат, DRR bases, взвешенных знаменателей и conflict-safe dedup. Без полной скидочной базы, price history, successful-sale units и дедуп-подтверждения результат остаётся incomparable; финансы и CPC не вычитаются повторно. Связанный профиль: 184 passed. Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`.
+# 2026-10-31 — Реализация маржи до рекламы: MA05
+
+- Плановый canonical scenario теперь возвращает отдельный versioned `pre_ad_margin` до рекламы; no-ad сценарий вызывает существующий `TaxService` отдельно. При неизвестной рекламе before-ad может быть доступен, legacy after-ad `profit`/`margin_percent` остаются без изменений.
+- Проекция подписывает неполный expense scope и не считает неизвестные расходы нулём. Существующий cross-docking denominator guard и цель after-ad оптимизации сохранены.
+- Целевой профиль: 47 passed; linked scenario/current-card/Telegram profile: 313 passed in 4.83s. Полный suite/current-head CI pending; live Ozon/Telegram и запуск бота не выполнялись.

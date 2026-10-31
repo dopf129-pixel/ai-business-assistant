@@ -8,7 +8,8 @@
 
 - MA00 DONE: PR #721/#722/#723 открыты, их базы/head сверены; создана отдельная `codex/pre-ad-margin-implementation-20261031` от точной головы ТЗ `34007a9b229092b6d54f6194d6037b50f23b2d1c`. До изменений дерево было чистым; `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствовал. См. `PRE_AD_MARGIN_MA00_BASELINE_2026-10-31.md`.
 - MA01–MA04 DONE: зафиксированы current/historical/scenario consumers, исторический add-back boundary и versioned `pre_ad_margin` v1 contract. Исходный профиль **89 passed in 1.74s**; hashes owner data неизменны. Подробности в `PRE_AD_MARGIN_AUDIT_2026-10-31.md` и Decision 051.
-- Продолжить MA05: canonical самостоятельная no-ad ветка без изменения входов и старых outputs.
+- MA05 DONE: добавлена additive `pre_ad_margin` v1 canonical no-ad projection; при неизвестной рекламе before доступен, legacy after-ad result остаётся unavailable; internal no-ad zero не попадает во входы. Crossdock + extended guard сохранён, partial-проекция исключает crossdock и маркирует его unknown. Final linked profile **313 passed in 4.83s**; исходные данные чистые и hash совпадает. См. audit §MA05.
+- Продолжить MA06: отдельные налоги T0/T1 и числовой мост для `NONE`, USN income, profit-tax/minimum tax; общий налог в aggregate flows сохранить.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -24,7 +25,7 @@
 | MA02 | MA00 | DONE | Зафиксированы canonical scenario inputs, ad requirement, TaxService, extended expense gate и grid/mix/experiment consumers. Профиль базы 89 passed. См. audit §MA02. |
 | MA03 | MA01,MA02 | DONE | Exact-SKU financial-ad resolver существует, но не подключён к history query; Performance CPC reconciliation-only. Исторический add-back без доказанного inclusion недоступен. См. audit §MA03. |
 | MA04 | MA01,MA02,MA03 | DONE | Аддитивный versioned `pre_ad_margin` v1 и backward compatibility закреплены Decision 051. N01–N20 остаются acceptance oracle. См. audit §MA04. |
-| MA05 | MA04 | NOT_STARTED | — |
+| MA05 | MA04 | DONE | `UnitPriceScenarioService` добавил no-ad branch, не меняющий исходные inputs и legacy calculated profit/margin; extended unavailable branch выдаёт только partial subtotal; crossdock guard не ослаблен. Целевой профиль 47 passed; связанный профиль 313 passed. |
 | MA06 | MA05 | NOT_STARTED | — |
 | MA07 | MA06 | NOT_STARTED | — |
 | MA08 | MA05 | NOT_STARTED | — |
@@ -66,3 +67,11 @@
 - Decimal-oracles historical add-back 645+360=1005; 33.50 ₽/шт. и 33.50%; historical tax basis N11 34.10 против no-ad 32.30; weighted aggregate 27.50% — PASS.
 - Первый числовой запуск без Windows IANA database вернул EXTENDED_SCOPE_INVALID. Повтор с установленной локальной базой через PYTHONTZPATH прошёл; код/зависимости для этого не менялись.
 - `git diff --check`: PASS. `data/tasks.json` hash `38637702206478ab3c08d7ae1c4ac87f1f1c6354` сохранён; lock отсутствует. Новые runtime tests не добавлены. Полный локальный pytest не повторялся для документационной подготовки; полный CI спецификации проверяется на её опубликованном SHA.
+
+## Resume реализации MA05
+
+- Код: текущая ветка `codex/pre-ad-margin-implementation-20261031`; текущий `pre_ad_margin` projection находится в `app/services/unit_price_scenario_service.py`.
+- Регрессии: `tests/test_pre_ad_margin_projection.py`; сопутствующие numeric/tax assertions обновлены в `tests/test_unit_price_scenario_extended_contract.py`.
+- Финальный профиль после последней правки **313 passed in 4.83s** охватил 15 существующих test modules. Первый вызов связанного профиля сослался на неверное имя Telegram test module и не запустил тесты; исправленный полный повтор с `test_unit_price_scenario_telegram_runtime.py` зелёный.
+- `data/tasks.json` SHA-1: `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
+- Следующий этап MA06. Продолжить с проверки компонентов налогового моста и агрегированных расчётов; `TaxService` не переписывать.

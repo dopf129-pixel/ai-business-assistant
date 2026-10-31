@@ -94,16 +94,22 @@ def test_n01_applies_additional_window_expense_before_tax_exactly_once():
     assert result["calculated"]["profit_before_tax"] == 46.0
     assert result["calculated"]["additional_unit_expenses"] == 5.0
     assert result["calculated"]["profit"] == 46.0
-    assert tax.calls == [{
-        "mode": "NONE", "revenue": 100.0, "gross_profit": 46.0,
-        "tax_rate": None, "minimum_tax_rate": None, "discount_points": 0.0,
-    }]
+    assert tax.calls == [
+        {
+            "mode": "NONE", "revenue": 100.0, "gross_profit": 46.0,
+            "tax_rate": None, "minimum_tax_rate": None, "discount_points": 0.0,
+        },
+        {
+            "mode": "NONE", "revenue": 100.0, "gross_profit": 58.0,
+            "tax_rate": None, "minimum_tax_rate": None, "discount_points": 0.0,
+        },
+    ]
     assert result["extended_calculation"]["status"] == "APPLIED"
     assert result["extended_calculation"]["denominator_kind"] == "SOLD_UNITS_WINDOW"
     assert result["extended_calculation"]["additional_expense_per_unit_rub"] == "5.00"
 
 
-def test_n09_existing_tax_service_receives_adjusted_gross_profit_once():
+def test_n09_existing_tax_service_receives_after_ad_and_no_ad_gross_profit_separately():
     tax = _TaxSpy()
     service = UnitPriceScenarioService(tax)
     result = service.calculate(
@@ -114,12 +120,14 @@ def test_n09_existing_tax_service_receives_adjusted_gross_profit_once():
     assert result["calculated"]["profit_before_tax"] == 46.0
     assert result["calculated"]["tax"] == 4.8
     assert result["calculated"]["profit"] == 41.2
-    assert len(tax.calls) == 1
+    assert len(tax.calls) == 2
     assert tax.calls[0]["gross_profit"] == 46.0
     assert tax.calls[0]["discount_points"] == 20.0
+    assert tax.calls[1]["gross_profit"] == 58.0
+    assert tax.calls[1]["discount_points"] == 20.0
 
 
-def test_n09_extended_profit_is_taxed_on_existing_usn_income_base_without_discount_points():
+def test_n09_extended_profit_keeps_existing_usn_income_base_without_discount_points():
     tax = _TaxSpy()
     result = UnitPriceScenarioService(tax).calculate(
         _inputs(tax_mode="USN_INCOME", tax_rate="6", discount_points_rate="0"),
@@ -129,13 +137,14 @@ def test_n09_extended_profit_is_taxed_on_existing_usn_income_base_without_discou
     assert result["calculated"]["profit_before_tax"] == 46.0
     assert result["calculated"]["tax"] == 6.0
     assert result["calculated"]["profit"] == 40.0
-    assert len(tax.calls) == 1
+    assert len(tax.calls) == 2
     assert tax.calls[0]["gross_profit"] == 46.0
     assert tax.calls[0]["revenue"] == 100.0
     assert tax.calls[0]["discount_points"] == 0.0
+    assert tax.calls[1]["gross_profit"] == 58.0
 
 
-def test_n10_extended_profit_uses_regular_tax_once_without_subtracting_expense_after_tax():
+def test_n10_extended_profit_uses_regular_tax_without_subtracting_expense_after_tax():
     tax = _TaxSpy()
     result = UnitPriceScenarioService(tax).calculate(
         _inputs(
@@ -147,11 +156,12 @@ def test_n10_extended_profit_uses_regular_tax_once_without_subtracting_expense_a
     assert result["calculated"]["profit_before_tax"] == 46.0
     assert result["calculated"]["tax"] == 6.9
     assert result["calculated"]["profit"] == 39.1
-    assert len(tax.calls) == 1
+    assert len(tax.calls) == 2
     assert tax.calls[0]["gross_profit"] == 46.0
+    assert tax.calls[1]["gross_profit"] == 58.0
 
 
-def test_extended_usn_income_minus_expenses_applies_minimum_tax_to_adjusted_profit_once():
+def test_extended_usn_income_minus_expenses_applies_tax_to_each_ad_basis():
     tax = _TaxSpy()
     result = UnitPriceScenarioService(tax).calculate(
         _inputs(
@@ -164,8 +174,9 @@ def test_extended_usn_income_minus_expenses_applies_minimum_tax_to_adjusted_prof
     assert result["calculated"]["profit_before_tax"] == -34.0
     assert result["calculated"]["tax"] == 1.0
     assert result["calculated"]["profit"] == -35.0
-    assert len(tax.calls) == 1
+    assert len(tax.calls) == 2
     assert tax.calls[0]["gross_profit"] == -34.0
+    assert tax.calls[1]["gross_profit"] == -22.0
 
 
 def test_n05_absolute_advertising_over_price_is_applied_as_fixed_successful_unit_cost():
@@ -255,7 +266,7 @@ def test_complete_empty_snapshot_is_an_explicit_confirmed_zero():
     assert result["calculated"]["profit_before_tax"] == 51.0
 
 
-def test_partial_source_does_not_fall_back_to_legacy_profit_or_call_tax():
+def test_partial_source_does_not_fall_back_to_legacy_after_ad_profit():
     tax = _TaxSpy()
     result = UnitPriceScenarioService(tax).calculate(
         _inputs(), extended_scenario=_contract(completeness="PARTIAL"),
@@ -264,7 +275,10 @@ def test_partial_source_does_not_fall_back_to_legacy_profit_or_call_tax():
     assert result["calculated"]["profit"] is None
     assert result["extended_calculation"]["status"] == "UNAVAILABLE"
     assert result["extended_calculation"]["reason"] == "SOURCE_EVIDENCE_PARTIAL"
-    assert tax.calls == []
+    assert len(tax.calls) == 1
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["expense_scope"]["status"] == "PARTIAL"
+    assert "EXTENDED_EXPENSE_EVIDENCE" in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
 
 
 def test_strict_retained_mode_requires_complete_cohort_evidence():
@@ -277,14 +291,15 @@ def test_strict_retained_mode_requires_complete_cohort_evidence():
     assert result["extended_calculation"]["reason"] == "STRICT_COHORT_EVIDENCE_REQUIRED"
 
 
-def test_zero_or_invalid_denominator_fails_closed_without_a_tax_call():
+def test_zero_or_invalid_denominator_fails_closed_but_keeps_separate_pre_ad_projection():
     tax = _TaxSpy()
     result = UnitPriceScenarioService(tax).calculate(
         _inputs(), extended_scenario=_contract(units=0),
     )
     assert result["available"] is False
     assert result["extended_calculation"]["reason"] == "ZERO_OR_INVALID_DENOMINATOR"
-    assert tax.calls == []
+    assert len(tax.calls) == 1
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
 
 
 def test_extended_contract_never_mixes_cross_docking_supplied_units_with_sale_units():
@@ -294,7 +309,11 @@ def test_extended_contract_never_mixes_cross_docking_supplied_units_with_sale_un
     )
     assert result["available"] is False
     assert result["extended_calculation"]["reason"] == "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE"
-    assert tax.calls == []
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["expense_scope"]["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert "CROSS_DOCKING" not in result["pre_ad_margin"]["expense_scope"]["known_non_ad_expenses_rub"]
+    assert len(tax.calls) == 1
 
 
 def test_duplicate_component_key_and_wrong_included_key_list_fail_closed():
