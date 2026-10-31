@@ -58,7 +58,7 @@
 | MA24 | MA20,MA21,MA22 | DONE | Synthetic archive verified and restored into a new root; old/new plan revisions, history and exact frozen exports survive; tenant isolation/raw-response exclusion verified. Linked profile: 26 passed in 3.36s; regression commit `6b06eb43`. |
 | MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | DONE | Fixed-value N03/N05/N17 oracles added; exact tax-service call inputs/order checked; N01–N20 mapped to named canonical regressions. Linked Windows profile: 388 passed in 6.73s on test SHA `fcec0254`; no production change. |
 | MA26 | MA19,MA23,MA24,MA25 | DONE | Linked offline profile spans 70 modules: **981 passed in 28.81s**. One stale assertion was corrected to require the current finance-period provenance note exactly once; production behavior unchanged. Final test commit `8cdb62c1`. |
-| MA27 | MA26 | NOT_STARTED | — |
+| MA27 | MA26 | IN_PROGRESS | Starting from MA26 docs SHA `2a794be6`; record existing owner-data hashes, run full Windows pytest, compileall and diff checks, then verify CI on the exact published head. |
 | MA28 | MA27 | NOT_STARTED | — |
 | MA29 | MA28 | NOT_STARTED | — |
 
@@ -150,6 +150,12 @@
 - Re-run after the assertion update: **981 passed in 28.81s**; 70 listed modules, no deselects. Owner `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. `git diff --check` PASS. Test commit `8cdb62c1`.
 - Review found no linked-flow mismatch in source-call counts, saved revisions, tenant scope, export snapshot identity, ad ownership, or historical-versus-scenario tax basis. No live API/bot.
 - Next: MA27 full pytest, compilation/diff checks, then CI on the exact published HEAD for Windows/Linux/Docker.
+
+### MA27 — full verification and exact-head CI (in progress)
+
+- Input checkpoint: MA26 docs SHA `2a794be6`; linked regression commit `8cdb62c1`. Before the suite, record tracked owner-data hashes/lock state from the MA00 baseline and verify no unexpected files. Full verification must report exact exit/results; no `-k`, deselect, or stale CI inference.
+- Required local checks: full Windows `pytest`, Python compilation for `app` and `tests`, and `git diff --check`. Required remote checks: Windows/Linux/Docker CI at the exact published PR head; if any result is not available or fails, record it and continue only with safe independent work.
+- No live Ozon/Telegram requests, bot launch, merge, or deploy.
 
 ## Правила исполнения
 
