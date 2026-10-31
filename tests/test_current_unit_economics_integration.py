@@ -5,6 +5,7 @@ from services.product_unit_economics_query_service import (
     ProductUnitEconomicsQueryService
 )
 from services.tax_service import TaxService
+from telegram_app_layer.telegram_progress_feedback import split_telegram_text
 
 
 class FakeProductService:
@@ -174,6 +175,19 @@ def test_current_response_shows_rubles_and_percentages():
     assert "Эквайринг:\n1.27 ₽ — 1.3%" in response
     assert "Себестоимость:\n21.00 ₽ — 21.9%" in response
     assert "Налог:\n5.76 ₽ — 6.0%" in response
+    assert (
+        "Маржа до рекламы (после налога):\n"
+        "33.45 ₽ / шт. · 34.84% от цены продавца"
+    ) in response
+    assert "Налог: УСН Доходы · 5.76 ₽ / шт." in response
+    assert "Полнота расходов без рекламы: частичная" in response
+    assert "Не подтверждены: кросс-докинг, размещение, возвраты и отмены, хранение, прочие расходы" in response
+    assert "После рекламы: не рассчитана — расход рекламы неизвестен" in response
+    assert "Начисления Ozon:" in response
+    assert "Цена продавца актуальна на 25.08.2026 07:00 UTC" in response
+    telegram_chunks = split_telegram_text(response)
+    assert "".join(telegram_chunks) == response
+    assert all(len(chunk) <= 3800 for chunk in telegram_chunks)
     assert "Прибыль с 1 шт:\n33.45 ₽ — 34.8%" in response
     assert "Основано на последних финансовых начислениях Ozon: 50 продаж за 2 дн." in response
     assert "Маржа до рекламы рассчитана по учтённым расходам" in response
@@ -311,6 +325,12 @@ def test_current_pre_ad_projection_is_unavailable_when_seller_price_is_missing()
     assert projection["profit_per_unit_rub"] is None
     assert projection["margin_percent"] is None
     assert projection["advertising_status"] == "UNKNOWN"
+
+    response = service.format_response(result)
+
+    assert "Маржа до рекламы (после налога):\nне рассчитана" in response
+    assert "После рекламы: не рассчитана — расход рекламы неизвестен" in response
+    assert "0.00 ₽ / шт." not in response
 
 
 def test_current_pre_ad_source_periods_are_allowlisted_and_bounded():

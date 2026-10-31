@@ -43,6 +43,40 @@ class ProductUnitEconomicsQueryService:
         "tax": "Налог"
     }
 
+    PRE_AD_TAX_MODE_LABELS = {
+        "USN_INCOME": "УСН Доходы",
+        "USN_INCOME_MINUS_EXPENSES": "УСН Доходы минус расходы",
+        "NONE": "без налога",
+    }
+    PRE_AD_EXPENSE_LABELS = {
+        "COGS": "себестоимость",
+        "OZON_COMMISSION": "комиссия Ozon",
+        "LOGISTICS": "логистика",
+        "LAST_MILE": "последняя миля",
+        "ACQUIRING": "эквайринг",
+        "CROSS_DOCKING": "кросс-докинг",
+        "STORAGE": "хранение",
+        "PLACEMENT": "размещение",
+        "RETURNS_AND_CANCELLATIONS": "возвраты и отмены",
+        "UNMAPPED_NON_AD_EXPENSES": "прочие расходы",
+    }
+    PRE_AD_REASON_LABELS = {
+        "CURRENT_PRE_AD_INPUTS_MISSING": "не хватает обязательных данных для текущего расчёта",
+        "SELLER_REVENUE_DENOMINATOR_UNAVAILABLE": "не подтверждена выручка продавца для процента",
+        "HISTORICAL_PERIOD_RESULT_UNAVAILABLE": "нет результата за выбранный период",
+        "HISTORICAL_SUCCESSFUL_UNITS_UNAVAILABLE": "не подтверждено число успешных продаж",
+        "HISTORICAL_SELLER_REVENUE_UNAVAILABLE": "не подтверждена выручка продавца",
+        "HISTORICAL_PERIOD_RESULT_INCOMPLETE": "исторический финансовый результат неполный",
+        "HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED": "точные расходы на рекламу не подключены",
+        "HISTORICAL_ADVERTISING_IDENTITY_UNCONFIRMED": "не удалось подтвердить привязку рекламы к SKU",
+        "HISTORICAL_ADVERTISING_PERIOD_MISMATCH": "период рекламных данных не совпадает",
+        "HISTORICAL_ADVERTISING_EVIDENCE_INVALID": "источник рекламных данных не подтвердил результат",
+        "HISTORICAL_ADVERTISING_SCOPE_INCOMPLETE": "не все типы расходов на рекламу подтверждены",
+        "HISTORICAL_ADVERTISING_COMPONENTS_INCOMPLETE": "разбивка расходов на рекламу неполная",
+        "HISTORICAL_ADVERTISING_OWNERSHIP_MISMATCH": "состав расходов нельзя однозначно отнести к SKU",
+        "HISTORICAL_ADVERTISING_NET_CREDIT_REQUIRES_REVIEW": "корректировка рекламы требует проверки",
+    }
+
     def __init__(
         self,
         product_service,
@@ -491,6 +525,7 @@ class ProductUnitEconomicsQueryService:
         sku = result.get("sku", "—")
         lines = [
             f"Unit Economics — {sku}",
+            *self._format_pre_ad_summary(result),
             "",
             "Цена продажи:",
             self._format_money(
@@ -573,6 +608,7 @@ class ProductUnitEconomicsQueryService:
 
         lines = [
             f"💰 Юнит-экономика — {sku}",
+            *self._format_pre_ad_summary(result),
             "",
             "Цена:",
             self._format_money_with_share(
@@ -698,6 +734,128 @@ class ProductUnitEconomicsQueryService:
             lines.extend(["", note])
 
         return "\n".join(lines)
+
+    def _format_pre_ad_summary(self, result):
+        projection = result.get("pre_ad_margin")
+        if not isinstance(projection, dict):
+            return []
+
+        lines = ["", "Маржа до рекламы (после налога):"]
+        profit = projection.get("profit_per_unit_rub")
+        margin = projection.get("margin_percent")
+        if (
+            projection.get("status") == "AVAILABLE"
+            and profit is not None
+            and margin is not None
+        ):
+            lines.append(
+                self._format_money(profit)
+                + " / шт. · "
+                + self._format_percent(margin)
+                + " от цены продавца"
+            )
+        else:
+            lines.append("не рассчитана")
+            reason = projection.get("reason")
+            if isinstance(reason, str) and reason:
+                lines.append(
+                    "Причина: "
+                    + self.PRE_AD_REASON_LABELS.get(
+                        reason,
+                        "данных недостаточно или они несовместимы",
+                    )
+                )
+
+        basis = projection.get("tax_basis")
+        tax = projection.get("tax_per_unit_rub")
+        if tax is None:
+            tax = result.get("tax")
+        if basis == "CURRENT_TAX_POLICY":
+            mode = self.PRE_AD_TAX_MODE_LABELS.get(
+                projection.get("tax_mode"),
+                "не подтверждён",
+            )
+            tax_text = self._format_money(tax) + " / шт."
+            lines.append("Налог: " + mode + " · " + tax_text)
+        elif basis == "AS_RECORDED_IN_PERIOD_RESULT":
+            lines.append(
+                "Налог сохранён из результата исторического периода: "
+                + self._format_money(tax)
+                + " / шт."
+            )
+        elif basis:
+            lines.append("Налоговое основание: " + str(basis))
+        else:
+            lines.append("Налог: не подтверждён")
+
+        scope = projection.get("expense_scope")
+        scope_status = scope.get("status") if isinstance(scope, dict) else None
+        if scope_status == "COMPLETE":
+            lines.append("Полнота расходов без рекламы: подтверждена")
+        elif scope_status == "PARTIAL":
+            lines.append("Полнота расходов без рекламы: частичная")
+            unknown = scope.get("unknown_non_ad_expense_keys") or []
+            labels = [
+                self.PRE_AD_EXPENSE_LABELS[key]
+                for key in unknown
+                if key in self.PRE_AD_EXPENSE_LABELS
+            ]
+            if labels:
+                lines.append("Не подтверждены: " + ", ".join(labels[:5]))
+        else:
+            lines.append("Полнота расходов без рекламы: неизвестна")
+
+        advertising_status = projection.get("advertising_status")
+        after_ad = projection.get("after_ad")
+        if (
+            advertising_status == "CONFIRMED_INCLUDED_IN_NET"
+            and isinstance(after_ad, dict)
+            and after_ad.get("profit_per_unit_rub") is not None
+            and after_ad.get("margin_percent") is not None
+        ):
+            lines.append(
+                "После учтённой рекламы: "
+                + self._format_money(after_ad.get("profit_per_unit_rub"))
+                + " / шт. · "
+                + self._format_percent(after_ad.get("margin_percent"))
+            )
+        elif advertising_status == "UNKNOWN":
+            lines.append(
+                "После рекламы: не рассчитана — расход рекламы неизвестен"
+            )
+        else:
+            lines.append("После рекламы: нет подтверждённого результата")
+
+        periods = projection.get("source_periods")
+        if isinstance(periods, dict):
+            seller_price = periods.get("seller_price")
+            as_of = (
+                self._format_as_of(seller_price.get("as_of"))
+                if isinstance(seller_price, dict)
+                else None
+            )
+            finance = periods.get("current_finance_averages")
+            if isinstance(finance, dict):
+                start = finance.get("date_from")
+                end = finance.get("date_to")
+                days = finance.get("observed_sales_days")
+                if start and end:
+                    period_text = f"Начисления Ozon: {start} — {end}"
+                    if days is not None:
+                        period_text += f" · дни с продажами: {days}"
+                    lines.append(period_text)
+            historical = periods.get("historical_window")
+            if isinstance(historical, dict):
+                start = historical.get("date_from")
+                end = historical.get("date_to")
+                if start and end:
+                    lines.append(
+                        f"Исторический период начислений Ozon: {start} — {end}"
+                    )
+            if as_of:
+                lines.append("Цена продавца актуальна на " + as_of)
+
+        return lines
 
     def _cross_docking_basis(self, evidence):
         method = evidence.get("method")

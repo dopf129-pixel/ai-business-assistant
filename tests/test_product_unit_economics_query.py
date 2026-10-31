@@ -144,6 +144,12 @@ def test_query_finds_sku_and_returns_unit_economics():
         "storage",
         "returns"
     ]
+    response = service.format_response(result)
+    assert "Маржа до рекламы (после налога):\nне рассчитана" in response
+    assert "После рекламы: не рассчитана — расход рекламы неизвестен" in response
+    assert "Причина: точные расходы на рекламу не подключены" in response
+    assert "HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED" not in response
+    assert "0.00 ₽ / шт." not in response
     assert period_profit_service.calls[0][
         "products"
     ][0]["sku"] == "hook-2"

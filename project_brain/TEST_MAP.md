@@ -6092,3 +6092,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_current_unit_economics_integration.py` checks that `pre_ad_margin` v1 exactly reuses current profit/margin/tax values without changing legacy outputs; records current tax and seller-revenue bases; explicitly marks advertising unknown and non-ad scope partial; preserves cross-dock supplied-unit evidence; and returns UNAVAILABLE if current seller price is missing.
 - The same module verifies requested finance date bounds and observed sales days separately from the 56-day cross-docking period, visible current-note period/incompleteness explanation, buyer-price tax policy with seller-price denominator, and bounded allowlisted source-period metadata.
 - Linked Windows profile MA05–MA10 (21 modules): **401 passed in 6.09s**. Provider/query/current-source/production wiring, Telegram UI/runtime, projection/scenario, return/additional expense evidence, target/grid/sensitivity/batch/mix/ad-cap/observation suites included. `py_compile` and `git diff --check` passed.
+
+# MA15 — основной экран маржи до рекламы
+
+- `tests/test_current_unit_economics_integration.py` verifies the current screen leads with post-tax before-ad RUB/unit and seller-price margin %, shows whitelisted tax mode, partial expense scope and source windows, and states that after-ad is not calculated while advertising is unknown. It exercises the existing `split_telegram_text` output path and ensures no fabricated zero.
+- `tests/test_product_unit_economics_query.py` verifies historical ad evidence unavailable is rendered as a user-readable reason and never as a zero result.
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_exact_evidence_is_attached_to_the_matching_historical_query_row` verifies before-ad and after-ad values appear together only when exact advertising is proven included in the matching historical net, with stored tax provenance and period.
+- Linked Windows profile across current integration, historical query, historical pre-ad service and primary Telegram UI: **42 passed in 1.07s**. `py_compile` and `git diff --check` pass; owner data unchanged.

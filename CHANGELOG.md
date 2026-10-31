@@ -1,3 +1,9 @@
+# 2026-10-31 — MA15: главный экран маржи до рекламы
+
+- Основной экран SKU теперь сначала показывает прибыль и процент маржи до рекламы после налога; рядом указывает налоговый режим/основание, полноту прочих расходов и временные окна источников.
+- После-рекламный результат отображается только при подтверждённых рекламных данных. При UNKNOWN экран прямо сообщает, что результат после рекламы не рассчитан; ноль вместо пропуска не подставляется.
+- Linked Windows profile: **42 passed in 1.07s** на current, historical, query и Telegram UI модулях; обычный splitter проверен тем же output.
+
 # 2026-10-31 — MA14: before-ad margin in price planning consumers
 
 - Target, sensitivity and batch views now show before/after-ad results from the same candidate calculations; solver goals, source reads and search budgets are unchanged. Batch and sensitivity exports include the same projection snapshot.

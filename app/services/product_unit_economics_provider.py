@@ -368,6 +368,7 @@ class ProductUnitEconomicsProvider:
         result["pre_ad_margin"] = self._build_current_pre_ad_margin(
             result,
             facts,
+            tax_mode=tax_policy.get("mode"),
         )
 
         for field in (
@@ -379,7 +380,7 @@ class ProductUnitEconomicsProvider:
 
         return result
 
-    def _build_current_pre_ad_margin(self, result, facts):
+    def _build_current_pre_ad_margin(self, result, facts, tax_mode=None):
         known_expenses = {
             key: result.get(field)
             for key, field in (
@@ -483,6 +484,15 @@ class ProductUnitEconomicsProvider:
             "schema_version": 1,
             "basis": "CURRENT_MODEL",
             "tax_basis": "CURRENT_TAX_POLICY",
+            "tax_mode": (
+                tax_mode
+                if isinstance(tax_mode, str) and tax_mode in {
+                    "USN_INCOME",
+                    "USN_INCOME_MINUS_EXPENSES",
+                    "NONE",
+                }
+                else None
+            ),
             "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
             "currency": "RUB",
             "unit_basis": "ONE_SUCCESSFUL_UNIT",

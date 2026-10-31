@@ -17,6 +17,7 @@
 - MA12 DONE: historical reconciliation adds back only complete CPC/CPO/OTHER amounts proven already included in an exact-SKU net for the same owner/store/product/offer/SKU/schema and accrual window. Tax from the existing historical query is preserved without a second calculation; Performance CPC, cohort/account/window amounts, additional ownership, incomplete ads and net credits are not added. The normal production source does not attach this evidence and remains UNAVAILABLE with a specific reason. Linked profile **156 passed**; owner-data hash unchanged. See Resume MA12.
 - MA13 DONE: price-grid candidates now expose before/after-ad values and explicit denominator/basis metadata; existing ranking remains after-ad RUB per successful unit. A separate explicit no-ad grid mode uses zero only as a scenario assumption, keeps the active ad override when applying a candidate, and does not rank rows with incompatible bases together. Linked Windows profile: **255 passed in 5.89s** across 9 modules; owner-data hash unchanged. Implementation/checkpoint SHA is recorded below after the stage commit.
 - MA14 DONE: target/sensitivity/batch consumers and exports reuse the existing candidate before-ad projection; no second scenario/search/source evaluation is introduced. Sales mix returns a tax-aware pre-ad aggregate from the same public aggregate tax call, preserves existing after-ad totals, and weights profit by seller revenue. Linked Windows profile: **261 passed in 5.38s** across 9 modules; owner-data hash unchanged. Implementation SHA `0ead66f5`; journal checkpoint follows this commit.
+- MA15 DONE: the current/historical SKU screen leads with post-tax before-ad RUB/unit and seller-price margin, plus tax basis/mode, expense completeness, ad availability and source windows. Exact historical after-ad appears only when exact ads are proven already included; UNKNOWN stays unavailable, never zero. The existing formatter/splitter is reused. Linked Windows profile: **42 passed in 1.07s** across 4 modules; compile/diff checks and owner-data checks pass. Implementation/checkpoint SHA is recorded below.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -42,8 +43,8 @@
 | MA12 | MA03,MA07,MA09 | DONE | Historical projection and strict evidence/ownership checks; N09–N12/N16, exact-SKU versus cohort, credit and query integration covered. Linked Windows profile: 156 passed in 2.83s; data/tasks.json hash unchanged. Production historical source remains unconnected, so normal projection stays UNAVAILABLE. |
 | MA13 | MA11 | DONE | Candidate before/after outputs, default ranking, explicit no-ad mode and same-basis ranking verified; linked profile 255 passed in 5.92s; data hash unchanged; implementation commit `7219e6e3`. |
 | MA14 | MA13 | DONE | Target/sensitivity/batch reuse the same candidate projection; aggregate mix adds tax-aware no-ad output with weighted N14 basis; UI/export coverage; linked profile 261 passed in 5.34s; owner-data hash unchanged. |
-| MA15 | MA10,MA11,MA12 | IN_PROGRESS | MA14 dependency complete. Next add existing pre-ad projection to primary SKU screen with tax mode, ad status, expense completeness and source periods; preserve current/historical/model distinctions. |
-| MA16 | MA15 | NOT_STARTED | — |
+| MA15 | MA10,MA11,MA12 | DONE | Current/historical primary screen displays the existing projection and basis/completeness/source/ad context; unknown ads remain unavailable. Linked profile 42 passed in 1.07s; owner-data SHA-1 unchanged; implementation checkpoint recorded below. |
+| MA16 | MA15 | IN_PROGRESS | Add an “Из чего складывается” action with amounts, provenance, periods and denominators; reconcile ledger totals to the exact selected projection and label nested totals to prevent double counting. |
 | MA17 | MA16 | NOT_STARTED | — |
 | MA18 | MA12,MA15 | NOT_STARTED | — |
 | MA19 | MA13,MA17,MA18 | NOT_STARTED | — |
@@ -58,7 +59,7 @@
 | MA28 | MA27 | NOT_STARTED | — |
 | MA29 | MA28 | NOT_STARTED | — |
 
-## Resume реализации MA13 / MA14 / MA15
+## Исторический Resume реализации MA13 / MA14
 
 - MA13 input SHA: `0de7082badfe7b166bfffc325d5d1354dce1b3c9`. The implementation modified `app/services/unit_price_target_planning_service.py`, `app/services/telegram_unit_price_calculator_runtime_service.py`, and `app/services/assistant_keyboard_service.py`; regression coverage is in `tests/test_unit_price_target_planning_service.py` and `tests/test_unit_price_scenario_telegram_runtime.py`.
 - MA13 linked Windows/Python profile ran against the final MA13 code: 9 modules (`unit_price_target_planning_service`, calculator Telegram runtime, per-unit end-to-end, sensitivity service/runtime, batch service/runtime, sales mix, saved planning plan) — **255 passed in 5.89s**. `data/tasks.json` SHA-1 before/after is `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` absent. No live Ozon/Telegram request or real bot.
@@ -69,7 +70,15 @@
 - Sales mix sums rounded canonical per-unit pre-ad gross profit × planned quantity, subtracts confirmed fixed expenses, and computes the no-ad tax at aggregate level. `TaxService.calculate(comparison_gross_profit=...)` returns both tax bases in one public service invocation; per-SKU tax calls are not introduced. The existing after-ad profit/tax/margin remain unchanged. N14 fixture: 110 ₽ / 400 ₽ = 27.50%, not the unweighted 25% mean.
 - Final linked Windows/Python profile, rerun after the stage commit: **261 passed in 5.38s** across `tests/test_sales_mix_planning_service.py`, `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_sensitivity_service.py`, `tests/test_unit_price_batch_plan_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_saved_planning_plan_telegram_flow.py`, and `tests/test_analytics_export_service.py`. First broad run had 258 passed / 3 failed due incorrect fixture assumptions and partial-scope wording; fixed and reran the entire profile successfully.
 - `py_compile` over affected production services and `git diff --check` pass. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live requests or real bot.
-- Next: MA15 primary SKU screen. Reuse the projection from the existing scenario result; add tax/ad/completeness/source-window context, then proceed to MA16.
+- MA14 завершён commit `0ead66f5`; актуальная точка продолжения находится в Resume MA15 / MA16 ниже.
+
+## Resume реализации MA15 / MA16
+
+- MA15 input SHA: `e7fe4824`. Implementation commit SHA: pending; record the exact output SHA after commit.
+- MA15 changed `app/services/product_unit_economics_query_service.py` and `app/services/product_unit_economics_provider.py`; regressions are in `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, and `tests/test_product_unit_economics_historical_pre_ad_margin.py`.
+- The existing current/historical `format_response` now places the canonical post-tax pre-ad projection before the legacy details. The current projection carries only a whitelist tax mode. UNKNOWN ads explicitly make after-ad profit unavailable; historical after-ad appears only when exact ads are proven included in the same net. Completeness, user-readable unavailable reason, seller-price/finance windows and historical accrual dates are visible; the existing Telegram splitter remains the only splitting path.
+- Final focused Windows profile: **42 passed in 1.07s** across current integration, historical query, historical pre-ad service and Telegram UI. `py_compile` and `git diff --check` PASS. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API or bot.
+- Next: MA16 expense drill-down action. Inspect exact canonical expense ledger/evidence; preserve total and ownership semantics, make nested subtotals visibly non-additive, include source periods/denominators, and verify sum-to-projection with cents before MA17.
 
 ## Правила исполнения
 

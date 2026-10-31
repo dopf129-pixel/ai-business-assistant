@@ -294,6 +294,13 @@ def test_exact_evidence_is_attached_to_the_matching_historical_query_row(service
     assert result["net_profit_per_unit"] == 21.5
     assert result["pre_ad_margin"]["status"] == "AVAILABLE"
     assert result["pre_ad_margin"]["profit_rub"] == 1005.0
+    response = query.format_response(result)
+    assert "Маржа до рекламы (после налога):" in response
+    assert "33.50 ₽ / шт. · 33.50% от цены продавца" in response
+    assert "Налог сохранён из результата исторического периода: 4.50 ₽ / шт." in response
+    assert "Полнота расходов без рекламы: частичная" in response
+    assert "После учтённой рекламы: 21.50 ₽ / шт. · 21.50%" in response
+    assert "Исторический период начислений Ozon: 2026-10-01 — 2026-10-07" in response
 
 
 @pytest.mark.parametrize(
