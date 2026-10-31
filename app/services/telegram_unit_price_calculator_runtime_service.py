@@ -227,6 +227,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
             snapshot.get("cross_docking")
         )
         inputs = deepcopy(session.get("inputs") or {})
+        for field, value in list(inputs.items()):
+            if field in {"tax_mode", "advertising_mode"}:
+                continue
+            if value in (None, ""):
+                inputs[field] = None
+                continue
+            number = self._decimal(value)
+            if number is None:
+                return self._stale_result()
+            inputs[field] = format(number, "f")
         inputs.setdefault("cross_docking_per_unit", None)
         provenance = deepcopy(session.get("provenance") or {})
         provenance.setdefault("cross_docking_per_unit", "unknown")
@@ -3448,10 +3458,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Цена продавца: " + self._money(inputs.get("price")),
             "Себестоимость: " + self._money(inputs.get("cost")),
         ]
+        lines.extend(self._pre_ad_projection_lines(result))
         if result.get("available") is True:
             lines.extend([
                 "Прибыль: " + self._money(values.get("profit")) + "/шт.",
                 "Маржа: " + self._percent(values.get("margin_percent")),
+                "Маржа после рекламы по сценарию: "
+                + self._percent(values.get("margin_percent"))
+                + " (" + self._money(values.get("profit")) + "/шт.).",
             ])
         else:
             lines.append("Прибыль с единицы пока не рассчитана.")
@@ -3467,6 +3481,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 labels.append("проверьте допустимость расчётных значений и налоговые настройки")
             if labels:
                 lines.append("Нужно проверить: " + ", ".join(dict.fromkeys(labels)) + ".")
+            advertising_unknown = (
+                inputs.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                and inputs.get("advertising_cost_per_unit") is None
+            ) or (
+                inputs.get("advertising_mode") != "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                and inputs.get("advertising_rate") is None
+            )
+            if advertising_unknown:
+                lines.append(
+                    "Реклама неизвестна: прибыль после рекламы не рассчитана и не считается нулевой."
+                )
             cross_docking_line = self._cross_docking_assumption(
                 snapshot.get("cross_docking") or {}, None
             )
@@ -3520,6 +3545,27 @@ class TelegramUnitPriceCalculatorRuntimeService:
         ])
         return "\n".join(lines)
 
+    def _pre_ad_projection_lines(self, result):
+        projection = result.get("pre_ad_margin") if isinstance(result, dict) else None
+        if not isinstance(projection, dict) or projection.get("status") != "AVAILABLE":
+            return []
+        scope = projection.get("expense_scope")
+        scope = scope if isinstance(scope, dict) else {}
+        lines = [
+            "Маржа до рекламы (после налога): "
+            + self._money(projection.get("profit_per_unit_rub"))
+            + "/шт. · "
+            + self._percent(projection.get("margin_percent"))
+            + " от цены продавца."
+        ]
+        if scope.get("status") == "COMPLETE":
+            lines.append("Полнота расходов до рекламы: подтверждена.")
+        else:
+            lines.append(
+                "Полнота расходов до рекламы: частичная; неизвестные суммы не подменены нулём."
+            )
+        return lines
+
     def _format_result_details(self, session, result, notice=None):
         snapshot = session["snapshot"]
         product = snapshot.get("product") or {}
@@ -3569,6 +3615,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Налог: " + self._money(values.get("tax")) + " (" + self._percent(values.get("effective_tax_rate")) + " цены)",
             "",
         ]
+        lines.extend(self._pre_ad_projection_lines(result))
         tariff = result.get("tariff_resolution") or {}
         if tariff:
             if tariff.get("available") is True:
@@ -3585,6 +3632,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.extend([
                 "Плановая прибыль: " + self._money(values.get("profit")) + "/шт.",
                 "Плановая маржа: " + self._percent(values.get("margin_percent")),
+                "Маржа после рекламы по сценарию: "
+                + self._percent(values.get("margin_percent"))
+                + " (" + self._money(values.get("profit")) + "/шт.).",
             ])
             comparison = result.get("comparison") or {}
             if comparison.get("available") is True:

@@ -2165,3 +2165,142 @@ def test_saved_context_rejects_changed_identity_without_sales_mix():
 
     assert result["error"] is True
     assert result["code"] == "PLANNING_PLAN_IDENTITY_CHANGED"
+
+
+def test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["advertising_rate"] = None
+        snapshot["input_provenance"]["advertising_rate"] = "unknown"
+        snapshot["input_provenance"]["commission_rate"] = "ozon_current_fbo_rate"
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+
+    class CurrentEconomicsQuery:
+        product_service = source.product_service
+        cost_service = None
+
+        def __init__(self):
+            self.calls = []
+
+        def query(self, sku):
+            self.calls.append(sku)
+            return {
+                "error": False, "available": True, "source": "current", "sku": sku,
+                "missing_fields": ["advertising"],
+                "pre_ad_margin": {
+                    "status": "AVAILABLE", "profit_per_unit_rub": 246.0,
+                    "margin_percent": 49.2, "advertising_status": "UNKNOWN",
+                },
+            }
+
+        def format_response(self, result):
+            return "CURRENT_BEFORE_AD=246.00 RUB/unit; CURRENT_AFTER_AD=unknown."
+
+        def format_expense_breakdown(self, result):
+            return "CURRENT_BREAKDOWN_BEFORE_AD=246.00 RUB/unit."
+
+    def callback(result, prefix):
+        return next(
+            button["callback"]
+            for button in result["keyboard"]["buttons"]
+            if button["callback"].startswith(prefix)
+        )
+
+    def edit_callback(result, field):
+        return next(
+            button["callback"]
+            for button in result["keyboard"]["buttons"]
+            if button["callback"].startswith("upc:e:")
+            and button["callback"].endswith(":" + field)
+        )
+
+    query = CurrentEconomicsQuery()
+    handler = AssistantButtonHandlerService(
+        assistant=None, keyboard_service=single.keyboard_service,
+        unit_economics_query=query,
+        unit_price_calculator_runtime_service=single,
+        saved_planning_plan_runtime_service=saved_runtime,
+    )
+    tenant = _activate()
+    try:
+        current = handler.handle("unit_economics:sku-1", user_id="user-1")
+        assert "CURRENT_BEFORE_AD=246.00 RUB/unit" in current["message"]
+        assert "CURRENT_AFTER_AD=unknown" in current["message"]
+        assert current["unit_economics"]["pre_ad_margin"]["advertising_status"] == "UNKNOWN"
+
+        current_detail = handler.handle(
+            callback(current, "unit_economics_details:"), user_id="user-1",
+        )
+        assert current_detail["message"] == "CURRENT_BREAKDOWN_BEFORE_AD=246.00 RUB/unit."
+        assert query.calls == ["sku-1"]
+
+        selected = handler.handle(callback(current, "upc:p:"), user_id="user-1")
+        assert selected["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+        assert selected["price_scenario"]["pre_ad_margin"]["profit_per_unit_rub"] == 246.0
+        assert "advertising_rate" in selected["price_scenario"]["missing_inputs"]
+        assert "\u041c\u0430\u0440\u0436\u0430 \u0434\u043e \u0440\u0435\u043a\u043b\u0430\u043c\u044b (\u043f\u043e\u0441\u043b\u0435 \u043d\u0430\u043b\u043e\u0433\u0430)" in selected["message"]
+        assert "246,00 \u20bd/\u0448\u0442." in selected["message"]
+        assert "\u043d\u0435 \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044f \u043d\u0443\u043b\u0435\u0432\u043e\u0439." in selected["message"]
+
+        scenario_detail = handler.handle(callback(selected, "upc:x:"), user_id="user-1")
+        assert scenario_detail["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        assert "246,00 \u20bd/\u0448\u0442." in scenario_detail["message"]
+
+        for field, value in (("cost", "25"), ("price", "100,01")):
+            prompt = handler.handle(edit_callback(selected, field), user_id="user-1")
+            assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+            selected = handler.handle_text(value, user_id="user-1")
+        assert selected["price_scenario"]["inputs"]["commission_rate"]["value"] is None
+
+        commission_prompt = handler.handle(
+            edit_callback(selected, "commission_rate"), user_id="user-1",
+        )
+        assert commission_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        selected = handler.handle_text("22", user_id="user-1")
+        assert selected["price_scenario"]["inputs"]["commission_rate"]["provenance"] == "manual_seller_assumption"
+
+        ad_prompt = handler.handle(
+            edit_callback(selected, "advertising_rate"), user_id="user-1",
+        )
+        assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        selected = handler.handle_text("8", user_id="user-1")
+
+        projection = selected["price_scenario"]["pre_ad_margin"]
+        assert projection["profit_per_unit_rub"] == -6.79
+        assert projection["margin_percent"] == -6.79
+        assert selected["price_scenario"]["calculated"]["profit"] == -14.79
+        assert "\u041c\u0430\u0440\u0436\u0430 \u0434\u043e \u0440\u0435\u043a\u043b\u0430\u043c\u044b (\u043f\u043e\u0441\u043b\u0435 \u043d\u0430\u043b\u043e\u0433\u0430)" in selected["message"]
+        assert "6,79 \u20bd/\u0448\u0442." in selected["message"]
+        assert "\u041c\u0430\u0440\u0436\u0430 \u043f\u043e\u0441\u043b\u0435 \u0440\u0435\u043a\u043b\u0430\u043c\u044b" in selected["message"]
+        assert "14,79 \u20bd/\u0448\u0442." in selected["message"]
+
+        save_callback = callback(selected, "upp:s:")
+        save_parts = save_callback.split(":")
+        capture = single.get_saved_plan_capture(
+            save_parts[2], save_parts[3], user_id="user-1",
+        )
+        assert capture["error"] is False
+        assert capture["payload"]["items"][0]["inputs"]["price"] == "100.01"
+        assert service.repository._payload(
+            capture["payload"], service.repository._scope("user-1", "store-a"),
+        ) is not None
+
+        save_prompt = handler.handle(save_callback, user_id="user-1")
+        assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        saved = handler.handle_text("MA19 price plan", user_id="user-1")
+        assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+        saved_item = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert saved_item["inputs"]["price"] == "100.01"
+    assert saved_item["inputs"]["cost"] == "25"
+    assert saved_item["inputs"]["commission_rate"] == "22"
+    assert saved_item["inputs"]["advertising_rate"] == "8"
+    assert saved_item["provenance"]["commission_rate"] == "manual_seller_assumption"
+    assert len(source.calls) == 1

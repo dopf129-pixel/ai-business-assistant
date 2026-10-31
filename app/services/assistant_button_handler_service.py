@@ -580,7 +580,10 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:", "upp:", "upt:", "upo:", "uex:")):
+        if isinstance(button_id, str) and button_id.startswith((
+            "upc:", "pov:", "upb:", "ups:", "upp:", "upt:", "upo:", "uex:",
+            "unit_economics_details:",
+        )):
             return
         if (
             isinstance(button_id, str)
