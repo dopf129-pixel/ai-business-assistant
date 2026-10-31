@@ -4,6 +4,13 @@
 - `tests/test_current_unit_economics_polish.py::test_current_unit_economics_output_is_user_friendly` now asserts that the validated finance sample note appears exactly once; this aligns the old formatting test with the current-card provenance and existing integration contract. No production behavior changed.
 - Exact linked Windows profile on test commit `8cdb62c1`: 70 modules, **981 passed in 28.81s**, no deselects. User-data SHA-1 unchanged and no lock left behind. Full repository pytest and CI are MA27.
 
+# MA27–MA28 — full verification and owner guide
+
+- Full Windows suite on implementation test HEAD `eb14db29`: **4,404 passed in 46.19s**. One legacy test double initially omitted the production detail-keyboard method; adding that method to the fake restored the pre-existing test contract, and its focused module passed **10 tests** before the full rerun.
+- `python -m compileall -q app tests` and `git diff --check` passed on `eb14db29`. Full pytest side effects were inspected and cleaned only for known test-owned `data/tasks.json` mutation and zero-byte lock; owner file hash restored to baseline `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent; worktree clean.
+- `project_brain/UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md` now explains the exact SKU menu/actions, denominator, partial scope, current/planned/historical tax bases, and an N01 before/after example. Owner live-source validation remains `USER_VALIDATION_PENDING`.
+- MA27 exact-head remote CI is pending PR publication; local results above do not substitute for remote Windows/Linux/Docker checks.
+
 # MA25 — independent numeric acceptance coverage for margin before ads
 
 - `tests/test_pre_ad_margin_projection.py` fixes the canonical before/after/tax oracle for N01–N05, including N03 absolute ad, N04 separate profit-tax bases, and N05 no-tax. Tax spy assertions verify the actual after-ad then no-ad service calls rather than duplicating the tax formula in test code.

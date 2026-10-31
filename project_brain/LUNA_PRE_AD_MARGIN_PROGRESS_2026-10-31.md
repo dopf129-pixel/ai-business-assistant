@@ -58,9 +58,9 @@
 | MA24 | MA20,MA21,MA22 | DONE | Synthetic archive verified and restored into a new root; old/new plan revisions, history and exact frozen exports survive; tenant isolation/raw-response exclusion verified. Linked profile: 26 passed in 3.36s; regression commit `6b06eb43`. |
 | MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | DONE | Fixed-value N03/N05/N17 oracles added; exact tax-service call inputs/order checked; N01–N20 mapped to named canonical regressions. Linked Windows profile: 388 passed in 6.73s on test SHA `fcec0254`; no production change. |
 | MA26 | MA19,MA23,MA24,MA25 | DONE | Linked offline profile spans 70 modules: **981 passed in 28.81s**. One stale assertion was corrected to require the current finance-period provenance note exactly once; production behavior unchanged. Final test commit `8cdb62c1`. |
-| MA27 | MA26 | IN_PROGRESS | Starting from MA26 docs SHA `2a794be6`; record existing owner-data hashes, run full Windows pytest, compileall and diff checks, then verify CI on the exact published head. |
-| MA28 | MA27 | NOT_STARTED | — |
-| MA29 | MA28 | NOT_STARTED | — |
+| MA27 | MA26 | IN_PROGRESS | Local checks on `eb14db29`: full Windows pytest **4,404 passed in 46.19s**; `python -m compileall -q app tests` PASS; `git diff --check` PASS. Known test side effects restored; owner `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, no lock. Exact-head Windows/Linux/Docker CI is required at MA29. |
+| MA28 | MA27 | DONE | Updated the owner guide and Telegram quick guide with exact menu/actions, seller-price denominator, current/scenario/historical tax behavior, partial scope, and N01 before/after example. Owner live-source acceptance is `USER_VALIDATION_PENDING`; no live requests. |
+| MA29 | MA28 | IN_PROGRESS | Create a stacked PR targeting the spec branch `codex/pre-ad-margin-spec-20261031`, publish review packet, then require Windows/Linux/Docker CI green on final head SHA. No merge, deploy or bot launch. |
 
 ## Исторический Resume реализации MA13 / MA14
 
@@ -151,11 +151,18 @@
 - Review found no linked-flow mismatch in source-call counts, saved revisions, tenant scope, export snapshot identity, ad ownership, or historical-versus-scenario tax basis. No live API/bot.
 - Next: MA27 full pytest, compilation/diff checks, then CI on the exact published HEAD for Windows/Linux/Docker.
 
-### MA27 — full verification and exact-head CI (in progress)
+### MA27 — full verification and exact-head CI (local checks complete; remote CI pending)
 
 - Input checkpoint: MA26 docs SHA `2a794be6`; linked regression commit `8cdb62c1`. Before the suite, record tracked owner-data hashes/lock state from the MA00 baseline and verify no unexpected files. Full verification must report exact exit/results; no `-k`, deselect, or stale CI inference.
 - Required local checks: full Windows `pytest`, Python compilation for `app` and `tests`, and `git diff --check`. Required remote checks: Windows/Linux/Docker CI at the exact published PR head; if any result is not available or fails, record it and continue only with safe independent work.
 - No live Ozon/Telegram requests, bot launch, merge, or deploy.
+
+### MA27–MA28 — completed local acceptance and owner instructions
+
+- Final code/test HEAD: `eb14db29` (`Complete legacy unit detail keyboard test double`). Full Windows suite: **4,404 passed in 46.19s**. The first full run had one stale fake lacking the existing production keyboard method; the fake was corrected, its module passed 10 tests, and the whole suite was rerun successfully.
+- `python -m compileall -q app tests`: PASS. `git diff --check`: PASS. The full-suite data mutation was checked against baseline and restored; `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, `data/tasks.json.lock` absent, worktree clean.
+- MA28 changed only documentation: `CHANGELOG.md`, `docs/telegram-user-guide.md`, `project_brain/CURRENT_STATE.md`, `project_brain/TEST_MAP.md`, and `project_brain/UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`. The example is N01 (100 ₽ seller price; 33.50 ₽/33.50% pre-ad; 21.50 ₽/21.50% after 12 ₽ advertising) under USN Income with 25 ₽ discount points. Historical tax is retained from the period result. `USER_VALIDATION_PENDING` is not a code blocker.
+- MA29 in progress: remote CI on the published final PR SHA remains required. No real Ozon/Telegram request, bot launch, merge or deployment.
 
 ## Правила исполнения
 
