@@ -32,6 +32,7 @@ class SalesMixPlanningService:
         canonical_rows = []
         excluded = []
         totals = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+        pre_ad_profit_before_tax_total = Decimal("0.00")
         additional_expense_total = Decimal("0.00")
         has_extended_expenses = False
         cross_docking_total = Decimal("0.00")
@@ -66,6 +67,7 @@ class SalesMixPlanningService:
 
             if quantity == 0:
                 row_components = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+                row_components["pre_ad_profit_before_tax"] = Decimal("0.00")
                 if extended_scenario is not None:
                     row_components["additional_unit_expenses"] = Decimal("0.00")
                 if include_cross_docking:
@@ -100,6 +102,20 @@ class SalesMixPlanningService:
 
             unit = projected.get("calculated") or {}
             row_components = {}
+            pre_ad_unit_profit = self._decimal(unit.get("pre_ad_profit_before_tax"))
+            if pre_ad_unit_profit is None:
+                complete = False
+                excluded.append({
+                    "row_id": row_id,
+                    "label": label,
+                    "reason": "PRE_AD_COMPONENT_UNKNOWN",
+                })
+                continue
+            pre_ad_row_profit = (pre_ad_unit_profit * quantity).quantize(Decimal("0.01"))
+            pre_ad_profit_before_tax_total += pre_ad_row_profit
+            if abs(pre_ad_profit_before_tax_total) > self.MAX_AGGREGATE_AMOUNT:
+                return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
+            row_components["pre_ad_profit_before_tax"] = pre_ad_row_profit
             additional_unit_expense = self._decimal(unit.get("additional_unit_expenses"))
             if extended_scenario is not None:
                 if additional_unit_expense is None:
@@ -161,13 +177,21 @@ class SalesMixPlanningService:
         if expense_total > self.MAX_FIXED_EXPENSE_TOTAL:
             return self._error("FIXED_EXPENSE_TOTAL_LIMIT_EXCEEDED")
         pre_tax_subtotal = totals["profit_before_tax"] - expense_total
+        pre_ad_pre_tax_subtotal = pre_ad_profit_before_tax_total - expense_total
         if abs(pre_tax_subtotal) > self.MAX_AGGREGATE_AMOUNT:
+            return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
+        if abs(pre_ad_pre_tax_subtotal) > self.MAX_AGGREGATE_AMOUNT:
             return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
         all_rows_known = quantity_known and complete and not excluded
         same_policy = len(policy_set) == 1 and not policy_missing
         tax = None
         final_profit = None
         margin = None
+        pre_ad_tax = None
+        pre_ad_profit = None
+        pre_ad_margin = None
+        pre_ad_status = "UNAVAILABLE"
+        pre_ad_reason = "MIX_INPUTS_OR_TAX_POLICY_INCOMPLETE"
         tax_status = (
             "MIXED_TAX_POLICIES" if len(policy_set) > 1
             else "PARTIAL_INPUTS" if not all_rows_known
@@ -184,6 +208,7 @@ class SalesMixPlanningService:
                     tax_rate=float(rate) if rate is not None else None,
                     minimum_tax_rate=float(minimum_rate) if minimum_rate is not None else None,
                     discount_points=float(totals["discount_points"]),
+                    comparison_gross_profit=float(pre_ad_pre_tax_subtotal),
                 )
             except (ArithmeticError, OverflowError, TypeError, ValueError):
                 tax_result = {"error": True}
@@ -197,6 +222,28 @@ class SalesMixPlanningService:
                     if totals["revenue"] != 0:
                         margin = (final_profit * Decimal("100") / totals["revenue"]).quantize(Decimal("0.01"))
                     tax_status = "CONFIRMED"
+                    comparison = tax_result.get("comparison")
+                    if (isinstance(comparison, dict)
+                            and comparison.get("status") == "AVAILABLE"):
+                        pre_ad_tax = self._decimal(comparison.get("tax_amount"))
+                        if pre_ad_tax is not None:
+                            pre_ad_tax = pre_ad_tax.quantize(Decimal("0.01"))
+                            pre_ad_profit = pre_ad_pre_tax_subtotal - pre_ad_tax
+                            if totals["revenue"] != 0:
+                                pre_ad_margin = (
+                                    pre_ad_profit * Decimal("100") / totals["revenue"]
+                                ).quantize(Decimal("0.01"))
+                                pre_ad_status = "AVAILABLE"
+                                pre_ad_reason = None
+                            else:
+                                pre_ad_status = "UNDEFINED_ZERO_REVENUE"
+                                pre_ad_reason = "ZERO_REVENUE_DENOMINATOR"
+                    else:
+                        pre_ad_reason = (
+                            comparison.get("reason")
+                            if isinstance(comparison, dict)
+                            else "COMPARISON_TAX_UNAVAILABLE"
+                        )
                 else:
                     tax_status = "TAX_CALCULATION_UNAVAILABLE"
 
@@ -231,6 +278,20 @@ class SalesMixPlanningService:
             "tax_status": tax_status,
             "profit": self._money(final_profit) if final_profit is not None else None,
             "margin_percent": self._money(margin) if margin is not None else None,
+            "pre_ad_margin": {
+                "schema_version": 1,
+                "status": pre_ad_status,
+                "basis": "WEIGHTED_AGGREGATE_NO_AD_AFTER_TAX",
+                "tax_basis": "AGGREGATE_NO_AD_SCENARIO",
+                "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+                "unit_basis": "AGGREGATE_REVENUE_WEIGHTED",
+                "revenue_rub": self._money(totals["revenue"]),
+                "profit_before_tax_rub": self._money(pre_ad_pre_tax_subtotal),
+                "tax_rub": self._money(pre_ad_tax) if pre_ad_tax is not None else None,
+                "profit_rub": self._money(pre_ad_profit) if pre_ad_profit is not None else None,
+                "margin_percent": self._money(pre_ad_margin) if pre_ad_margin is not None else None,
+                "reason": pre_ad_reason,
+            },
             "margin_status": "DEFINED" if margin is not None else "UNDEFINED_ZERO_REVENUE" if all_rows_known and totals["revenue"] == 0 else "UNAVAILABLE",
             "read_only": True,
             "executed": False,

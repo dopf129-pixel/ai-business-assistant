@@ -143,6 +143,8 @@ def test_one_axis_sweep_matches_direct_forward_calculator_and_preserves_base():
         )
         assert cell["scenario"]["calculated"] == direct["calculated"]
     assert result["cells"][0]["scenario"]["calculated"]["profit"] == 96.0
+    assert result["cells"][0]["scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["cells"][0]["scenario"]["pre_ad_margin"]["profit_per_unit_rub"] == 146.0
     assert result["cells"][2]["target_reached"] is True
     assert result["best_worst_basis"] == "among_checked_scenarios_only"
 

@@ -140,6 +140,12 @@ def test_single_sensitivity_runs_locally_pages_and_applies_only_explicit_fresh_c
     assert report["status"] == "UNIT_PRICE_SENSITIVITY_READY"
     assert report["sensitivity_result"]["cell_count"] == 3
     assert "среди проверенных" in report["message"]
+    assert "до рекламы" in report["message"]
+    assert "после рекламы" in report["message"]
+    assert all(
+        cell["scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+        for cell in report["sensitivity_result"]["cells"]
+    )
     assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert applied["price_scenario"]["inputs"]["price"]["value"] == 550
     assert before["price"]["value"] == 500

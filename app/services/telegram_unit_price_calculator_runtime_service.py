@@ -2458,12 +2458,26 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _format_price_planning_outcome(self, label, outcome, target):
         if outcome.get("status") == "FOUND" and outcome.get("goal_reached") is True:
+            forward = outcome.get("forward_result") or {}
+            pre_ad = forward.get("pre_ad_margin") or {}
+            pre_ad_line = (
+                " До рекламы: "
+                + self._money(pre_ad.get("profit_per_unit_rub"))
+                + "/шт. ("
+                + self._percent(pre_ad.get("margin_percent"))
+                + ")."
+                if pre_ad.get("status") == "AVAILABLE"
+                else " Маржа до рекламы недоступна при текущих основаниях."
+            )
+            if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL":
+                pre_ad_line = pre_ad_line.replace("До рекламы:", "До рекламы по неполному составу:")
             return (
                 f"{label}: {self._money(outcome.get('price'))}; прибыль "
                 f"{self._money(outcome.get('profit'))}/шт.; маржа "
                 f"{self._percent(outcome.get('margin_percent'))}; налог "
                 f"{self._money(outcome.get('tax'))} — цель "
                 f"{self._percent(target)} достигнута."
+                + pre_ad_line
             )
         missing = self._price_planning_missing_labels(outcome)
         if outcome.get("status") == "MISSING_INPUTS":

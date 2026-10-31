@@ -2887,3 +2887,30 @@ The owner needs to see the effect of price on per-unit pre-ad margin without los
 Status:
 
 Implemented additively in `UnitPriceTargetPlanningService` and the existing Telegram calculator. Linked MA13 profile: 255 passed across price planning/grid, Telegram, sensitivity, batch, sales-mix, and saved-plan consumers. Full CI remains pending.
+
+---
+
+## Decision 053
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Pre-ad margin in target, sensitivity, batch, and sales mix
+
+Decision:
+
+- Target, sensitivity and batch consumers reuse the exact canonical candidate `forward_result.pre_ad_margin`. They must not repeat the candidate calculation, source reads, or bounded solver search to display the new fields. Existing targets and rankings remain after-ad profit objectives.
+- Expose the same before-ad basis in sensitivity and batch exports; export reads the immutable/current consumer snapshot and does not recalculate it.
+- Sales mix sums the canonical per-SKU pre-ad gross-profit contribution at its planned quantity, subtracts the same confirmed fixed expenses, and calculates the before-ad tax at aggregate level. `TaxService.calculate` accepts an optional comparison gross-profit basis so one public aggregate call can return the existing after-ad tax and the no-ad comparison using the same tax rules. It does not calculate tax per SKU. Existing after-ad tax/profit/margin remain unchanged.
+- Aggregate pre-ad margin is total pre-ad after-tax profit divided by total seller revenue before discount points. Never average the SKU percentages. Incomplete coverage/policy remains unavailable; zero revenue has no defined percentage.
+
+Reason:
+
+USN income-minus-expenses can produce different taxes before and after advertising. Reusing the after-ad tax for both would be inaccurate; calculating tax per item would misstate aggregate/minimum-tax behavior. The comparative tax basis keeps the established aggregate flow and exact tax policy while exposing a correctly weighted pre-ad result.
+
+Status:
+
+Implemented additively in the existing scenario, tax, sales-mix, Telegram and export services. MA14 linked profile: 261 passed across 9 modules; no live requests. Full pytest and exact-head CI remain pending.

@@ -1128,6 +1128,19 @@ class TelegramSavedPlanningPlanRuntimeService:
             lines.append(f"Расход за период · {expense.get('name')}: {expense.get('amount')} ₽.")
         if result.get("coverage_complete") is True:
             lines.append(f"Налог: {result.get('tax') if result.get('tax') is not None else 'не рассчитан (' + str(result.get('tax_status')) + ')'} ₽; итоговая прибыль: {result.get('profit') if result.get('profit') is not None else 'не определена'} ₽; маржа: {result.get('margin_percent') if result.get('margin_percent') is not None else 'не определена'}%.")
+            pre_ad = result.get("pre_ad_margin") or {}
+            if pre_ad.get("status") == "AVAILABLE":
+                lines.append(
+                    f"Прибыль до рекламы после налога: {pre_ad.get('profit_rub')} ₽; "
+                    f"маржа до рекламы: {pre_ad.get('margin_percent')}% от общей выручки. "
+                    "Доля взвешена по общей выручке набора, а не усреднена по SKU."
+                )
+            else:
+                lines.append(
+                    "Маржа набора до рекламы недоступна: "
+                    + str(pre_ad.get("reason") or pre_ad.get("status") or "нет полного tax результата")
+                    + "."
+                )
         else:
             lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
             for excluded in result.get("excluded_rows", [])[:10]:

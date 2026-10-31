@@ -495,6 +495,8 @@ def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_
         assert "вклад 2180.00 ₽" in preview["message"]
         assert "Расход за период · Подготовка: 300.00 ₽" in preview["message"]
         assert "Прибыль до налога после расходов: 1880.00 ₽" in preview["message"]
+        assert "Прибыль до рекламы после налога:" in preview["message"]
+        assert "Доля взвешена по общей выручке набора" in preview["message"]
         assert "итоговая прибыль: 1640.00 ₽" in preview["message"]
         assert "Сумма индивидуальных рекламных пределов при цели 25%" in preview["message"]
         assert "не гарантирует маржу группы" in preview["message"]

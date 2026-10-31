@@ -103,6 +103,8 @@ def test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once():
     assert result["margin_percent"] == "19.60"
     assert result["rows"][0]["price_per_unit"] == "500.00"
     assert result["rows"][0]["components"]["cost_of_goods"] == "1500.00"
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
     assert len(tax.calls) == 1
 
 
@@ -138,6 +140,71 @@ def test_extended_expenses_are_applied_per_sku_once_and_tax_is_aggregated_once()
     assert tax.calls[0]["gross_profit"] == float(
         Decimal(baseline["profit_before_tax_after_fixed_expenses"]) - Decimal("60.00")
     )
+
+
+def test_mix_pre_ad_tax_bridge_uses_one_aggregate_tax_call_and_preserves_after_ad_result():
+    service, tax = _service()
+    item = _item("SKU-A", _sample_inputs(
+        price="100", cost="30", commission_rate="14", logistics_per_unit="10",
+        last_mile_per_unit="3", acquiring_per_unit="2", fees="3",
+        advertising_rate="12", discount_points_rate="0",
+        tax_mode="USN_INCOME_MINUS_EXPENSES", tax_rate="15", minimum_tax_rate="1",
+    ))
+    item["extended_scenario"] = _extended_expense_contract("a", "300.00")
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 1}, period_label="2026-08-01 — 2026-08-01",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["profit_before_tax_after_fixed_expenses"] == "26.00"
+    assert result["tax"] == "3.90"
+    assert result["profit"] == "22.10"
+    assert result["margin_percent"] == "22.10"
+    assert result["pre_ad_margin"] == {
+        "schema_version": 1,
+        "status": "AVAILABLE",
+        "basis": "WEIGHTED_AGGREGATE_NO_AD_AFTER_TAX",
+        "tax_basis": "AGGREGATE_NO_AD_SCENARIO",
+        "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+        "unit_basis": "AGGREGATE_REVENUE_WEIGHTED",
+        "revenue_rub": "100.00",
+        "profit_before_tax_rub": "38.00",
+        "tax_rub": "5.70",
+        "profit_rub": "32.30",
+        "margin_percent": "32.30",
+        "reason": None,
+    }
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 26.0
+    assert tax.calls[0]["comparison_gross_profit"] == 38.0
+
+
+def test_mix_pre_ad_margin_uses_revenue_weighting_not_mean_of_sku_percentages():
+    service, tax = _service()
+    item_a = _item("SKU-A", _sample_inputs(
+        price="100", cost="80", commission_rate="0", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    ))
+    item_b = _item("SKU-B", _sample_inputs(
+        price="300", cost="210", commission_rate="0", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    ))
+
+    result = service.calculate(
+        [item_a, item_b], quantities={"SKU-A": 1, "SKU-B": 1},
+        period_label="2026-08-01 — 2026-08-01", expenses=[], expenses_confirmed=True,
+    )
+
+    assert [row["components"]["pre_ad_profit_before_tax"] for row in result["rows"]] == ["20.00", "90.00"]
+    assert result["pre_ad_margin"]["profit_rub"] == "110.00"
+    assert result["pre_ad_margin"]["margin_percent"] == "27.50"
+    assert result["pre_ad_margin"]["margin_percent"] != "25.00"
+    assert len(tax.calls) == 1
 
 
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():

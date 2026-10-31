@@ -1,3 +1,9 @@
+# 2026-10-31 — MA14: before-ad margin in price planning consumers
+
+- Target, sensitivity and batch views now show before/after-ad results from the same candidate calculations; solver goals, source reads and search budgets are unchanged. Batch and sensitivity exports include the same projection snapshot.
+- Saved sales mix now reports the no-ad after-tax aggregate, weighted by seller revenue (sum of profit / sum of revenue, not mean SKU percentage). Tax comparison uses the same aggregate `TaxService.calculate` invocation, including separate tax bases for USN income-minus-expenses; existing after-ad group profit is preserved.
+- Linked Windows profile across 9 modules: **261 passed in 5.34s**. `data/tasks.json` hash unchanged; no live calls.
+
 # 2026-10-31 — MA13: before/after в сетке цен
 
 - Сетка и сравнение цен теперь показывают прибыль и маржу до и после рекламного сценария на строку; до-рекламный процент явно использует цену продавца до баллов.

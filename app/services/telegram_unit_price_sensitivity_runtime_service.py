@@ -358,7 +358,25 @@ class TelegramUnitPriceSensitivityRuntimeService:
                     + (f" ({origin_labels.get(tariff.get('origin'), 'допущение')})"
                        if commission is not None else "")
                 )
-                line = f"{index}. {coordinate_text}: {commission_label}; прибыль {self._number(calculated.get('profit'))} ₽/шт.; маржа {self._number(calculated.get('margin_percent'))}%; налог {self._number(calculated.get('tax'))} ₽"
+                pre_ad = scenario.get("pre_ad_margin") or {}
+                if pre_ad.get("status") == "AVAILABLE":
+                    pre_ad_label = (
+                        "до рекламы по неполному составу расходов"
+                        if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL"
+                        else "до рекламы"
+                    )
+                    pre_ad_text = (
+                        f"{pre_ad_label} {self._number(pre_ad.get('profit_per_unit_rub'))} ₽/шт. "
+                        f"({self._number(pre_ad.get('margin_percent'))}%)"
+                    )
+                else:
+                    pre_ad_text = "маржа до рекламы недоступна"
+                line = (
+                    f"{index}. {coordinate_text}: {commission_label}; {pre_ad_text}; "
+                    f"после рекламы {self._number(calculated.get('profit'))} ₽/шт. "
+                    f"({self._number(calculated.get('margin_percent'))}%); "
+                    f"налог {self._number(calculated.get('tax'))} ₽"
+                )
                 if cell.get("target_reached") is not None:
                     line += "; цель " + ("достигнута" if cell["target_reached"] else "не достигнута")
             else:

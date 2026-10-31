@@ -145,7 +145,7 @@ def test_batch_export_preserves_unknown_inputs_and_marks_plan_as_estimate():
         "evaluation_count": 3, "evaluation_limit": 100,
         "tenant_scope": "private-scope",
         "rows": [
-            {"row_id": "r1", "identity": {"offer_id": "offer", "catalog_sku": "sku"}, "status": "READY", "inputs": {"price": "500", "cost": "200", "commission_rate": "15"}, "provenance": {"cost": "manual", "commission_rate": "ozon_current_fbo_rate"}, "tariff_scope": "EXACT_PRICE_ONLY", "tariff_resolution_status": "LEGACY_EXACT_PRICE_ONLY", "tariff_resolution_reason": None, "scenario": {"calculated": {"revenue": "500", "profit": "96", "margin_percent": "19.2"}}, "planning": {"target": {"status": "FOUND", "price": "564.16", "profit": "141.04", "margin_percent": "25", "tax": "27.08", "goal_reached": True}}},
+            {"row_id": "r1", "identity": {"offer_id": "offer", "catalog_sku": "sku"}, "status": "READY", "inputs": {"price": "500", "cost": "200", "commission_rate": "15"}, "provenance": {"cost": "manual", "commission_rate": "ozon_current_fbo_rate"}, "tariff_scope": "EXACT_PRICE_ONLY", "tariff_resolution_status": "LEGACY_EXACT_PRICE_ONLY", "tariff_resolution_reason": None, "scenario": {"calculated": {"revenue": "500", "profit": "96", "margin_percent": "19.2"}, "pre_ad_margin": {"status": "AVAILABLE", "profit_per_unit_rub": "146", "margin_percent": "29.2"}}, "planning": {"target": {"status": "FOUND", "price": "564.16", "profit": "141.04", "margin_percent": "25", "tax": "27.08", "goal_reached": True, "forward_result": {"pre_ad_margin": {"status": "AVAILABLE", "profit_per_unit_rub": "160", "margin_percent": "28.37"}}}}},
             {"row_id": "r2", "identity": {"offer_id": "offer2", "catalog_sku": "sku2"}, "status": "INCOMPLETE_INPUTS", "inputs": {"price": "500", "cost": None}, "scenario": {"calculated": {}}, "planning": {}},
         ],
     }
@@ -153,6 +153,8 @@ def test_batch_export_preserves_unknown_inputs_and_marks_plan_as_estimate():
     document = _json(AnalyticsExportService().export_unit_price_batch(batch, "json", active_sort="profit"))
     assert len(document["rows"]) == 2
     assert document["rows"][0]["calc_profit"] == "96"
+    assert document["rows"][0]["pre_ad_margin"]["profit_per_unit_rub"] == "146"
+    assert document["rows"][0]["target_pre_ad_margin"]["profit_per_unit_rub"] == "160"
     assert document["rows"][1]["calc_profit"] is None
     assert document["metadata"]["plan_status"] == "PLANNED"
     assert document["metadata"]["sale_basis"] == "one_successful_sale"
@@ -196,6 +198,7 @@ def test_saved_plan_sales_mix_and_advertising_cap_exports_expose_same_frozen_com
             "row_id": "r1", "quantity": 3, "price_per_unit": "500",
             "components": {"commission": "55"},
         }], "excluded_rows": [],
+        "pre_ad_margin": {"status": "AVAILABLE", "profit_rub": "110.00", "margin_percent": "27.50"},
     }, "json"))
     cap = _json(service.export_advertising_cap(document, [{
         "product_id": "p1", "offer_id": "offer-1", "sku": "sku-1",
@@ -213,6 +216,9 @@ def test_saved_plan_sales_mix_and_advertising_cap_exports_expose_same_frozen_com
         assert row["tariff_effective_date"] == "2026-10-27"
         assert row["tariff_price_basis"] == "SELLER_PRICE_RUB"
         assert "owner_id" not in json.dumps(row)
+    assert mix["metadata"]["pre_ad_margin"] == {
+        "status": "AVAILABLE", "profit_rub": "110.00", "margin_percent": "27.50",
+    }
 
 
 def test_sensitivity_export_contains_all_cells_not_just_visible_page():
@@ -232,7 +238,10 @@ def test_sensitivity_export_contains_all_cells_not_just_visible_page():
                     "commission_rate": "11" if index < 8 else None,
                     "origin": "manual_seller_assumption" if index < 8 else "unknown",
                 },
-                "scenario": {"calculated": {"profit": str(index - 4), "tax": 0}},
+                "scenario": {
+                    "calculated": {"profit": str(index - 4), "tax": 0},
+                    "pre_ad_margin": {"status": "AVAILABLE", "profit_per_unit_rub": "11.50", "margin_percent": "23.00"},
+                },
             }
             for index in range(1, 9)
         ],
@@ -243,6 +252,7 @@ def test_sensitivity_export_contains_all_cells_not_just_visible_page():
     assert len(document["rows"]) == 8
     assert document["rows"][0]["calc_profit"] == "-3"
     assert document["rows"][1]["calc_tax"] == "0"
+    assert document["rows"][0]["pre_ad_margin"]["profit_per_unit_rub"] == "11.50"
     assert document["metadata"]["exported_scope"] == "all_cells_in_exact_sensitivity_snapshot"
     assert document["metadata"]["tariff_scope"] == "FROZEN_PROFILE_SET"
     assert document["rows"][0]["commission_rate"] == "11"

@@ -91,10 +91,22 @@ def _row(index, status="READY"):
             "source_periods": {"seller_price_as_of": "2026-10-17"},
             "source_completeness": {"scheme": "FBO", "commission": {"complete": True}},
         },
-        "scenario": {"calculated": {"profit": 100, "margin_percent": 20}},
+        "scenario": {
+            "calculated": {"profit": 100, "margin_percent": 20},
+            "pre_ad_margin": {
+                "status": "AVAILABLE", "profit_per_unit_rub": 150,
+                "margin_percent": 30, "expense_scope": {"status": "PARTIAL"},
+            },
+        },
         "planning": {
             "break_even": {"status": "FOUND", "price": "300"},
-            "target": {"status": "FOUND", "price": "600", "profit": "120", "margin_percent": "20"},
+            "target": {
+                "status": "FOUND", "price": "600", "profit": "120", "margin_percent": "20",
+                "forward_result": {"pre_ad_margin": {
+                    "status": "AVAILABLE", "profit_per_unit_rub": 160,
+                    "margin_percent": 26.67, "expense_scope": {"status": "PARTIAL"},
+                }},
+            },
         },
     }
 
@@ -245,6 +257,9 @@ def test_batch_prompt_and_render_are_bounded_and_read_only():
     assert prompt["status"] == "UNIT_PRICE_BATCH_TARGET_INPUT_REQUIRED"
     assert result["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
     assert result["read_only"] is True and result["executed"] is False
+    assert "маржа до рекламы" in result["message"].lower()
+    assert "маржа до рекламы по неполному составу" in result["message"].lower()
+    assert "после рекламы" in result["message"].lower()
     assert len(result["message"].encode("utf-16-le")) // 2 <= runtime.TEXT_LIMIT_UTF16
     assert all(len(button["callback"].encode("utf-8")) <= 64 for button in result["keyboard"]["buttons"])
 

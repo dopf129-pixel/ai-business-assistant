@@ -998,6 +998,24 @@ def test_no_ad_price_comparison_is_explicit_separate_and_does_not_change_default
     assert no_ad["rows"][0]["after_ad"]["advertising_status"] == "EXPLICIT_NO_AD_COMPARISON"
 
 
+def test_target_search_reuses_forward_result_for_additive_pre_ad_projection():
+    planner, scenario_service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="30", commission_rate="14", logistics_per_unit="10",
+        last_mile_per_unit="3", acquiring_per_unit="2", advertising_rate="12",
+        discount_points_rate="0", tax_mode="USN_INCOME", tax_rate="6",
+        minimum_tax_rate="1",
+    )
+
+    result = planner.solve(inputs, "20", max_evaluations=planner.MAX_FORWARD_CALCULATIONS)
+
+    assert result["target"]["status"] == "FOUND"
+    forward = result["target"]["forward_result"]
+    assert forward["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert forward["pre_ad_margin"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+    assert result["evaluation_count"] == scenario_service.calls
+
+
 def test_advertising_cost_is_weighted_by_successful_units_and_exact_denominator_is_returned():
     planner, _ = _planner()
     inputs = _inputs(

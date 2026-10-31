@@ -16,6 +16,14 @@
 - `tests/test_unit_price_scenario_telegram_runtime.py`: verifies the separate no-ad grid entry point, user-visible assumption/disclaimer, numeric output bounds, and applying a candidate without overwriting the active advertising override.
 - Linked Windows profile across `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_unit_price_profit_per_unit_end_to_end.py`, `tests/test_unit_price_sensitivity_service.py`, `tests/test_unit_price_batch_plan_service.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_sales_mix_planning_service.py`, and `tests/test_saved_planning_plan_telegram_flow.py`: **255 passed in 5.89s**. `data/tasks.json` SHA-1 unchanged; no live API calls.
 
+# MA14 — before-ad margin in target/sensitivity/batch/mix
+
+- `tests/test_unit_price_target_planning_service.py` proves target search consumes the existing canonical forward result and its `pre_ad_margin` without increasing `evaluation_count`; existing target remains after-ad.
+- `tests/test_unit_price_sensitivity_service.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, and `tests/test_analytics_export_service.py` cover per-cell projection, user-visible before/after text, and full-snapshot export fields.
+- `tests/test_unit_price_batch_plan_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, and `tests/test_analytics_export_service.py` cover the candidate's existing projection, visible partial-scope qualification, and batch export of current/target pre-ad values.
+- `tests/test_sales_mix_planning_service.py` covers one aggregate tax call with separate after-ad and no-ad tax bases, legacy after-ad result parity, N14 revenue-weighted aggregate `27.50%` (not the `25.00%` mean), and the finite aggregate contribution. `tests/test_saved_planning_plan_telegram_flow.py` checks user-visible result; `tests/test_analytics_export_service.py` checks export metadata.
+- Linked Windows profile across those 9 modules: **261 passed in 5.34s**. `py_compile` and `git diff --check` pass; owner `data/tasks.json` SHA-1 unchanged; no live API calls.
+
 # План MA00–MA29 — маржа до рекламы (спецификация и реализационные проверки)
 
 - ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`, journal `LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`: 20 групп numerical/behavioral acceptance; ключевые случаи — independent no-ad без известной рекламы, T0/T1 при profit-tax, historical add-back только уже учтённой финансовой рекламы, неполные расходы, знаменатели, старые plans и tenant/revision guards.

@@ -559,8 +559,10 @@ def test_target_margin_input_retries_then_shows_verified_price_without_changing_
     assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
     assert target["status"] == "FOUND"
     assert target["goal_reached"] is True
+    assert target["forward_result"]["pre_ad_margin"]["status"] == "AVAILABLE"
     assert "Цена для цели" in result["message"]
     assert "цель 20,00% достигнута" in result["message"]
+    assert "до рекламы по неполному составу" in result["message"].lower()
     assert result["price_planning_result"]["read_only"] is True
     assert result["price_planning_result"]["executed"] is False
     assert price_before == 500
