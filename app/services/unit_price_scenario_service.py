@@ -194,6 +194,11 @@ class UnitPriceScenarioService:
             extended=extended,
             sources=sources,
         )
+        advertising_tax_bridge = self._build_advertising_tax_bridge(
+            pre_ad_projection,
+            calculated,
+            after_ad_available=available,
+        )
         all_missing = list(dict.fromkeys(missing))
         all_invalid = list(dict.fromkeys(invalid))
         calculated = {
@@ -246,6 +251,7 @@ class UnitPriceScenarioService:
             "source_completeness": sources.get("completeness", {}),
             "calculated": calculated,
             "pre_ad_margin": pre_ad_projection,
+            "advertising_tax_bridge": advertising_tax_bridge,
             "missing_inputs": all_missing,
             "invalid_inputs": all_invalid,
             "included_scope": [
@@ -720,6 +726,65 @@ class UnitPriceScenarioService:
         })
         return base
 
+    def _build_advertising_tax_bridge(
+        self,
+        pre_ad_projection,
+        after_ad_calculated,
+        *,
+        after_ad_available,
+    ):
+        pre_ad_tax = self._decimal(pre_ad_projection.get("tax_per_unit_rub"))
+        pre_ad_profit = self._decimal(pre_ad_projection.get("profit_per_unit_rub"))
+        after_ad_tax = self._decimal(after_ad_calculated.get("tax"))
+        after_ad_profit = self._decimal(after_ad_calculated.get("profit"))
+        advertising = self._decimal(after_ad_calculated.get("advertising"))
+        base = {
+            "schema_version": 1,
+            "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+            "before_ad_tax_basis": "NO_ADVERTISING_SCENARIO",
+            "after_ad_tax_basis": "SCENARIO_WITH_ADVERTISING",
+            "status": "UNAVAILABLE",
+            "tax_before_ad_rub": self._money(pre_ad_tax) if pre_ad_tax is not None else None,
+            "tax_after_ad_rub": self._money(after_ad_tax) if after_ad_tax is not None else None,
+            "advertising_per_unit_rub": self._money(advertising) if advertising is not None else None,
+            "tax_effect_of_advertising_rub": None,
+            "profit_before_ad_rub": self._money(pre_ad_profit) if pre_ad_profit is not None else None,
+            "profit_after_ad_rub": self._money(after_ad_profit) if after_ad_profit is not None else None,
+            "expected_profit_after_ad_rub": None,
+            "reconciliation_delta_rub": None,
+            "expense_scope_status": (
+                (pre_ad_projection.get("expense_scope") or {}).get("status")
+            ),
+            "reason": None,
+        }
+        if pre_ad_projection.get("status") != "AVAILABLE":
+            base["reason"] = pre_ad_projection.get("reason") or "PRE_AD_RESULT_UNAVAILABLE"
+            return base
+        if not after_ad_available or None in (
+            pre_ad_tax,
+            pre_ad_profit,
+            after_ad_tax,
+            after_ad_profit,
+            advertising,
+        ):
+            base["reason"] = "AFTER_AD_SCENARIO_UNAVAILABLE"
+            return base
+
+        tax_effect = self._money_decimal(pre_ad_tax - after_ad_tax)
+        expected_after_ad = self._money_decimal(
+            pre_ad_profit - advertising + tax_effect,
+        )
+        delta = self._money_decimal(after_ad_profit - expected_after_ad)
+        base.update({
+            "status": "AVAILABLE" if delta == 0 else "RECONCILIATION_MISMATCH",
+            "tax_effect_of_advertising_rub": float(tax_effect),
+            "expected_profit_after_ad_rub": float(expected_after_ad),
+            "reconciliation_delta_rub": float(delta),
+        })
+        if delta != 0:
+            base["reason"] = "ADVERTISING_TAX_BRIDGE_ROUNDING_MISMATCH"
+        return base
+
     def _normalize_extended_scenario(self, value):
         expected = {
             "schema_version", "calculation_mode", "expense_snapshot_ref",
@@ -1073,6 +1138,25 @@ class UnitPriceScenarioService:
             scope["unknown_non_ad_expense_keys"] = sorted(unknown)
             scope["status"] = "PARTIAL"
             pre_ad_projection["reason"] = "EXTENDED_EXPENSE_EVIDENCE_UNAVAILABLE"
+        advertising_tax_bridge = {
+            "schema_version": 1,
+            "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+            "before_ad_tax_basis": "NO_ADVERTISING_SCENARIO",
+            "after_ad_tax_basis": "SCENARIO_WITH_ADVERTISING",
+            "status": "UNAVAILABLE",
+            "tax_before_ad_rub": pre_ad_projection.get("tax_per_unit_rub"),
+            "tax_after_ad_rub": None,
+            "advertising_per_unit_rub": None,
+            "tax_effect_of_advertising_rub": None,
+            "profit_before_ad_rub": pre_ad_projection.get("profit_per_unit_rub"),
+            "profit_after_ad_rub": None,
+            "expected_profit_after_ad_rub": None,
+            "reconciliation_delta_rub": None,
+            "expense_scope_status": (
+                (pre_ad_projection.get("expense_scope") or {}).get("status")
+            ),
+            "reason": "EXTENDED_EXPENSE_EVIDENCE_UNAVAILABLE",
+        }
         return {
             "error": False,
             "available": False,
@@ -1086,6 +1170,7 @@ class UnitPriceScenarioService:
             "source_completeness": sources.get("completeness", {}),
             "calculated": self._empty_calculation(),
             "pre_ad_margin": pre_ad_projection,
+            "advertising_tax_bridge": advertising_tax_bridge,
             "missing_inputs": [],
             "invalid_inputs": [],
             "extended_calculation": {

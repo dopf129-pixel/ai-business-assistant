@@ -109,6 +109,9 @@ def test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_m
     }
     assert "advertising_rate" in result["missing_inputs"]
     assert result["inputs"]["advertising_rate"]["value"] is None
+    assert result["advertising_tax_bridge"]["status"] == "UNAVAILABLE"
+    assert result["advertising_tax_bridge"]["tax_before_ad_rub"] == 4.5
+    assert result["advertising_tax_bridge"]["reason"] == "AFTER_AD_SCENARIO_UNAVAILABLE"
 
 
 def test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax():
@@ -130,6 +133,32 @@ def test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax(
     assert result["pre_ad_margin"]["tax_per_unit_rub"] == 5.7
     assert result["pre_ad_margin"]["margin_percent"] == 32.3
     assert result["pre_ad_margin"]["tax_basis"] == "NO_ADVERTISING_SCENARIO"
+    bridge = result["advertising_tax_bridge"]
+    assert bridge["status"] == "AVAILABLE"
+    assert bridge["tax_before_ad_rub"] == 5.7
+    assert bridge["tax_after_ad_rub"] == 3.9
+    assert bridge["advertising_per_unit_rub"] == 12.0
+    assert bridge["tax_effect_of_advertising_rub"] == 1.8
+    assert bridge["expected_profit_after_ad_rub"] == 22.1
+    assert bridge["reconciliation_delta_rub"] == 0.0
+
+
+def test_usn_income_bridge_uses_equal_tax_bases_and_reconciles_profit():
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        _inputs(),
+        extended_scenario=_additional_expense_contract(),
+    )
+
+    bridge = result["advertising_tax_bridge"]
+    assert bridge["status"] == "AVAILABLE"
+    assert bridge["tax_before_ad_rub"] == 4.5
+    assert bridge["tax_after_ad_rub"] == 4.5
+    assert bridge["advertising_per_unit_rub"] == 12.0
+    assert bridge["tax_effect_of_advertising_rub"] == 0.0
+    assert bridge["profit_before_ad_rub"] == 33.5
+    assert bridge["profit_after_ad_rub"] == 21.5
+    assert bridge["expected_profit_after_ad_rub"] == 21.5
+    assert bridge["reconciliation_delta_rub"] == 0.0
 
 
 def test_absolute_advertising_above_price_does_not_block_pre_ad_projection():
@@ -148,6 +177,9 @@ def test_absolute_advertising_above_price_does_not_block_pre_ad_projection():
     assert result["calculated"]["profit"] == -79.0
     assert result["pre_ad_margin"]["profit_per_unit_rub"] == 41.0
     assert result["pre_ad_margin"]["margin_percent"] == 41.0
+    assert result["advertising_tax_bridge"]["status"] == "AVAILABLE"
+    assert result["advertising_tax_bridge"]["advertising_per_unit_rub"] == 120.0
+    assert result["advertising_tax_bridge"]["reconciliation_delta_rub"] == 0.0
 
 
 def test_no_tax_mode_keeps_pre_ad_available():
@@ -185,3 +217,24 @@ def test_components_only_exposes_separate_pre_ad_contribution_without_changing_l
     assert result["available"] is False
     assert result["calculated"]["profit_before_tax"] is None
     assert result["calculated"]["pre_ad_profit_before_tax"] == 41.0
+
+
+def test_components_only_keeps_aggregate_tax_calculation_outside_per_sku_loop():
+    class TaxSpy:
+        SUPPORTED_MODES = TaxService.SUPPORTED_MODES
+
+        def __init__(self):
+            self.calls = []
+
+        def calculate(self, **kwargs):
+            self.calls.append(dict(kwargs))
+            return TaxService().calculate(**kwargs)
+
+    tax = TaxSpy()
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(tax).calculate_components_only(inputs)
+
+    assert result["calculated"]["pre_ad_profit_before_tax"] == 41.0
+    assert tax.calls == []

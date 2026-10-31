@@ -177,6 +177,13 @@ def test_extended_usn_income_minus_expenses_applies_tax_to_each_ad_basis():
     assert len(tax.calls) == 2
     assert tax.calls[0]["gross_profit"] == -34.0
     assert tax.calls[1]["gross_profit"] == -22.0
+    assert result["pre_ad_margin"]["tax_per_unit_rub"] == 1.0
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == -23.0
+    assert result["advertising_tax_bridge"]["tax_before_ad_rub"] == 1.0
+    assert result["advertising_tax_bridge"]["tax_after_ad_rub"] == 1.0
+    assert result["advertising_tax_bridge"]["tax_effect_of_advertising_rub"] == 0.0
+    assert result["advertising_tax_bridge"]["expected_profit_after_ad_rub"] == -35.0
+    assert result["advertising_tax_bridge"]["reconciliation_delta_rub"] == 0.0
 
 
 def test_n05_absolute_advertising_over_price_is_applied_as_fixed_successful_unit_cost():

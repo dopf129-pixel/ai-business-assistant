@@ -74,3 +74,10 @@ Runtime, схемы и пользовательские данные в подг
 - Новые regression cases проверяют неизвестную рекламу, immutability inputs, T0/T1, абсолютную рекламу выше цены, `NONE`, missing non-ad cost, aggregate contribution и crossdock guard.
 - Фактический результат: targeted профиль **47 passed**; финальный linked профиль после последней правки **313 passed in 4.83s** (15 модулей: projection, scenario/extended contract, target/sensitivity/batch/mix/ad-cap/observation, current/historical query, Telegram UI/runtime). SHA-1 `data/tasks.json` остался `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
 - Первый linked pytest invocation сослался на несуществующий `test_telegram_unit_price_calculator_runtime.py`, поэтому тесты не стартовали; исправленный `test_unit_price_scenario_telegram_runtime.py` плюс полный профиль прошёл. Ошибка пути не учитывалась как проверка.
+
+### MA06 — независимые T0/T1 и налоговый мост
+
+- В scenario result добавлен `advertising_tax_bridge` v1. Формула: `after_ad_profit = pre_ad_profit - advertising + (T0 - T1)`. Хранятся оба налога и явные tax basis; при неизвестной рекламе bridge остаётся UNAVAILABLE, пока before-ad projection может быть доступна.
+- Проверены N01: USN Income, T0=T1=4.50 ₽, before 33.50 ₽, after 21.50 ₽; N04: USN Income-minus-Expenses T0=5.70 ₽, T1=3.90 ₽, эффект 1.80 ₽, before 32.30 ₽, after 22.10 ₽; minimum tax T0=T1=1.00 ₽; `NONE` — налог 0.00 ₽. Проверенные delta равны 0.00 ₽.
+- `TaxService` и налоговая политика не менялись. `calculate_components_only` не вызывает TaxService; явный TaxSpy остаётся пуст. SalesMix test `test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once` подтверждает один общий налоговый вызов для mix, не per SKU.
+- Финальный linked profile **315 passed in 4.97s** на 15 модулях; `data/tasks.json` hash сохранился `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.

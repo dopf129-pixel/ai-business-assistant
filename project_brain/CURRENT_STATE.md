@@ -5130,4 +5130,5 @@ Completed:
 
 - Плановый canonical scenario теперь возвращает отдельный versioned `pre_ad_margin` до рекламы; no-ad сценарий вызывает существующий `TaxService` отдельно. При неизвестной рекламе before-ad может быть доступен, legacy after-ad `profit`/`margin_percent` остаются без изменений.
 - Проекция подписывает неполный expense scope и не считает неизвестные расходы нулём. Существующий cross-docking denominator guard и цель after-ad оптимизации сохранены.
-- Целевой профиль: 47 passed; linked scenario/current-card/Telegram profile: 313 passed in 4.83s. Полный suite/current-head CI pending; live Ozon/Telegram и запуск бота не выполнялись.
+- Новый `advertising_tax_bridge` v1 разделяет T0/T1, рекламный расход и налоговый эффект; формула `after = before − ad + (T0−T1)` сверяется. TaxService unchanged, SalesMix по-прежнему считает налог один раз на группу.
+- Linked scenario/current-card/Telegram profile: **315 passed in 4.97s**. Полный suite/current-head CI pending; live Ozon/Telegram и запуск бота не выполнялись.
