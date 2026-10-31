@@ -1,3 +1,8 @@
+# MA20 — frozen plans, совместимость схем и read-only чтение
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh` проверяет legacy v2 plan без tariff/ad basis, его открытие без source read и смену тарифа только в новой revision после явного refresh; старый revision остаётся прежним. `test_single_save_list_open_and_continue_uses_historical_snapshot_without_source_calls` проверяет открытие сохранённого плана после restart без нового Ozon query.
+- `tests/test_planning_workspace_repository.py::test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_rows` сравнивает document/revision rows и JSON до и после чтения corrupt/future payload. Совместно с repository CRUD/idempotency/revision tests: 2 модуля — **51 passed in 2.35s** на Windows.
+
 # MA19 — публичная offline-приёмка маржи до рекламы
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario` проходит полный local-handler путь current SKU → детали → калькулятор → новая цена с ручной комиссией и DRR → сохранение frozen plan; проверяет decimal-comma, точную before/after математику, provenance ручной комиссии и отсутствие повторного factual source query.

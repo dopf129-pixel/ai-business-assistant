@@ -184,3 +184,9 @@ Runtime, схемы и пользовательские данные в подг
 - Основной calculator summary/detail явно показывает `pre_ad_margin` после налога, её полноту, отдельную сценарную маржу после рекламы и текст о неизвестной рекламе как неизвестной, а не нулевой. Legacy строки и вычислительные результаты не переопределены.
 - Offline end-to-end regression покрывает current → unknown ads → details → плановая цена → комиссия, отличающаяся от исходной → DRR → before/after → сохранение. Проверены before-ad −6,79 ₽/−6,79%, after-ad −14,79 ₽/шт., ручной provenance комиссии и один factual query. Historical exact/partial cases подтверждены связанными existing regressions.
 - Final linked Windows profile: **121 passed in 3.60s** на 6 модулях. `py_compile` и `git diff --check` PASS. `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Implementation commit `d8532f9a`; live Ozon/Telegram requests и bot launch не выполнялись.
+
+### MA20 — frozen plans и старые схемы
+
+- Production change was not needed: legacy v1/v2 payloads remain readable without current-source reload; v2 plans without frozen tariff/ad basis preserve their original manual assumptions. A tariff refresh is explicit and stores a new revision while the old revision retains the original tariff. Existing guards reject corrupt and future schema payloads without hiding other documents.
+- Added read-invariance assertions to `tests/test_planning_workspace_repository.py::test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_rows`: persisted document and revision fields, JSON, revision numbers and timestamps are identical before/after reads and list operations.
+- Linked Windows profile: `tests/test_planning_workspace_repository.py` and `tests/test_saved_planning_plan_telegram_flow.py` — **51 passed in 2.35s**. Test commit `2423742b`; owner data SHA-1 unchanged, lock absent. No schema migration, live source call or bot launch.
