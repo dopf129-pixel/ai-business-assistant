@@ -602,6 +602,7 @@ class AssistantKeyboardService:
                 {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
                 {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
                 {"text": "Исследовать диапазон цены", "callback": f"upc:n:{sid}:{ver}"},
+                {"text": "Исследовать диапазон без рекламы", "callback": f"upc:o:{sid}:{ver}"},
             ])
         if include_manual_tariff:
             buttons.append({"text": "Указать тариф комиссии", "callback": f"upt:start:{sid}:{ver}"})

@@ -932,6 +932,18 @@ def test_per_price_drr_reproduces_n01_compensation_example_and_distinct_n02_thre
 
     assert [row["advertising_per_unit"] for row in result["rows"]] == [16.5, 11.4]
     assert [row["profit"] for row in result["rows"]] == [15.24, 16.55]
+    assert [row["pre_ad_margin"]["profit_per_unit_rub"] for row in result["rows"]] == [
+        31.74, 27.95,
+    ]
+    assert [row["after_ad"]["profit_per_unit_rub"] for row in result["rows"]] == [
+        15.24, 16.55,
+    ]
+    assert result["ranking_status"] == "COMPARABLE"
+    assert result["ranking_basis"]["metric"] == "AFTER_AD_PROFIT_PER_SUCCESSFUL_UNIT"
+    assert result["ranking_basis"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+    assert {tuple(sorted(row["ranking_basis"].items())) for row in result["rows"]} == {
+        tuple(sorted(result["ranking_basis"].items()))
+    }
     assert result["baseline"]["profit"] == 15.24
     assert result["rows"][1]["profit_delta_vs_baseline"] == "1.31"
     assert result["advertising_basis"]["mode"] == "PER_PRICE_DRR"
@@ -944,6 +956,46 @@ def test_per_price_drr_reproduces_n01_compensation_example_and_distinct_n02_thre
     assert thresholds["non_worse"]["profit_per_unit"] == "15.24"
     assert thresholds["strictly_better"]["profit_per_unit"] == "15.25"
     assert result["evaluation_count"] == service.calls <= 1_024
+
+
+def test_no_ad_price_comparison_is_explicit_separate_and_does_not_change_default_after_ad_ranking():
+    planner, _ = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="24.2",
+        logistics_per_unit="20", last_mile_per_unit="0",
+        acquiring_per_unit="4.06", advertising_rate="16.5",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    default_after_ad = planner.compare_prices(inputs, "100; 95")
+    no_ad_inputs = dict(inputs)
+    no_ad_inputs.pop("advertising_rate")
+    no_ad_inputs_before = dict(no_ad_inputs)
+    no_ad = planner.compare_prices(
+        no_ad_inputs, "100; 95", advertising_mode="NO_AD_SCENARIO",
+    )
+
+    assert default_after_ad["advertising_basis"]["mode"] == "SAME_DRR"
+    assert default_after_ad["best_profit"] == "15.24"
+    assert default_after_ad["best_prices"] == ["100.00"]
+    assert no_ad["advertising_basis"] == {
+        "mode": "NO_AD_SCENARIO",
+        "origin": "EXPLICIT_NO_AD_COMPARISON",
+        "revenue_basis": "SELLER_REVENUE",
+        "cost_per_unit": "0.00",
+    }
+    assert no_ad_inputs == no_ad_inputs_before
+    assert [row["advertising_per_unit"] for row in no_ad["rows"]] == [0.0, 0.0]
+    assert [row["profit"] for row in no_ad["rows"]] == [31.74, 27.95]
+    assert [row["pre_ad_margin"]["profit_per_unit_rub"] for row in no_ad["rows"]] == [
+        31.74, 27.95,
+    ]
+    assert no_ad["best_profit"] == "31.74"
+    assert no_ad["best_prices"] == ["100.00"]
+    assert no_ad["ranking_basis"]["metric"] == "NO_AD_PROFIT_PER_SUCCESSFUL_UNIT"
+    assert no_ad["ranking_basis"] != default_after_ad["ranking_basis"]
+    assert no_ad["rows"][0]["after_ad"]["advertising_status"] == "EXPLICIT_NO_AD_COMPARISON"
 
 
 def test_advertising_cost_is_weighted_by_successful_units_and_exact_denominator_is_returned():

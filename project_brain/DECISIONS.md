@@ -2860,3 +2860,30 @@ preserves existing optimization and historical behavior.
 Status:
 
 Contract accepted for implementation in the dependent pre-ad margin PR. MA12 adds a dedicated historical projection service and a strict exact-SKU attribution signal to the existing advertising resolver. The projection preserves tax from the existing historical query result without a second calculation; provenance is explicit. The ordinary production historical source does not provide complete, matching ad evidence and therefore remains UNAVAILABLE; current/model calculation and the existing historical result are preserved. MA01–MA04 audit profile: 89 passed; MA12 linked profile: 156 passed; see `PRE_AD_MARGIN_AUDIT_2026-10-31.md` and the progress journal. Full CI remains pending.
+
+---
+
+## Decision 052
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Price-grid before/after advertising comparison
+
+Decision:
+
+- Add `pre_ad_margin`, `after_ad`, and an explicit ranking basis to each calculated price-comparison row. Both margin percentages use seller revenue before discount points; per-unit profit uses one successful unit.
+- Preserve the default price-grid objective: rank by existing scenario profit after advertising and tax, in RUB per successful unit. Do not change target/sensitivity/mix solver objectives.
+- Add `NO_AD_SCENARIO` only as a separate, explicit comparison mode. Its zero advertising value is a local scenario assumption, not an observed advertising fact or price-response forecast. Applying a price from this view validates against the no-ad scenario but preserves the user's current advertising inputs.
+- Rank a candidate set only when tax policy/rates, discount-point policy, revenue basis, unit denominator, and advertising comparison mode match. Different bases produce separate comparisons rather than a shared maximum.
+
+Reason:
+
+The owner needs to see the effect of price on per-unit pre-ad margin without losing the existing after-ad optimization. Making the two outputs and their denominators explicit prevents their ranking from being conflated; a no-ad comparison must not silently rewrite the active advertising assumption.
+
+Status:
+
+Implemented additively in `UnitPriceTargetPlanningService` and the existing Telegram calculator. Linked MA13 profile: 255 passed across price planning/grid, Telegram, sensitivity, batch, sales-mix, and saved-plan consumers. Full CI remains pending.

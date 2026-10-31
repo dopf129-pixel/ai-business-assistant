@@ -1,4 +1,4 @@
-# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA12)
+# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA13)
 
 - Владелец подтвердил основной показатель после налога и прочих учитываемых расходов, от выручки продавца до вычета баллов. ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md` включает 30 этапов MA00–MA29; MA00–MA06 завершены, MA07 VERIFIED_EXISTING, MA08–MA10 DONE, MA11 VERIFIED_EXISTING.
 - Добавлены canonical no-ad ветка и T0/T1 bridge; current provider/query предоставляют аддитивную `pre_ad_margin` v1, используя существующие текущие сумму прибыли и налога без повторного вызова налогового расчёта. Состав неполных расходов, неизвестная реклама и разные периоды указаны явно; legacy поля и guards сохранены.
@@ -6,6 +6,8 @@
 - MA12 добавил отдельный historical projection service с add-back только exact-SKU финансовой рекламы, уже учтённой в net, при точном совпадении владельца, магазина, SKU и периода. Налог берётся из результата существующего исторического запроса без повторного пересчёта; provenance отмечен отдельно. CPC Performance, cohort attribution, account/window allocation, неполные категории и net credit не подставляются.
 - В текущем production historical source такого полного evidence пока нет: новая historical проекция возвращает `UNAVAILABLE` с конкретной причиной. Это не меняет существующие поля или current/model path. Resolver дополнен exact-SKU coverage flag.
 - Связанный MA12 Windows профиль: **156 passed in 2.83s** на 9 модулях; `data/tasks.json` SHA-1 совпадает до/после. `py_compile`/полный pytest и exact-head CI ещё предстоят; merge, deploy, live API и запуск бота не выполнялись.
+- MA13 расширил существующие price options/grid аддитивными `pre_ad_margin` и `after_ad` per candidate. Стандартный ranking остаётся по after-ad прибыли ₽/успешную единицу; для сетки добавлен отдельный no-ad режим с отдельным basis, который при выборе цены сохраняет существующий ad override. Tax/revenue/denominator bases фиксируются для сравнения; неполные non-ad расходы остаются помеченными.
+- Linked Windows profile MA13: **255 passed in 5.89s** на 9 модулях. `data/tasks.json` SHA-1 до/после: `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. Полный pytest и exact-head CI остаются MA27; no merge/deploy/live calls/bot launch.
 
 # 2026-10-31 — W44: исключение устаревших цен из рейтинга
 

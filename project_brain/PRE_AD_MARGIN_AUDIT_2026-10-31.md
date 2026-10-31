@@ -130,3 +130,11 @@ Runtime, схемы и пользовательские данные в подг
 - `StorePeriodProfitService` и production factory пока не предоставляют точный финансовый ad evidence envelope, поэтому обычный исторический запрос остаётся `UNAVAILABLE` (`HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED`). Legacy result и независимый current/model path не меняются. Синтетическая интеграция доказывает контракт, но не означает live data availability.
 - Налог копируется из результата существующего historical query и помечается `tax_provenance=EXISTING_HISTORICAL_QUERY_RESULT`; projection не вызывает TaxService повторно и не утверждает, что это отдельная запись официальной налоговой отчётности.
 - Связанный Windows профиль: **156 passed in 2.83s** на 9 модулях; `py_compile` и `git diff --check` PASS; `data/tasks.json` SHA-1 до/после одинаковый; live Ozon/Telegram запросов не было.
+
+### MA13 — сетка и сравнение цен
+
+- `UnitPriceTargetPlanningService.compare_prices` now returns per-candidate `pre_ad_margin`, after-ad result and explicit ranking basis. Default ranking remains the existing after-ad profit per successful unit; rows with different tax, revenue, unit-denominator or ad-mode bases are not combined under one maximum.
+- The existing SKU calculator has a separate explicit no-ad grid action. The mode models zero advertising only for that scenario; it is not an observed value or a forecast of advertising response to price. Applying a candidate from this view does not overwrite the user's active advertising assumption.
+- Regression coverage includes the N01 baseline (100 ₽ → 31.74 ₽/31.74% before ad and 15.24 ₽/unit after 16.5% advertising; 95 ₽ → 27.95 ₽/29.42% before ad and 16.55 ₽/unit after 12% advertising), default after-ad maximum, no-ad maximum, input immutability, Telegram copy and response length.
+- Implementation touches target planning service, existing calculator runtime and keyboard; no solver goal or saved-plan schema changed. Linked Windows/Python profile: **255 passed in 5.89s** on 9 consumer modules. `data/tasks.json` SHA-1 unchanged; no live request or real bot.
+- MA14 next: audit and test target/sensitivity/batch/mix consumers for additive fields, weighted basis and existing single aggregate tax call; preserve existing solver objectives and pass through current search budgets.

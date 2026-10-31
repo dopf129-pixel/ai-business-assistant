@@ -15,6 +15,7 @@
 - MA09 DONE: percent/absolute/unknown/zero/above-price, конфликтующие payloads, CPC reconciliation и credit semantics проверены. Регрессия нашла падение при отрицательном абсолютном расходе; canonical scenario и components-only теперь fail closed для after-ad, сохраняя доступную независимую before-ad проекцию. Linked Windows profile: **378 passed in 5.34s** across 18 modules; commit `b2d4a043`. User data hash unchanged.
 - MA10 DONE: current provider/query expose additive `pre_ad_margin` v1 without changing legacy current profit/margin. Partial unknown expense scope and actual-ad UNKNOWN are explicit; seller-price/current-finance/cross-dock periods are separately labeled. Linked Windows profile after metadata allowlist regression: **401 passed in 6.09s** across 21 modules; `py_compile` and `git diff --check` passed; user data hash unchanged.
 - MA12 DONE: historical reconciliation adds back only complete CPC/CPO/OTHER amounts proven already included in an exact-SKU net for the same owner/store/product/offer/SKU/schema and accrual window. Tax from the existing historical query is preserved without a second calculation; Performance CPC, cohort/account/window amounts, additional ownership, incomplete ads and net credits are not added. The normal production source does not attach this evidence and remains UNAVAILABLE with a specific reason. Linked profile **156 passed**; owner-data hash unchanged. See Resume MA12.
+- MA13 DONE: price-grid candidates now expose before/after-ad values and explicit denominator/basis metadata; existing ranking remains after-ad RUB per successful unit. A separate explicit no-ad grid mode uses zero only as a scenario assumption, keeps the active ad override when applying a candidate, and does not rank rows with incompatible bases together. Linked Windows profile: **255 passed in 5.89s** across 9 modules; owner-data hash unchanged. Implementation/checkpoint SHA is recorded below after the stage commit.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -38,8 +39,8 @@
 | MA10 | MA07,MA08,MA09 | DONE | Current query/provider attach additive `pre_ad_margin` v1 from existing current calculation values. Legacy profit/margin remain unchanged. Partial unknown scope, unknown advertising, required-input UNAVAILABLE and separate exact finance/cross-dock periods are tested. Linked Windows profile: 401 passed in 6.09s across 21 modules; compile/diff checks passed; owner data hash unchanged. |
 | MA11 | MA10 | VERIFIED_EXISTING | Точный тариф применяется к каждой кандидатной цене из frozen bands; current-price rate не переносится на кандидат без покрытия. Если тарифа нет, кандидат остаётся недоступным до ручного ввода комиссии с provenance `manual_seller_assumption`. После ввода сохраняются цена, себестоимость и рекламный override. Linked Windows profile: 61 passed in 1.53s; output checkpoint `ca7f9183`. |
 | MA12 | MA03,MA07,MA09 | DONE | Historical projection and strict evidence/ownership checks; N09–N12/N16, exact-SKU versus cohort, credit and query integration covered. Linked Windows profile: 156 passed in 2.83s; data/tasks.json hash unchanged. Production historical source remains unconnected, so normal projection stays UNAVAILABLE. |
-| MA13 | MA11 | NOT_STARTED | — |
-| MA14 | MA13 | NOT_STARTED | — |
+| MA13 | MA11 | DONE | Candidate before/after outputs, default ranking, explicit no-ad mode and same-basis ranking verified; linked profile 255 passed in 5.89s; data hash unchanged. |
+| MA14 | MA13 | IN_PROGRESS | MA13 dependency complete. Reviewing target, sensitivity, batch and mix consumers before making additive changes; preserve existing objectives and shared tax-call behavior. |
 | MA15 | MA10,MA11,MA12 | NOT_STARTED | — |
 | MA16 | MA15 | NOT_STARTED | — |
 | MA17 | MA16 | NOT_STARTED | — |
@@ -55,6 +56,14 @@
 | MA27 | MA26 | NOT_STARTED | — |
 | MA28 | MA27 | NOT_STARTED | — |
 | MA29 | MA28 | NOT_STARTED | — |
+
+## Resume реализации MA13 / MA14
+
+- MA13 input SHA: `0de7082badfe7b166bfffc325d5d1354dce1b3c9`. The implementation modified `app/services/unit_price_target_planning_service.py`, `app/services/telegram_unit_price_calculator_runtime_service.py`, and `app/services/assistant_keyboard_service.py`; regression coverage is in `tests/test_unit_price_target_planning_service.py` and `tests/test_unit_price_scenario_telegram_runtime.py`.
+- MA13 linked Windows/Python profile ran against the final MA13 code: 9 modules (`unit_price_target_planning_service`, calculator Telegram runtime, per-unit end-to-end, sensitivity service/runtime, batch service/runtime, sales mix, saved planning plan) — **255 passed in 5.89s**. `data/tasks.json` SHA-1 before/after is `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` absent. No live Ozon/Telegram request or real bot.
+- MA13 semantic boundary: default grid ranking remains after-ad profit per successful unit. `NO_AD_SCENARIO` is an explicit model scenario, not a forecast; selecting a candidate from it validates that scenario without replacing the saved advertising assumption. No mixed tax/revenue/denominator/ad bases share a maximum.
+- MA13 code/docs checkpoint SHA: pending commit; record the exact SHA here immediately after committing this stage.
+- Next: MA14 target/sensitivity/batch/mix consumers. Follow task §MA14: inspect all MA02-selected consumers, keep solver objectives and one aggregate tax call unchanged, pass the existing search budget through without repeating searches, and use weighted basis N14. Add regressions and document exact outputs before moving on.
 
 ## Правила исполнения
 

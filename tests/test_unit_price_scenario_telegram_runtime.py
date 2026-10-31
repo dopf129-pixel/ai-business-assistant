@@ -1060,6 +1060,48 @@ def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for
     assert len(tariff.calls) == 1
 
 
+def test_no_ad_price_grid_is_a_separate_mode_and_applying_it_preserves_current_ad_assumption():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        ad_prompt = runtime.handle_callback(
+            _find_button(scenario, "Реклама, %")["callback"], user_id="user-1",
+        )
+        scenario = runtime.handle_text("12", user_id="user-1")
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон без рекламы")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("90; 100; 10", user_id="user-1")
+        apply_button = _find_button(result, "Подставить вариант 1")
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    grid = result["price_planning_result"]
+    assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert prompt["stage"] == "price_grid_no_ad"
+    assert "отдельного сценария без рекламы" in prompt["message"]
+    assert grid["advertising_basis"]["mode"] == "NO_AD_SCENARIO"
+    assert grid["ranking_status"] == "COMPARABLE"
+    assert grid["ranking_basis"]["metric"] == "NO_AD_PROFIT_PER_SUCCESSFUL_UNIT"
+    assert all(row["advertising_per_unit"] == 0 for row in grid["rows"])
+    assert all(
+        row["profit"] == row["pre_ad_margin"]["profit_per_unit_rub"]
+        for row in grid["rows"]
+    )
+    assert "Отдельное сравнение без рекламы" in result["message"]
+    assert "не прогноз" in result["message"]
+    assert "₽ ₽" not in result["message"]
+    assert len(result["message"].encode("utf-16-le")) // 2 <= 4096
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == 90.0
+    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == 12.0
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
 def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
     runtime, _ = _runtime()
     token = _activate()

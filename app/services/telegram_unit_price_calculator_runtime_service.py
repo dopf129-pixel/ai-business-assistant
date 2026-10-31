@@ -925,7 +925,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "w", "x"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "o", "w", "x"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -958,6 +958,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     user,
                     scope,
                     expected_version,
+                )
+            if action == "o":
+                return self._begin_price_planning_input(
+                    session, "price_grid_no_ad", user, scope, expected_version,
                 )
             if action in {"d", "h"}:
                 return self._begin_price_comparison_advertising_input(
@@ -1043,7 +1047,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._handle_price_comparison_advertising_text(
                 text, pending, session, user, scope, key,
             )
-        if pending.get("stage") in {"target_margin", "price_options", "price_grid"}:
+        if pending.get("stage") in {
+            "target_margin", "price_options", "price_grid", "price_grid_no_ad",
+        }:
             return self._handle_price_planning_text(
                 text, pending, session, user, scope, key
             )
@@ -1331,7 +1337,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
         return self._edit_prompt(session, field)
 
     def _begin_price_planning_input(self, session, stage, user, scope, expected_version):
-        if self.target_planning_service is None or stage not in {"target_margin", "price_options", "price_grid"}:
+        if self.target_planning_service is None or stage not in {
+            "target_margin", "price_options", "price_grid", "price_grid_no_ad",
+        }:
             return self._stale_result()
         key = (user, scope)
         refresh_in_progress = None
@@ -1450,7 +1458,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     notice="Не удалось выполнить локальное сравнение. Сценарий не изменён; исправьте ввод или вернитесь к расчёту.",
                 )
             input_value = list(parsed["normalized"])
-        elif stage == "price_grid":
+        elif stage in {"price_grid", "price_grid_no_ad"}:
             comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
                 session,
                 deepcopy(session.get("inputs") or {}),
@@ -1473,6 +1481,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._price_planning_prompt(session, stage, notice=notice)
             mode = "price_grid"
             target = None
+            advertising_mode = (
+                "NO_AD_SCENARIO" if stage == "price_grid_no_ad" else "SAME_DRR"
+            )
             tariff_required = bool(
                 self.tariff_profile_runtime_service is not None
                 or frozen_tariff is not None
@@ -1493,6 +1504,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         session, comparison_inputs, comparison_provenance,
                         tariff_resolution, frozen_tariff,
                     ),
+                    advertising_mode=advertising_mode,
                     price_grid_metadata=grid["metadata"],
                 )
             except Exception:
@@ -1760,6 +1772,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "Введите целевую маржу от 0 до 100% (например, 20 или 19,5). "
                 "Бот покажет ориентир безубыточности и цену для цели."
             )
+        elif stage == "price_grid_no_ad":
+            prompt = (
+                "Введите начало диапазона; конец; шаг цены продавца до копейки для отдельного "
+                "сценария без рекламы. Например: 80; 120; 5. В сетку добавятся тарифные границы "
+                "и соседние копейки; проверяется не более 200 точек. Нулевая реклама здесь — "
+                "допущение сравнения, а не прогноз."
+            )
         elif stage == "price_grid":
             prompt = (
                 "Введите начало диапазона; конец; шаг цены продавца до копейки. "
@@ -1854,10 +1873,20 @@ class TelegramUnitPriceCalculatorRuntimeService:
             )
             baseline = result.get("baseline") or {}
             if baseline.get("available") is True:
-                lines.append(
-                    "База " + self._money(baseline.get("price")) + ": "
-                    + self._money(baseline.get("profit")) + "/шт."
-                )
+                baseline_pre_ad = baseline.get("pre_ad_margin") or {}
+                baseline_line = "База " + self._money(baseline.get("price")) + ": "
+                if baseline_pre_ad.get("status") == "AVAILABLE":
+                    baseline_line += (
+                        "до рекламы "
+                        + self._money(baseline_pre_ad.get("profit_per_unit_rub"))
+                        + "/шт.; после рекламы "
+                    )
+                    if baseline_pre_ad.get("expense_scope_status") == "PARTIAL":
+                        baseline_line += "(неполные расходы) "
+                else:
+                    baseline_line += "маржа до рекламы недоступна; после рекламы "
+                baseline_line += self._money(baseline.get("profit")) + "/шт."
+                lines.append(baseline_line)
             elif baseline:
                 lines.append(
                     "База " + self._money(baseline.get("price"))
@@ -1869,8 +1898,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 inserted = grid.get("inserted_tariff_boundary_prices") or []
                 lines.append(
                     "Сетка " + self._money(grid.get("start")) + "–"
-                    + self._money(grid.get("end")) + " ₽, шаг "
-                    + self._money(grid.get("step")) + " ₽; проверено точек: "
+                    + self._money(grid.get("end")) + ", шаг "
+                    + self._money(grid.get("step")) + "; проверено точек: "
                     + str(grid.get("candidate_count") or len(all_rows))
                     + "; тарифных правил: " + str(grid.get("tariff_rule_count", 0))
                     + "; дополнительных граничных точек: " + str(len(inserted)) + "."
@@ -1884,7 +1913,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number}."
                 )
             advertising_mode = advertising_basis.get("mode")
-            if advertising_mode == "SAME_DRR" and advertising_basis.get("rate") is not None:
+            lines.append(
+                "Маржа до рекламы: после сценарного налога; процент — от цены продавца "
+                "до баллов. После рекламы: тот же знаменатель, расходы по выбранному режиму."
+            )
+            if advertising_mode == "NO_AD_SCENARIO":
+                lines.append(
+                    "Отдельное сравнение без рекламы: расход принят равным 0 ₽/шт. только для "
+                    "этого сценария; это не прогноз и не меняет рекламу основного сценария."
+                )
+            elif advertising_mode == "SAME_DRR" and advertising_basis.get("rate") is not None:
                 lines.append(
                     "Реклама для вариантов: одинаковая ДРР "
                     + self._percent(advertising_basis.get("rate"))
@@ -1913,8 +1951,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             best_prices = result.get("best_prices") or []
             if best_prices:
                 if is_grid:
+                    best_label = (
+                        "Максимум в отдельном сценарии без рекламы: "
+                        if advertising_mode == "NO_AD_SCENARIO"
+                        else "Максимальная прибыль после рекламы на проверенной сетке: "
+                    )
                     lines.append(
-                        "Максимальная прибыль на проверенной сетке: "
+                        best_label
                         + self._money(result.get("best_profit")) + "/шт.; равных вариантов: "
                         + str(len(best_prices)) + "."
                     )
@@ -1926,7 +1969,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         + ", ".join(self._money(price) for price in best_prices) + "."
                     )
             else:
-                lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
+                if result.get("ranking_status") == "INCOMPARABLE_BASES":
+                    lines.append(
+                        "Прибыли отдельных вариантов рассчитаны, но налоговые или расчётные "
+                        "основания различаются; общий максимум не выбран."
+                    )
+                else:
+                    lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
             for index, row in enumerate(visible_rows, start=first_row + 1):
                 if row.get("available") is not True:
                     if row.get("commission_status") in {
@@ -1946,16 +1995,30 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         detail += "; заполните " + ", ".join(missing)
                     lines.append(f"{index}. {self._money(row.get('price'))}: {detail}.")
                     continue
-                line = (
-                    f"{index}. {self._money(row.get('price'))}: прибыль "
-                    f"{self._money(row.get('profit'))}/шт.; маржа "
-                    f"{self._percent(row.get('margin_percent'))}; налог "
-                    f"{self._money(row.get('tax'))}"
-                )
+                pre_ad = row.get("pre_ad_margin") or {}
+                if advertising_mode == "NO_AD_SCENARIO":
+                    line = (
+                        f"{index}. {self._money(row.get('price'))}: без рекламы "
+                        f"{self._money(row.get('profit'))}/шт. "
+                        f"({self._percent(row.get('margin_percent'))}); "
+                        f"до рекламы {self._money(pre_ad.get('profit_per_unit_rub'))}/шт. "
+                        f"({self._percent(pre_ad.get('margin_percent'))})"
+                    )
+                else:
+                    line = (
+                        f"{index}. {self._money(row.get('price'))}: до рекламы "
+                        f"{self._money(pre_ad.get('profit_per_unit_rub'))}/шт. "
+                        f"({self._percent(pre_ad.get('margin_percent'))}); "
+                        f"после рекламы {self._money(row.get('profit'))}/шт. "
+                        f"({self._percent(row.get('margin_percent'))}); налог "
+                        f"{self._money(row.get('tax'))}"
+                    )
+                if pre_ad.get("expense_scope_status") == "PARTIAL":
+                    line += "; до рекламы учтены не все расходы"
                 if row.get("commission_rate") is not None:
                     line += "; комиссия " + self._percent(row.get("commission_rate"))
                 if row.get("advertising_per_unit") is not None:
-                    line += "; реклама " + self._money(row.get("advertising_per_unit")) + " ₽/шт."
+                    line += "; реклама " + self._money(row.get("advertising_per_unit")) + "/шт."
                 if row.get("advertising_rate") is not None:
                     line += "; эквивалент ДРР " + self._percent(row.get("advertising_rate"))
                 if row.get("profit_delta_vs_baseline") is not None:
@@ -1988,16 +2051,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         "Фиксированная реклама сохранена в ₽/успешную продажу для каждой цены; "
                         "порог ДРР не смешивался с фиксированным расходом."
                     )
+                elif advertising_basis.get("mode") == "NO_AD_SCENARIO":
+                    lines.append(
+                        "Безрекламный результат — отдельное допущение; бот не прогнозирует, "
+                        "как цена повлияет на спрос или фактические расходы на рекламу."
+                    )
                 else:
                     lines.append(
+                        "До рекламы: сценарный расчёт без рекламы после налога; % от цены "
+                        "продавца до баллов. После рекламы: прибыль с выбранной моделью рекламы. "
                         "Пороги проверены по округлённой прибыли и налоговой политике магазина; "
                         "шаг ДРР — 0,01 п.п. Это сценарий, не прогноз эффекта цены на спрос или рекламу."
                     )
             if is_grid:
-                lines.append(
-                    "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
-                    "бот проверит его отдельно по тому же снимку."
-                )
+                if advertising_mode == "NO_AD_SCENARIO":
+                    lines.append(
+                        "Порог рекламы не рассчитывался: это сравнение цен без рекламы."
+                    )
+                else:
+                    lines.append(
+                        "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
+                        "бот проверит его отдельно по тому же снимку."
+                    )
         freshness = self._source_freshness(session)
         if freshness.get("status") == "STALE":
             lines.append(
@@ -2186,29 +2261,40 @@ class TelegramUnitPriceCalculatorRuntimeService:
             candidate_inputs["commission_rate"] = outcome.get("commission_rate")
             candidate_provenance["commission_rate"] = outcome.get("commission_origin") or "unknown"
         advertising_basis = result.get("advertising_basis") or {}
-        if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
-            self._apply_advertising_input(
-                candidate_inputs, candidate_provenance,
-                mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
-                value=advertising_basis.get("amount_per_unit"),
-                origin="manual_seller_assumption",
-            )
-        elif outcome.get("advertising_rate") is not None:
-            self._apply_advertising_input(
-                candidate_inputs, candidate_provenance,
-                mode="PERCENT_OF_SELLER_REVENUE",
-                value=outcome.get("advertising_rate"),
-                origin=(
-                    candidate_provenance.get("advertising_rate", "unknown")
-                    if advertising_basis.get("mode") == "SAME_DRR"
-                    else "manual_seller_assumption"
-                ),
-            )
+        validation_inputs = deepcopy(candidate_inputs)
+        validation_provenance = deepcopy(candidate_provenance)
+        if advertising_basis.get("mode") == "NO_AD_SCENARIO":
+            validation_inputs.pop("advertising_cost_per_unit", None)
+            validation_inputs["advertising_mode"] = "PERCENT_OF_SELLER_REVENUE"
+            validation_inputs["advertising_rate"] = "0"
+            validation_provenance["advertising_mode"] = "manual_seller_assumption"
+            validation_provenance["advertising_rate"] = "manual_seller_assumption"
+        else:
+            if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                self._apply_advertising_input(
+                    candidate_inputs, candidate_provenance,
+                    mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
+                    value=advertising_basis.get("amount_per_unit"),
+                    origin="manual_seller_assumption",
+                )
+            elif outcome.get("advertising_rate") is not None:
+                self._apply_advertising_input(
+                    candidate_inputs, candidate_provenance,
+                    mode="PERCENT_OF_SELLER_REVENUE",
+                    value=outcome.get("advertising_rate"),
+                    origin=(
+                        candidate_provenance.get("advertising_rate", "unknown")
+                        if advertising_basis.get("mode") == "SAME_DRR"
+                        else "manual_seller_assumption"
+                    ),
+                )
+            validation_inputs = deepcopy(candidate_inputs)
+            validation_provenance = deepcopy(candidate_provenance)
         try:
             validation = self.scenario_service.calculate(
-                candidate_inputs,
+                validation_inputs,
                 identity=self._scenario_identity(session),
-                provenance=candidate_provenance,
+                provenance=validation_provenance,
                 sources=self._scenario_sources(session),
                 **self._extended_scenario_kwargs(session),
             )
@@ -2238,7 +2324,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if mode == "price_grid":
             baseline = result.get("baseline") or {}
             solver = getattr(self.target_planning_service, "advertising_compensation_service", None)
-            if baseline.get("available") is True and solver is not None:
+            if advertising_basis.get("mode") == "NO_AD_SCENARIO":
+                grid_threshold_notice = " В безрекламном сравнении порог фактической рекламы не рассчитывался."
+            elif baseline.get("available") is True and solver is not None:
                 def forward_for_threshold(candidate):
                     try:
                         return self.scenario_service.calculate(
@@ -2300,7 +2388,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 current["inputs"]["price"] = candidate_price
                 current["provenance"]["price"] = "manual_seller_assumption"
                 current["overrides"].add("price")
-                if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                if advertising_basis.get("mode") == "NO_AD_SCENARIO":
+                    pass
+                elif advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
                     self._apply_advertising_input(
                         current["inputs"], current["provenance"],
                         mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
@@ -2409,7 +2499,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return labels.get(status, "не рассчитано")
         return (
             self._percent(outcome.get("advertising_rate")) + " ДРР / "
-            + self._money(outcome.get("advertising_per_unit")) + " ₽/успешную продажу"
+            + self._money(outcome.get("advertising_per_unit")) + "/успешную продажу"
         )
 
     def _price_planning_missing_labels(self, outcome):
