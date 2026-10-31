@@ -12,7 +12,7 @@
 - MA06 DONE: добавлен `advertising_tax_bridge` v1 с T0/T1, рекламным расходом, эффектом `T0−T1` и проверкой равенства после рекламы. Покрыты `NONE`, USN income, USN income-minus-expenses и минимум; `calculate_components_only` не вызывает tax per SKU, SalesMix сохраняет aggregate единственный вызов. Linked profile **315 passed in 4.97s**; owner data hash unchanged.
 - MA07 VERIFIED_EXISTING: закреплены seller-price denominator до points, отдельное налоговое влияние баллов, нулевая и out-of-range цена, подтверждённые нулевые расходы, отрицательная прибыль и каноническое округление. Точечный Windows профиль: **56 passed in 0.81s**; `data/tasks.json` hash сохранён, lock отсутствует. Подробности: audit §MA07.
 - MA08 DONE: `expense_scope` явно разделяет включённые, исключённые и неизвестные расходы; постоянные общие расходы явно вне SKU contribution, source-confirmed zero storage больше не отображается как UNKNOWN, loss pool возврата показан отдельной категорией, а base-owned, рекламные и window-return компоненты нельзя второй раз подать как generic additional. Старый guard cross-docking supplied-unit + sales-unit extension сохранён. Linked Windows профиль: **359 passed in 5.12s** на 17 модулях; пользовательские данные не изменились. См. audit §MA08.
-- Следующий этап MA09: проверить рекламные режимы, нулевые/неизвестные расходы, кредитовые корректировки и сохранение исходной after-ad semantics.
+- MA09 DONE: percent/absolute/unknown/zero/above-price, конфликтующие payloads, CPC reconciliation и credit semantics проверены. Регрессия нашла падение при отрицательном абсолютном расходе; canonical scenario и components-only теперь fail closed для after-ad, сохраняя доступную независимую before-ad проекцию. Linked Windows profile: **378 passed in 5.40s** across 18 modules. User data hash unchanged.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -32,7 +32,7 @@
 | MA06 | MA05 | DONE | `advertising_tax_bridge` фиксирует T0/T1 и `after = before − ad + (T0−T1)` с delta 0.00; N01/N04/min-tax/NONE. `calculate_components_only` оставлен без TaxService; SalesMix aggregate-tax-one-call тест зелёный. Linked profile 315 passed. |
 | MA07 | MA06 | VERIFIED_EXISTING | Current calculator already uses seller price before discount points as margin denominator and canonical money rounding; tests prove the tax-basis point effect, zero/negative/out-of-range price handling, confirmed zero expense, negative profit, and half-cent rounding. Targeted Windows profile: 56 passed in 0.81s. Owner data hash unchanged; lock absent. |
 | MA08 | MA05 | DONE | `expense_scope` now distinguishes included/excluded/unknown; fixed store overhead is explicitly outside SKU contribution; exact zero storage is represented as confirmed zero; strict cohort loss is labeled as return loss; base-owned, advertising and window-return components cannot be re-added as generic extras. The supplied-unit cross-docking incompatibility guard remains unchanged. Linked Windows profile: 359 passed in 5.12s across 17 modules; owner data hash unchanged and lock absent. |
-| MA09 | MA06,MA08 | NOT_STARTED | — |
+| MA09 | MA06,MA08 | DONE | Percent/absolute/unknown/zero/above-price and mixed payloads covered; before-ad is invariant to the ad input. Fixed a confirmed crash for invalid negative absolute ad in canonical and components-only calculation; after-ad fails closed while before-ad remains available. CPC remains reconciliation-only and net credit remains REVIEW_REQUIRED. Linked Windows profile: 378 passed in 5.40s across 18 modules; `data/tasks.json` unchanged. |
 | MA10 | MA07,MA08,MA09 | NOT_STARTED | — |
 | MA11 | MA10 | NOT_STARTED | — |
 | MA12 | MA03,MA07,MA09 | NOT_STARTED | — |
@@ -96,3 +96,12 @@
 - Extended components that repeat known base-owned keys (COGS, commission, logistics, last mile, acquiring), advertising, or return types reserved for the strict cohort model fail closed. The existing supplied-unit cross-docking + sales-unit extended guard remains. A linked consumer test showed an existing standalone cross-docking extension is supported; that path was preserved rather than over-rejected.
 - Windows linked profile: **359 passed in 5.12s** across 17 modules including canonical scenario, return/additional evidence, pricing, mix/batch, observation, current economics and Telegram consumers. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent.
 - Next stage: MA09 advertising mode and incompleteness semantics.
+
+## Resume реализации MA09
+
+- MA09 input SHA: `90432fe6`; implementation commit is recorded in Git after this journal update.
+- `UnitPriceScenarioService._calculate_components` now preserves `advertising=None` for invalid absolute input rather than passing `None` to Decimal quantization. Both `calculate` and `calculate_components_only` leave after-ad unavailable, retain invalid-input diagnostics, and keep pre-ad independently available.
+- `tests/test_pre_ad_margin_projection.py` proves before-ad profit/margin/tax invariant across percentage zero/nonzero, absolute zero/above-price, unknown, and invalid negative ad. Components-only path also stays fail-closed. `tests/test_unit_price_scenario_extended_contract.py` confirms mixed ad payload rejection does not suppress pre-ad.
+- Existing `UnitEconomicsAdvertisingEvidenceService` remains unchanged: CPC is reconciliation-only; net negative ad credit remains preserved and marked `REVIEW_REQUIRED`.
+- Verification: four-module targeted profile **78 passed in 1.08s**; final linked 18-module profile **378 passed in 5.34s**; `py_compile` and `git diff --check` passed. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live source requests.
+- Next stage: MA10, current SKU card/provider/query integration. No live source requests.

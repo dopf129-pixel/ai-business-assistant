@@ -230,6 +230,7 @@ def test_advertising_modes_reject_implicit_conversion_and_conflicting_inputs():
     assert result["available"] is False
     assert "advertising_mode" in result["invalid_inputs"]
     assert result["calculated"]["profit"] is None
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
 
     missing = _inputs()
     missing.pop("advertising_rate")

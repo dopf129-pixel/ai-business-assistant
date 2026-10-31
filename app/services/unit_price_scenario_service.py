@@ -570,7 +570,12 @@ class UnitPriceScenarioService:
             # never written back to inputs or serialized as owner-provided spend.
             advertising = Decimal("0.00")
         elif values.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
-            advertising = self._money_decimal(values.get("advertising_cost_per_unit"))
+            advertising_cost = values.get("advertising_cost_per_unit")
+            advertising = (
+                self._money_decimal(advertising_cost)
+                if advertising_cost is not None
+                else None
+            )
         elif price is not None and ad_rate is not None:
             advertising = self._money_decimal(price * ad_rate / self._HUNDRED)
         else:

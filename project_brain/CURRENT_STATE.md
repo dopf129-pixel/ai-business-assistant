@@ -1,9 +1,9 @@
-# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA08)
+# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA09)
 
 - Владелец подтвердил основной показатель после налога и прочих учитываемых расходов, от выручки продавца до вычета баллов. ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md` включает 30 этапов MA00–MA29; MA00–MA06 завершены, MA07 VERIFIED_EXISTING, MA08 DONE.
 - Добавлены canonical no-ad ветка при неизвестной рекламе и отдельные налоговые основания current/model. Historical projection, полный expense scope и интеграции карточек/экспорта остаются последующими этапами. Legacy расчёты и guards сохранены.
-- Реализация в `codex/pre-ad-margin-implementation-20261031`: MA00–MA06 DONE; MA07 VERIFIED_EXISTING. Добавлены no-ad projection и T0/T1 bridge; MA07 regressions фиксируют знаменатель от цены продавца до баллов и налоговое влияние баллов. MA08 разделяет included/excluded/unknown, сохраняет подтверждённый ноль хранения и запрещает повторное добавление base-owned, advertising и window-return компонентов как generic additional. Linked Windows профиль MA05–MA08: **359 passed in 5.12s** на 17 модулях; `data/tasks.json` hash сохранён.
-- Следующий этап MA09 — проверка рекламных режимов и неполноты. Full pytest и exact-head CI ещё не выполнялись; merge, deploy, live API и запуск бота не выполнялись.
+- Реализация в `codex/pre-ad-margin-implementation-20261031`: MA00–MA06 DONE; MA07 VERIFIED_EXISTING; MA08–MA09 DONE. Добавлены no-ad projection, T0/T1 bridge, прозрачный scope расходов и безопасная обработка процентов/абсолютной рекламы. Исправлено падение на отрицательной абсолютной рекламе: after-ad закрывается с диагностикой, before-ad остаётся доступной. CPC остаётся сверкой, а кредит не инвертируется.
+- MA05–MA09 linked Windows профиль после финальной components-only проверки: **378 passed in 5.34s** на 18 модулях; `py_compile` и `git diff --check` прошли. Full pytest и exact-head CI ещё не выполнялись; merge, deploy, live API и запуск бота не выполнялись.
 
 # 2026-10-31 — W44: исключение устаревших цен из рейтинга
 

@@ -129,6 +129,71 @@ def test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_m
     assert result["pre_ad_margin"]["price_per_unit_rub"] == 100.0
 
 
+def test_pre_ad_projection_is_invariant_across_ad_modes_zero_unknown_and_invalid_credit():
+    service = UnitPriceScenarioService(TaxService())
+    base = _inputs(tax_mode="USN_INCOME", discount_points_rate="25")
+    cases = {}
+
+    percent_zero = dict(base, advertising_rate="0")
+    cases["percent_zero"] = service.calculate(percent_zero)
+
+    percent_twelve = dict(base, advertising_rate="12")
+    cases["percent_twelve"] = service.calculate(percent_twelve)
+
+    absolute_zero = dict(base)
+    absolute_zero.pop("advertising_rate")
+    absolute_zero.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "0",
+    })
+    cases["absolute_zero"] = service.calculate(absolute_zero)
+
+    absolute_over_price = dict(base)
+    absolute_over_price.pop("advertising_rate")
+    absolute_over_price.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "120",
+    })
+    cases["absolute_over_price"] = service.calculate(absolute_over_price)
+
+    unknown = dict(base)
+    unknown.pop("advertising_rate")
+    cases["unknown"] = service.calculate(unknown)
+
+    invalid_negative = dict(base)
+    invalid_negative.pop("advertising_rate")
+    invalid_negative.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "-5",
+    })
+    cases["invalid_negative"] = service.calculate(invalid_negative)
+
+    before_values = {
+        (
+            result["pre_ad_margin"]["profit_per_unit_rub"],
+            result["pre_ad_margin"]["margin_percent"],
+            result["pre_ad_margin"]["tax_per_unit_rub"],
+        )
+        for result in cases.values()
+    }
+    assert len(before_values) == 1
+    assert cases["percent_zero"]["available"] is True
+    assert cases["percent_zero"]["calculated"]["advertising"] == 0.0
+    assert cases["absolute_zero"]["available"] is True
+    assert cases["absolute_zero"]["calculated"]["advertising"] == 0.0
+    assert cases["percent_twelve"]["calculated"]["advertising"] == 12.0
+    assert cases["absolute_over_price"]["calculated"]["advertising"] == 120.0
+    assert cases["unknown"]["available"] is False
+    assert cases["unknown"]["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert cases["invalid_negative"]["available"] is False
+    assert cases["invalid_negative"]["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert "advertising_cost_per_unit" in cases["invalid_negative"]["invalid_inputs"]
+    components_only = service.calculate_components_only(invalid_negative)
+    assert components_only["available"] is False
+    assert components_only["calculated"]["profit_before_tax"] is None
+    assert components_only["calculated"]["pre_ad_profit_before_tax"] == 41.0
+
+
 def test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax():
     inputs = _inputs(
         discount_points_rate="0",
