@@ -214,3 +214,32 @@ Runtime, схемы и пользовательские данные в подг
 - Extended the synthetic-only `tests/test_unit_price_backup_restore.py::test_unit_price_records_survive_backup_verify_dry_run_and_new_root_restore`. It stores plan revision 1 and a distinct calculated revision 2, exports each, creates/verifies the archive, runs dry-run and restores into a separate temporary storage root.
 - A fresh `PlanningWorkspaceRepository` then opens both revisions and the historical unit-price observation with two result revisions. Both restored saved-plan exports match their pre-backup columns, rows and metadata exactly; export remains `recalculated_on_export=False`. A different store cannot read the plan, tariff or observation, and a rejected synthetic raw response is absent from restored SQLite bytes.
 - No production schema or backup implementation change. Linked Windows profile across `tests/test_unit_price_backup_restore.py`, `tests/test_daily_use_end_to_end_restore.py`, `tests/test_bot_backup_service.py`: **26 passed in 3.36s**. Test commit `6b06eb43`; live data and owner `data/tasks.json` remain untouched; no live API/bot.
+
+### MA25 — independent numerical and accounting acceptance crosswalk
+
+The test oracles below assert expected business values or explicit unavailable/ownership behavior through existing canonical service entry points. Tests do not derive their expected values by copying the implementation formula.
+
+| Oracle | Regression(s) |
+|---|---|
+| N01 | `test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_mutate_inputs`; `test_usn_income_bridge_uses_equal_tax_bases_and_reconciles_profit` — 100 ₽ seller price, 62 ₽ known expenses, T0=T1=4.50 ₽, 33.50 ₽ before and 21.50 ₽ after. |
+| N02 | `test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_mutate_inputs` — before remains available; missing advertising and after-ad stay unknown and input is unchanged. |
+| N03 | `test_n03_absolute_advertising_keeps_fixed_oracle_and_does_not_reduce_before_ad_margin` — 120 ₽ fixed ad, −86.50 ₽ after and 33.50 ₽ before. |
+| N04 | `test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax` — gross bases 26/38 ₽, taxes 3.90/5.70 ₽, after/before net 22.10/32.30 ₽; spy checks two canonical service calls. |
+| N05 | `test_n05_no_tax_mode_keeps_exact_before_and_after_ad_oracles` — 38 ₽ before and 26 ₽ after, tax zero. |
+| N06 | `test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` — an unconfirmed candidate tariff makes before-ad unavailable until explicit manual commission; other inputs remain intact. |
+| N07 | `test_current_query_uses_live_price_and_prepared_expenses` and unknown-scope assertions in the N02 test — known subtotal remains qualified while storage/returns are unknown. |
+| N08 | `test_complete_zero_storage_evidence_is_not_reported_as_unknown` — confirmed zero storage differs from missing evidence. |
+| N09 | `test_historical_n09_adds_back_only_complete_financial_ads_and_preserves_tax` — 3000 ₽ revenue, 1680 ₽ net, 900 ₽ COGS, 135 ₽ recorded tax, 30 units, 360 ₽ included ads; exact projection 1005 ₽ / 33.50 ₽ per unit. |
+| N10 | `test_incomplete_cpo_scope_blocks_historical_addback_instead_of_using_cpc_alone` — incomplete ad categories do not yield a full historical projection. |
+| N11 | `test_historical_profit_tax_basis_is_not_replaced_with_no_ad_scenario_tax` — historical 34.10 ₽ basis remains distinct from scenario 32.30 ₽. |
+| N12 | `test_historical_zero_or_unknown_denominator_never_becomes_zero_percent_or_per_unit`; `test_zero_price_has_no_pre_ad_profit_percentage_instead_of_fabricated_zero`. |
+| N13 | `test_negative_pre_ad_profit_and_margin_are_preserved_without_clipping` — −5 ₽/−5% remains negative. |
+| N14 | `test_mix_pre_ad_margin_uses_revenue_weighting_not_mean_of_sku_percentages` — 110/400 = 27.50%, not an unweighted mean. |
+| N15 | `test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads` — prices 99.99/100/100.01 use frozen rates 11/11/22%. |
+| N16 | `test_additional_ads_are_not_added_back_to_a_net_result_a_second_time`; `test_net_advertising_credit_requires_review_and_is_not_made_positive`; `test_base_owned_advertising_and_window_return_components_cannot_be_added_as_generic_extras`; `test_signed_leaf_expenses_include_adjustments_shared_nodes_and_exact_sku_costs`. |
+| N17 | `test_n17_560_rubles_with_a_40_ruble_correction_over_280_accepted_sku_units_is_two_rubles` — signed exact-SKU accruals total 560 ₽; 280 accepted units produce 2 ₽ per unit. The rate API accepts no sales-count denominator. |
+| N18 | `test_n02_exact_return_nonbuyout_cogs_and_nonoverlapping_compensation_reconcile_once` plus the base-owned return-component guard — inventory loss, fee and compensation are reconciled once and incompatible dispositions remain unavailable. |
+| N19 | `test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh`; MA24 backup/restore regression preserves both frozen revisions and exact exports. |
+| N20 | `test_old_product_entry_button_cannot_cross_store_scope`; `test_apply_callback_fails_closed_for_another_store` — same-SKU owner/store boundary is enforced. |
+
+Added independent N03/N05/N17 regressions and explicit TaxService call-basis assertions. An initial N17 fixture with shared unallocated fees correctly produced a store estimate; the test was narrowed to exact-SKU fee rows, leaving production unchanged. Corrected numeric profile: 5 modules, **94 passed in 1.42s**. Final linked Windows profile on test commit `fcec0254`: 14 modules, **388 passed in 6.73s**; `git diff --check` passed, owner data hash unchanged, lock absent. No live API or bot.

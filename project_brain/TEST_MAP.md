@@ -1,3 +1,11 @@
+# MA25 — independent numeric acceptance coverage for margin before ads
+
+- `tests/test_pre_ad_margin_projection.py` fixes the canonical before/after/tax oracle for N01–N05, including N03 absolute ad, N04 separate profit-tax bases, and N05 no-tax. Tax spy assertions verify the actual after-ad then no-ad service calls rather than duplicating the tax formula in test code.
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py` covers N09–N12 and exact ownership/credit cases; `tests/test_sales_mix_planning_service.py` covers N14's revenue-weighted 27.50% aggregate; `tests/test_unit_price_scenario_telegram_runtime.py` covers N06/N15/N20.
+- `tests/test_cross_docking_financial_evidence_service.py::test_n17_560_rubles_with_a_40_ruble_correction_over_280_accepted_sku_units_is_two_rubles` proves signed SKU corrections total 560 ₽ and accepted supply quantity, not sold quantity, gives 2 ₽/unit. `tests/test_unit_economics_return_evidence_service.py` covers N18's return-loss/fee reconciliation and one-time canonical application.
+- `tests/test_saved_planning_plan_telegram_flow.py` and MA24's `tests/test_unit_price_backup_restore.py` regress N19/N20 frozen revisions, isolation and restore. Full N01–N20 crosswalk: `project_brain/PRE_AD_MARGIN_AUDIT_2026-10-31.md` §MA25.
+- Linked Windows profile at test SHA `fcec0254`: 14 modules, **388 passed in 6.73s**. No production changes; no live API or bot.
+
 # MA24 — unit-price backup/restore into a new root
 
 - `tests/test_unit_price_backup_restore.py::test_unit_price_records_survive_backup_verify_dry_run_and_new_root_restore` now saves frozen plan revisions 1 and 2, exports both, archives isolated storage, verifies and dry-runs restore, then opens a fresh repository and compares both restored revisions and export columns/rows/metadata exactly with pre-backup snapshots.
