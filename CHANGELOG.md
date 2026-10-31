@@ -2,7 +2,7 @@
 
 - Общий рейтинг теперь проверяет актуальность каждой кандидатной цены по последним данным обеих фаз и контрольным событиям до поиска максимума. Устаревшее или неподтверждённое сравнение исключается, а карточка сообщает число исключённых сравнений.
 - Добавлена regression с двумя ценами: кандидат с большей модельной прибылью не выигрывает, если его сравнение больше не подтверждается.
-- Профиль экспериментов и Telegram: **118 passed in 6.96s**; полный Windows pytest: **4,353 passed in 44.54s**; `compileall` и `git diff --check` PASS. Тестовый `data/tasks.json` восстановлен до исходного hash, созданный lock удалён.
+- Профиль экспериментов и Telegram: **118 passed in 6.96s**; полный Windows pytest: **4,353 passed in 44.54s**; `compileall` и `git diff --check` PASS. Тестовый `data/tasks.json` восстановлен до исходного hash, созданный lock удалён. Exact-head Windows и full-verification CI прошли на коде `dbb81964` в runs [41208206231](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41208206231) и [41208202051](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41208202051).
 
 # 2026-10-31 — W43: показывать устаревшее сравнение как устаревшее
 

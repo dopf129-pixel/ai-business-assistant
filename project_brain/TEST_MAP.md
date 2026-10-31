@@ -1,7 +1,7 @@
 # W44 — свежесть каждого кандидата в общем рейтинге
 
 - `tests/test_telegram_unit_economics_experiment_runtime.py::test_candidate_ranking_excludes_comparisons_that_are_not_current`: из двух сопоставимых сравнений более прибыльное устаревшее сравнение исключается runtime-сборщиком до передачи в recommendation service; максимум и `best_phase_ids` содержат только текущий кандидат, а счётчик исключения равен 1.
-- Полный runtime дополнительно показывает число сравнений с неподтверждённой актуальностью. Проверка связанного профиля unit-economics experiment + Telegram runtime: **118 passed in 6.96s**; полный Windows pytest: **4,353 passed in 44.54s**.
+- Полный runtime дополнительно показывает число сравнений с неподтверждённой актуальностью. Проверка связанного профиля unit-economics experiment + Telegram runtime: **118 passed in 6.96s**; полный Windows pytest: **4,353 passed in 44.54s**. Exact-head Windows/full-verification CI на коде `dbb81964`: [41208206231](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41208206231), [41208202051](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41208202051).
 
 # W43 — stale comparison presentation
 

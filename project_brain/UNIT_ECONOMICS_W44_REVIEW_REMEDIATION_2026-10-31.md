@@ -4,7 +4,7 @@
 Ветка: `codex/full-unit-economics-experiments-implementation-20261028`  
 PR: #722  
 Исходный HEAD: `0b1dcd5b52dba326bc39ec9baaaf52aeb9132c9d`  
-Статус: локальная реализация и тесты завершены; публикация и exact-head CI ожидают.
+Статус: исправление опубликовано кодовым коммитом `dbb81964f7f8c2fec19a9fe1e760c734ab5da736` в PR #722; exact-head Windows и full-verification CI прошли в runs `41208206231` и `41208202051`.
 
 ## Найденная проблема
 
@@ -28,6 +28,7 @@ PR: #722
 - Полный Windows `pytest -q -p no:cacheprovider`: **4,353 passed in 44.54s**.
 - `python -m compileall -q app`: PASS.
 - `git diff --check`: PASS; только штатные предупреждения Git о нормализации LF→CRLF для изменённых Python-файлов.
+- Exact-head Windows и full-verification CI: PASS на кодовом коммите `dbb81964f7f8c2fec19a9fe1e760c734ab5da736` в [run 41208206231](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41208206231) и [run 41208202051](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41208202051).
 - Полный pytest изменил демонстрационный `data/tasks.json` и создал `data/tasks.json.lock`. Tracked fixture восстановлен; исходный hash `38637702206478ab3c08d7ae1c4ac87f1f1c6354` совпадает, созданный lock удалён. Остальные пользовательские данные не менялись.
 - Использованы синтетические тестовые данные. Ozon/Telegram API и реальный бот не запускались.
 
