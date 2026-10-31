@@ -44,5 +44,7 @@ def test_current_unit_economics_output_is_user_friendly():
     assert "Цена:\n96.00 ₽ — 100.0%" in response
     assert "Прибыль с 1 шт:\n35.10 ₽ — 36.6%" in response
     assert "Актуальная цена продавца" not in response
-    assert "Основано на последних финансовых начислениях" not in response
+    assert response.count(
+        "Основано на последних финансовых начислениях Ozon: 236 продаж за 2 дн."
+    ) == 1
     assert "Данные обновлены:" not in response
