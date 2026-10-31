@@ -1,3 +1,9 @@
+# MA26 — linked margin before-ad acceptance flows
+
+- Linked offline regression covers the current/historical card, pre-ad/after-ad scenario and tax bridge, target/grid/sensitivity/batch/mix, frozen commission profiles, saved-plan flows and repository revisions, return/expense/cross-docking evidence, observation lifecycle, price experiments, exports, and isolated archive restore.
+- `tests/test_current_unit_economics_polish.py::test_current_unit_economics_output_is_user_friendly` now asserts that the validated finance sample note appears exactly once; this aligns the old formatting test with the current-card provenance and existing integration contract. No production behavior changed.
+- Exact linked Windows profile on test commit `8cdb62c1`: 70 modules, **981 passed in 28.81s**, no deselects. User-data SHA-1 unchanged and no lock left behind. Full repository pytest and CI are MA27.
+
 # MA25 — independent numeric acceptance coverage for margin before ads
 
 - `tests/test_pre_ad_margin_projection.py` fixes the canonical before/after/tax oracle for N01–N05, including N03 absolute ad, N04 separate profit-tax bases, and N05 no-tax. Tax spy assertions verify the actual after-ad then no-ad service calls rather than duplicating the tax formula in test code.

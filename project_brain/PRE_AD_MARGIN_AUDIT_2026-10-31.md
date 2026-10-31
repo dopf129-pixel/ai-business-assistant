@@ -243,3 +243,10 @@ The test oracles below assert expected business values or explicit unavailable/o
 | N20 | `test_old_product_entry_button_cannot_cross_store_scope`; `test_apply_callback_fails_closed_for_another_store` — same-SKU owner/store boundary is enforced. |
 
 Added independent N03/N05/N17 regressions and explicit TaxService call-basis assertions. An initial N17 fixture with shared unallocated fees correctly produced a store estimate; the test was narrowed to exact-SKU fee rows, leaving production unchanged. Corrected numeric profile: 5 modules, **94 passed in 1.42s**. Final linked Windows profile on test commit `fcec0254`: 14 modules, **388 passed in 6.73s**; `git diff --check` passed, owner data hash unchanged, lock absent. No live API or bot.
+
+### MA26 — linked offline regression and self-review
+
+- Exact linked profile at test commit `8cdb62c1`: **981 passed in 28.81s across 70 modules**, no deselects. It included `test_pre_ad_margin_projection.py`, current and historical product economics/query/UI, canonical scenario/tax, target/sensitivity/batch/mix, tariff source/snapshot/runtime, saved plans and planning repository, return and additional-expense evidence, cross-docking finance/supply, observation services/Telegram, all unit-economics experiment services/runtime, CSV/JSON exports and backup/restore.
+- The first run had one failure: `test_current_unit_economics_output_is_user_friendly` expected no finance-sample provenance. Existing current-card behavior intentionally derives the note from the period/sales count and the current economics integration test already expects it. The stale assertion now requires the exact sample note once; the 70-module rerun passed. No production code changed.
+- Review checks found no hidden query during local details/export, no saved-revision recalc, no store-boundary leak, no mix of scenario and historical tax, and no duplicate addition of financial ads, cross-dock, return-loss or expense ownership. No live API/bot.
+- `git diff --check` passes, `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, and no lock exists.

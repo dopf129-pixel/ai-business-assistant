@@ -57,7 +57,7 @@
 | MA23 | MA17,MA22 | VERIFIED_EXISTING | Local details/export reads, tenant-scoped cache, in-flight dedup, shared operation budgets/cancellation, and honest unavailable/partial output verified. Linked profile: 141 passed in 4.50s; production change not needed. |
 | MA24 | MA20,MA21,MA22 | DONE | Synthetic archive verified and restored into a new root; old/new plan revisions, history and exact frozen exports survive; tenant isolation/raw-response exclusion verified. Linked profile: 26 passed in 3.36s; regression commit `6b06eb43`. |
 | MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | DONE | Fixed-value N03/N05/N17 oracles added; exact tax-service call inputs/order checked; N01–N20 mapped to named canonical regressions. Linked Windows profile: 388 passed in 6.73s on test SHA `fcec0254`; no production change. |
-| MA26 | MA19,MA23,MA24,MA25 | IN_PROGRESS | Starting from MA25 docs SHA `35082a11`; link the public offline flow with historical/current models, solver/grid/mix, tariff, saved revisions, returns/expenses, observations, experiments and exports. |
+| MA26 | MA19,MA23,MA24,MA25 | DONE | Linked offline profile spans 70 modules: **981 passed in 28.81s**. One stale assertion was corrected to require the current finance-period provenance note exactly once; production behavior unchanged. Final test commit `8cdb62c1`. |
 | MA27 | MA26 | NOT_STARTED | — |
 | MA28 | MA27 | NOT_STARTED | — |
 | MA29 | MA28 | NOT_STARTED | — |
@@ -142,10 +142,14 @@
 - MA25 docs checkpoint follows the test commit. No formula implementation change was necessary; numeric meaning is asserted against fixed values from the task and existing canonical service entry points, not copied test formulas.
 - Next: MA26 linked regression/self-review across current, plan, historical, grid/solver/mix, tariff, saved plans, returns, expenses, observations/experiments and exports.
 
-### MA26 — linked regression and self-review (in progress)
+### MA26 — linked regression and self-review (done)
 
-- Input checkpoint: MA25 docs SHA `35082a11`; MA25 regression SHA `fcec0254`. The linked profile will use only synthetic/offline sources. Review focus: no hidden source read, no change to legacy after-ad fields, saved revisions remain frozen, and current/scenario/historical tax bases stay distinct.
-- No additional production change is planned absent a reproducible regression. Record the exact modules and final count before advancing.
+- Input checkpoint: MA25 docs SHA `35082a11`; MA25 regression SHA `fcec0254`; MA26 start checkpoint `db988268`.
+- Ran a 70-module offline profile across current/historical SKU cards, canonical before/after scenario and tax, solver/grid/sensitivity/batch/mix, frozen tariff/profile, saved-plan repository and Telegram flow, return evidence, expense normalization and cross-docking finance/supply, observations, experiments, CSV/JSON exports and backup/restore.
+- First run found one stale expectation in `tests/test_current_unit_economics_polish.py`: it required suppressing the finance sample note despite the current-card contract and its integration regression showing that note. Changed the regression to require the exact `236 продаж за 2 дн.` note exactly once. No production implementation changed.
+- Re-run after the assertion update: **981 passed in 28.81s**; 70 listed modules, no deselects. Owner `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. `git diff --check` PASS. Test commit `8cdb62c1`.
+- Review found no linked-flow mismatch in source-call counts, saved revisions, tenant scope, export snapshot identity, ad ownership, or historical-versus-scenario tax basis. No live API/bot.
+- Next: MA27 full pytest, compilation/diff checks, then CI on the exact published HEAD for Windows/Linux/Docker.
 
 ## Правила исполнения
 
