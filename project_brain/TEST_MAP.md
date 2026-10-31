@@ -9,7 +9,7 @@
 - Full Windows suite on implementation test HEAD `eb14db29`: **4,404 passed in 46.19s**. One legacy test double initially omitted the production detail-keyboard method; adding that method to the fake restored the pre-existing test contract, and its focused module passed **10 tests** before the full rerun.
 - `python -m compileall -q app tests` and `git diff --check` passed on `eb14db29`. Full pytest side effects were inspected and cleaned only for known test-owned `data/tasks.json` mutation and zero-byte lock; owner file hash restored to baseline `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent; worktree clean.
 - `project_brain/UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md` now explains the exact SKU menu/actions, denominator, partial scope, current/planned/historical tax bases, and an N01 before/after example. Owner live-source validation remains `USER_VALIDATION_PENDING`.
-- PR #724 run `41239897725` passed Windows and full-verification (Linux full pytest, Docker build/smoke) on exact SHA `17fc0e97163f8a8f078245a36b198364ce537c89`; a SHA-bound verification artifact was uploaded. The final status-record commit requires one last exact-head rerun.
+- PR #724 run `41240191495` passed Windows and full-verification (Linux full pytest, Docker build/smoke) on exact SHA `fd4d79ed76fb1c2b77382e0f02a14fc22e3edd00`; a SHA-bound verification artifact was uploaded. Later branch heads require their own exact-head run.
 
 # MA25 — independent numeric acceptance coverage for margin before ads
 
