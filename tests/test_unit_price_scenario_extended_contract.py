@@ -323,6 +323,23 @@ def test_extended_contract_never_mixes_cross_docking_supplied_units_with_sale_un
     assert len(tax.calls) == 1
 
 
+def test_base_owned_advertising_and_window_return_components_cannot_be_added_as_generic_extras():
+    for component_key in ("OZON_COMMISSION", "ADVERTISING_CPC", "RETURN_NONBUYOUT"):
+        contract = _contract(components=[{
+            "component_key": component_key,
+            "numerator_rub": "200.00",
+            "ownership": "ADDITIONAL",
+        }])
+
+        result = UnitPriceScenarioService(TaxService()).calculate(
+            _inputs(), extended_scenario=contract,
+        )
+
+        assert result["available"] is False
+        assert result["extended_calculation"]["reason"] == "EXTENDED_COMPONENT_OWNERSHIP_CONFLICT"
+        assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+
+
 def test_duplicate_component_key_and_wrong_included_key_list_fail_closed():
     duplicate = [
         {"component_key": "EXTRA_A", "numerator_rub": "1.00", "ownership": "ADDITIONAL"},

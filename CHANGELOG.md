@@ -1,7 +1,7 @@
-# 2026-10-31 — MA05–MA07: маржа до рекламы и проверка процентной базы
+# 2026-10-31 — MA05–MA08: маржа до рекламы и состав расходов
 
-- Добавлена отдельная canonical no-ad проекция `pre_ad_margin` и налоговый мост T0/T1; legacy after-ad output и политика `TaxService` сохранены. Независимые regressions подтверждают налоговые основания, seller-price denominator до баллов, налоговое влияние баллов, нулевую цену, отрицательную маржу и округление.
-- MA07 production logic не менялась: она уже соответствовала принятому контракту. Точечный Windows профиль MA07: **56 passed in 0.81s**. MA05–MA06 linked profile: **315 passed in 4.97s**; полный suite и exact-head CI ещё не выполнялись.
+- Добавлена отдельная canonical no-ad проекция `pre_ad_margin` и налоговый мост T0/T1; legacy after-ad output и политика `TaxService` сохранены. MA07 регрессии подтверждают seller-price denominator до баллов, влияние баллов на налог, bounds, confirmed zero и округление.
+- MA08 разносит included/excluded/unknown расходы, явно исключает fixed store overhead из SKU contribution, отражает подтверждённый ноль хранения, помечает строгие потери возврата один раз и блокирует повторное добавление base-owned/advertising/window-return категорий. Linked Windows профиль MA05–MA08: **359 passed in 5.12s** на 17 модулях; полный suite и exact-head CI ещё не выполнялись.
 - Реализация идёт в `codex/pre-ad-margin-implementation-20261031`; merge, deploy, live Ozon/Telegram и запуск бота не выполнялись.
 
 # 2026-10-31 — W44: исключать устаревшие сравнения из рейтинга цен

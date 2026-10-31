@@ -467,6 +467,15 @@ def test_n02_strict_return_loss_from_resolver_enters_canonical_profit_once():
         "loss_pool_rub": "350.00", "retained_units": 100,
         "loss_per_retained_unit_rub": "3.50",
     }
+    assert result["pre_ad_margin"]["expense_scope"]["known_non_ad_expenses_rub"][
+        "RETURN_LOSS_STRICT_COHORT"
+    ] == 3.5
+    assert "RETURNS_AND_CANCELLATIONS" not in result["pre_ad_margin"][
+        "expense_scope"
+    ]["unknown_non_ad_expense_keys"]
+    assert "CONFIRMED_ADDITIONAL_EXPENSES" not in result["pre_ad_margin"][
+        "expense_scope"
+    ]["known_non_ad_expenses_rub"]
     assert COHORT_REF not in repr(result)
 
 

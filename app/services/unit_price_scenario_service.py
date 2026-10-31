@@ -76,6 +76,19 @@ class UnitPriceScenarioService:
         "OWNER_PRICE", "OWNER_COST", "OWNER_TARIFF_OVERRIDE", "OWNER_ADVERTISING",
         "OWNER_DISCOUNT_POINTS",
     })
+    _SCOPE_COMPONENT_CATEGORIES = {
+        "STORAGE": "STORAGE",
+        "FINANCE_PAID_STORAGE": "STORAGE",
+        "PLACEMENT": "PLACEMENT",
+        "FINANCE_PLACEMENT": "PLACEMENT",
+        "RETURNS_AND_CANCELLATIONS": "RETURNS_AND_CANCELLATIONS",
+        "STRICT_RETAINED_COHORT_LOSS": "RETURNS_AND_CANCELLATIONS",
+    }
+    _NON_ADDITIONAL_EXTENDED_COMPONENT_KEYS = frozenset({
+        "COGS", "OZON_COMMISSION", "COMMISSION", "LOGISTICS", "LAST_MILE",
+        "ACQUIRING", "ADVERTISING", "ADVERTISING_CPC", "ADVERTISING_CPO",
+        "ADVERTISING_OTHER", "RETURN_NONBUYOUT", "RETURN_INVENTORY_LOSS",
+    })
     _COMPONENT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
     _SAFE_REVISION_RE = re.compile(r"^[a-f0-9]{64}$")
     _SAFE_POLICY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
@@ -128,6 +141,11 @@ class UnitPriceScenarioService:
             if self._has_unscoped_cross_docking(inputs):
                 return self._extended_unavailable_result(
                     "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE",
+                    extended_scenario, identity, sources, inputs,
+                )
+            if self._has_non_additional_extended_component(extended):
+                return self._extended_unavailable_result(
+                    "EXTENDED_COMPONENT_OWNERSHIP_CONFLICT",
                     extended_scenario, identity, sources, inputs,
                 )
         normalized, missing, invalid = self._normalize(inputs)
@@ -351,6 +369,10 @@ class UnitPriceScenarioService:
             if self._has_unscoped_cross_docking(inputs):
                 return self._extended_components_unavailable(
                     "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE"
+                )
+            if self._has_non_additional_extended_component(extended):
+                return self._extended_components_unavailable(
+                    "EXTENDED_COMPONENT_OWNERSHIP_CONFLICT"
                 )
         normalized, missing, invalid = self._normalize(dict(inputs or {}))
         try:
@@ -690,23 +712,73 @@ class UnitPriceScenarioService:
             "LAST_MILE": normalized["last_mile_per_unit"],
             "ACQUIRING": normalized["acquiring_per_unit"],
         }
-        unknown_expenses = [
+        unknown_expenses = {
             "STORAGE",
+            "PLACEMENT",
             "RETURNS_AND_CANCELLATIONS",
-            "FIXED_STORE_OVERHEAD",
             "UNMAPPED_NON_AD_EXPENSES",
-        ]
+        }
+        excluded_expense_reasons = {
+            "ADVERTISING": "EXCLUDED_BY_DEFINITION",
+            "FIXED_STORE_OVERHEAD": "OUTSIDE_SKU_CONTRIBUTION_SCOPE",
+        }
+        included_expense_keys = set(known_expenses)
+        confirmed_zero_expense_keys = set()
         cross_docking = normalized.get("cross_docking_per_unit")
         if cross_docking is None:
-            unknown_expenses.append("CROSS_DOCKING")
+            unknown_expenses.add("CROSS_DOCKING")
         else:
             known_expenses["CROSS_DOCKING"] = cross_docking
+            included_expense_keys.add("CROSS_DOCKING")
         if additional_expenses is not None:
-            known_expenses["CONFIRMED_ADDITIONAL_EXPENSES"] = additional_expenses
+            strict_return_loss = bool(
+                extended and isinstance(extended.get("strict_loss_details"), dict)
+            )
+            if strict_return_loss:
+                known_expenses["RETURN_LOSS_STRICT_COHORT"] = additional_expenses
+                unknown_expenses.discard("RETURNS_AND_CANCELLATIONS")
+                included_expense_keys.add("RETURNS_AND_CANCELLATIONS")
+            else:
+                known_expenses["CONFIRMED_ADDITIONAL_EXPENSES"] = additional_expenses
             if extended:
+                for component in extended["components"]:
+                    component_key = component["component_key"]
+                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
+                    if scope_key:
+                        included_expense_keys.add(scope_key)
+                        unknown_expenses.discard(scope_key)
+                        if (
+                            scope_key in {"STORAGE", "PLACEMENT"}
+                            and component["numerator_rub"] == 0
+                        ):
+                            confirmed_zero_expense_keys.add(scope_key)
+                            known_expenses[scope_key] = Decimal("0.00")
+                    else:
+                        included_expense_keys.add(component_key)
+                for component_key in extended["included_component_keys"]:
+                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
+                    if scope_key:
+                        included_expense_keys.add(scope_key)
+                        unknown_expenses.discard(scope_key)
                 for key, status in extended["excluded_component_statuses"].items():
+                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(key, key)
                     if status == "UNKNOWN":
-                        unknown_expenses.append(key)
+                        unknown_expenses.add(scope_key)
+                    else:
+                        unknown_expenses.discard(scope_key)
+                        excluded_expense_reasons[scope_key] = (
+                            "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
+                        )
+                if (
+                    additional_expenses == 0
+                    and extended["components"]
+                    and all(
+                        self._SCOPE_COMPONENT_CATEGORIES.get(component["component_key"])
+                        for component in extended["components"]
+                    )
+                ):
+                    known_expenses.pop("CONFIRMED_ADDITIONAL_EXPENSES", None)
+        excluded_expenses = sorted(excluded_expense_reasons)
 
         base.update({
             "status": "AVAILABLE",
@@ -719,8 +791,11 @@ class UnitPriceScenarioService:
                     key: float(value)
                     for key, value in sorted(known_expenses.items())
                 },
-                "unknown_non_ad_expense_keys": sorted(set(unknown_expenses)),
-                "excluded_expense_keys": ["ADVERTISING"],
+                "included_expense_keys": sorted(included_expense_keys),
+                "confirmed_zero_expense_keys": sorted(confirmed_zero_expense_keys),
+                "unknown_non_ad_expense_keys": sorted(unknown_expenses),
+                "excluded_expense_keys": excluded_expenses,
+                "excluded_expense_reasons": excluded_expense_reasons,
             },
             "reason": "UNMODELED_NON_AD_EXPENSES" if unknown_expenses else None,
         })
@@ -920,6 +995,7 @@ class UnitPriceScenarioService:
             "assumed_inputs": sorted(assumptions),
             "scope": scope,
             "denominator_units": denominator_units,
+            "components": normalized_components,
             "total_numerator_rub": self._money_decimal(total_numerator),
             "additional_expense_per_unit": additional_per_unit,
         }, None
@@ -1057,6 +1133,13 @@ class UnitPriceScenarioService:
         if not isinstance(inputs, dict) or "cross_docking_per_unit" not in inputs:
             return False
         return inputs.get("cross_docking_per_unit") not in (None, "")
+
+    @classmethod
+    def _has_non_additional_extended_component(cls, extended):
+        return any(
+            component.get("component_key") in cls._NON_ADDITIONAL_EXTENDED_COMPONENT_KEYS
+            for component in (extended or {}).get("components", [])
+        )
 
     def _public_extended_calculation(self, extended, *, status):
         result = {

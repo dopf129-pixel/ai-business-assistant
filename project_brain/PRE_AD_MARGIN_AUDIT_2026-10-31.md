@@ -88,3 +88,13 @@ Runtime, схемы и пользовательские данные в подг
 - Добавлены независимые регрессии для seller-price denominator, налогового эффекта баллов (USN Income: налог 6.00 ₽ без баллов и 4.50 ₽ при 25% баллов; denominator остаётся 100 ₽), нулевой/отрицательной/out-of-range цены, подтверждённых нулевых расходов, отрицательной прибыли без обрезания и half-cent rounding.
 - Точечный Windows профиль: **56 passed in 0.81s** на `test_pre_ad_margin_projection.py`, `test_unit_price_scenario_extended_contract.py`, `test_unit_price_scenario_service.py`. `data/tasks.json` SHA-1 остался `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
 - Ограничение: MA07 не утверждает полноту категорий расходов; это предмет MA08. Поскольку логика уже соответствовала контракту, этап отмечен `VERIFIED_EXISTING`.
+
+### MA08 — ownership и полнота нерекламных расходов
+
+- `pre_ad_margin.expense_scope` теперь имеет явные disjoint key sets: included, excluded (с ограниченной причиной), confirmed zero и unknown. Числовая доступность остаётся независимой от полноты.
+- Постоянные расходы всего магазина исключены с причиной `OUTSIDE_SKU_CONTRIBUTION_SCOPE`; это сохраняет метрику SKU contribution и не называет её полной прибылью магазина. Storage/placement, возвраты/отмены, кросс-докинг без применимого источника и unmapped expenses остаются UNKNOWN, пока не подтверждены evidence.
+- Категория `FINANCE_PAID_STORAGE` с полным source snapshot и суммой 0.00 отображается как included + confirmed zero и больше не остаётся UNKNOWN; явно исключённый source component отражается отдельно, не как ноль.
+- Строгая когорта возвратов записывается один раз как `RETURN_LOSS_STRICT_COHORT`; generic additional total для этой ветки не дублирует loss pool. Components с known base-owned key (COGS, commission, logistics, last mile, acquiring), explicit advertising types или window-return type отклоняются как ownership conflict, если переданы как generic additional.
+- Сохранён имеющийся guard совместного использования supplied-unit cross-docking и sales-unit extension. В ходе linked проверки обнаружено, что standalone extended cross-docking используется observation consumer; этот поддержанный контракт не блокируется.
+- Связанный Windows профиль: **359 passed in 5.12s** на 17 модулях: projection, scenario/extended, return/additional evidence, target, sensitivity, batch, sales mix, ad cap, observation result, product/current economics и Telegram runtime. `data/tasks.json` SHA-1 остался `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
+- Первый промежуточный тестовый запуск выявил недостающий internal normalized component list, а следующий — допустимый standalone cross-docking contract. Оба вопроса закрыты; финальный полный связанный профиль зелёный.

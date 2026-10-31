@@ -90,14 +90,27 @@ def test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_m
                 "LOGISTICS": 10.0,
                 "OZON_COMMISSION": 14.0,
             },
+            "included_expense_keys": [
+                "ACQUIRING",
+                "COGS",
+                "EXTRA_SERVICE",
+                "LAST_MILE",
+                "LOGISTICS",
+                "OZON_COMMISSION",
+            ],
+            "confirmed_zero_expense_keys": [],
             "unknown_non_ad_expense_keys": [
                 "CROSS_DOCKING",
-                "FIXED_STORE_OVERHEAD",
+                "PLACEMENT",
                 "RETURNS_AND_CANCELLATIONS",
                 "STORAGE",
                 "UNMAPPED_NON_AD_EXPENSES",
             ],
-            "excluded_expense_keys": ["ADVERTISING"],
+            "excluded_expense_keys": ["ADVERTISING", "FIXED_STORE_OVERHEAD"],
+            "excluded_expense_reasons": {
+                "ADVERTISING": "EXCLUDED_BY_DEFINITION",
+                "FIXED_STORE_OVERHEAD": "OUTSIDE_SKU_CONTRIBUTION_SCOPE",
+            },
         },
         "missing_inputs": [],
         "invalid_inputs": [],
@@ -208,6 +221,51 @@ def test_pre_ad_projection_is_unavailable_when_a_required_non_ad_input_is_missin
     assert result["pre_ad_margin"]["reason"] == "NO_AD_REQUIRED_INPUTS_MISSING"
     assert result["pre_ad_margin"]["profit_per_unit_rub"] is None
     assert result["pre_ad_margin"]["missing_inputs"] == ["cost"]
+
+
+def test_complete_zero_storage_evidence_is_not_reported_as_unknown():
+    contract = _additional_expense_contract()
+    contract["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    contract["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "0.00",
+        "ownership": "ADDITIONAL",
+    }]
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        inputs,
+        extended_scenario=contract,
+    )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert scope["status"] == "PARTIAL"
+    assert "STORAGE" in scope["included_expense_keys"]
+    assert scope["confirmed_zero_expense_keys"] == ["STORAGE"]
+    assert scope["known_non_ad_expenses_rub"]["STORAGE"] == 0.0
+    assert "CONFIRMED_ADDITIONAL_EXPENSES" not in scope["known_non_ad_expenses_rub"]
+    assert "STORAGE" not in scope["unknown_non_ad_expense_keys"]
+    assert "RETURNS_AND_CANCELLATIONS" in scope["unknown_non_ad_expense_keys"]
+
+
+def test_explicitly_excluded_storage_is_not_mislabeled_as_zero_or_unknown():
+    contract = _additional_expense_contract()
+    contract["excluded_component_statuses"] = {"STORAGE": "EXCLUDED"}
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        inputs,
+        extended_scenario=contract,
+    )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert "STORAGE" in scope["excluded_expense_keys"]
+    assert scope["excluded_expense_reasons"]["STORAGE"] == "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
+    assert "STORAGE" not in scope["confirmed_zero_expense_keys"]
+    assert "STORAGE" not in scope["unknown_non_ad_expense_keys"]
 
 
 def test_zero_price_has_no_pre_ad_profit_percentage_instead_of_fabricated_zero():
