@@ -2940,3 +2940,30 @@ An explanation must reconcile to the exact values the user saw, without fetching
 Status:
 
 Implemented in the existing assistant handler, keyboard and unit-economics formatter. MA16 focused profile: 44 passed; full pytest and exact-head CI remain pending.
+
+---
+
+## Decision 055
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Explicit next actions for incomplete pre-ad SKU margin
+
+Decision:
+
+- Only offer an edit/navigation action when an existing path can address the identified gap: seller-cost input for the selected SKU; the calculator for explicit manual tariff/ad assumptions; or a user-clicked repeat calculation.
+- A cost update retains only a short-lived, one-time user-scoped return target. The target is bound to the selected SKU, tenant and active store; after save, a separate click reopens the SKU and performs the new calculation. A store change, other user, expired/replayed token or missing SKU fails closed.
+- A refresh is never automatic and never loops. Opening the detail ledger is local-only. Manual commission and advertising remain scenario assumptions and cannot be relabeled as factual current expense data.
+- Unsupported per-SKU categories remain unknown and are named as unsupported; never offer a manual/global expense action that would misallocate them to one SKU.
+
+Reason:
+
+The user should be able to fix supported gaps without silently switching products, stores, model bases or revisions. Explicit actions keep source traffic predictable and preserve the distinction between observed values and scenario assumptions.
+
+Status:
+
+Implemented in the existing query formatter, assistant/keyboard routing, seller-cost flow and adapter. MA17 linked profile: 98 passed; full pytest and exact-head CI remain pending.

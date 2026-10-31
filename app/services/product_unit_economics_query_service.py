@@ -628,6 +628,7 @@ class ProductUnitEconomicsQueryService:
                 lines.append("Маржа до рекламы пока не рассчитана.")
             lines.append("Неизвестные суммы не заменены нулём.")
             self._append_unavailable_expense_scope(lines, projection)
+            self._append_pre_ad_next_steps(lines, result, projection)
             self._append_breakdown_periods(lines, result, projection)
             return "\n".join(lines)
 
@@ -637,8 +638,53 @@ class ProductUnitEconomicsQueryService:
             lines.extend(self._format_historical_expense_breakdown(projection))
         else:
             lines.append("Основание расчёта не поддерживается для расшифровки.")
+        self._append_pre_ad_next_steps(lines, result, projection)
         self._append_breakdown_periods(lines, result, projection)
         return "\n".join(lines)
+
+    def _append_pre_ad_next_steps(self, lines, result, projection):
+        scope = projection.get("expense_scope")
+        scope = scope if isinstance(scope, dict) else {}
+        unknown = scope.get("unknown_non_ad_expense_keys") or []
+        if "COGS" in unknown:
+            if getattr(self, "cost_service", None) is not None:
+                lines.append(
+                    "Действие: себестоимость можно указать для этого SKU в разделе "
+                    "«Себестоимость»; дату начала и применение ко всей истории "
+                    "нужно подтвердить отдельно."
+                )
+            else:
+                lines.append(
+                    "Себестоимость не подключена к локальному хранилищу: её нельзя "
+                    "сохранить из этой карточки. Значение остаётся неизвестным, не 0 ₽."
+                )
+        if "OZON_COMMISSION" in unknown:
+            lines.append(
+                "Комиссия Ozon не подтверждена для этой цены. В плановой экономике "
+                "можно указать ставку вручную; она останется допущением сценария, "
+                "а не фактическим тарифом или начислением."
+            )
+        if projection.get("advertising_status") == "UNKNOWN":
+            lines.append(
+                "Расходы на рекламу по SKU не подтверждены. В плановом сценарии "
+                "можно задать рекламное допущение; оно не меняет фактическую маржу."
+            )
+        unsupported = [
+            key for key in unknown
+            if key not in {"COGS", "OZON_COMMISSION"}
+        ]
+        if unsupported:
+            labels = [
+                self.PRE_AD_EXPENSE_LABELS[key]
+                for key in unsupported
+                if isinstance(key, str) and key in self.PRE_AD_EXPENSE_LABELS
+            ]
+            if labels:
+                lines.append(
+                    "Для отдельных SKU нет подтверждённого источника или поддерживаемого "
+                    "ввода по статьям: " + ", ".join(labels)
+                    + ". Они не распределены на товар и не заменены нулём."
+                )
 
     def _append_unavailable_expense_scope(self, lines, projection):
         scope = projection.get("expense_scope")

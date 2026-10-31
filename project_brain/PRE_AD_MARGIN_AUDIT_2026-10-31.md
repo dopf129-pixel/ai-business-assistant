@@ -161,3 +161,11 @@ Runtime, схемы и пользовательские данные в подг
 - Кросс-докинг показан отдельной подстрокой уже включённого line item; источник/сумма и делитель (фактически принятые cross-dock units) помечены как детализация, которую нельзя сложить повторно. Source windows отображаются по каждому доступному виду: цена, finance sample, historical accrual window и cross-docking window.
 - Кнопка uses opaque per-user token and bounded in-memory snapshot (15 minutes, 512 entries); details read never re-queries. Other user, expired callback or missing snapshot returns a safe reopen instruction. Snapshot stores only the ready text, no owner/source IDs or raw API payload; it is not persisted.
 - Первый MA16 прогон поймал некорректное форматирование строкового Ozon crossdock amount; форматирование исправлено и вся связанная группа повторно прошла. Final Windows profile: **44 passed in 1.12s** на 4 модулях. `py_compile`, `git diff --check` PASS, data hash `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215` unchanged, lock absent. No real API or bot.
+
+### MA17 — действия при неполной проекции
+
+- Существующая форма себестоимости открывается для выбранного SKU. После подтверждённого сохранения одноразовый 15-минутный token возвращает к тому же SKU; перед возвратом проверяются пользователь, tenant и активный магазин. Смена магазина, replay, expiry или другой пользователь завершаются fail-closed. Новый unit query запускается только после явного нажатия возврата.
+- Существующая кнопка планового сценария доступна для ручного тарифа и рекламных допущений. Они сохраняют provenance сценария и не превращаются в фактические current/history данные. Внутри сценария остаются прежние ID, revision и CAS guards.
+- `Пересчитать этот SKU` явно повторяет factual query; snapshot token связан с пользователем и tenant. Открытие ledger не читает источники. Автоматического retry нет.
+- Если для расхода нет подтверждённого per-SKU источника или формы ввода, сообщение называет неподдерживаемые классы; они остаются неизвестными и не распределяются. Store-level расход не предлагается как корректировка SKU; нули не подставляются.
+- Linked Windows profile: **98 passed in 1.95s** across 6 modules; `py_compile` and `git diff --check` PASS; owner data SHA-1 unchanged, lock absent. No live Ozon/Telegram request or real bot.

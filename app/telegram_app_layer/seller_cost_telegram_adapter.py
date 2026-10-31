@@ -53,6 +53,30 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             if callback_text == "seller_cost_table":
                 self.seller_cost_service.clear_pending(user_id)
                 return self.seller_cost_service.export_table()
+            if callback_text.startswith("seller_cost_return:"):
+                sku = callback_text.split(":", 1)[1]
+                return self.seller_cost_service.select_sku(
+                    user_id, sku, return_to_unit_economics=True,
+                )
+            if callback_text.startswith("seller_cost_resume_unit:"):
+                token = callback_text.split(":", 1)[1]
+                resume = self.seller_cost_service.consume_unit_economics_return(
+                    user_id, token,
+                )
+                if not isinstance(resume, dict) or resume.get("error") is not False:
+                    return resume if isinstance(resume, dict) else {
+                        "error": True,
+                        "message": "Возврат к юнит-экономике устарел. Откройте SKU заново.",
+                        "read_only_ozon": True,
+                    }
+                sku = str(resume.get("sku") or "")
+                if not sku:
+                    return {
+                        "error": True,
+                        "message": "SKU для возврата недоступен. Откройте карточку заново.",
+                        "read_only_ozon": True,
+                    }
+                return super().handle_button("unit_economics:" + sku, user_id)
             if callback_text.startswith("seller_cost:"):
                 sku = callback_text.split(":", 1)[1]
                 return self.seller_cost_service.select_sku(user_id, sku)

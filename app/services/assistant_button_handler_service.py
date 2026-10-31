@@ -12,6 +12,7 @@ from telegram_help_contract import (
     build_telegram_phrase_examples,
 )
 from services.app_build_metadata_service import AppBuildMetadataService
+from services.tenant_context import get_current_tenant_user_id
 
 
 class AssistantButtonHandlerService:
@@ -1682,6 +1683,12 @@ class AssistantButtonHandlerService:
             return (
                 self._open_unit_economics_menu()
             )
+
+        if isinstance(button_id, str) and button_id.startswith(
+            "unit_economics_refresh:"
+        ):
+            token = button_id.split(":", 1)[1]
+            return self._refresh_unit_economics_snapshot(token, user_id)
 
         if isinstance(button_id, str) and button_id.startswith(
             "unit_economics_details:"
@@ -5657,7 +5664,15 @@ class AssistantButtonHandlerService:
             "unit_economics": result
         }
         if result.get("error") is not True and self.keyboard_service is not None:
+            button_builder = getattr(
+                self.unit_price_calculator_runtime_service,
+                "build_product_entry_button",
+                None,
+            )
+            button = button_builder(user_id, sku) if callable(button_builder) else None
+            cost_callback = self._unit_economics_cost_callback(result, sku)
             breakdown_callback = None
+            snapshot_token = None
             breakdown_formatter = getattr(
                 self.unit_economics_query,
                 "format_expense_breakdown",
@@ -5672,30 +5687,45 @@ class AssistantButtonHandlerService:
                     breakdown_callback = self._store_unit_economics_detail_snapshot(
                         user_id,
                         detail_message,
+                        sku=str(sku),
+                        calculator_button=button,
+                        cost_callback=cost_callback,
                     )
+                    snapshot_token = breakdown_callback.split(":", 1)[1]
 
-            button_builder = getattr(
-                self.unit_price_calculator_runtime_service,
-                "build_product_entry_button",
-                None,
-            )
-            if callable(button_builder):
-                button = button_builder(user_id, sku)
-                if button:
-                    output["message"] += (
-                        "\n\nБазовый режим: это оценка по доступным фактическим данным; "
-                        "пропуски выше не заменяются нулём. Для планирования новой цены и ручных "
-                        "допущений откройте плановую экономику кнопкой ниже."
-                    )
-            else:
-                button = None
+            if button:
+                output["message"] += (
+                    "\n\nБазовый режим: это оценка по доступным фактическим данным; "
+                    "пропуски выше не заменяются нулём. Для планирования новой цены и ручных "
+                    "допущений откройте плановую экономику кнопкой ниже."
+                )
             output["keyboard"] = self.keyboard_service.build_unit_economics_detail_keyboard(
                 button,
                 breakdown_callback=breakdown_callback,
+                cost_callback=cost_callback,
+                refresh_callback=(
+                    "unit_economics_refresh:" + snapshot_token
+                    if snapshot_token is not None
+                    else None
+                ),
             )
         return output
 
-    def _store_unit_economics_detail_snapshot(self, user_id, message):
+    def _unit_economics_cost_callback(self, result, sku):
+        projection = result.get("pre_ad_margin") if isinstance(result, dict) else None
+        scope = projection.get("expense_scope") if isinstance(projection, dict) else None
+        missing = scope.get("unknown_non_ad_expense_keys") if isinstance(scope, dict) else None
+        if (
+            "COGS" not in (missing or [])
+            or getattr(self.unit_economics_query, "cost_service", None) is None
+        ):
+            return None
+        callback = "seller_cost_return:" + str(sku or "")
+        return callback if sku and len(callback.encode("utf-8")) <= 64 else None
+
+    def _store_unit_economics_detail_snapshot(
+        self, user_id, message, *, sku=None, calculator_button=None, cost_callback=None,
+    ):
         now = monotonic()
         expired = [
             key
@@ -5709,11 +5739,38 @@ class AssistantButtonHandlerService:
         self._unit_economics_detail_snapshots[key] = {
             "expires_at": now + self.UNIT_ECONOMICS_DETAIL_TTL_SECONDS,
             "message": str(message),
+            "sku": str(sku or ""),
+            "tenant_scope": str(get_current_tenant_user_id() or ""),
+            "calculator_button": dict(calculator_button) if isinstance(calculator_button, dict) else None,
+            "cost_callback": str(cost_callback) if cost_callback else None,
         }
         self._unit_economics_detail_snapshots.move_to_end(key)
         while len(self._unit_economics_detail_snapshots) > self.UNIT_ECONOMICS_DETAIL_CACHE_MAX_ENTRIES:
             self._unit_economics_detail_snapshots.popitem(last=False)
         return "unit_economics_details:" + token
+
+    def _refresh_unit_economics_snapshot(self, token, user_id):
+        key = (str(user_id), str(token)) if user_id is not None else None
+        snapshot = self._unit_economics_detail_snapshots.get(key) if key else None
+        current_tenant = str(get_current_tenant_user_id() or "")
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("expires_at", 0) <= monotonic()
+            or not current_tenant
+            or snapshot.get("tenant_scope") != current_tenant
+            or not snapshot.get("sku")
+        ):
+            if key is not None:
+                self._unit_economics_detail_snapshots.pop(key, None)
+            return {
+                "error": False,
+                "code": "UNIT_ECONOMICS_REFRESH_CONTEXT_STALE",
+                "message": (
+                    "Контекст обновления устарел или изменился магазин. "
+                    "Откройте SKU заново, чтобы пересчитать его в текущем магазине."
+                ),
+            }
+        return self._show_unit_economics(snapshot["sku"], user_id=user_id)
 
     def _show_unit_economics_breakdown(self, token, user_id):
         key = (str(user_id), str(token)) if user_id is not None else None
@@ -5722,7 +5779,11 @@ class AssistantButtonHandlerService:
             if key is not None
             else None
         )
-        if not isinstance(snapshot, dict) or snapshot.get("expires_at", 0) <= monotonic():
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("expires_at", 0) <= monotonic()
+            or snapshot.get("tenant_scope") != str(get_current_tenant_user_id() or "")
+        ):
             if key is not None:
                 self._unit_economics_detail_snapshots.pop(key, None)
             return {
@@ -5733,10 +5794,20 @@ class AssistantButtonHandlerService:
                     "Откройте SKU заново; источники при этом не запрашивались."
                 ),
             }
-        return {
+        keyboard = None
+        if self.keyboard_service is not None:
+            keyboard = self.keyboard_service.build_unit_economics_detail_keyboard(
+                snapshot.get("calculator_button"),
+                cost_callback=snapshot.get("cost_callback"),
+                refresh_callback="unit_economics_refresh:" + str(token),
+            )
+        result = {
             "error": False,
             "message": snapshot["message"],
         }
+        if keyboard is not None:
+            result["keyboard"] = keyboard
+        return result
 
 
     def _extract_sku(

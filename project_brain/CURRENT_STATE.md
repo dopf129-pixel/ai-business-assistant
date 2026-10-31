@@ -1,4 +1,4 @@
-# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA16)
+# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA17)
 
 - Владелец подтвердил основной показатель после налога и прочих учитываемых расходов, от выручки продавца до вычета баллов. ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md` включает 30 этапов MA00–MA29; MA00–MA06 завершены, MA07 VERIFIED_EXISTING, MA08–MA10 DONE, MA11 VERIFIED_EXISTING.
 - Добавлены canonical no-ad ветка и T0/T1 bridge; current provider/query предоставляют аддитивную `pre_ad_margin` v1, используя существующие текущие сумму прибыли и налога без повторного вызова налогового расчёта. Состав неполных расходов, неизвестная реклама и разные периоды указаны явно; legacy поля и guards сохранены.
@@ -14,6 +14,8 @@
 - Linked Windows MA15 profile: **42 passed in 1.07s** на 4 модулях; `py_compile`/`git diff --check` PASS; `data/tasks.json` hash сохранён, lock отсутствует. Exact-head CI и полный pytest предусмотрены MA27; merge/deploy/live API и запуск бота не выполнялись.
 - MA16 добавил кнопку «Из чего складывается» к основной карточке. Она открывает ограниченный по времени user-scoped снимок точного результата, не повторяя Ozon query. Ledger показывает текущие расходы на одну успешную единицу или исторические totals и denominator, источник/период, налог и полноту; кросс-докинг помечен как вложенная детализация. Current bridge проверяется до копейки; historical other-expense balance явно остаётся расчётным, ad bridge independently сверяется с after-ad result.
 - Linked Windows MA16 profile: **44 passed in 1.12s** на 4 модулях; `py_compile`/`git diff --check` PASS; `data/tasks.json` SHA-1 совпадает, lock absent. Профиль включал исправление тестом найденного string-to-money formatting дефекта crossdock breakdown. Exact-head CI и полный pytest остаются MA27; merge/deploy/live calls/bot launch не выполнялись.
+- MA17 добавил отдельные действия только там, где есть поддерживаемый путь: заполнение себестоимости конкретного SKU, плановая цена для ручного тарифа/рекламного допущения и явный повтор расчёта. После себестоимости возврат к тому же SKU одноразовый, привязан к пользователю и магазину; повторный query происходит лишь после нажатия. Неподдерживаемые расходы названы по категориям и остаются unknown, не нулём.
+- Linked Windows MA17 profile: **98 passed in 1.95s** на 6 связанных модулях. `py_compile` и `git diff --check` PASS; `data/tasks.json` SHA-1 остаётся `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Полный pytest и exact-head CI остаются MA27; merge/deploy/live requests/bot launch не выполнялись.
 
 # 2026-10-31 — W44: исключение устаревших цен из рейтинга
 

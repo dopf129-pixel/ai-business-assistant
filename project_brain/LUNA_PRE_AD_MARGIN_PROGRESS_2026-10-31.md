@@ -19,6 +19,7 @@
 - MA14 DONE: target/sensitivity/batch consumers and exports reuse the existing candidate before-ad projection; no second scenario/search/source evaluation is introduced. Sales mix returns a tax-aware pre-ad aggregate from the same public aggregate tax call, preserves existing after-ad totals, and weights profit by seller revenue. Linked Windows profile: **261 passed in 5.38s** across 9 modules; owner-data hash unchanged. Implementation SHA `0ead66f5`; journal checkpoint follows this commit.
 - MA15 DONE: the current/historical SKU screen leads with post-tax before-ad RUB/unit and seller-price margin, plus tax basis/mode, expense completeness, ad availability and source windows. Exact historical after-ad appears only when exact ads are proven already included; UNKNOWN stays unavailable, never zero. The existing formatter/splitter is reused. Linked Windows profile: **42 passed in 1.07s** across 4 modules; compile/diff checks and owner-data checks pass. Implementation commit `271c5ee4`; journal checkpoint follows this commit.
 - MA16 DONE: a local-only “Из чего складывается” action renders the same current/historical `pre_ad_margin` snapshot with amounts, provenance, periods, denominator, unknown classes and reconciliation. Nested crossdock totals are explicitly non-additive; historical unnamed costs remain a computed residual. Callback token is user-scoped, short-lived and bounded; no second source read. Linked Windows profile: **44 passed in 1.12s** across 4 modules; compile/diff checks and owner data hash pass. Implementation/checkpoint SHA recorded below.
+- MA17 DONE: actions for supported missing data route to current SKU cost input or the existing price-planning assumptions; an explicit refresh is user/tenant-bound and never automatic. One-time cost-save return opens the same SKU only after a click. Linked profile: 98 passed in 1.95s; owner data unchanged. Current continuation: MA18 in the Resume section below.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -46,7 +47,7 @@
 | MA14 | MA13 | DONE | Target/sensitivity/batch reuse the same candidate projection; aggregate mix adds tax-aware no-ad output with weighted N14 basis; UI/export coverage; linked profile 261 passed in 5.34s; owner-data hash unchanged. |
 | MA15 | MA10,MA11,MA12 | DONE | Current/historical primary screen displays the existing projection and basis/completeness/source/ad context; unknown ads remain unavailable. Linked profile 42 passed in 1.07s; owner-data SHA-1 unchanged; implementation checkpoint recorded below. |
 | MA16 | MA15 | DONE | Current/historical local ledger plus user-scoped 15-minute snapshot callback; no requery, exact arithmetic, unknowns visible, crossdock nested subtotal marked non-additive. Linked profile 44 passed in 1.12s; owner data hash unchanged. |
-| MA17 | MA16 | IN_PROGRESS | Add specific user actions for missing cost/tariff/source data, and return to the exact SKU/scenario/revision. Unsupported sources need a concrete reason; refresh only on explicit action and no automatic retry loops. |
+| MA17 | MA16 | DONE | Existing cost and planning paths are exposed from incomplete margins; cost-save return is single-use and bound to the original SKU/store; refresh requires an explicit click and tenant match. Unsupported source categories stay unknown with a specific explanation. Linked profile: 98 passed across 6 modules; `py_compile`, diff check and owner-data hash pass. |
 | MA18 | MA12,MA15 | NOT_STARTED | — |
 | MA19 | MA13,MA17,MA18 | NOT_STARTED | — |
 | MA20 | MA14,MA19 | NOT_STARTED | — |
@@ -81,7 +82,7 @@
 - Final focused Windows profile: **42 passed in 1.07s** across current integration, historical query, historical pre-ad service and Telegram UI. `py_compile` and `git diff --check` PASS. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API or bot.
 - MA15 completed at `271c5ee4`; current continuation is the MA16 / MA17 Resume below.
 
-## Resume реализации MA16 / MA17
+## Исторический Resume реализации MA16 / MA17
 
 - MA16 input SHA: `37843765`. Implementation commit SHA: `f693e3f3`.
 - Changed production files: `app/services/product_unit_economics_query_service.py`, `app/services/assistant_button_handler_service.py`, and `app/services/assistant_keyboard_service.py`. Regression files: `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, and `tests/test_product_unit_economics_telegram_ui.py`.
@@ -89,6 +90,16 @@
 - The “Из чего складывается” button uses an opaque per-user callback token backed by a 15-minute/512-entry in-memory cache of rendered detail only. The detail callback never re-runs the economics query; other-user and expired tokens fail closed. No persistence/schema change or raw source-ID storage.
 - Final linked Windows profile: **44 passed in 1.12s** on the four current/query/historical/Telegram modules. First run found a string money-format issue on crossdock detail; fixed before the final full profile. `py_compile`, `git diff --check` PASS. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API or bot.
 - Next: MA17 needs to connect existing user flows for missing cost/tariff/expense sources without refreshing automatically. Check which existing manual cost/tariff/source-update buttons can be entered from the breakdown and return to the same SKU/scenario; unsupported data remains unavailable with a concrete reason.
+
+## Resume реализации MA17 / MA18
+
+- MA17 input SHA: `0a3383bf`. Implementation commit SHA: pending; record the exact SHA after commit.
+- Changed production files: `app/services/assistant_button_handler_service.py`, `app/services/assistant_keyboard_service.py`, `app/services/product_unit_economics_query_service.py`, `app/services/telegram_seller_cost_update_service.py`, and `app/telegram_app_layer/seller_cost_telegram_adapter.py`. Regression files: `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_telegram_ui.py`, `app/tests/test_seller_cost_confirmation_flow.py`; existing exact-scenario/CAS regressions in `tests/test_unit_price_scenario_telegram_runtime.py` are included in the final profile.
+- The factual SKU card exposes the existing cost flow only when COGS is unknown and local cost storage is present. Existing effective-date and explicit whole-history confirmations are retained. Successful save offers a one-time opaque callback bound to user, tenant, active-store label and exact SKU. It triggers the new unit query only after the user clicks.
+- Manual tariff/ad navigation reuses the calculator's existing opaque product-entry link. The existing scenario ID/revision/CAS and provenance own any subsequent edits. Unsupported expenses are explained, not routed to a misleading store-level or per-SKU write.
+- `Пересчитать этот SKU` uses a user-scoped snapshot, verifies the current tenant against the captured tenant, and runs one query only on explicit click. Viewing the detail ledger remains local-only. Repeated requests require repeated clicks.
+- Final linked Windows profile: **98 passed in 1.95s** across 6 modules. `py_compile`, `git diff --check` PASS; owner `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock absent. No live API or real bot.
+- Next: MA18 — trace provenance and tax basis across current/historical cards, legacy/readiness outputs, observations and experiments. Preserve existing experiment guards; do not label old experiment records as recalculated projections.
 
 ## Правила исполнения
 

@@ -567,6 +567,8 @@ class AssistantKeyboardService:
         self,
         calculator_button=None,
         breakdown_callback=None,
+        cost_callback=None,
+        refresh_callback=None,
     ):
         buttons = []
         if breakdown_callback:
@@ -574,8 +576,18 @@ class AssistantKeyboardService:
                 "text": "Из чего складывается",
                 "callback": str(breakdown_callback),
             })
+        if cost_callback:
+            buttons.append({
+                "text": "Указать себестоимость SKU",
+                "callback": str(cost_callback),
+            })
         if isinstance(calculator_button, dict):
             buttons.append(dict(calculator_button))
+        if refresh_callback:
+            buttons.append({
+                "text": "Пересчитать этот SKU",
+                "callback": str(refresh_callback),
+            })
         buttons.append({"text": "Юнит-экономика", "callback": "unit_economics"})
         buttons.append({"text": "Главное меню", "callback": "main_menu"})
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}

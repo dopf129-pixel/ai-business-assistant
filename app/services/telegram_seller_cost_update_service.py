@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from math import isfinite
 from threading import RLock
+from time import monotonic
 from uuid import uuid4
 
 from services.seller_cost_table_service import SellerCostTableService
@@ -17,6 +18,8 @@ class TelegramSellerCostUpdateService:
     TABLE_CONFIRM_CALLBACK = "seller_cost_table_confirm"
     TABLE_SELECT_ALL_HISTORY_CALLBACK = "seller_cost_table_select_all_history"
     TABLE_CONFIRM_ALL_HISTORY_CALLBACK = "seller_cost_table_confirm_all_history"
+    UNIT_ECONOMICS_RETURN_TTL_SECONDS = 15 * 60
+    UNIT_ECONOMICS_RETURN_MAX_ENTRIES = 128
 
     def __init__(self, product_service, cost_service, date_provider=None, table_service=None, store_name_provider=None):
         self.product_service = product_service
@@ -28,6 +31,7 @@ class TelegramSellerCostUpdateService:
         self.store_name_provider = store_name_provider
         self._pending = {}
         self._pending_lock = RLock()
+        self._unit_economics_returns = {}
 
     def open_menu(self):
         products = self._products()
@@ -93,10 +97,14 @@ class TelegramSellerCostUpdateService:
             "read_only_ozon": True,
         }
 
-    def select_sku(self, user_id, sku):
+    def select_sku(self, user_id, sku, *, return_to_unit_economics=False):
         user_key = self._user_key(user_id)
         sku_key = self._text(sku)
-        if user_key is None or not sku_key:
+        if (
+            user_key is None
+            or not sku_key
+            or type(return_to_unit_economics) is not bool
+        ):
             return self._error("SELLER_COST_SELECTION_INVALID")
         products = self._products()
         if isinstance(products, dict):
@@ -116,6 +124,7 @@ class TelegramSellerCostUpdateService:
             "step": "awaiting_cost",
             "tenant_scope": self._tenant_scope(),
             "store_label": self._active_store_label(),
+            "return_to_unit_economics": return_to_unit_economics,
         }
         with self._pending_lock:
             self._pending[user_key] = pending
@@ -135,6 +144,52 @@ class TelegramSellerCostUpdateService:
             "seller_cost_input_pending": True,
             "read_only_ozon": True,
         }
+
+    def consume_unit_economics_return(self, user_id, token):
+        user_key = self._user_key(user_id)
+        token = self._text(token)
+        if user_key is None or not token:
+            return self._error("SELLER_COST_RETURN_STALE")
+        now = monotonic()
+        with self._pending_lock:
+            expired = [
+                key for key, item in self._unit_economics_returns.items()
+                if item.get("expires_at", 0) <= now
+            ]
+            for key in expired:
+                self._unit_economics_returns.pop(key, None)
+            snapshot = self._unit_economics_returns.pop((user_key, token), None)
+        if not isinstance(snapshot, dict):
+            return self._error("SELLER_COST_RETURN_STALE")
+        if (
+            snapshot.get("tenant_scope") != self._tenant_scope()
+            or snapshot.get("store_label") != self._active_store_label()
+        ):
+            return self._error("SELLER_COST_RETURN_STORE_STALE")
+        return {"error": False, "sku": snapshot.get("sku"), "read_only_ozon": True}
+
+    def _store_unit_economics_return(self, user_key, identity):
+        now = monotonic()
+        with self._pending_lock:
+            for key in [
+                key for key, item in self._unit_economics_returns.items()
+                if item.get("expires_at", 0) <= now
+            ]:
+                self._unit_economics_returns.pop(key, None)
+            token = uuid4().hex[:12]
+            self._unit_economics_returns[(user_key, token)] = {
+                "sku": str(identity.get("sku") or ""),
+                "tenant_scope": str(identity.get("tenant_scope") or ""),
+                "store_label": str(identity.get("store_label") or ""),
+                "expires_at": now + self.UNIT_ECONOMICS_RETURN_TTL_SECONDS,
+            }
+            while len(self._unit_economics_returns) > self.UNIT_ECONOMICS_RETURN_MAX_ENTRIES:
+                oldest = min(
+                    self._unit_economics_returns,
+                    key=lambda key: self._unit_economics_returns[key].get("expires_at", 0),
+                )
+                self._unit_economics_returns.pop(oldest, None)
+        return "seller_cost_resume_unit:" + token
 
     def handle_text(self, user_id, text):
         with self._pending_lock:
@@ -424,6 +479,11 @@ class TelegramSellerCostUpdateService:
         if not isinstance(result, dict) or result.get("error") is not False:
             return {"error": True, "handled": True, "message": "Не удалось сохранить себестоимость. Изменений не применено.", "code": result.get("code") if isinstance(result, dict) else "SELLER_COST_SWITCH_RECORD_FAILED", "read_only_ozon": True}
         self._pending.pop(user_key, None)
+        return_callback = (
+            self._store_unit_economics_return(user_key, identity)
+            if identity.get("return_to_unit_economics") is True
+            else None
+        )
         menu = self.open_menu()
         amount = self._format_cost(identity["cost_price"])
         display_name = identity["offer_id"] or identity["sku"]
@@ -445,8 +505,28 @@ class TelegramSellerCostUpdateService:
             else:
                 message = f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\n🎉 Себестоимость заполнена для всего каталога."
                 keyboard = menu.get("keyboard")
+            if return_callback:
+                if not isinstance(keyboard, dict):
+                    keyboard = {"error": False, "type": "inline_keyboard", "buttons": []}
+                keyboard["buttons"] = list(keyboard.get("buttons") or [])
+                keyboard["buttons"].insert(0, {
+                    "text": "↩️ Вернуться к юнит-экономике SKU",
+                    "callback": return_callback,
+                })
+                message += "\n\nРасчёт обновится только после нажатия кнопки возврата."
             return {"error": False, "handled": True, "message": message, "keyboard": keyboard, "cost_coverage": coverage, "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(identity["cost_price"], 2), "effective_from": effective_from, "historical_default": whole_history, "seller_confirmed": True, "read_only_ozon": True}
-        return {"error": False, "handled": True, "message": f"✅ {display_name}: {amount} ₽ сохранено.{history_note}", "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(identity["cost_price"], 2), "effective_from": effective_from, "historical_default": whole_history, "seller_confirmed": True, "read_only_ozon": True}
+        response = {"error": False, "handled": True, "message": f"✅ {display_name}: {amount} ₽ сохранено.{history_note}", "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(identity["cost_price"], 2), "effective_from": effective_from, "historical_default": whole_history, "seller_confirmed": True, "read_only_ozon": True}
+        if return_callback:
+            response["keyboard"] = {
+                "error": False,
+                "type": "inline_keyboard",
+                "buttons": [{
+                    "text": "↩️ Вернуться к юнит-экономике SKU",
+                    "callback": return_callback,
+                }],
+            }
+            response["message"] += "\n\nРасчёт обновится только после нажатия кнопки возврата."
+        return response
 
     def _date_confirmation(self, pending):
         buttons = [

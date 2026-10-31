@@ -258,6 +258,37 @@ def test_query_returns_safe_empty_result_when_finance_data_missing():
     ]
 
 
+def test_pre_ad_breakdown_explains_unsupported_sources_and_existing_manual_paths():
+    service, _ = make_query_service(products=[], profits=[])
+    result = {
+        "error": False,
+        "sku": "hook-2",
+        "pre_ad_margin": {
+            "schema_version": 1,
+            "status": "UNAVAILABLE",
+            "reason": "CURRENT_PRE_AD_INPUTS_MISSING",
+            "expense_scope": {
+                "unknown_non_ad_expense_keys": [
+                    "COGS", "OZON_COMMISSION", "STORAGE", "UNMAPPED_NON_AD_EXPENSES",
+                ],
+            },
+            "advertising_status": "UNKNOWN",
+        },
+    }
+
+    detail = service.format_expense_breakdown(result)
+
+    assert "не хватает обязательных данных для текущего расчёта" in detail
+    assert "Комиссия Ozon" in detail
+    assert "можно указать ставку вручную" in detail
+    assert "Расходы на рекламу по SKU не подтверждены" in detail
+    assert "В плановой экономике" in detail
+    assert "нет подтверждённого источника или поддерживаемого ввода" in detail
+    assert "хранение, прочие расходы" in detail
+    assert "не заменены нулём" in detail
+    assert "0.00 ₽" not in detail
+
+
 def test_query_selects_only_requested_sku():
     service, period_profit_service = (
         make_query_service(

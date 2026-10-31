@@ -6107,3 +6107,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_product_unit_economics_query.py` checks UNAVAILABLE details state the precise user-readable block, show unknown advertising/expense scope, and do not render fabricated zero amounts.
 - `tests/test_product_unit_economics_telegram_ui.py` exercises the button callback from a successful SKU view, proves the callback makes no second query, prevents cross-user access, rejects expired tokens and retains independent snapshots for two SKUs for the same user.
 - Final focused Windows profile: **44 passed in 1.12s** across current integration, historical query/pre-ad service and Telegram UI. `py_compile` and `git diff --check` PASS; owner-data hash remains unchanged and lock is absent.
+
+# MA17 — неполнота, корректирующие действия и возврат к SKU
+
+- `tests/test_product_unit_economics_query.py::test_pre_ad_breakdown_explains_unsupported_sources_and_existing_manual_paths` проверяет причины отсутствия комиссии/рекламы, доступные ручные сценарные допущения и неподдерживаемые категории без подстановки 0 ₽.
+- `tests/test_product_unit_economics_telegram_ui.py::test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh` подтверждает действия по себестоимости/плановой экономике, локальность открытия деталей, один повтор query только по явному refresh и fail-closed при смене магазина.
+- `app/tests/test_seller_cost_confirmation_flow.py` проверяет возврат после подтверждённой себестоимости к тому же SKU, одноразовость callback и отказ после переключения магазина. `tests/test_unit_price_scenario_telegram_runtime.py::test_current_unit_economics_detail_has_entry_to_same_calculator_runtime` сохраняет SKU при входе в сценарий, а `test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` — цену, себестоимость и рекламу после ручного тарифа.
+- Final linked Windows profile across query, Telegram UI, current integration, historical pre-ad, seller-cost flow and calculator runtime: **98 passed in 1.95s**. Production `py_compile`, `git diff --check` PASS; owner data hash unchanged and lock absent. No live request or bot.

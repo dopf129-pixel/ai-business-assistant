@@ -1,6 +1,7 @@
 from services.assistant_button_handler_service import (
     AssistantButtonHandlerService
 )
+import services.assistant_button_handler_service as assistant_button_handler_module
 from services.assistant_keyboard_service import (
     AssistantKeyboardService
 )
@@ -219,6 +220,77 @@ def test_unit_economics_detail_callbacks_keep_their_own_sku_snapshot():
     assert first_detail["message"].endswith("sku-one")
     assert second_detail["message"].endswith("sku-two")
     assert query.queries == ["sku-one", "sku-two"]
+
+
+def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(monkeypatch):
+    class IncompleteQuery(FakeUnitEconomicsQuery):
+        cost_service = object()
+
+        def query(self, sku):
+            result = super().query(sku)
+            if not result.get("error"):
+                result["pre_ad_margin"] = {
+                    "status": "AVAILABLE",
+                    "basis": "CURRENT_MODEL",
+                    "expense_scope": {
+                        "unknown_non_ad_expense_keys": ["COGS", "OZON_COMMISSION"],
+                        "known_non_ad_expenses_rub": {"LOGISTICS": "20.00"},
+                    },
+                    "advertising_status": "UNKNOWN",
+                }
+            return result
+
+        def format_expense_breakdown(self, result):
+            return "Расшифровка " + result["sku"]
+
+    class Calculator:
+        def build_product_entry_button(self, user_id, sku):
+            return {"text": "Планировать цену", "callback": "upc:p:scenario-" + str(sku)}
+
+    tenant = {"value": "owner::ozon::store-a"}
+    monkeypatch.setattr(
+        assistant_button_handler_module,
+        "get_current_tenant_user_id",
+        lambda: tenant["value"],
+    )
+    query = IncompleteQuery()
+    handler = AssistantButtonHandlerService(
+        assistant=FakeAssistant(),
+        keyboard_service=AssistantKeyboardService(),
+        unit_economics_query=query,
+        unit_price_calculator_runtime_service=Calculator(),
+    )
+
+    result = handler.handle("unit_economics:sku-1", user_id=42)
+    callbacks = [button["callback"] for button in result["keyboard"]["buttons"]]
+    assert "seller_cost_return:sku-1" in callbacks
+    assert "upc:p:scenario-sku-1" in callbacks
+    refresh = next(item for item in callbacks if item.startswith("unit_economics_refresh:"))
+    assert query.queries == ["sku-1"]
+
+    detail = handler.handle(
+        next(item for item in callbacks if item.startswith("unit_economics_details:")),
+        user_id=42,
+    )
+    assert "OZON_COMMISSION" not in detail["message"]
+    assert any(item.startswith("seller_cost_return:") for item in [
+        button["callback"] for button in detail["keyboard"]["buttons"]
+    ])
+    assert query.queries == ["sku-1"]
+
+    refreshed = handler.handle(refresh, user_id=42)
+    assert refreshed["error"] is False
+    assert query.queries == ["sku-1", "sku-1"]
+
+    tenant["value"] = "owner::ozon::store-b"
+    stale = handler.handle(refresh, user_id=42)
+    assert stale["code"] == "UNIT_ECONOMICS_REFRESH_CONTEXT_STALE"
+    stale_detail = handler.handle(
+        next(item for item in callbacks if item.startswith("unit_economics_details:")),
+        user_id=42,
+    )
+    assert stale_detail["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
+    assert query.queries == ["sku-1", "sku-1"]
 
 
 def test_unknown_expenses_are_displayed_as_dashes():
