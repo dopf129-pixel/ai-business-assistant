@@ -1,3 +1,7 @@
+# 2026-10-31 — MA23: query budgets, локальные детали и partial evidence
+
+- Подтверждены локальные details/export без повторного source read, tenant-scoped query cache и in-flight dedup, общие дедлайн/HTTP attempt limits с cooperative cancellation; unavailable/partial остаются неизвестными, а не нулевыми или полными. Linked Windows profile: **141 passed in 4.50s**; production change не требовался.
+
 # 2026-10-31 — MA22: tenant/revision guards для ценовых сценариев
 
 - Проверены existing owner/store exact binding, stale callbacks после смены SKU/источника и restart, замороженные версии тарифа и атомарное сравнение revisions при двух параллельных сохранениях. Переноса данных между одинаковыми SKU в разных магазинах нет. Linked Windows profile: **130 passed in 4.05s**; production change не требовался.

@@ -1,3 +1,9 @@
+# MA23 — source budgets, local reads and incomplete evidence
+
+- `tests/test_product_unit_economics_telegram_ui.py` and saved-plan/detail flows prove details read the captured projection without another source query; `tests/test_telegram_unit_price_sensitivity_runtime_service.py` proves export uses its snapshot. Query cache is tenant-scoped; in-flight identical calculations are deduplicated, while different stores/users remain separate.
+- `tests/test_period_profit_operation_diagnostics.py` covers shared child deadline/request budgets, concurrent reservation caps and cancellation propagation. Cross-docking finance/supply/unit-rate tests cover bounded attempts and resumable totals. Current unit-economics UI/query and historical advertising tests retain PARTIAL/UNKNOWN/unavailable states without false zero/full claims.
+- Linked Windows profile across 12 modules: **141 passed in 4.50s**. No production change was needed.
+
 # MA22 — owner/store/revision isolation and concurrency
 
 - `tests/test_unit_price_scenario_telegram_runtime.py` covers old callbacks after store switch, same-SKU store isolation, source refresh and SKU replacement. Batch/sensitivity callbacks remain owner/store-bound and expire; saved-plan reopen preserves a frozen tariff until explicit refresh.
