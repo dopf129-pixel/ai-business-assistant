@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 from time import monotonic
 from services.tenant_context import get_current_tenant_user_id
+from services.product_unit_economics_historical_pre_ad_margin_service import (
+    ProductUnitEconomicsHistoricalPreAdMarginService,
+)
 
 
 class ProductUnitEconomicsQueryService:
@@ -53,7 +56,8 @@ class ProductUnitEconomicsQueryService:
         current_tax_base_policy="SELLER_PRICE",
         cache_ttl_seconds=0,
         cache_clock=None,
-        cache_timestamp_provider=None
+        cache_timestamp_provider=None,
+        historical_pre_ad_margin_service=None,
     ):
         self.product_service = product_service
         self.period_profit_service = period_profit_service
@@ -84,6 +88,10 @@ class ProductUnitEconomicsQueryService:
         self.cache_timestamp_provider = (
             cache_timestamp_provider
             or (lambda: datetime.now(timezone.utc))
+        )
+        self.historical_pre_ad_margin_service = (
+            historical_pre_ad_margin_service
+            or ProductUnitEconomicsHistoricalPreAdMarginService()
         )
         self._query_cache = {}
 
@@ -351,20 +359,32 @@ class ProductUnitEconomicsQueryService:
         if not result or result.get("error"):
             return self._empty_result(target_sku)
 
+        raw_profit_rows = result.get("profits", [])
         metrics = self.unit_economics_provider.build(
-            result.get("profits", [])
+            raw_profit_rows
         )
 
         if not metrics:
             return self._empty_result(target_sku)
 
         metric = metrics[0]
+        raw_metric = self._matching_historical_source_row(
+            raw_profit_rows,
+            metric,
+        )
         units_sold = int(
             metric.get("units_sold") or 0
         )
 
         if units_sold <= 0:
-            return self._empty_result(target_sku)
+            empty = self._empty_result(target_sku)
+            empty["pre_ad_margin"] = self.historical_pre_ad_margin_service.build(
+                metric,
+                self._historical_evidence(raw_metric),
+                self._historical_expected_identity(raw_metric),
+                period,
+            )
+            return empty
 
         missing_fields = list(
             self.DEFAULT_MISSING_FIELDS
@@ -374,6 +394,13 @@ class ProductUnitEconomicsQueryService:
 
         if tax is None:
             missing_fields.append("tax")
+
+        pre_ad_margin = self.historical_pre_ad_margin_service.build(
+            metric,
+            self._historical_evidence(raw_metric),
+            self._historical_expected_identity(raw_metric),
+            period,
+        )
 
         return {
             "error": False,
@@ -418,11 +445,38 @@ class ProductUnitEconomicsQueryService:
             "margin_percent": metric.get(
                 "margin_percent"
             ),
+            "pre_ad_margin": pre_ad_margin,
             "missing_fields": missing_fields,
             "note": self._build_note(
                 missing_fields
             )
         }
+
+    @staticmethod
+    def _matching_historical_source_row(rows, metric):
+        if not isinstance(rows, list) or not isinstance(metric, dict):
+            return None
+        product_id = str(metric.get("product_id") or "").strip()
+        sku = str(metric.get("sku") or "").strip()
+        matches = [
+            row for row in rows
+            if isinstance(row, dict)
+            and str(row.get("product_id") or "").strip() == product_id
+            and str(row.get("sku") or "").strip() == sku
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    @staticmethod
+    def _historical_evidence(source_row):
+        if not isinstance(source_row, dict):
+            return None
+        return source_row.get("historical_advertising_evidence")
+
+    @staticmethod
+    def _historical_expected_identity(source_row):
+        if not isinstance(source_row, dict):
+            return None
+        return source_row.get("historical_expected_identity")
 
     def format_response(self, result):
         if result.get("error"):
@@ -1295,6 +1349,9 @@ class ProductUnitEconomicsQueryService:
             "tax": None,
             "net_profit_per_unit": None,
             "margin_percent": None,
+            "pre_ad_margin": self.historical_pre_ad_margin_service.build(
+                None,
+            ),
             "missing_fields": missing_fields,
             "note": self._build_note(
                 missing_fields

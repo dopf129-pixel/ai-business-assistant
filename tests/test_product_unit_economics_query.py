@@ -137,6 +137,8 @@ def test_query_finds_sku_and_returns_unit_economics():
     assert result["tax"] == 89.4
     assert result["net_profit_per_unit"] == 510.6
     assert result["margin_percent"] == 34.27
+    assert result["pre_ad_margin"]["status"] == "UNAVAILABLE"
+    assert result["pre_ad_margin"]["reason"] == "HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED"
     assert result["missing_fields"] == [
         "advertising",
         "storage",
@@ -236,6 +238,10 @@ def test_query_returns_safe_empty_result_when_finance_data_missing():
     assert result["available"] is False
     assert result["unit_price"] is None
     assert result["net_profit_per_unit"] is None
+    assert result["pre_ad_margin"]["status"] == "UNAVAILABLE"
+    assert result["pre_ad_margin"]["reason"] == "HISTORICAL_PERIOD_RESULT_UNAVAILABLE"
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] is None
+    assert result["pre_ad_margin"]["margin_percent"] is None
     assert "cost" in result["missing_fields"]
     assert "advertising" in result[
         "missing_fields"

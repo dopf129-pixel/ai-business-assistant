@@ -2859,4 +2859,4 @@ preserves existing optimization and historical behavior.
 
 Status:
 
-Contract accepted for implementation in the dependent pre-ad margin PR. MA01–MA04 audit profile: 89 passed; see `PRE_AD_MARGIN_AUDIT_2026-10-31.md`. Runtime implementation and full CI remain pending.
+Contract accepted for implementation in the dependent pre-ad margin PR. MA12 adds a dedicated historical projection service and a strict exact-SKU attribution signal to the existing advertising resolver. The projection preserves tax from the existing historical query result without a second calculation; provenance is explicit. The ordinary production historical source does not provide complete, matching ad evidence and therefore remains UNAVAILABLE; current/model calculation and the existing historical result are preserved. MA01–MA04 audit profile: 89 passed; MA12 linked profile: 156 passed; see `PRE_AD_MARGIN_AUDIT_2026-10-31.md` and the progress journal. Full CI remains pending.

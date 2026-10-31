@@ -4,10 +4,16 @@
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` подтверждает отказ от ставки текущей цены при переходе на кандидат без тарифа, недоступность маржи до комиссии, затем ручную ставку как `manual_seller_assumption` с сохранением цены, ручной себестоимости и рекламы.
 - Вместе с `tests/test_unit_price_tariff_snapshot_adapter.py` и `tests/test_telegram_unit_price_tariff_profile_runtime.py`: **61 passed in 1.53s** на Windows. Производственный код не менялся. Полный pytest и exact-head CI остаются MA27.
 
-# План MA00–MA29 — маржа до рекламы (спецификация, не выполненные проверки)
+# MA12 — historical margin add-back
+
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py` verifies N09 historical add-back (3000 ₽ revenue, 1680 ₽ net accrual, 900 ₽ COGS, 135 ₽ recorded tax, 30 units, 360 ₽ already-included financial ads), preserves tax, excludes CPC reconciliation, and validates N10 incomplete CPC/CPO/OTHER coverage, N11 historic-vs-scenario tax basis, N12 zero/unknown denominator, N16 duplicate ownership, corrections, net credit, exact SKU/store identity and date window. Includes a historical query integration using synthetic evidence only.
+- `tests/test_unit_economics_advertising_evidence_service.py` contract now includes `financial.exact_sku_attribution_complete`; exact cohorts remain distinguishable from one-SKU evidence.
+- Linked Windows profile: **156 passed in 2.83s** across the new historical tests, historical query, ad evidence resolver, current query/projection and canonical scenario/Telegram calculator tests. `data/tasks.json` SHA-1 unchanged. No live API was called.
+
+# План MA00–MA29 — маржа до рекламы (спецификация и реализационные проверки)
 
 - ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`, journal `LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`: 20 групп numerical/behavioral acceptance; ключевые случаи — independent no-ad без известной рекламы, T0/T1 при profit-tax, historical add-back только уже учтённой финансовой рекламы, неполные расходы, знаменатели, старые plans и tenant/revision guards.
-- Опорные существующие тесты: `tests/test_product_unit_economics.py`, `tests/test_product_unit_economics_query.py`, `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_extended_contract.py`, `tests/test_unit_economics_advertising_evidence_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`. Новые implementation tests пока не добавлены; результат подготовки спецификации фиксируется в её журнале.
+- Опорные тесты: `tests/test_product_unit_economics.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_extended_contract.py`, `tests/test_unit_economics_advertising_evidence_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`. Stage-by-stage результаты находятся в `project_brain/LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`.
 
 # W44 — свежесть каждого кандидата в общем рейтинге
 
