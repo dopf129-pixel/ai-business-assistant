@@ -274,12 +274,13 @@ class ProductUnitEconomicsQueryService:
     def _query_current(self, sku, product):
         offer_id = product.get("offer_id") or sku
         finance_sku = product.get("sku")
+        accrual_dates = self._recent_complete_dates()
 
         facts = self.current_economics_source.get(
             sku=str(offer_id),
             product_id=product.get("product_id"),
             finance_sku=finance_sku,
-            accrual_dates=self._recent_complete_dates()
+            accrual_dates=accrual_dates
         )
 
         if facts.get("error"):
@@ -296,7 +297,8 @@ class ProductUnitEconomicsQueryService:
         if facts.get("seller_price") is None:
             return self._empty_current_result(
                 sku,
-                facts
+                facts,
+                accrual_dates=accrual_dates,
             )
 
         cost = self._current_cost(
@@ -306,6 +308,9 @@ class ProductUnitEconomicsQueryService:
         prepared_facts = dict(facts)
         prepared_facts["tax_base_policy"] = (
             self.current_tax_base_policy
+        )
+        prepared_facts["pre_ad_source_periods"] = (
+            self._current_pre_ad_source_periods(facts, accrual_dates)
         )
         metric = self.unit_economics_provider.build_current(
             prepared_facts,
@@ -633,6 +638,10 @@ class ProductUnitEconomicsQueryService:
                     ", ".join(labels)
                 ]
             )
+
+        note = result.get("note")
+        if note:
+            lines.extend(["", note])
 
         return "\n".join(lines)
 
@@ -1207,12 +1216,22 @@ class ProductUnitEconomicsQueryService:
             )
         ]
 
-    def _empty_current_result(self, sku, facts):
+    def _empty_current_result(self, sku, facts, accrual_dates=None):
         missing = list(
             facts.get("missing_data") or []
         )
         if "unit_price" not in missing:
             missing.insert(0, "unit_price")
+
+        prepared_facts = dict(facts)
+        prepared_facts["tax_base_policy"] = self.current_tax_base_policy
+        prepared_facts["pre_ad_source_periods"] = (
+            self._current_pre_ad_source_periods(facts, accrual_dates or [])
+        )
+        pre_ad_margin = self.unit_economics_provider.build_current(
+            prepared_facts,
+            product_cost=None,
+        ).get("pre_ad_margin")
 
         return {
             "error": False,
@@ -1237,7 +1256,21 @@ class ProductUnitEconomicsQueryService:
             "margin_percent": None,
             "missing_fields": missing,
             "as_of": facts.get("as_of"),
+            "pre_ad_margin": pre_ad_margin,
             "note": "Актуальный расчёт пока недоступен"
+        }
+
+    def _current_pre_ad_source_periods(self, facts, accrual_dates):
+        return {
+            "seller_price": {
+                "as_of": facts.get("as_of"),
+            },
+            "current_finance_averages": {
+                "date_from": min(accrual_dates) if accrual_dates else None,
+                "date_to": max(accrual_dates) if accrual_dates else None,
+                "requested_days": len(accrual_dates),
+                "observed_sales_days": facts.get("finance_sample_days"),
+            },
         }
 
     def _empty_result(self, sku):
@@ -1317,6 +1350,18 @@ class ProductUnitEconomicsQueryService:
                     + str(cross_docking.get("reason") or "нет подтверждённой ставки")
                     + "."
                 )
+        pre_ad = result.get("pre_ad_margin")
+        expense_scope = (
+            pre_ad.get("expense_scope")
+            if isinstance(pre_ad, dict)
+            else None
+        )
+        if isinstance(expense_scope, dict) and expense_scope.get("status") == "PARTIAL":
+            note += (
+                " Маржа до рекламы рассчитана по учтённым расходам; "
+                "хранение, потери от возвратов и часть прочих расходов "
+                "не подтверждены."
+            )
         return note
 
     def _format_as_of(self, value):

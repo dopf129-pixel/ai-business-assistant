@@ -128,6 +128,33 @@ def test_current_query_uses_live_price_and_prepared_expenses():
     assert result["net_profit_per_unit"] == 33.45
     assert result["margin_percent"] == 34.84
     assert result["missing_fields"] == []
+    projection = result["pre_ad_margin"]
+    assert projection["schema_version"] == 1
+    assert projection["basis"] == "CURRENT_MODEL"
+    assert projection["tax_basis"] == "CURRENT_TAX_POLICY"
+    assert projection["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+    assert projection["status"] == "AVAILABLE"
+    assert projection["profit_per_unit_rub"] == result["net_profit_per_unit"]
+    assert projection["margin_percent"] == result["margin_percent"]
+    assert projection["tax_per_unit_rub"] == result["tax"]
+    assert projection["as_of"] == "2026-08-25T07:00:00+00:00"
+    assert projection["advertising_status"] == "UNKNOWN"
+    assert projection["advertising_per_unit_rub"] is None
+    assert projection["expense_scope"]["status"] == "PARTIAL"
+    assert projection["expense_scope"]["known_non_ad_expenses_rub"] == {
+        "ACQUIRING": 1.27,
+        "COGS": 21.0,
+        "LAST_MILE": 1.76,
+        "LOGISTICS": 19.32,
+        "OZON_COMMISSION": 13.44,
+    }
+    assert "STORAGE" in projection["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert "RETURNS_AND_CANCELLATIONS" in projection["expense_scope"]["unknown_non_ad_expense_keys"]
+    finance_period = projection["source_periods"]["current_finance_averages"]
+    assert finance_period["date_from"] == min(source.calls[0]["accrual_dates"])
+    assert finance_period["date_to"] == max(source.calls[0]["accrual_dates"])
+    assert finance_period["requested_days"] == 2
+    assert finance_period["observed_sales_days"] == 2
     assert costs.calls == ["4108512640"]
     assert source.calls[0]["sku"] == "hook-2"
     assert len(source.calls[0]["accrual_dates"]) == 2
@@ -148,6 +175,8 @@ def test_current_response_shows_rubles_and_percentages():
     assert "Себестоимость:\n21.00 ₽ — 21.9%" in response
     assert "Налог:\n5.76 ₽ — 6.0%" in response
     assert "Прибыль с 1 шт:\n33.45 ₽ — 34.8%" in response
+    assert "Основано на последних финансовых начислениях Ozon: 50 продаж за 2 дн." in response
+    assert "Маржа до рекламы рассчитана по учтённым расходам" in response
     assert "Реклама" not in response
     assert "Хранение" not in response
 
@@ -179,12 +208,23 @@ def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
     assert result["cross_docking_per_unit"] == 10.0
     assert result["cross_docking_included"] is True
     assert result["net_profit_per_unit"] == 23.45
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == 23.45
+    assert result["pre_ad_margin"]["expense_scope"]["known_non_ad_expenses_rub"]["CROSS_DOCKING"] == 10.0
+    assert "CROSS_DOCKING" not in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert result["pre_ad_margin"]["source_periods"]["cross_docking"] == {
+        "date_from": "2026-08-24",
+        "date_to": "2026-10-18",
+        "days_complete": 56,
+        "days_expected": 56,
+    }
     assert "Кросс-докинг — на фактически поставленную единицу за 2026-08-24 — 2026-10-18" in response
     assert "10.00 ₽ — 10.4%" in response
     assert "начисления 400.00 ₽ / фактически принято 40 шт." in response
     assert "покрытие 56/56 дней" in response
     assert "must-not-be-exposed" not in response
     assert "фактически поставленные единицы" in result["note"]
+    assert "Основано на последних финансовых начислениях Ozon: 50 продаж за 2 дн." in response
+    assert "среднее начислений кросс-докинга за 56 завершённых дней" in response
 
 
 def test_current_economics_leaves_profit_unchanged_and_labels_incomplete_cross_docking():
@@ -256,6 +296,72 @@ def test_missing_tax_keeps_profit_unknown():
     assert "tax" in result["missing_fields"]
 
 
+def test_current_pre_ad_projection_is_unavailable_when_seller_price_is_missing():
+    service, _, _ = _service(
+        _facts(seller_price=None, missing_data=["current_price"])
+    )
+
+    result = service.query("hook-2")
+
+    projection = result["pre_ad_margin"]
+    assert result["available"] is False
+    assert projection["schema_version"] == 1
+    assert projection["status"] == "UNAVAILABLE"
+    assert projection["price_per_unit_rub"] is None
+    assert projection["profit_per_unit_rub"] is None
+    assert projection["margin_percent"] is None
+    assert projection["advertising_status"] == "UNKNOWN"
+
+
+def test_current_pre_ad_source_periods_are_allowlisted_and_bounded():
+    provider = ProductUnitEconomicsProvider(
+        tax_service=TaxService(),
+        tax_mode="USN_INCOME",
+        tax_rate=6,
+    )
+    facts = _facts(
+        cross_docking_per_unit=10,
+        cross_docking={
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+            "evidence_complete": True,
+            "applicable_to_sku": True,
+            "date_from": "2026-08-01",
+            "date_to": "2026-09-25",
+            "days_complete": 56,
+            "days_expected": 56,
+            "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        },
+        pre_ad_source_periods={
+            "seller_price": {"as_of": "token-secret"},
+            "current_finance_averages": {
+                "date_from": "2026-08-01",
+                "date_to": "yesterday!!",
+                "requested_days": True,
+                "observed_sales_days": 2,
+                "raw_response": "private",
+            },
+            "unexpected": {"sku": "private"},
+        },
+    )
+
+    projection = provider.build_current(facts, product_cost=21)["pre_ad_margin"]
+
+    assert projection["source_periods"] == {
+        "current_finance_averages": {
+            "date_from": "2026-08-01",
+            "observed_sales_days": 2,
+        },
+        "cross_docking": {
+            "date_from": "2026-08-01",
+            "date_to": "2026-09-25",
+            "days_complete": 56,
+            "days_expected": 56,
+            "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        },
+    }
+    assert projection["as_of"] is None
+
+
 def test_current_product_id_is_preferred_for_cost_lookup():
     service, _, costs = _service()
 
@@ -305,6 +411,10 @@ def test_ozon_buyer_price_policy_uses_dynamic_tax_base():
     assert result["tax_effective_percent"] == 5.62
     assert result["net_profit_per_unit"] == 33.81
     assert result["margin_percent"] == 35.22
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == 33.81
+    assert result["pre_ad_margin"]["margin_percent"] == 35.22
+    assert result["pre_ad_margin"]["tax_per_unit_rub"] == 5.4
+    assert result["pre_ad_margin"]["price_per_unit_rub"] == 96.0
 
 
 def test_ozon_buyer_price_policy_is_explicit_in_response():
