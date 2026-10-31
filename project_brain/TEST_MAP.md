@@ -1,3 +1,9 @@
+# W43 — stale comparison presentation
+
+- `tests/test_telegram_unit_economics_experiment_runtime.py::test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecycle`: после нового контрольного события старый результат открывается через `phase_results` → `result`, показывает предупреждение и не содержит owner-decision действий. Уже выданный callback остаётся отклонённым; новое сравнение открывает безопасный вариант завершения.
+- Проверка актуальности результата сравнивает обе phase-state revisions, оба latest control-event revisions и обе latest collection IDs; repository остаётся последним атомарным guard при записи решения.
+- Verification: experiment + Telegram profile **117 passed in 7.28s**; full Windows pytest **4,352 passed in 43.81s**; `compileall` and `git diff --check` pass. Exact-head CI awaits publication.
+
 # W42 — защита от устаревшего выбора и низкой выборки (2026-10-31)
 
 - `tests/test_telegram_unit_economics_experiment_runtime.py`: сравнение формирует owner-decision callback с точной ревизией эксперимента; старое действие после обновления контрольных условий возвращает STALE, а новое сравнение оставляет безопасное завершение без смены цены.

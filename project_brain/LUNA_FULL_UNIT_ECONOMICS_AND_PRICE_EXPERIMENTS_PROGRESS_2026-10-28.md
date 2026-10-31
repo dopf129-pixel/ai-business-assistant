@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: W42 исправления внесены локально поверх PR #722 HEAD `da9aca88770713d02933d96734f65465033e9f20`; профиль тестов эксперимента и Telegram (117), полный Windows pytest (4,352), compileall и diff-check зелёные. Публикация, exact-head CI и повторное review ещё ожидают. Merge/deploy/live Ozon/Telegram не выполнялись.
+Статус: W43 исправление устаревшего результата Telegram внесено локально поверх PR #722 HEAD `d3577d510c0a92d6f198d0e5f1dc4e50c35739e5`; профиль 117, полный Windows pytest 4,352, compileall и diff-check прошли. Тестовые данные восстановлены. W43 commit/push, exact-head CI и повторное review ожидают. Merge/deploy/live Ozon/Telegram не выполнялись.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,8 @@
 
 ## Resume
 
-- Последний этап W42: закрыты два замечания repeat review — owner decision stale после изменения условий и разный sold-unit threshold между readiness/comparison. Новый comparison-revision guard проверяется атомарно в repository; 30 eligible / 1 sold остаётся WAITING_FOR_DATA и не завершает фазу. Связанный профиль 117, полный suite 4,352; acceptance `UNIT_ECONOMICS_W42_REVIEW_REMEDIATION_2026-10-31.md`. Следующий шаг: финальная проверка diff, commit/push в PR #722 и exact-head CI/review.
+- Последний этап W43: результат, повторно открытый из истории после изменения условий, сверяет обе phase-state revisions и control-event revisions с comparison; stale comparison помечается, кнопки выбора цены скрываются. Публичная callback regression: профиль 117; полный suite 4,352; compileall и diff-check PASS. Acceptance: `UNIT_ECONOMICS_W42_REVIEW_REMEDIATION_2026-10-31.md`. Следующий шаг: commit/push в PR #722 и exact-head CI.
+- Этап W42: закрыты два замечания — stale owner decision после изменения условий и разный sold-unit threshold между readiness/comparison. Repository атомарно проверяет ревизии сравнения; 30 eligible / 1 sold остаётся WAITING_FOR_DATA и не завершает фазу. Профиль 117, полный suite 4,352; acceptance `UNIT_ECONOMICS_W42_REVIEW_REMEDIATION_2026-10-31.md`.
 - Следующий этап: повторное независимое review обновлённого PR #722 после проверки exact-head CI на текущем commit. Merge/deploy/live API/bot не выполнялись. Реальная owner acceptance остаётся pending и не заменяется synthetic tests.
 - Последний завершённый этап W30: guided Telegram navigation для базовой и плановой экономики, missing-data guidance и проверка возврата ручного тарифа в точный SKU-сценарий. Связанный Windows profile: **69 passed in 2.11s**; evidence: `UNIT_ECONOMICS_W30_TELEGRAM_GUIDED_ENTRY_2026-10-29.md`.
 - Последний завершённый этап W29: code commit `0466d04c`; linked W26–W29 profile **98 passed in 4.42s**. Evidence: `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.

@@ -1184,7 +1184,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         self, scope, experiment_id, candidate_phase_id, result_payload,
     ):
         refs = result_payload.get("snapshot_refs") if isinstance(result_payload, dict) else None
-        if not isinstance(refs, list):
+        comparison = result_payload.get("comparison") if isinstance(result_payload, dict) else None
+        if not isinstance(refs, list) or not isinstance(comparison, dict):
             return False
         phases = self._load_phase_rows(scope, experiment_id)
         baseline = next((item for item in phases if item.get("kind") == "BASELINE"
@@ -1195,7 +1196,13 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 or candidate.get("kind") != "CANDIDATE"
                 or candidate.get("status") != "FINISHED"):
             return False
-        for phase in (baseline, candidate):
+        for phase, prefix in ((baseline, "baseline"), (candidate, "candidate")):
+            expected_state_revision = comparison.get(f"{prefix}_phase_state_revision")
+            expected_event_revision = comparison.get(f"{prefix}_control_event_revision")
+            if (type(expected_state_revision) is not int
+                    or phase.get("state_revision") != expected_state_revision
+                    or type(expected_event_revision) is not int):
+                return False
             collections = self.repository.list_price_experiment_phase_collections(
                 experiment_id, phase["phase_id"], limit=1,
                 owner_id=scope["owner_id"], store_id=scope["store_id"],
@@ -1205,6 +1212,21 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 return False
             latest_collection_id = collections["items"][0].get("collection_id")
             if not isinstance(latest_collection_id, str) or latest_collection_id not in refs:
+                return False
+            events = self.repository.list_price_experiment_events(
+                experiment_id, phase_id=phase["phase_id"], limit=1, offset=0,
+                owner_id=scope["owner_id"], store_id=scope["store_id"],
+            )
+            if not isinstance(events, dict) or events.get("error") is True:
+                return False
+            event_items = events.get("items")
+            if not isinstance(event_items, list) or len(event_items) > 1:
+                return False
+            latest_event_revision = (
+                event_items[0].get("event_revision") if event_items else 0
+            )
+            if (type(latest_event_revision) is not int
+                    or latest_event_revision != expected_event_revision):
                 return False
         return True
 
@@ -1376,8 +1398,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         )
         if payload.get("comparison") is not None and not comparison_current:
             lines.append(
-                "Сравнение устарело после нового сбора данных. Вернитесь к фазе, "
-                "оцените последние снимки и выполните сравнение заново."
+                "Сравнение устарело после изменения данных или контрольных условий. "
+                "Вернитесь к фазе, проверьте последнюю оценку и выполните сравнение заново."
             )
         if (isinstance(experiment, dict) and isinstance(phase, dict)
                 and experiment.get("status") == "CANDIDATE_REVIEW"

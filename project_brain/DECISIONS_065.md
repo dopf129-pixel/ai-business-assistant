@@ -17,4 +17,4 @@ Recommendations must remain bounded to evidence the experiment actually measured
 
 ## Status
 
-Implemented in W29 with Planning Workspace database migration v11→v12. Linked W26–W29 profile: 98 passed; see `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.
+Implemented in W29 with Planning Workspace database migration v11→v12. Linked W26–W29 profile: 98 passed; see `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`. W43 also validates phase and control-event revisions when rendering a saved comparison from history, so stale price decisions are not offered in Telegram.

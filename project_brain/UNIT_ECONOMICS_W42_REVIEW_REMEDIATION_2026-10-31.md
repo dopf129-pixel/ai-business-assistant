@@ -3,7 +3,7 @@
 Дата: 31.10.2026
 Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
 Исходный HEAD до исправлений: `da9aca88770713d02933d96734f65465033e9f20`
-Статус: исправлено локально; commit/push, exact-head CI и независимое повторное review ожидают.
+Статус W42: опубликовано в PR #722 коммитом `d3577d510c0a92d6f198d0e5f1dc4e50c35739e5`; Windows и full-verification CI прошли на этом SHA (runs `41198178560`, `41198174172`). W43 follow-up см. ниже.
 
 ## Исправления
 
@@ -27,4 +27,13 @@
 
 Minor extension существующих tenant/CAS guard contracts, без новой таблицы, миграции, слоя или внешнего запроса. Классификация по правилам проекта: **Architecture Review Required**, так как ужесточена атомарная запись решения в Planning Workspace.
 
-Изменены `planning_workspace_repository.py`, Telegram experiment runtime, phase maturity/comparison/recommendation services и три связанных тестовых файла; обновлены `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, журнал W42 и Decision 065. Следующее действие: проверить полный diff, создать commit, обновить PR #722 и получить exact-head CI; затем провести независимое review. Слияние, deploy и запуск бота не выполнялись.
+Изменены `planning_workspace_repository.py`, Telegram experiment runtime, phase maturity/comparison/recommendation services и три связанных тестовых файла; обновлены `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, журнал W42 и Decision 065. Слияние, deploy и запуск бота не выполнялись.
+
+## W43 — повторное открытие устаревшего сравнения
+
+- Review подтвердил пробел в отображении: после контрольного события история результатов открывала прежнее сравнение, оставляла старую рекомендацию и показывала кнопки KEEP/SELECT. Repository отклонял выбор, но экран не объяснял почему.
+- `_comparison_matches_latest_evidence` теперь также сверяет phase-state revisions обеих фаз и их последние event revisions с сохранённым сравнением. Чтение событий ограничено одной последней строкой; repository остаётся финальной атомарной проверкой решения.
+- Устаревшее сравнение получает общее сообщение о смене данных или условий и не показывает кнопки выбора цены. Добавлена регрессия через публичные `phase_results` → `result` callbacks; ранее выданная кнопка остаётся устаревшей.
+- Профиль экспериментов и Telegram: **117 passed in 7.28s**; полный Windows `pytest`: **4,352 passed in 43.81s**; `python -m compileall -q app` и `git diff --check` PASS.
+- Полный прогон изменил `data/tasks.json`; файл восстановлен до исходного hash `38637702206478ab3c08d7ae1c4ac87f1f1c6354`, созданный `data/tasks.json.lock` удалён.
+- Commit/push и exact-head CI: ожидаются.

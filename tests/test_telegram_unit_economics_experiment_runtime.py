@@ -446,6 +446,32 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
             late_control_update, user_id="owner-1",
         )
         assert conditions_changed["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONTROLS_UPDATED"
+        phase_results = runtime.handle_callback(
+            _button_action(conditions_changed, runtime, "phase_results", "uex:read:"),
+            user_id="owner-1",
+        )
+        stale_selection_action = runtime._get_action(
+            stale_selection.rsplit(":", 1)[-1], runtime._scope("owner-1"),
+        )
+        reopened_old_comparison = runtime.handle_callback(
+            _button_action(
+                phase_results, runtime, "result", "uex:read:",
+                predicate=lambda action: action.get("result_revision")
+                == stale_selection_action["result_revision"],
+            ), user_id="owner-1",
+        )
+        assert "Сравнение устарело" in reopened_old_comparison["message"]
+        reopened_actions = [
+            runtime._get_action(
+                button["callback"].rsplit(":", 1)[-1], runtime._scope("owner-1"),
+            )
+            for button in reopened_old_comparison["keyboard"]["buttons"]
+            if button["callback"].startswith("uex:read:")
+        ]
+        assert not any(
+            isinstance(action, dict) and action.get("kind") == "owner_decision"
+            for action in reopened_actions
+        )
         rejected_selection = runtime.handle_callback(stale_selection, user_id="owner-1")
         assert rejected_selection["status"] == "UNIT_ECONOMICS_EXPERIMENT_ACTION_STALE"
         refreshed_comparison = runtime.handle_callback(

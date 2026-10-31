@@ -1,3 +1,9 @@
+# 2026-10-31 — W43: повторно открытые устаревшие сравнения
+
+- Telegram result view проверяет актуальность phase-state revisions и event revisions обеих фаз, а также latest collection IDs. Старая запись из истории после нового CONTROL_UPDATE помечается устаревшей и не предлагает KEEP/SELECT.
+- Регрессия проходит через обычные кнопки `phase_results` → `result`; старая owner-decision кнопка также отклоняется.
+- Профиль экспериментов и Telegram: **117 passed in 7.28s**; полный Windows pytest: **4,352 passed in 43.81s**; `compileall` и `git diff --check` прошли. `data/tasks.json` восстановлен, созданный lock удалён. Публикация и CI нового SHA ожидают.
+
 # 2026-10-31 — W42: исправления повторного review PR #722
 
 - Устаревшая кнопка выбора цены больше не принимает решение после изменения контрольных условий. Telegram callback содержит expected experiment revision; репозиторий в одной транзакции проверяет latest result, phase state revisions, control-event revisions и latest collection hashes.
