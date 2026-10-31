@@ -10,7 +10,8 @@
 - MA01–MA04 DONE: зафиксированы current/historical/scenario consumers, исторический add-back boundary и versioned `pre_ad_margin` v1 contract. Исходный профиль **89 passed in 1.74s**; hashes owner data неизменны. Подробности в `PRE_AD_MARGIN_AUDIT_2026-10-31.md` и Decision 051.
 - MA05 DONE: добавлена additive `pre_ad_margin` v1 canonical no-ad projection; при неизвестной рекламе before доступен, legacy after-ad result остаётся unavailable; internal no-ad zero не попадает во входы. Crossdock + extended guard сохранён, partial-проекция исключает crossdock и маркирует его unknown. Final linked profile **313 passed in 4.83s**; исходные данные чистые и hash совпадает. См. audit §MA05.
 - MA06 DONE: добавлен `advertising_tax_bridge` v1 с T0/T1, рекламным расходом, эффектом `T0−T1` и проверкой равенства после рекламы. Покрыты `NONE`, USN income, USN income-minus-expenses и минимум; `calculate_components_only` не вызывает tax per SKU, SalesMix сохраняет aggregate единственный вызов. Linked profile **315 passed in 4.97s**; owner data hash unchanged.
-- Продолжить MA07: seller revenue denominator до points, проценты/округление/zero/null, отрицательная прибыль и bounds.
+- MA07 VERIFIED_EXISTING: закреплены seller-price denominator до points, отдельное налоговое влияние баллов, нулевая и out-of-range цена, подтверждённые нулевые расходы, отрицательная прибыль и каноническое округление. Точечный Windows профиль: **56 passed in 0.81s**; `data/tasks.json` hash сохранён, lock отсутствует. Подробности: audit §MA07.
+- Следующий этап MA08: проверить ownership и completeness нерекламных расходов; связать категории с действующими источниками без двойного вычитания.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -28,7 +29,7 @@
 | MA04 | MA01,MA02,MA03 | DONE | Аддитивный versioned `pre_ad_margin` v1 и backward compatibility закреплены Decision 051. N01–N20 остаются acceptance oracle. См. audit §MA04. |
 | MA05 | MA04 | DONE | `UnitPriceScenarioService` добавил no-ad branch, не меняющий исходные inputs и legacy calculated profit/margin; extended unavailable branch выдаёт только partial subtotal; crossdock guard не ослаблен. Целевой профиль 47 passed; связанный профиль 313 passed. |
 | MA06 | MA05 | DONE | `advertising_tax_bridge` фиксирует T0/T1 и `after = before − ad + (T0−T1)` с delta 0.00; N01/N04/min-tax/NONE. `calculate_components_only` оставлен без TaxService; SalesMix aggregate-tax-one-call тест зелёный. Linked profile 315 passed. |
-| MA07 | MA06 | NOT_STARTED | — |
+| MA07 | MA06 | VERIFIED_EXISTING | Current calculator already uses seller price before discount points as margin denominator and canonical money rounding; tests prove the tax-basis point effect, zero/negative/out-of-range price handling, confirmed zero expense, negative profit, and half-cent rounding. Targeted Windows profile: 56 passed in 0.81s. Owner data hash unchanged; lock absent. |
 | MA08 | MA05 | NOT_STARTED | — |
 | MA09 | MA06,MA08 | NOT_STARTED | — |
 | MA10 | MA07,MA08,MA09 | NOT_STARTED | — |
@@ -78,4 +79,11 @@
 - MA06 implementation: `app/services/unit_price_scenario_service.py`; numeric regressions в `tests/test_pre_ad_margin_projection.py` и `tests/test_unit_price_scenario_extended_contract.py`. Formula bridge additive; existing TaxService policy unchanged.
 - Exact outputs: USN Income N01 T0=4.50/T1=4.50/pre=33.50/after=21.50; USN Income-minus-Expenses N04 T0=5.70/T1=3.90/pre=32.30/after=22.10/tax effect=1.80; minimum tax T0=T1=1.00; reconciliation delta=0.00. `NONE` remains zero tax.
 - Final linked profile after MA06: **315 passed in 4.97s**; `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock absent.
-- Next stage MA07: seller revenue denominator before points, zero/negative outputs, rounding and bounds.
+- MA07 status: VERIFIED_EXISTING; see the next Resume section for numerical test evidence.
+
+## Resume реализации MA07
+
+- MA07 changed no production code: the existing canonical scenario already divides post-tax no-ad profit by seller price before discount points and preserves canonical Decimal money rounding.
+- Added independent regressions for: seller-price denominator; points reducing the USN income tax base while remaining outside the margin denominator; zero, negative and out-of-range price handling; confirmed zero expenses; negative profit without clipping; and the half-cent money-rounding boundary.
+- Verification: Windows focused profile `tests/test_pre_ad_margin_projection.py`, `tests/test_unit_price_scenario_extended_contract.py`, `tests/test_unit_price_scenario_service.py` — **56 passed in 0.81s**. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent.
+- Next: MA08 expense ownership/completeness audit; do not report a complete margin while storage, returns/cancellations, fixed overhead or unmapped categories remain unknown.

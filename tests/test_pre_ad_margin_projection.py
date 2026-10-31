@@ -112,6 +112,8 @@ def test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_m
     assert result["advertising_tax_bridge"]["status"] == "UNAVAILABLE"
     assert result["advertising_tax_bridge"]["tax_before_ad_rub"] == 4.5
     assert result["advertising_tax_bridge"]["reason"] == "AFTER_AD_SCENARIO_UNAVAILABLE"
+    assert result["pre_ad_margin"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+    assert result["pre_ad_margin"]["price_per_unit_rub"] == 100.0
 
 
 def test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax():
@@ -206,6 +208,122 @@ def test_pre_ad_projection_is_unavailable_when_a_required_non_ad_input_is_missin
     assert result["pre_ad_margin"]["reason"] == "NO_AD_REQUIRED_INPUTS_MISSING"
     assert result["pre_ad_margin"]["profit_per_unit_rub"] is None
     assert result["pre_ad_margin"]["missing_inputs"] == ["cost"]
+
+
+def test_zero_price_has_no_pre_ad_profit_percentage_instead_of_fabricated_zero():
+    inputs = _inputs(price="0")
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(TaxService()).calculate(inputs)
+
+    assert result["pre_ad_margin"]["status"] == "UNAVAILABLE"
+    assert result["pre_ad_margin"]["price_per_unit_rub"] is None
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] is None
+    assert result["pre_ad_margin"]["margin_percent"] is None
+    assert result["pre_ad_margin"]["reason"] == "NO_AD_INPUTS_INVALID"
+
+
+def test_negative_and_out_of_range_prices_are_rejected_by_existing_bounds():
+    service = UnitPriceScenarioService(TaxService())
+
+    for price in ("-1", "10000000000000"):
+        inputs = _inputs(price=price)
+        inputs.pop("advertising_rate")
+        result = service.calculate(inputs)
+
+        assert result["pre_ad_margin"]["status"] == "UNAVAILABLE"
+        assert result["pre_ad_margin"]["price_per_unit_rub"] is None
+        assert result["pre_ad_margin"]["profit_per_unit_rub"] is None
+        assert result["pre_ad_margin"]["margin_percent"] is None
+        assert result["pre_ad_margin"]["invalid_inputs"] == ["price"]
+
+
+def test_confirmed_zero_expenses_are_not_treated_as_missing():
+    inputs = _inputs(
+        cost="0",
+        commission_rate="0",
+        logistics_per_unit="0",
+        last_mile_per_unit="0",
+        acquiring_per_unit="0",
+        discount_points_rate="0",
+        tax_mode="NONE",
+    )
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(TaxService()).calculate(inputs)
+
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == 100.0
+    assert result["pre_ad_margin"]["margin_percent"] == 100.0
+    assert result["pre_ad_margin"]["missing_inputs"] == []
+    assert result["pre_ad_margin"]["invalid_inputs"] == []
+
+
+def test_negative_pre_ad_profit_and_margin_are_preserved_without_clipping():
+    inputs = _inputs(
+        cost="76",
+        discount_points_rate="0",
+        tax_mode="NONE",
+    )
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(TaxService()).calculate(inputs)
+
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == -5.0
+    assert result["pre_ad_margin"]["margin_percent"] == -5.0
+
+
+def test_discount_points_do_not_reduce_pre_ad_seller_revenue_denominator_or_profit_before_tax():
+    service = UnitPriceScenarioService(TaxService())
+    without_points = _inputs(tax_mode="NONE", discount_points_rate="0")
+    with_points = _inputs(tax_mode="NONE", discount_points_rate="25")
+    without_points.pop("advertising_rate")
+    with_points.pop("advertising_rate")
+
+    zero_points_result = service.calculate(without_points)
+    points_result = service.calculate(with_points)
+
+    assert zero_points_result["pre_ad_margin"]["profit_per_unit_rub"] == 41.0
+    assert points_result["pre_ad_margin"]["profit_per_unit_rub"] == 41.0
+    assert zero_points_result["pre_ad_margin"]["margin_percent"] == 41.0
+    assert points_result["pre_ad_margin"]["margin_percent"] == 41.0
+    assert points_result["pre_ad_margin"]["price_per_unit_rub"] == 100.0
+    assert points_result["pre_ad_margin"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+
+
+def test_discount_points_reduce_usn_tax_basis_but_margin_percentage_uses_seller_price():
+    service = UnitPriceScenarioService(TaxService())
+    without_points = _inputs(tax_mode="USN_INCOME", discount_points_rate="0")
+    with_points = _inputs(tax_mode="USN_INCOME", discount_points_rate="25")
+    without_points.pop("advertising_rate")
+    with_points.pop("advertising_rate")
+
+    zero_points_result = service.calculate(without_points)
+    points_result = service.calculate(with_points)
+
+    assert zero_points_result["pre_ad_margin"]["tax_per_unit_rub"] == 6.0
+    assert points_result["pre_ad_margin"]["tax_per_unit_rub"] == 4.5
+    assert zero_points_result["pre_ad_margin"]["profit_per_unit_rub"] == 35.0
+    assert points_result["pre_ad_margin"]["profit_per_unit_rub"] == 36.5
+    assert points_result["pre_ad_margin"]["price_per_unit_rub"] == 100.0
+    assert points_result["pre_ad_margin"]["margin_percent"] == 36.5
+    assert points_result["pre_ad_margin"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+
+
+def test_money_rounding_remains_canonical_at_half_cent_boundary():
+    inputs = _inputs(
+        cost="30.005",
+        tax_mode="NONE",
+        discount_points_rate="0",
+    )
+    inputs.pop("advertising_rate")
+
+    result = UnitPriceScenarioService(TaxService()).calculate(inputs)
+
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == 41.0
+    assert result["pre_ad_margin"]["margin_percent"] == 41.0
 
 
 def test_components_only_exposes_separate_pre_ad_contribution_without_changing_legacy_field():

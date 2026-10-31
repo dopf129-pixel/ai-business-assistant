@@ -81,3 +81,10 @@ Runtime, схемы и пользовательские данные в подг
 - Проверены N01: USN Income, T0=T1=4.50 ₽, before 33.50 ₽, after 21.50 ₽; N04: USN Income-minus-Expenses T0=5.70 ₽, T1=3.90 ₽, эффект 1.80 ₽, before 32.30 ₽, after 22.10 ₽; minimum tax T0=T1=1.00 ₽; `NONE` — налог 0.00 ₽. Проверенные delta равны 0.00 ₽.
 - `TaxService` и налоговая политика не менялись. `calculate_components_only` не вызывает TaxService; явный TaxSpy остаётся пуст. SalesMix test `test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once` подтверждает один общий налоговый вызов для mix, не per SKU.
 - Финальный linked profile **315 passed in 4.97s** на 15 модулях; `data/tasks.json` hash сохранился `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
+
+### MA07 — выручка, проценты, знаки и округление
+
+- Production code не менялся: проверка подтвердила, что `pre_ad_margin.margin_percent` строится от цены продавца до баллов, налоговая база остаётся внутри canonical `TaxService`, а денежные значения следуют существующему округлению.
+- Добавлены независимые регрессии для seller-price denominator, налогового эффекта баллов (USN Income: налог 6.00 ₽ без баллов и 4.50 ₽ при 25% баллов; denominator остаётся 100 ₽), нулевой/отрицательной/out-of-range цены, подтверждённых нулевых расходов, отрицательной прибыли без обрезания и half-cent rounding.
+- Точечный Windows профиль: **56 passed in 0.81s** на `test_pre_ad_margin_projection.py`, `test_unit_price_scenario_extended_contract.py`, `test_unit_price_scenario_service.py`. `data/tasks.json` SHA-1 остался `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
+- Ограничение: MA07 не утверждает полноту категорий расходов; это предмет MA08. Поскольку логика уже соответствовала контракту, этап отмечен `VERIFIED_EXISTING`.
