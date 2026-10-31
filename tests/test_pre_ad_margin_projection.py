@@ -54,6 +54,18 @@ def _additional_expense_contract():
     }
 
 
+class _TaxSpy:
+    SUPPORTED_MODES = TaxService.SUPPORTED_MODES
+
+    def __init__(self):
+        self.calls = []
+        self._service = TaxService()
+
+    def calculate(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return self._service.calculate(**kwargs)
+
+
 def test_pre_ad_scenario_is_available_when_advertising_is_unknown_and_does_not_mutate_inputs():
     inputs = _inputs()
     inputs.pop("advertising_rate")
@@ -201,7 +213,8 @@ def test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax(
         tax_rate="15",
     )
 
-    result = UnitPriceScenarioService(TaxService()).calculate(
+    tax = _TaxSpy()
+    result = UnitPriceScenarioService(tax).calculate(
         inputs,
         extended_scenario=_additional_expense_contract(),
     )
@@ -221,10 +234,18 @@ def test_pre_ad_and_after_ad_tax_bases_are_calculated_separately_for_profit_tax(
     assert bridge["tax_effect_of_advertising_rub"] == 1.8
     assert bridge["expected_profit_after_ad_rub"] == 22.1
     assert bridge["reconciliation_delta_rub"] == 0.0
+    assert [call["gross_profit"] for call in tax.calls] == [26.0, 38.0]
+    assert [call["mode"] for call in tax.calls] == [
+        "USN_INCOME_MINUS_EXPENSES", "USN_INCOME_MINUS_EXPENSES",
+    ]
+    assert [call["tax_rate"] for call in tax.calls] == [15.0, 15.0]
+    assert [call["minimum_tax_rate"] for call in tax.calls] == [1.0, 1.0]
+    assert [call["discount_points"] for call in tax.calls] == [0.0, 0.0]
 
 
 def test_usn_income_bridge_uses_equal_tax_bases_and_reconciles_profit():
-    result = UnitPriceScenarioService(TaxService()).calculate(
+    tax = _TaxSpy()
+    result = UnitPriceScenarioService(tax).calculate(
         _inputs(),
         extended_scenario=_additional_expense_contract(),
     )
@@ -239,6 +260,48 @@ def test_usn_income_bridge_uses_equal_tax_bases_and_reconciles_profit():
     assert bridge["profit_after_ad_rub"] == 21.5
     assert bridge["expected_profit_after_ad_rub"] == 21.5
     assert bridge["reconciliation_delta_rub"] == 0.0
+    assert [call["gross_profit"] for call in tax.calls] == [26.0, 38.0]
+    assert [call["discount_points"] for call in tax.calls] == [25.0, 25.0]
+    assert [call["revenue"] for call in tax.calls] == [100.0, 100.0]
+
+
+def test_n03_absolute_advertising_keeps_fixed_oracle_and_does_not_reduce_before_ad_margin():
+    tax = _TaxSpy()
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+    inputs.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "120",
+    })
+
+    result = UnitPriceScenarioService(tax).calculate(
+        inputs,
+        extended_scenario=_additional_expense_contract(),
+    )
+
+    assert result["calculated"]["advertising"] == 120.0
+    assert result["calculated"]["profit_before_tax"] == -82.0
+    assert result["calculated"]["tax"] == 4.5
+    assert result["calculated"]["profit"] == -86.5
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == 33.5
+    assert result["pre_ad_margin"]["margin_percent"] == 33.5
+    assert [call["gross_profit"] for call in tax.calls] == [-82.0, 38.0]
+    assert [call["discount_points"] for call in tax.calls] == [25.0, 25.0]
+
+
+def test_n05_no_tax_mode_keeps_exact_before_and_after_ad_oracles():
+    inputs = _inputs(tax_mode="NONE")
+    result = UnitPriceScenarioService(TaxService()).calculate(
+        inputs,
+        extended_scenario=_additional_expense_contract(),
+    )
+
+    assert result["calculated"]["profit_before_tax"] == 26.0
+    assert result["calculated"]["tax"] == 0.0
+    assert result["calculated"]["profit"] == 26.0
+    assert result["pre_ad_margin"]["tax_per_unit_rub"] == 0.0
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == 38.0
+    assert result["pre_ad_margin"]["margin_percent"] == 38.0
 
 
 def test_absolute_advertising_above_price_does_not_block_pre_ad_projection():

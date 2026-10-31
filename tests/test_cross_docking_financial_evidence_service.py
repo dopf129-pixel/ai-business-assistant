@@ -226,6 +226,23 @@ def test_financial_total_and_supply_quantity_do_not_depend_on_sale_count():
     assert first.amount_per_unit == second.amount_per_unit == Decimal("120.00")
 
 
+def test_n17_560_rubles_with_a_40_ruble_correction_over_280_accepted_sku_units_is_two_rubles():
+    financial = _collect(_window(
+        [
+            _row(101, item_fees={"fees": [{"sku": "A", "fees": [_fee(41, "-600.00")]}]}),
+            _row(102, item_fees={"fees": [{"sku": "A", "fees": [_fee(41, "40.00")]}]}),
+        ],
+        [],
+    ))
+
+    rate = _rate(financial, _supplies([("A", 280)]))
+
+    assert financial.expense_total == Decimal("560.00")
+    assert rate.amount_per_unit == Decimal("2.00")
+    assert rate.supplied_units_sku == 280
+    assert rate.status == "SKU_SUPPLY_PERIOD_AVERAGE"
+
+
 def test_direct_fbo_units_do_not_enter_the_supply_denominator():
     financial = _collect(_window([_row(1, non_item_fee=_fee(41, "-1200.00"))], []))
     # Supply normalization supplies only cross-docked SKU quantities.
