@@ -19,10 +19,14 @@ from services.unit_economics_experiment_phase_comparison_service import (
 from services.unit_economics_experiment_phase_readiness_service import (
     UnitEconomicsExperimentPhaseReadinessService,
 )
+from services.unit_economics_experiment_recommendation_service import (
+    UnitEconomicsExperimentRecommendationService,
+)
 from services.telegram_unit_economics_experiment_runtime_service import (
     TelegramUnitEconomicsExperimentRuntimeService,
 )
 from test_unit_economics_experiment_phase_readiness_service import _mature_evidence
+from test_unit_economics_experiment_recommendation_service import _result
 
 
 def _identity():
@@ -493,6 +497,48 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
         assert len(evidence_collector.calls) == 2
     finally:
         reset_current_tenant_user_id(token)
+
+
+def test_candidate_ranking_excludes_comparisons_that_are_not_current():
+    current_phase_id, stale_phase_id = "a" * 32, "b" * 32
+    baseline_hash = "1" * 64
+
+    class Repository:
+        def list_price_experiment_phases(self, experiment_id, **kwargs):
+            return {"error": False, "items": [
+                {"phase_id": current_phase_id, "kind": "CANDIDATE", "result_revision": 1},
+                {"phase_id": stale_phase_id, "kind": "CANDIDATE", "result_revision": 1},
+            ]}
+
+        def list_price_experiment_results(self, experiment_id, phase_id, **kwargs):
+            payload = (
+                _result(candidate_profit="26.67", baseline_collection=baseline_hash)
+                if phase_id == current_phase_id
+                else _result(candidate_profit="40.00", baseline_collection=baseline_hash,
+                             candidate_collection="3" * 64)
+            )
+            return {"error": False, "items": [{"result_revision": 1, "payload": payload}]}
+
+    runtime = object.__new__(TelegramUnitEconomicsExperimentRuntimeService)
+    runtime.repository = Repository()
+    runtime._comparison_matches_latest_evidence = (
+        lambda scope, experiment_id, phase_id, payload: phase_id == current_phase_id
+    )
+
+    candidate_set = runtime._latest_candidate_results(
+        {"owner_id": "owner-1", "store_id": "store-a"}, "experiment-1",
+    )
+    recommendation = UnitEconomicsExperimentRecommendationService.explain_result(
+        _result(candidate_profit="26.67", baseline_collection=baseline_hash),
+        evaluated_candidates=candidate_set["items"],
+    )
+
+    assert candidate_set["stale_count"] == 1
+    assert [item["phase_id"] for item in candidate_set["items"]] == [current_phase_id]
+    assert recommendation["candidate_ranking"]["status"] == "RANKED"
+    assert recommendation["candidate_ranking"]["evaluated_candidate_count"] == 1
+    assert recommendation["candidate_ranking"]["maximum_profit_per_unit_rub"] == "26.67"
+    assert stale_phase_id not in recommendation["candidate_ranking"]["best_phase_ids"]
 
 
 def test_old_finish_button_cannot_finish_a_newer_result_revision(tmp_path):

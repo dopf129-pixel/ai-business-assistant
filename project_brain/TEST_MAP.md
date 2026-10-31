@@ -1,3 +1,8 @@
+# W44 — свежесть каждого кандидата в общем рейтинге
+
+- `tests/test_telegram_unit_economics_experiment_runtime.py::test_candidate_ranking_excludes_comparisons_that_are_not_current`: из двух сопоставимых сравнений более прибыльное устаревшее сравнение исключается runtime-сборщиком до передачи в recommendation service; максимум и `best_phase_ids` содержат только текущий кандидат, а счётчик исключения равен 1.
+- Полный runtime дополнительно показывает число сравнений с неподтверждённой актуальностью. Проверка связанного профиля unit-economics experiment + Telegram runtime: **118 passed in 6.96s**; полный Windows pytest: **4,353 passed in 44.54s**.
+
 # W43 — stale comparison presentation
 
 - `tests/test_telegram_unit_economics_experiment_runtime.py::test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecycle`: после нового контрольного события старый результат открывается через `phase_results` → `result`, показывает предупреждение и не содержит owner-decision действий. Уже выданный callback остаётся отклонённым; новое сравнение открывает безопасный вариант завершения.

@@ -1345,7 +1345,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                      if value.get("result_revision") == revision), None)
         if item is None:
             return self._stale()
-        candidates = self._latest_candidate_results(scope, experiment_id)
+        candidate_set = self._latest_candidate_results(scope, experiment_id)
+        candidates = candidate_set["items"]
         recommendation = UnitEconomicsExperimentRecommendationService.explain_result(
             item["payload"], evaluated_candidates=candidates,
         )
@@ -1379,6 +1380,11 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             lines.append(
                 f"Максимум среди {ranking['evaluated_candidate_count']} "
                 f"сопоставимых оценённых цен: {ranking['maximum_profit_per_unit_rub']} ₽/шт."
+            )
+        if candidate_set["stale_count"]:
+            lines.append(
+                "Не включено сравнений с неподтверждённой актуальностью: "
+                f"{candidate_set['stale_count']}. Обновите оценку и сравнение этих фаз."
             )
         lines.append(
             "Результат отражает модель по сохранённым данным, не доказывает причинность "
@@ -1500,8 +1506,9 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             experiment_id, limit=10, owner_id=scope["owner_id"], store_id=scope["store_id"],
         )
         if not isinstance(phases, dict) or phases.get("error") is True:
-            return []
+            return {"items": [], "stale_count": 0}
         candidates = []
+        stale_count = 0
         for phase in phases.get("items", []):
             if phase.get("kind") != "CANDIDATE":
                 continue
@@ -1513,13 +1520,23 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                     or not listed.get("items")):
                 continue
             latest = listed["items"][0]
+            payload = latest.get("payload")
+            if (isinstance(payload, dict) and payload.get("comparison") is not None
+                    and not self._comparison_matches_latest_evidence(
+                        scope, experiment_id, phase["phase_id"], payload,
+                    )):
+                stale_count += 1
+                continue
             candidates.append({
                 "phase_id": phase["phase_id"],
                 "result_revision": latest["result_revision"],
                 "latest_result_revision": phase["result_revision"],
-                "payload": latest["payload"],
+                "payload": payload,
             })
-        return candidates[:UnitEconomicsExperimentRecommendationService.MAX_CANDIDATES]
+        return {
+            "items": candidates[:UnitEconomicsExperimentRecommendationService.MAX_CANDIDATES],
+            "stale_count": stale_count,
+        }
 
     def _load_phase(self, scope, experiment_id, phase_id):
         listed = self.repository.list_price_experiment_phases(
