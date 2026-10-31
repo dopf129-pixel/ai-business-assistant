@@ -1,3 +1,9 @@
+# MA11 — плановая цена и тариф комиссии
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads` проверяет 99,99/100,00/100,01 ₽ на соседних frozen bands: ставки 11/11/22%, без дополнительных загрузок; выбранная цена публикует собственный `pre_ad_margin` с собственной комиссией, сохраняет себестоимость и рекламный override.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` подтверждает отказ от ставки текущей цены при переходе на кандидат без тарифа, недоступность маржи до комиссии, затем ручную ставку как `manual_seller_assumption` с сохранением цены, ручной себестоимости и рекламы.
+- Вместе с `tests/test_unit_price_tariff_snapshot_adapter.py` и `tests/test_telegram_unit_price_tariff_profile_runtime.py`: **61 passed in 1.53s** на Windows. Производственный код не менялся. Полный pytest и exact-head CI остаются MA27.
+
 # План MA00–MA29 — маржа до рекламы (спецификация, не выполненные проверки)
 
 - ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`, journal `LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`: 20 групп numerical/behavioral acceptance; ключевые случаи — independent no-ad без известной рекламы, T0/T1 при profit-tax, historical add-back только уже учтённой финансовой рекламы, неполные расходы, знаменатели, старые plans и tenant/revision guards.

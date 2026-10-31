@@ -836,8 +836,59 @@ def test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_
     assert selected["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert selected["price_scenario"]["inputs"]["price"]["value"] == 100.01
     assert selected["price_scenario"]["inputs"]["commission_rate"]["value"] == 22.0
+    assert selected["price_scenario"]["inputs"]["cost"]["value"] == 120.0
+    assert selected["price_scenario"]["inputs"]["advertising_rate"]["value"] == 0.0
+    projection = selected["price_scenario"]["pre_ad_margin"]
+    assert projection["status"] == "AVAILABLE"
+    assert projection["basis"] == "PRICE_SCENARIO_NO_AD"
+    assert projection["price_per_unit_rub"] == 100.01
+    assert projection["expense_scope"]["known_non_ad_expenses_rub"]["OZON_COMMISSION"] == 22.0
+    assert projection["profit_per_unit_rub"] == -101.79
+    assert projection["margin_percent"] == -101.78
     assert len(source.calls) == 1
     assert len(tariff.calls) == 1
+
+
+def test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        for label, value in (("Себестоимость", "25"), ("Реклама, %", "8"), ("Цена", "100,01")):
+            prompt = runtime.handle_callback(
+                _find_button(scenario, label)["callback"], user_id="user-1",
+            )
+            scenario = runtime.handle_text(value, user_id="user-1")
+            assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+            assert scenario["status"] in {
+                "UNIT_PRICE_SCENARIO_READY", "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+            }
+
+        candidate_before_manual_rate = scenario["price_scenario"]
+        assert candidate_before_manual_rate["inputs"]["price"]["value"] == 100.01
+        assert candidate_before_manual_rate["inputs"]["commission_rate"]["value"] is None
+        assert candidate_before_manual_rate["pre_ad_margin"]["status"] == "UNAVAILABLE"
+
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Комиссия %")["callback"], user_id="user-1",
+        )
+        result = runtime.handle_text("22", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    candidate = result["price_scenario"]
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert candidate["inputs"]["price"]["value"] == 100.01
+    assert candidate["inputs"]["cost"]["value"] == 25.0
+    assert candidate["inputs"]["advertising_rate"]["value"] == 8.0
+    assert candidate["inputs"]["commission_rate"]["value"] == 22.0
+    assert candidate["inputs"]["commission_rate"]["provenance"] == "manual_seller_assumption"
+    assert candidate["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert candidate["pre_ad_margin"]["profit_per_unit_rub"] == -6.79
+    assert candidate["pre_ad_margin"]["margin_percent"] == -6.79
+    assert candidate["calculated"]["profit"] == -14.79
+    assert source.calls == [("3921245627", "user-1", False)]
 
 
 def test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_locally():
