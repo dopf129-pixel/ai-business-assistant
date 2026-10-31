@@ -93,7 +93,7 @@
 
 ## Resume реализации MA17 / MA18
 
-- MA17 input SHA: `0a3383bf`. Implementation commit SHA: pending; record the exact SHA after commit.
+- MA17 input SHA: `0a3383bf`. Implementation commit SHA: `1c6812c4` (`Add explicit incomplete margin actions`).
 - Changed production files: `app/services/assistant_button_handler_service.py`, `app/services/assistant_keyboard_service.py`, `app/services/product_unit_economics_query_service.py`, `app/services/telegram_seller_cost_update_service.py`, and `app/telegram_app_layer/seller_cost_telegram_adapter.py`. Regression files: `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_telegram_ui.py`, `app/tests/test_seller_cost_confirmation_flow.py`; existing exact-scenario/CAS regressions in `tests/test_unit_price_scenario_telegram_runtime.py` are included in the final profile.
 - The factual SKU card exposes the existing cost flow only when COGS is unknown and local cost storage is present. Existing effective-date and explicit whole-history confirmations are retained. Successful save offers a one-time opaque callback bound to user, tenant, active-store label and exact SKU. It triggers the new unit query only after the user clicks.
 - Manual tariff/ad navigation reuses the calculator's existing opaque product-entry link. The existing scenario ID/revision/CAS and provenance own any subsequent edits. Unsupported expenses are explained, not routed to a misleading store-level or per-SKU write.
