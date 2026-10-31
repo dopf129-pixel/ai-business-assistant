@@ -1,3 +1,8 @@
+# MA19 — публичная offline-приёмка маржи до рекламы
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario` проходит полный local-handler путь current SKU → детали → калькулятор → новая цена с ручной комиссией и DRR → сохранение frozen plan; проверяет decimal-comma, точную before/after математику, provenance ручной комиссии и отсутствие повторного factual source query.
+- Связанный профиль: `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_product_unit_economics_telegram_ui.py`, `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py` — **121 passed in 3.60s** на Windows/Python 3.14.
+
 # MA11 — плановая цена и тариф комиссии
 
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads` проверяет 99,99/100,00/100,01 ₽ на соседних frozen bands: ставки 11/11/22%, без дополнительных загрузок; выбранная цена публикует собственный `pre_ad_margin` с собственной комиссией, сохраняет себестоимость и рекламный override.

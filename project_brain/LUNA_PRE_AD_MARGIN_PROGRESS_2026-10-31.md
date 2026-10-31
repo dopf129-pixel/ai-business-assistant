@@ -50,7 +50,7 @@
 | MA16 | MA15 | DONE | Current/historical local ledger plus user-scoped 15-minute snapshot callback; no requery, exact arithmetic, unknowns visible, crossdock nested subtotal marked non-additive. Linked profile 44 passed in 1.12s; owner data hash unchanged. |
 | MA17 | MA16 | DONE | Existing cost and planning paths are exposed from incomplete margins; cost-save return is single-use and bound to the original SKU/store; refresh requires an explicit click and tenant match. Unsupported source categories stay unknown with a specific explanation. Linked profile: 98 passed across 6 modules; `py_compile`, diff check and owner-data hash pass. |
 | MA18 | MA12,MA15 | DONE | Current/history tax basis retained; experiment snapshot/result provenance and absent tax basis explicitly labeled without recalculation; 113 passed in 4.23s across 8 modules; implementation SHA `e99612e0`. |
-| MA19 | MA13,MA17,MA18 | NOT_STARTED | — |
+| MA19 | MA13,MA17,MA18 | DONE | Public offline acceptance through current card, local details, candidate price, manual candidate tariff, advertising entry, before/after result and saved plan; decimal-comma persistence and local details token bugs fixed. Linked profile: 121 passed in 3.60s; implementation `d8532f9a`. |
 | MA20 | MA14,MA19 | NOT_STARTED | — |
 | MA21 | MA20 | NOT_STARTED | — |
 | MA22 | MA20,MA21 | NOT_STARTED | — |
@@ -109,7 +109,11 @@
 - Saved experiment result detail now shows its source timestamp, period window and number of linked snapshot references without exposing the IDs. It labels tax basis as absent from that result and says the new pre-ad projection was not applied. The frozen snapshot view labels the stored tax mode/rate and that its origin is not persisted; legacy unknown-tax and tax-free records remain readable. It remains read-only and makes no source call.
 - Final Windows profile on the exact implementation commit: 8 modules — **113 passed in 4.23s**: `tests/test_telegram_unit_economics_experiment_runtime.py`, `tests/test_unit_economics_experiment_snapshot_view_service.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, `tests/test_unit_economics_experiment_phase_collection_service.py`, `tests/test_unit_economics_experiment_phase_comparison_service.py`, `tests/test_unit_economics_experiment_recommendation_service.py`, and `tests/test_price_experiment_state_machine.py`. `py_compile`, `git diff --check` PASS; `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API/bot or data edits.
 - Review boundary: experiment result/ranking/persistence/export schemas, source snapshot and W42–W44 guards are unchanged. First test pass exposed the persisted rate is a string and one old text assertion; fixed both and reran the whole profile green.
-- Next: MA19 public offline acceptance through normal callbacks, then separate exact/partial historical cases.
+- MA19 input SHA: `be1af7ef` (MA18 checkpoint complete). Implementation commit: `d8532f9a` (`Complete MA19 public pre-ad margin acceptance`).
+- Changed production files: `app/services/assistant_button_handler_service.py` preserves the selected calculator SKU token when opening its local detail ledger; `app/services/telegram_unit_price_calculator_runtime_service.py` canonicalizes validated saved-plan decimals and explicitly presents before/after-ad projections and unknown advertising.
+- Regression: `tests/test_saved_planning_plan_telegram_flow.py::test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario` exercises normal public handlers and callbacks from current SKU through save. It proves one current query, preservation of the same SKU after local details, manual candidate commission provenance, decimal-comma `100,01` saved as `100.01`, COGS 25, DRR 8%, before-ad −6.79 ₽/−6.79%, and after-ad −14.79 ₽/unit. Existing linked historical exact/partial cases also ran.
+- Final linked Windows profile on implementation SHA `d8532f9a`: 6 modules — **121 passed in 3.60s**. `py_compile` and `git diff --check` PASS. `data/tasks.json` SHA-1 is `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No real API or bot launch.
+- Next: MA20 frozen-plan, legacy schema, new revision, and read-without-write compatibility.
 
 ## Правила исполнения
 
