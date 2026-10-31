@@ -4,7 +4,7 @@
 Реализационная ветка: `codex/pre-ad-margin-implementation-20261031`
 Целевая ветка PR: `codex/pre-ad-margin-spec-20261031` (ветка задания PR #723)
 Реализационный PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/724
-Текущее состояние CI: смотреть exact-head checks в PR; локальная приёмка зафиксирована ниже.
+Текущее состояние CI: run `41239619360` прошёл на SHA `efc76fc1970de0955f59319261b7dbcda670fc28`; журнал результата создаёт новый head, поэтому финальный PR exact-head CI необходимо подтвердить по ссылке выше.
 Слияние, развёртывание, live-запросы и запуск бота этим изменением не выполняются.
 
 ## Что меняется
@@ -44,7 +44,7 @@
 - `git diff --check`: PASS до текущего документационного коммита; будет повторён на окончательном локальном HEAD.
 - Защита пользовательских данных: `data/tasks.json` восстановлен до MA00 baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует. Проверки выполнялись без Ozon/Telegram запросов и без запуска бота.
 - Owner acceptance на реальных данных: **USER_VALIDATION_PENDING**; synthetic tests не представлены как проверка реального кабинета.
-- Remote Windows/Linux/Docker CI: проверяется после публикации PR и должен относиться к точному текущему head SHA. Результаты старого spec PR #723 или другого SHA не засчитываются.
+- Remote Windows/Linux/Docker CI: GitHub Actions run `41239619360` passed оба job на SHA `efc76fc1970de0955f59319261b7dbcda670fc28`. После добавления этой записи журналом появился новый head; перед завершением проверяется новый exact SHA. Результаты старого spec PR #723 или другого SHA не засчитываются.
 
 ## Независимому reviewer проверить
 
