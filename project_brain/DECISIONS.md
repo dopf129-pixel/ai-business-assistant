@@ -2,7 +2,7 @@
 
 ## Decision 065 — owner decisions are immutable experiment evidence
 
-Keep recommendations as deterministic projections of validated immutable phase results. Rank only each candidate's latest assessed result when the exact baseline and frozen economics are shared. Persist owner decisions in an additive tenant-scoped append-only Planning Workspace ledger bound to the exact current result revision; use CAS, idempotency, a finite quota and immutable triggers. Completion requires a current terminal owner choice, while continuing leaves the experiment in review. Choices never call Ozon or change a seller price. Details: `DECISIONS_065.md` and `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.
+Keep recommendations as deterministic projections of validated immutable phase results. Rank only each candidate's latest assessed result when the exact baseline and frozen economics are shared. Persist owner decisions in an additive tenant-scoped append-only Planning Workspace ledger bound to the exact current result revision; use CAS, idempotency, a finite quota and immutable triggers. A decision based on a comparison must also match the latest phase-state, control-event and collection revisions atomically. Completion requires a current terminal owner choice, while continuing leaves the experiment in review. Choices never call Ozon or change a seller price. Details: `DECISIONS_065.md` and `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.
 
 ## Decision 064 — versioned unit-economics evidence and experiment ownership
 

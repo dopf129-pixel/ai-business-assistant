@@ -320,7 +320,8 @@ class UnitEconomicsExperimentPhaseComparisonService:
                 or not isinstance(metrics, dict)):
             return None
         units = metrics.get("successful_sale_units")
-        if type(units) is not int or units < 30:
+        if (type(units) is not int
+                or units < UnitEconomicsExperimentPhaseMaturityService.MIN_MATURITY_UNITS):
             return None
         money = {}
         for key in ("finance_net", "gross_seller_revenue", "discount_points", "acquiring",

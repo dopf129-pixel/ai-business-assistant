@@ -1049,6 +1049,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         if context is None:
             return self._stale()
         experiment, phase = context
+        if action.get("expected_state_revision") != experiment.get("state_revision"):
+            return self._stale()
         payload = {
             "schema_version": 1,
             "decision_type": action.get("decision_type"),
@@ -1149,7 +1151,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         return f"uex:read:{token}" if token else "uex:m"
 
     def _append_owner_decision_buttons(
-        self, scope, experiment_id, candidate_phase_id, result_revision, payload, buttons,
+        self, scope, experiment_id, candidate_phase_id, result_revision,
+        expected_state_revision, payload, buttons,
     ):
         if type(result_revision) is not int or not isinstance(payload, dict):
             return
@@ -1171,6 +1174,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             token = self._remember_action(scope, {
                 "kind": "owner_decision", "experiment_id": experiment_id,
                 "phase_id": candidate_phase_id, "result_revision": result_revision,
+                "expected_state_revision": expected_state_revision,
                 "decision_type": decision_type, "selected_phase_id": selected_phase_id,
             })
             if token:
@@ -1382,7 +1386,8 @@ class TelegramUnitEconomicsExperimentRuntimeService:
                 and phase.get("result_revision") == revision
                 and comparison_current):
             self._append_owner_decision_buttons(
-                scope, experiment_id, phase_id, revision, payload, buttons,
+                scope, experiment_id, phase_id, revision,
+                experiment["state_revision"], payload, buttons,
             )
         self._append_phase_back_button(scope, experiment_id, phase_id, buttons)
         return self._result(
@@ -2270,6 +2275,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
     def _reason_label(code):
         return {
             "PHASE_NOT_MATURE_AND_READY": "период или объём продаж ещё недостаточны",
+            "SOLD_SAMPLE_BELOW_MINIMUM": "для сравнения нужно не менее 30 проданных единиц на фазу",
             "PHASE_CONTROL_CONDITIONS_NOT_CONFIRMED": "условия теста не подтверждены",
             "SOLD_UNIT_DENOMINATOR_UNCONFIRMED": "число проданных единиц не подтверждено",
             "PHASE_FINANCIAL_OR_UNIT_DATA_INCOMPLETE": "финансовые данные или количество неполны",

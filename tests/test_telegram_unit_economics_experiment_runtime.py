@@ -399,6 +399,10 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
                 predicate=lambda action: set(action["control_flags"].values()) == {"UNCHANGED"},
             ), user_id="owner-1",
         )
+        late_control_update = _button_action(
+            candidate_controls_updated, runtime, "phase_control_update", "uex:read:",
+            predicate=lambda action: set(action["control_flags"].values()) == {"UNKNOWN"},
+        )
         candidate_collected = runtime.handle_callback(
             _button_action(candidate_controls_updated, runtime, "phase_collect", "uex:read:"),
             user_id="owner-1",
@@ -423,13 +427,9 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
         )
         assert candidate_finished["status"] == "UNIT_ECONOMICS_EXPERIMENT_PHASE_FINISHED"
 
-        experiment_list = runtime.handle_callback("uex:experiments:0", user_id="owner-1")
-        experiment_detail = runtime.handle_callback(
-            _button(experiment_list, "uex:read:"), user_id="owner-1",
-        )
         candidate_detail = runtime.handle_callback(
             _button_action(
-                experiment_detail, runtime, "phase", "uex:read:",
+                candidate_finished, runtime, "phase", "uex:read:",
                 predicate=lambda action: action.get("phase_id") == candidate["phase_id"],
             ), user_id="owner-1",
         )
@@ -438,9 +438,24 @@ def test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecyc
             user_id="owner-1",
         )
         assert comparison["status"] == "UNIT_ECONOMICS_EXPERIMENT_RESULT_DETAIL"
+        stale_selection = _button_action(
+            comparison, runtime, "owner_decision", "uex:read:",
+            predicate=lambda action: action.get("decision_type") == "SELECT_EVALUATED_CANDIDATE",
+        )
+        conditions_changed = runtime.handle_callback(
+            late_control_update, user_id="owner-1",
+        )
+        assert conditions_changed["status"] == "UNIT_ECONOMICS_EXPERIMENT_CONTROLS_UPDATED"
+        rejected_selection = runtime.handle_callback(stale_selection, user_id="owner-1")
+        assert rejected_selection["status"] == "UNIT_ECONOMICS_EXPERIMENT_ACTION_STALE"
+        refreshed_comparison = runtime.handle_callback(
+            _button_action(conditions_changed, runtime, "phase_compare", "uex:read:"),
+            user_id="owner-1",
+        )
+        assert refreshed_comparison["status"] == "UNIT_ECONOMICS_EXPERIMENT_RESULT_DETAIL"
         completed = runtime.handle_callback(
             _button_action(
-                comparison, runtime, "owner_decision", "uex:read:",
+                refreshed_comparison, runtime, "owner_decision", "uex:read:",
                 predicate=lambda action: action.get("decision_type") == "STOP_WITHOUT_PRICE_CHANGE",
             ), user_id="owner-1",
         )

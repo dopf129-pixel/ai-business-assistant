@@ -4561,7 +4561,7 @@ class PlanningWorkspaceRepository:
             if (decision_type in {"KEEP_BASELINE_PRICE", "SELECT_EVALUATED_CANDIDATE"}
                     and result_payload.get("comparison") is not None):
                 baseline = connection.execute(
-                    "SELECT phase_id FROM planning_price_experiment_phases "
+                    "SELECT phase_id, state_revision FROM planning_price_experiment_phases "
                     "WHERE experiment_id=? AND owner_id=? AND store_id=? "
                     "AND kind='BASELINE' AND segment_number=1",
                     (experiment_id, scope["owner_id"], scope["store_id"]),
@@ -4582,8 +4582,35 @@ class PlanningWorkspaceRepository:
                     (experiment_id, candidate["phase_id"], scope["owner_id"],
                      scope["store_id"]),
                 ).fetchone()
+                comparison = result_payload.get("comparison")
+                comparison_revisions_current = False
+                if baseline is not None and isinstance(comparison, dict):
+                    current_event_revisions = {}
+                    for comparison_key, phase_id in (
+                        ("baseline_control_event_revision", baseline["phase_id"]),
+                        ("candidate_control_event_revision", candidate["phase_id"]),
+                    ):
+                        event_row = connection.execute(
+                            "SELECT COALESCE(MAX(event_revision), 0) AS revision "
+                            "FROM planning_price_experiment_events "
+                            "WHERE experiment_id=? AND owner_id=? AND store_id=? "
+                            "AND phase_id=?",
+                            (experiment_id, scope["owner_id"], scope["store_id"], phase_id),
+                        ).fetchone()
+                        current_event_revisions[comparison_key] = event_row["revision"]
+                    comparison_revisions_current = (
+                        baseline["state_revision"]
+                        == comparison.get("baseline_phase_state_revision")
+                        and candidate["state_revision"]
+                        == comparison.get("candidate_phase_state_revision")
+                        and current_event_revisions.get("baseline_control_event_revision")
+                        == comparison.get("baseline_control_event_revision")
+                        and current_event_revisions.get("candidate_control_event_revision")
+                        == comparison.get("candidate_control_event_revision")
+                    )
                 if (latest_baseline_collection is None
                         or latest_candidate_collection is None
+                        or not comparison_revisions_current
                         or latest_baseline_collection["collection_id"]
                         not in result_payload["snapshot_refs"]
                         or latest_candidate_collection["collection_id"]

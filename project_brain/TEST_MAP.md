@@ -1,3 +1,11 @@
+# W42 — защита от устаревшего выбора и низкой выборки (2026-10-31)
+
+- `tests/test_telegram_unit_economics_experiment_runtime.py`: сравнение формирует owner-decision callback с точной ревизией эксперимента; старое действие после обновления контрольных условий возвращает STALE, а новое сравнение оставляет безопасное завершение без смены цены.
+- `tests/test_unit_economics_experiment_owner_decision_repository.py`: прямой repository выбор кандидата после control event отклоняется по несовпадению сравнения с текущими control-event/phase revisions.
+- `tests/test_unit_economics_experiment_phase_readiness_service.py`: eligible sample 30 и одна продажа остаются WAITING_FOR_DATA; per-unit profit не публикуется, а phase finish отклонён. Comparison использует тот же `MIN_MATURITY_UNITS` порог.
+- Связанный Windows/Python профиль всех тестов эксперимента и Telegram runtime: **117 passed in 7.15s**. Полный Windows pytest: **4,352 passed in 46.30s**. `compileall` и `git diff --check` PASS. `data/tasks.json` и lock, созданные legacy-тестами, восстановлены/удалены.
+- Acceptance: `UNIT_ECONOMICS_W42_REVIEW_REMEDIATION_2026-10-31.md`.
+
 # W41 — исправления повторного review ценовых экспериментов (2026-10-30)
 
 - `tests/test_unit_economics_experiment_phase_readiness_service.py`: старый evidence snapshot не достигает maturity только из-за хода времени; повторный сбор фиксирует новую дату источника, включая локальную границу дня.

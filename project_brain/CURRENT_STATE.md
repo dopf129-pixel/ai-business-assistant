@@ -1,3 +1,12 @@
+# 2026-10-31 — W42: исправления повторного review PR #722
+
+- Устаревшая кнопка выбора цены больше не принимает решение после изменения контрольных условий. Telegram callback содержит expected experiment revision; репозиторий в одной транзакции проверяет latest result, phase state revisions, control-event revisions и latest collection hashes.
+- Порог успешных продаж синхронизирован: зрелость не возвращает READY до достижения 30 проданных единиц, а сравнение использует ту же константу. При меньшей выборке сравнение/завершение не допускаются.
+- Добавлены регрессии в Telegram lifecycle, owner-decision repository и phase readiness.
+- Связанный Windows профиль: **117 passed in 7.15s**; полный Windows `pytest`: **4,352 passed in 46.30s**; `compileall` и `git diff --check` PASS. `data/tasks.json` восстановлен, созданный `data/tasks.json.lock` удалён.
+- Изменения локальные на ветке PR #722; публикация и exact-head CI ещё не выполнены. Классификация: **Architecture Review Required** из-за усиления атомарного repository guard.
+- Подробности: `UNIT_ECONOMICS_W42_REVIEW_REMEDIATION_2026-10-31.md`.
+
 # 2026-10-30 — W41: исправления повторного review PR #722
 
 - Зрелость модели привязана к `collected_at` локальной дате evidence; неизменённый старый снимок не становится зрелым от ожидания. Для учёта поздних фактов требуется новая коллекция.

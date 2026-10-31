@@ -347,6 +347,47 @@ def test_candidate_decision_is_rejected_after_baseline_collection_is_refreshed(t
         reset_current_tenant_user_id(token)
 
 
+def test_candidate_decision_is_rejected_after_control_event_changes(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "stale-controls.sqlite")
+    token = _context()
+    try:
+        experiment, snapshot, baseline_id, candidate_id, _ = (
+            _candidate_review_repository(repo)
+        )
+        comparison = _append_valid_comparison(
+            repo, experiment, snapshot, baseline_id, candidate_id,
+        )
+        assert comparison["error"] is False
+        changed_flags = {
+            key: "UNCHANGED" for key in (
+                "inventory", "promotion", "advertising", "card", "cost", "tariff",
+            )
+        }
+        changed_flags["advertising"] = "CHANGED"
+        updated = repo.record_price_experiment_control_update(
+            experiment["experiment_id"], candidate_id, changed_flags,
+            expected_state_revision=3, idempotency_key="w42-control-change01",
+        )
+        assert updated["error"] is False
+
+        rejected = repo.record_price_experiment_owner_decision(
+            experiment["experiment_id"], {
+                "schema_version": 1,
+                "decision_type": "SELECT_EVALUATED_CANDIDATE",
+                "result_phase_id": candidate_id,
+                "result_revision": comparison["result_revision"],
+                "selected_phase_id": candidate_id,
+            }, expected_state_revision=updated["state_revision"],
+            idempotency_key="w42-stale-control-decision01",
+        )
+        assert rejected["error"] is True
+        assert rejected["code"] == (
+            "PLANNING_PRICE_EXPERIMENT_DECISION_COMPARISON_STALE"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_schema_v11_to_v12_adds_decision_table_and_preserves_existing_plan(tmp_path):
     path = tmp_path / "planning.sqlite"
     repo = PlanningWorkspaceRepository(db_path=path)

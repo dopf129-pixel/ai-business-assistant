@@ -280,6 +280,40 @@ def test_q0_and_below_sample_gate_never_create_a_per_unit_profit(tmp_path):
     finally:
         reset_current_tenant_user_id(token)
 
+    low_sold_tmp_path = tmp_path / "low-sold"
+    low_sold_tmp_path.mkdir()
+    repo, token, experiment, phase, confirmed = _active_phase(low_sold_tmp_path)
+    try:
+        collector = PhaseEvidenceCollector(_mature_evidence(sample=30, delivered=1))
+        collected = _collect(
+            repo, experiment, phase, confirmed, collector, key="w42-low-sold-collect01",
+        )
+        result = _readiness(
+            repo, experiment, phase, confirmed,
+            now=datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc),
+            result_revision=collected["result_revision"], key="w42-low-sold-readiness01",
+        )
+        assert result["status"] == "WAITING_FOR_DATA"
+        saved = repo.list_price_experiment_results(
+            experiment["experiment_id"], phase["phase_id"],
+        )["items"][0]["payload"]
+        gates = {item["gate"]: item for item in saved["quality_gates"]}
+        assert gates["ELIGIBLE_UNIT_SAMPLE"]["status"] == "PASS"
+        assert gates["SOLD_UNIT_DENOMINATOR"]["status"] == "FAIL"
+        assert gates["SOLD_UNIT_DENOMINATOR"]["reason_code"] == "SOLD_SAMPLE_BELOW_MINIMUM"
+        assert saved["candidate_profit_per_unit_rub"] is None
+        blocked_finish = repo.finish_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            expected_result_revision=result["result_revision"],
+            idempotency_key="w42-low-sold-finish01",
+            owner_id="owner-1", store_id="store-a",
+        )
+        assert blocked_finish["code"] == "PLANNING_PRICE_EXPERIMENT_PHASE_NOT_READY"
+    finally:
+        reset_current_tenant_user_id(token)
+
 
 def test_partial_cpc_is_unknown_not_zero_and_does_not_mark_phase_ready(tmp_path):
     repo, token, experiment, phase, confirmed = _active_phase(tmp_path)

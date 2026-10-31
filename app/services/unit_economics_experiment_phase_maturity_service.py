@@ -144,8 +144,13 @@ class UnitEconomicsExperimentPhaseMaturityService:
             if delivered is None or successful is None:
                 sold_status, sold_reason = "UNKNOWN", "SOLD_UNITS_NOT_CONFIRMED"
             else:
-                sold_status = "PASS" if successful > 0 else "FAIL"
-                sold_reason = "POSITIVE_SOLD_UNITS" if successful > 0 else "ZERO_SOLD_UNITS"
+                sold_status = "PASS" if successful >= minimum_units else "FAIL"
+                if successful == 0:
+                    sold_reason = "ZERO_SOLD_UNITS"
+                elif successful < minimum_units:
+                    sold_reason = "SOLD_SAMPLE_BELOW_MINIMUM"
+                else:
+                    sold_reason = "MINIMUM_REACHED"
 
         controls = config.get("control_flags")
         control_warnings = not isinstance(controls, dict) or any(
@@ -211,6 +216,9 @@ class UnitEconomicsExperimentPhaseMaturityService:
                 gate["status"] == "PASS"
                 or gate["gate"] in {"MATURITY_DELAY", "ELIGIBLE_UNIT_SAMPLE"}
                 and gate["status"] in {"FAIL", "UNKNOWN"}
+                or gate["gate"] == "SOLD_UNIT_DENOMINATOR"
+                and gate["reason_code"] == "SOLD_SAMPLE_BELOW_MINIMUM"
+                and gate["status"] == "FAIL"
                 for gate in quality_gates
                 if gate["gate"] in required_pass
             )
