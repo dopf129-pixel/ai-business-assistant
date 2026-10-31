@@ -168,4 +168,11 @@ Runtime, схемы и пользовательские данные в подг
 - Существующая кнопка планового сценария доступна для ручного тарифа и рекламных допущений. Они сохраняют provenance сценария и не превращаются в фактические current/history данные. Внутри сценария остаются прежние ID, revision и CAS guards.
 - `Пересчитать этот SKU` явно повторяет factual query; snapshot token связан с пользователем и tenant. Открытие ledger не читает источники. Автоматического retry нет.
 - Если для расхода нет подтверждённого per-SKU источника или формы ввода, сообщение называет неподдерживаемые классы; они остаются неизвестными и не распределяются. Store-level расход не предлагается как корректировка SKU; нули не подставляются.
+
+### MA18 — текущие, исторические и экспериментальные представления
+
+- Current and historical SKU cards already carried `pre_ad_margin.tax_basis`, current `tax_mode` or historical tax preserved from the selected period, expense completeness, source periods, and ad status. Existing legacy profit/margin fields and saved historical records remain unchanged.
+- The frozen price-experiment snapshot projection remains schema v1, read-only, source-I/O-free and `recalculated=False`; its existing plan input contains the tax mode/rate but not the tax-setting origin. The Telegram frozen view now labels that limitation rather than inferring source provenance, and explicitly says the new pre-ad projection was not applied to this saved experiment.
+- A stored experiment result is still the old observation/ranking result, not a pre-ad margin calculation. Its detail shows its saved source timestamp, window, and count of linked snapshot references without exposing reference IDs; where the result schema has no tax basis, the view states that it was not saved and that the new pre-ad margin was not applied.
+- No experiment result, revision, ranking input, W42–W44 guard, persistence schema, or export projection was rewritten. Regression profile across 8 modules: **113 passed in 4.23s**; `py_compile`, diff check and owner data hash pass.
 - Linked Windows profile: **98 passed in 1.95s** across 6 modules; `py_compile` and `git diff --check` PASS; owner data SHA-1 unchanged, lock absent. No live Ozon/Telegram request or real bot.
