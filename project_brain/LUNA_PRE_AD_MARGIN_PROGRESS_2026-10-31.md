@@ -56,7 +56,7 @@
 | MA22 | MA20,MA21 | VERIFIED_EXISTING | Owner/store binding, same-SKU cross-store isolation, invalidation after refresh/restart, frozen saved tariff revisions and concurrent revision CAS verified. Linked profile: 130 passed in 4.05s; production change not needed. |
 | MA23 | MA17,MA22 | VERIFIED_EXISTING | Local details/export reads, tenant-scoped cache, in-flight dedup, shared operation budgets/cancellation, and honest unavailable/partial output verified. Linked profile: 141 passed in 4.50s; production change not needed. |
 | MA24 | MA20,MA21,MA22 | DONE | Synthetic archive verified and restored into a new root; old/new plan revisions, history and exact frozen exports survive; tenant isolation/raw-response exclusion verified. Linked profile: 26 passed in 3.36s; regression commit `6b06eb43`. |
-| MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | NOT_STARTED | — |
+| MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | IN_PROGRESS | Starting from MA24 docs SHA `d4aa32fa`; map N01–N20 to independent numeric and ownership regressions, close any exact-oracle gaps, then run the linked canonical profile. |
 | MA26 | MA19,MA23,MA24,MA25 | NOT_STARTED | — |
 | MA27 | MA26 | NOT_STARTED | — |
 | MA28 | MA27 | NOT_STARTED | — |
@@ -132,6 +132,12 @@
 - Tenant B/store B cannot read the restored plan, tariff or observation. A disallowed synthetic raw API response is not persisted and is absent from restored DB bytes. All project/storage roots are `tmp_path`; no owner files/data are read or written.
 - Final linked Windows profile on test SHA `6b06eb43`: 3 modules — **26 passed in 3.36s**. `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. Test commit `6b06eb43`; no production/backup schema change.
 - Next: MA25 independent numeric regressions for N01–N20, including pre-ad tax arithmetic, denominator, expense ownership and missing/credit/partial cases.
+
+### MA25 — independent numeric acceptance regressions (in progress)
+
+- Input checkpoint: MA24 documentation SHA `d4aa32fa`; MA24 archive regression SHA `6b06eb43`. The acceptance matrix will use fixed task oracles and canonical public services, not a test-side reimplementation of the production formula.
+- Initial coverage inspection found exact regressions already distributed across canonical current/scenario, historical add-back, mix, tariff, cross-dock, return-ownership, saved-plan and Telegram tests. The first added acceptance checks will close any missing fixed-value cases and explicitly assert TaxService call basis/order; results are not complete until the linked profile and N01–N20 map are recorded.
+- No live Ozon/Telegram calls, bot launch, or owner-data access.
 
 ## Правила исполнения
 
