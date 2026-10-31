@@ -3,6 +3,7 @@
 Дата подготовки: 31.10.2026
 Реализационная ветка: `codex/pre-ad-margin-implementation-20261031`
 Целевая ветка PR: `codex/pre-ad-margin-spec-20261031` (ветка задания PR #723)
+Реализационный PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/724
 Текущее состояние CI: смотреть exact-head checks в PR; локальная приёмка зафиксирована ниже.
 Слияние, развёртывание, live-запросы и запуск бота этим изменением не выполняются.
 
