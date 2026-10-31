@@ -6,7 +6,9 @@
 
 ## Resume
 
-- Все этапы NOT_STARTED. Начать с MA00 и перепроверки live main/PR/spec статусов.
+- MA00 DONE: PR #721/#722/#723 открыты, их базы/head сверены; создана отдельная `codex/pre-ad-margin-implementation-20261031` от точной головы ТЗ `34007a9b229092b6d54f6194d6037b50f23b2d1c`. До изменений дерево было чистым; `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствовал. См. `PRE_AD_MARGIN_MA00_BASELINE_2026-10-31.md`.
+- MA01–MA04 DONE: зафиксированы current/historical/scenario consumers, исторический add-back boundary и versioned `pre_ad_margin` v1 contract. Исходный профиль **89 passed in 1.74s**; hashes owner data неизменны. Подробности в `PRE_AD_MARGIN_AUDIT_2026-10-31.md` и Decision 051.
+- Продолжить MA05: canonical самостоятельная no-ad ветка без изменения входов и старых outputs.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -17,11 +19,11 @@
 
 | Этап | Зависимости | Статус | Фактические результаты |
 |---|---|---|---|
-| MA00 | — | NOT_STARTED | — |
-| MA01 | MA00 | NOT_STARTED | — |
-| MA02 | MA00 | NOT_STARTED | — |
-| MA03 | MA01,MA02 | NOT_STARTED | — |
-| MA04 | MA01,MA02,MA03 | NOT_STARTED | — |
+| MA00 | — | DONE | PR #721/#722/#723 сверены; отдельная implementation branch создана от точного spec head; чистое исходное дерево; data/tasks.json SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствовал. См. `PRE_AD_MARGIN_MA00_BASELINE_2026-10-31.md`. |
+| MA01 | MA00 | DONE | Карта current/history: текущая модель уже без рекламы, но expense scope неполон; historical ads source не подключён. Профиль базы 89 passed. См. audit §MA01. |
+| MA02 | MA00 | DONE | Зафиксированы canonical scenario inputs, ad requirement, TaxService, extended expense gate и grid/mix/experiment consumers. Профиль базы 89 passed. См. audit §MA02. |
+| MA03 | MA01,MA02 | DONE | Exact-SKU financial-ad resolver существует, но не подключён к history query; Performance CPC reconciliation-only. Исторический add-back без доказанного inclusion недоступен. См. audit §MA03. |
+| MA04 | MA01,MA02,MA03 | DONE | Аддитивный versioned `pre_ad_margin` v1 и backward compatibility закреплены Decision 051. N01–N20 остаются acceptance oracle. См. audit §MA04. |
 | MA05 | MA04 | NOT_STARTED | — |
 | MA06 | MA05 | NOT_STARTED | — |
 | MA07 | MA06 | NOT_STARTED | — |

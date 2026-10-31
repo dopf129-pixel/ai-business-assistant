@@ -34,3 +34,33 @@
 Runtime, схемы и пользовательские данные в подготовке не меняются. Числовые примеры проверяются на текущем canonical calculator и Decimal; результаты подготовки записываются в журнал. Проверки подготовки документации не закрывают реализацию и не заменяют её CI.
 
 Проверки подготовки: граф из 30 этапов ацикличен и полностью совпадает с журналом; 20 групп приёмки; 17 точных repo-relative code/docs paths существуют. Canonical numerical oracles N01/N03/N04/N05, отдельный crossdock case/сохранность guard и Decimal historical/weighted примеры прошли. Полные результаты и исправление локального timezone окружения записаны в журнале.
+
+## Реализационный аудит MA01–MA04
+
+Проверена фактическая ветка PR #722, от которой зависит PR #723. Локальный профиль исходного кода до реализации прошёл: **89 passed in 1.74s** — `test_product_unit_economics.py`, `test_product_unit_economics_query.py`, `test_current_unit_economics_integration.py`, `test_current_unit_economics_finance_sku.py`, `test_unit_price_scenario_service.py`, `test_unit_price_scenario_extended_contract.py`, `test_unit_economics_advertising_evidence_service.py`. SHA `data/tasks.json` остался `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствовал.
+
+### MA01 — текущая и историческая карточка
+
+- `CurrentProductEconomicsSource` берёт цену/тариф из `get_product_prices`, средние комиссию/логистику/последнюю милю/эквайринг/баллы из ограниченного финансового окна (по умолчанию 2 дня), кросс-докинг — отдельно из 56 завершённых дней на фактически принятые единицы.
+- `ProductUnitEconomicsProvider.build_current` вычитает цену комиссии, логистику, последнюю милю, эквайринг, себестоимость и применимый crossdock, затем считает налог через `TaxService`. Ветвь рекламы отсутствует; текущий `margin_percent` уже является маржой модели без рекламного расхода, но существующий public response не называет её так и не доказывает полный expense scope.
+- `ProductUnitEconomicsQueryService._attach_returns_impact` присоединяет возвраты отдельно и может показать risk-adjusted/estimated profit. Базовая прибыль провайдера при этом не включает возвратный компонент. Хранение и дополнительные расходы в current source не подтверждены; отсутствие строки не равно нулю.
+- Исторический fallback использует выбранный Analytics период и агрегат `PeriodProfitService`; возвращает налог, COGS, accrual-derived profit/fees и количество, но устанавливает missing `advertising`, `storage`, `returns`. `ProductUnitEconomicsQueryService` не подключён к exact-SKU financial advertising evidence. Поэтому нынешний исторический after-tax profit нельзя безопасно подписать как «до рекламы» или восстановить add-back.
+
+### MA02 — плановый калькулятор и потребители
+
+- `UnitPriceScenarioService.calculate` — canonical one-successful-sale путь: `price`, `cost`, подтверждённая ставка комиссии, logistics/last mile/acquiring, points, advertising mode, tax mode/rates; суммы налогов передаются существующему `TaxService`.
+- В текущем v2 результате `calculated.profit`/`margin_percent` — после рекламы. Даже если обязательные остальные поля заполнены, `advertising_rate` либо `advertising_cost_per_unit` требуется для `available=True`.
+- Расширенные расходы применяются только с complete evidence. Legacy crossdock input в extended scenario намеренно возвращает `CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE`; этот guard должен сохраниться.
+- Результат потребляется Telegram calculator, target/grid/sensitivity, batch, advertising cap, sales mix, saved plans, observation/experiment и serializers. Сеточные consumers оптимизируют существующую after-ad цель. Новый показатель должен быть дополнительным и не менять её.
+
+### MA03 — граница исторического факта
+
+- `UnitEconomicsAdvertisingEvidenceService.resolve` допускает финансовые затраты по exact SKU/cohort только при подтверждённом типе, ownership, attribution и полном coverage; Performance CPC остаётся reconciliation-only.
+- Это resolver не подключён к historical query provider, не выдаёт исторический налоговый basis, и в production factory нет collaborator, который может подтвердить одновременную область SKU/периода/COGS/количества/налога. Существующий `net_profit + financial_ads` можно вычислить только в offline pure case, где inclusion финансовой рекламы в base net явно подтверждён.
+- Исторический public projection при обычном query остаётся `UNAVAILABLE` с точной причиной; не переводить Performance CPC, account-level ads, `other_fees` или неизвестную рекламу в add-back. Это не блокирует current/model before-ad projection.
+
+### MA04 — аддитивный versioned projection
+
+Зафиксирован контракт `pre_ad_margin` v1 (см. Decision 051): доступность денежного значения отдельно от полноты расходов; denominator — seller revenue before discount points; режим и tax basis явные; неизвестные expense keys не заполняются нулём; реклама для before-ad явно `EXCLUDED_BY_DEFINITION`, actual ad status при необходимости отдельно unknown/confirmed. Результат содержит nullable RUB/unit, nullable margin %, tax, known disjoint component summary, `included`/`unknown`/`excluded` scopes, provenance/source period and reason codes. Отдельные bases: `CURRENT_MODEL`, `PRICE_SCENARIO_NO_AD`, `HISTORICAL_RECONCILIATION`; tax basis соответственно текущая политика модели, canonical `NO_ADVERTISING_SCENARIO` или только `AS_RECORDED_IN_PERIOD_RESULT`.
+
+Текущие старые `calculated.profit`, `calculated.margin_percent`, текущие provider поля, сохранённые старые plans/exports и experiment results не меняют значение и не мигрируются автоматически. Никакие read path не создают revision. Проверка MA01–MA04 опирается на перечисленные точные точки кода и исходный профиль 89 тестов; тесты/контракты реализации добавляются с MA05 и далее.

@@ -2827,3 +2827,36 @@ existing float-based tax service without changing its contract.
 Status:
 
 Implemented with R1–R10 regressions. Targeted H–O profile passed (**259**), documentation checks passed (**3**), and exact code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Verify `39221770481` plus repeat `39221764654` on Windows/Linux, compile and production Docker smoke. An additional docs-only update requires its own exact-head Verify; independent second review remains pending. No merge/deploy was performed.
+
+---
+
+## Decision 051
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Versioned SKU margin-before-advertising projection
+
+Decision:
+
+- Add an additive `pre_ad_margin` v1 projection to the existing current and planning result contracts. It reports profit in RUB per unit and margin percent after configured tax and included non-ad expenses; the percentage denominator is seller revenue before discount points.
+- Separate numeric availability from expense-scope completeness. Unknown expenses remain named and nullable; a numeric subtotal with unknown applicable expenses is explicitly partial and cannot be described as final store/SKU profit.
+- Use existing `UnitPriceScenarioService` component arithmetic and `TaxService` for no-ad model scenarios. Internal exclusion of advertising must not mutate caller inputs, persist a zero ad assumption, or alter the existing after-ad `profit`/`margin_percent` fields or optimization objectives.
+- Keep `CURRENT_MODEL`, `PRICE_SCENARIO_NO_AD`, and `HISTORICAL_RECONCILIATION` distinct. Scenario tax is recalculated by the canonical tax service for zero advertising; a historical projection may only retain the tax already recorded in the matching period result.
+- Historical advertising add-back requires complete exact-SKU evidence that financial ads were already included in the source net result and that identity, period, COGS, quantity, and tax scope match. Performance CPC is reconciliation-only. Unsupported historical projections remain unavailable with a specific reason.
+- Keep the projection additive and versioned; old result fields, saved plan/history/export payloads remain readable and are not implicitly recalculated. No data migration or source refresh occurs on read.
+
+Reason:
+
+The owner needs a stable margin after tax and included expenses while keeping
+advertising out of the before-ad numerator and using seller revenue before
+discount points as the denominator. Explicit source/tax bases prevent a
+scenario from being confused with historical fact, and the additive contract
+preserves existing optimization and historical behavior.
+
+Status:
+
+Contract accepted for implementation in the dependent pre-ad margin PR. MA01–MA04 audit profile: 89 passed; see `PRE_AD_MARGIN_AUDIT_2026-10-31.md`. Runtime implementation and full CI remain pending.
