@@ -1,4 +1,6 @@
 from copy import deepcopy
+import csv
+import io
 import json
 
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -216,8 +218,10 @@ def test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_pri
             _find(prompt, "Ось · Цена продавца"), user_id="user-1",
         )
         report = sensitivity.handle_text("500;500.01;600.01", user_id="user-1")
-        export_callback = _find(report, "⬇️ JSON")
-        exported = sensitivity.handle_callback(export_callback, user_id="user-1")
+        json_callback = _find(report, "⬇️ JSON")
+        csv_callback = _find(report, "⬇️ CSV")
+        exported = sensitivity.handle_callback(json_callback, user_id="user-1")
+        exported_csv = sensitivity.handle_callback(csv_callback, user_id="user-1")
         applied = sensitivity.handle_callback(
             _find(report, "Перенести сценарий 2"), user_id="user-1",
         )
@@ -225,6 +229,30 @@ def test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_pri
         reset_current_tenant_user_id(tenant)
 
     document = json.loads(exported["file_content"].decode("utf-8"))
+    cells = report["sensitivity_result"]["cells"]
+    for row, cell in zip(document["rows"], cells):
+        assert row["pre_ad_margin"] == (cell.get("scenario") or {}).get("pre_ad_margin")
+    projection = document["rows"][0]["pre_ad_margin"]
+    assert projection["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+    assert projection["unit_basis"] == "ONE_SUCCESSFUL_UNIT"
+    assert projection["tax_basis"] == "NO_ADVERTISING_SCENARIO"
+    assert "expense_scope" in projection
+    assert "source_periods" in projection
+    assert document["rows"][0]["calc_advertising"] is not None
+    assert document["rows"][0]["calc_tax"] is not None
+    assert document["metadata"]["sale_basis"] == "one_successful_sale"
+    assert document["metadata"]["source_as_of"] == report["sensitivity_result"]["source_as_of"]
+    csv_rows = list(csv.reader(
+        io.StringIO(exported_csv["file_content"].decode("utf-8-sig"), newline=""),
+        delimiter=";",
+    ))
+    header_index = next(
+        index for index, row in enumerate(csv_rows)
+        if "Маржа до рекламы" in row
+    )
+    projection_column = csv_rows[header_index].index("Маржа до рекламы")
+    csv_projection = json.loads(csv_rows[header_index + 1][projection_column])
+    assert csv_projection == projection
     assert report["sensitivity_result"]["available_cell_count"] == 2
     assert "комиссия 11% (ручной тариф)" in report["message"]
     assert "комиссия 22% (ручной тариф)" in report["message"]
