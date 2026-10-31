@@ -2,7 +2,7 @@
 
 - Telegram result view проверяет актуальность phase-state revisions и event revisions обеих фаз, а также latest collection IDs. Старая запись из истории после нового CONTROL_UPDATE помечается устаревшей и не предлагает KEEP/SELECT.
 - Регрессия проходит через обычные кнопки `phase_results` → `result`; старая owner-decision кнопка также отклоняется.
-- Профиль экспериментов и Telegram: **117 passed in 7.28s**; полный Windows pytest: **4,352 passed in 43.81s**; `compileall` и `git diff --check` прошли. `data/tasks.json` восстановлен, созданный lock удалён. Публикация и CI нового SHA ожидают.
+- Профиль экспериментов и Telegram: **117 passed in 7.28s**; полный Windows pytest: **4,352 passed in 43.81s**; `compileall` и `git diff --check` прошли. Exact-head Windows и full-verification CI прошли на кодовом коммите `48cc6709342e689b950dc0ba461b177963e7b4c9` (run `41200852297`). `data/tasks.json` восстановлен, созданный lock удалён.
 
 # 2026-10-31 — W42: исправления повторного review PR #722
 

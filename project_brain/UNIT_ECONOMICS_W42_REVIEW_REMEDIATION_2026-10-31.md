@@ -36,4 +36,4 @@ Minor extension существующих tenant/CAS guard contracts, без но
 - Устаревшее сравнение получает общее сообщение о смене данных или условий и не показывает кнопки выбора цены. Добавлена регрессия через публичные `phase_results` → `result` callbacks; ранее выданная кнопка остаётся устаревшей.
 - Профиль экспериментов и Telegram: **117 passed in 7.28s**; полный Windows `pytest`: **4,352 passed in 43.81s**; `python -m compileall -q app` и `git diff --check` PASS.
 - Полный прогон изменил `data/tasks.json`; файл восстановлен до исходного hash `38637702206478ab3c08d7ae1c4ac87f1f1c6354`, созданный `data/tasks.json.lock` удалён.
-- Commit/push и exact-head CI: ожидаются.
+- Исправление опубликовано коммитом `48cc6709342e689b950dc0ba461b177963e7b4c9` в PR #722. Windows и full-verification CI прошли на exact head в [run 41200852297](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41200852297). Есть только предупреждение Actions о переходе с Node.js 20.

@@ -2,7 +2,7 @@
 
 - `tests/test_telegram_unit_economics_experiment_runtime.py::test_telegram_exposes_complete_baseline_candidate_and_owner_decision_lifecycle`: после нового контрольного события старый результат открывается через `phase_results` → `result`, показывает предупреждение и не содержит owner-decision действий. Уже выданный callback остаётся отклонённым; новое сравнение открывает безопасный вариант завершения.
 - Проверка актуальности результата сравнивает обе phase-state revisions, оба latest control-event revisions и обе latest collection IDs; repository остаётся последним атомарным guard при записи решения.
-- Verification: experiment + Telegram profile **117 passed in 7.28s**; full Windows pytest **4,352 passed in 43.81s**; `compileall` and `git diff --check` pass. Exact-head CI awaits publication.
+- Verification: experiment + Telegram profile **117 passed in 7.28s**; full Windows pytest **4,352 passed in 43.81s**; `compileall` and `git diff --check` pass. Exact-head Windows and full-verification CI pass on `48cc6709342e689b950dc0ba461b177963e7b4c9`: [run 41200852297](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41200852297).
 
 # W42 — защита от устаревшего выбора и низкой выборки (2026-10-31)
 
