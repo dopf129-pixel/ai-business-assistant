@@ -1,5 +1,12 @@
 # Project Roadmap
 
+## Следующий пакет — маржа SKU до рекламы (31.10.2026)
+
+- По запросу владельца подготовлено `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`: 30 этапов MA00–MA29, 6 модулей. Журнал `LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`, все этапы NOT_STARTED. Это спецификация, реализация не начата.
+- Цель: до-рекламная прибыль/маржа после налога и прочих учитываемых расходов, прозрачный состав, отдельная реклама/after-ad, current/model/historical основания и совместимость старых планов.
+- Неизвестные расходы не становятся нулём или полным фактом. Canonical calculator, TaxService, тарифные границы, source budgets, W42–W44 freshness guards и crossdock denominator restriction сохраняются.
+- База подготовки — проверенный PR #722 HEAD `aad70b57`; #721/#722 на подготовке ещё открыты. Перед исполнением проверить актуальные main/base/head. Слияние и live acceptance этой подготовкой не выполняются.
+
 ## Следующая программа — расширенная экономика SKU и ценовые эксперименты (28.10.2026)
 
 - По выбору владельца подготовлено LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md: 40 этапов W00–W39, 8 модулей A–H. Журнал — LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_PROGRESS_2026-10-28.md; все стадии NOT_STARTED.

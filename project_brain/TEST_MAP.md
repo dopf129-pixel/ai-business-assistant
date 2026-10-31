@@ -1,3 +1,8 @@
+# План MA00–MA29 — маржа до рекламы (спецификация, не выполненные проверки)
+
+- ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`, journal `LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`: 20 групп numerical/behavioral acceptance; ключевые случаи — independent no-ad без известной рекламы, T0/T1 при profit-tax, historical add-back только уже учтённой финансовой рекламы, неполные расходы, знаменатели, старые plans и tenant/revision guards.
+- Опорные существующие тесты: `tests/test_product_unit_economics.py`, `tests/test_product_unit_economics_query.py`, `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_extended_contract.py`, `tests/test_unit_economics_advertising_evidence_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`. Новые implementation tests пока не добавлены; результат подготовки спецификации фиксируется в её журнале.
+
 # W44 — свежесть каждого кандидата в общем рейтинге
 
 - `tests/test_telegram_unit_economics_experiment_runtime.py::test_candidate_ranking_excludes_comparisons_that_are_not_current`: из двух сопоставимых сравнений более прибыльное устаревшее сравнение исключается runtime-сборщиком до передачи в recommendation service; максимум и `best_phase_ids` содержат только текущий кандидат, а счётчик исключения равен 1.
