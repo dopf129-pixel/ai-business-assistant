@@ -9,6 +9,9 @@ from services.period_profit_diagnostic_view_service import (
     PeriodProfitDiagnosticViewService,
 )
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.unit_economics_experiment_snapshot_view_service import (
+    UnitEconomicsExperimentSnapshotViewService,
+)
 
 
 class AnalyticsExportService:
@@ -908,6 +911,43 @@ class AnalyticsExportService:
         }
         return self.serializer.serialize(
             "unit_price_observation", file_format, columns, [row], metadata,
+        )
+
+    def export_unit_economics_experiment_snapshot(self, frozen_snapshot, file_format):
+        """Export the same exact, privacy-safe projection used by the detail screen."""
+        projected = UnitEconomicsExperimentSnapshotViewService.project(frozen_snapshot)
+        if projected.get("error") is True:
+            return projected
+        view = projected["view"]
+        columns = [self._column(
+            "snapshot", "Снимок экономики и покрытия", "json",
+        )]
+        metadata = {
+            "source_reads": False,
+            "recalculated_on_export": False,
+            "revisions": deepcopy(view["revisions"]),
+        }
+        return self.serializer.serialize(
+            "unit_economics_experiment_snapshot", file_format,
+            columns, [{"snapshot": view}], metadata,
+        )
+
+    def export_unit_economics_experiment_history(self, rows, metadata, file_format):
+        """Export bounded, already-normalized experiment history without source I/O."""
+        if not isinstance(rows, list) or not isinstance(metadata, dict):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = [
+            self._column("record_type", "Тип записи", "status"),
+            self._column("revision", "Ревизия", "integer"),
+            self._column("state", "Статус", "status"),
+            self._column("created_at", "Сохранено", "text"),
+            self._column("phase", "Фаза", "text"),
+            self._column("payload", "Данные записи", "json"),
+            self._column("content_hash", "Хэш содержимого", "text"),
+        ]
+        return self.serializer.serialize(
+            "unit_economics_experiment_history", file_format,
+            columns, rows, metadata,
         )
 
     def export_unit_price_tariff_profile(self, scenario_context, file_format):

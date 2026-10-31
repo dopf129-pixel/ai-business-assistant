@@ -218,6 +218,7 @@ class AssistantButtonHandlerService:
         build_metadata_service=None,
         unit_price_tariff_profile_runtime_service=None,
         unit_price_observation_runtime_service=None,
+        unit_economics_experiment_runtime_service=None,
     ):
 
         self.assistant = (
@@ -296,6 +297,7 @@ class AssistantButtonHandlerService:
         self.saved_planning_plan_runtime_service = saved_planning_plan_runtime_service
         self.unit_price_tariff_profile_runtime_service = unit_price_tariff_profile_runtime_service
         self.unit_price_observation_runtime_service = unit_price_observation_runtime_service
+        self.unit_economics_experiment_runtime_service = unit_economics_experiment_runtime_service
         self.analytics_export_service = analytics_export_service
         self.build_metadata_service = (
             build_metadata_service or AppBuildMetadataService()
@@ -571,7 +573,7 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:", "upp:", "upt:", "upo:")):
+        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:", "upp:", "upt:", "upo:", "uex:")):
             return
         if (
             isinstance(button_id, str)
@@ -600,6 +602,7 @@ class AssistantButtonHandlerService:
             self.saved_planning_plan_runtime_service,
             self.unit_price_tariff_profile_runtime_service,
             self.unit_price_observation_runtime_service,
+            self.unit_economics_experiment_runtime_service,
             self.product_overview_service,
         ):
             clearer = getattr(runtime, "clear_user_state", None)
@@ -609,6 +612,23 @@ class AssistantButtonHandlerService:
                 clearer(user_id)
 
     def handle_text(self, text, user_id=None):
+        experiment_handler = getattr(
+            self.unit_economics_experiment_runtime_service, "handle_text", None
+        )
+        if callable(experiment_handler):
+            try:
+                experiment_result = experiment_handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_ECONOMICS_EXPERIMENT_TEXT_FAILED",
+                    "message": "Не удалось обработать настройку эксперимента цены.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if experiment_result is not None:
+                return experiment_result
+
         observation_handler = getattr(
             self.unit_price_observation_runtime_service, "handle_text", None
         )
@@ -824,6 +844,13 @@ class AssistantButtonHandlerService:
             button_id,
             user_id,
         )
+        experiment_clearer = getattr(
+            self.unit_economics_experiment_runtime_service, "clear_user_state", None
+        )
+        if callable(experiment_clearer) and not (
+            isinstance(button_id, str) and button_id.startswith("uex:")
+        ):
+            experiment_clearer(user_id)
         observation_clearer = getattr(
             self.unit_price_observation_runtime_service, "clear_pending", None
         )
@@ -881,6 +908,25 @@ class AssistantButtonHandlerService:
         ):
             sensitivity_clearer(user_id)
         self._clear_unit_price_input_for_new_flow(button_id, user_id)
+
+        if isinstance(button_id, str) and button_id.startswith("uex:"):
+            handler = getattr(
+                self.unit_economics_experiment_runtime_service, "handle_callback", None
+            )
+            if not callable(handler):
+                return self._product_overview_stale(
+                    "UNIT_ECONOMICS_EXPERIMENT_UNAVAILABLE"
+                )
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_ECONOMICS_EXPERIMENT_CALLBACK_FAILED",
+                    "message": "Не удалось выполнить действие с экспериментом цены.",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if isinstance(button_id, str) and button_id.startswith("upo:"):
             runtime = self.unit_price_observation_runtime_service
@@ -5504,15 +5550,39 @@ class AssistantButtonHandlerService:
                 skus,
                 calculator_callback=None if calculator_selection else "upc:m",
                 product_callbacks=product_callbacks,
+                experiment_callback=(
+                    "uex:m"
+                    if not calculator_selection
+                    and self.unit_economics_experiment_runtime_service is not None
+                    else None
+                ),
             )
         else:
-            keyboard = keyboard_builder(skus)
+            keyboard = keyboard_builder(
+                skus,
+                experiment_callback=(
+                    "uex:m"
+                    if self.unit_economics_experiment_runtime_service is not None
+                    else None
+                ),
+            )
         return {
             "error": False,
             "message": (
-                "Выберите товар для планирования цены:"
+                "Расширенная плановая экономика — сценарий «что если». "
+                "Выберите SKU, чтобы менять цену и допущения; расчёт не меняет данные на Ozon."
                 if calculator_selection
-                else "Выберите товар:"
+                else (
+                    "Базовая юнит-экономика показывает доступные текущие или исторические данные. "
+                    "Неизвестные расходы отмечаются отдельно и не считаются нулевыми. "
+                    "Выберите SKU или откройте «Плановая экономика» для сценария новой цены:"
+                    if self.unit_price_calculator_runtime_service is not None
+                    else (
+                        "Базовая юнит-экономика показывает доступные текущие или исторические данные. "
+                        "Неизвестные расходы отмечаются отдельно и не считаются нулевыми. "
+                        "Выберите SKU:"
+                    )
+                )
             ),
             "keyboard": keyboard,
         }
@@ -5586,6 +5656,12 @@ class AssistantButtonHandlerService:
             if callable(button_builder):
                 button = button_builder(user_id, sku)
                 output["keyboard"] = self.keyboard_service.build_unit_economics_detail_keyboard(button)
+                if button:
+                    output["message"] += (
+                        "\n\nБазовый режим: это оценка по доступным фактическим данным; "
+                        "пропуски выше не заменяются нулём. Для планирования новой цены и ручных "
+                        "допущений откройте плановую экономику кнопкой ниже."
+                    )
         return output
 
 

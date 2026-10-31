@@ -119,12 +119,30 @@ from services.unit_price_observation_result_service import (
 from services.telegram_unit_price_observation_runtime_service import (
     TelegramUnitPriceObservationRuntimeService,
 )
+from services.telegram_unit_economics_experiment_runtime_service import (
+    TelegramUnitEconomicsExperimentRuntimeService,
+)
 from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.telegram_saved_planning_plan_runtime_service import (
     TelegramSavedPlanningPlanRuntimeService,
 )
 from services.analytics_export_service import AnalyticsExportService
+from services.unit_economics_experiment_history_export_service import (
+    UnitEconomicsExperimentHistoryExportService,
+)
+from services.unit_economics_reference_snapshot_collection_service import (
+    UnitEconomicsReferenceSnapshotCollectionService,
+)
+from services.unit_economics_experiment_phase_collection_service import (
+    UnitEconomicsExperimentPhaseCollectionService,
+)
+from services.unit_economics_experiment_phase_readiness_service import (
+    UnitEconomicsExperimentPhaseReadinessService,
+)
+from services.unit_economics_experiment_phase_comparison_service import (
+    UnitEconomicsExperimentPhaseComparisonService,
+)
 from services.app_build_metadata_service import AppBuildMetadataService
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
@@ -417,6 +435,39 @@ def create_telegram_assistant():
         )
         saved_planning_plan_runtime_service.unit_price_observation_runtime_service = unit_price_observation_runtime_service
 
+    unit_economics_experiment_runtime_service = (
+        TelegramUnitEconomicsExperimentRuntimeService(
+            repository=planning_workspace_repository,
+            keyboard_service=keyboard,
+            observation_runtime_service=unit_price_observation_runtime_service,
+            reference_snapshot_collection_service=UnitEconomicsReferenceSnapshotCollectionService(
+                repository=planning_workspace_repository,
+                evidence_collection_service=unit_price_observation_collection_service,
+            ) if unit_price_observation_collection_service is not None else None,
+            phase_collection_service=UnitEconomicsExperimentPhaseCollectionService(
+                repository=planning_workspace_repository,
+                observation_collection_service=unit_price_observation_collection_service,
+            ) if unit_price_observation_collection_service is not None else None,
+            phase_readiness_service=UnitEconomicsExperimentPhaseReadinessService(
+                repository=planning_workspace_repository,
+            ),
+            phase_comparison_service=UnitEconomicsExperimentPhaseComparisonService(
+                repository=planning_workspace_repository,
+            ),
+            history_export_service=UnitEconomicsExperimentHistoryExportService(
+                repository=planning_workspace_repository,
+                analytics_export_service=analytics_export_service,
+            ),
+            default_timezone=getattr(
+                unit_price_observation_runtime_service,
+                "default_timezone",
+                "Europe/Moscow",
+            ),
+        )
+        if planning_workspace_repository is not None
+        else None
+    )
+
     period_profit_sku_runtime_service = (
         PeriodProfitSkuRuntimeService(
             period_profit_runtime_service.query_service,
@@ -524,6 +575,9 @@ def create_telegram_assistant():
                 unit_price_tariff_profile_runtime_service
             ),
             unit_price_observation_runtime_service=unit_price_observation_runtime_service,
+            unit_economics_experiment_runtime_service=(
+                unit_economics_experiment_runtime_service
+            ),
         )
     )
 
@@ -641,6 +695,9 @@ def create_telegram_assistant():
     )
     runner.saved_planning_plan_runtime_service = saved_planning_plan_runtime_service
     runner.unit_price_observation_runtime_service = unit_price_observation_runtime_service
+    runner.unit_economics_experiment_runtime_service = (
+        unit_economics_experiment_runtime_service
+    )
 
 
     runner.period_profit_runtime_service = (

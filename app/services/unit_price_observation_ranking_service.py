@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
 
 
 class UnitPriceObservationRankingService:
@@ -55,6 +56,9 @@ class UnitPriceObservationRankingService:
                     or not self._same_identity(observation.get("identity"), target_identity)
                     or not isinstance(result, dict)):
                 continue
+            assumption_basis = self._assumption_signature(
+                observation, owner_id=owner_id, store_id=store_id,
+            )
             evaluated.append({
                 "observation_id": observation.get("observation_id"),
                 "result": result,
@@ -62,8 +66,21 @@ class UnitPriceObservationRankingService:
                 "source_document_id": (observation.get("source_plan") or {}).get("document_id"),
                 "source_document_revision": (observation.get("source_plan") or {}).get("revision"),
                 "created_at": result_record.get("created_at") or observation.get("updated_at") or "",
-                "assumption_signature": self._assumption_signature(
-                    observation, owner_id=owner_id, store_id=store_id,
+                "assumption_signature": (
+                    assumption_basis.get("assumption_signature")
+                    if isinstance(assumption_basis, dict) else None
+                ),
+                "plan_extended_cost_mode": (
+                    assumption_basis.get("extended_cost_mode")
+                    if isinstance(assumption_basis, dict) else None
+                ),
+                "plan_extended_cost_origin": (
+                    assumption_basis.get("extended_cost_origin")
+                    if isinstance(assumption_basis, dict) else None
+                ),
+                "plan_extended_cost_signature": (
+                    assumption_basis.get("extended_cost_signature")
+                    if isinstance(assumption_basis, dict) else None
                 ),
             })
 
@@ -87,6 +104,9 @@ class UnitPriceObservationRankingService:
             "result_revision": item["result_revision"],
             "result": item["result"],
             "assumption_signature": item["assumption_signature"],
+            "plan_extended_cost_mode": item["plan_extended_cost_mode"],
+            "plan_extended_cost_origin": item["plan_extended_cost_origin"],
+            "plan_extended_cost_signature": item["plan_extended_cost_signature"],
             "owner_id": owner_id, "store_id": store_id,
         } for index, item in enumerate(checked)]
         source_references = [{
@@ -188,9 +208,23 @@ class UnitPriceObservationRankingService:
         if len(matching) != 1:
             return None
         item = matching[0]
-        inputs, _ = PlanningCrossDockingAdapter.restore_item(payload, item)
+        inputs, cross_docking = PlanningCrossDockingAdapter.restore_item(payload, item)
         sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
         if not isinstance(inputs, dict):
+            return None
+        extended = item.get("extended_scenario")
+        strict_evidence = item.get("strict_return_evidence")
+        expected_identity = {
+            "owner_id": owner_id, "store_id": store_id,
+            "product_id": observation.get("identity", {}).get("product_id"),
+            "offer_id": observation.get("identity", {}).get("offer_id"),
+            "sku": observation.get("identity", {}).get("sku"),
+            "sale_schema": observation.get("identity", {}).get("sale_schema"),
+        }
+        extended_basis = PlanningExtendedScenarioAdapter.observation_cost_basis(
+            extended, strict_evidence, expected_identity=expected_identity,
+        )
+        if extended_basis is None:
             return None
         snapshot = sources.get("tariff_resolution")
         profiles = snapshot.get("profiles") if isinstance(snapshot, dict) else None
@@ -200,13 +234,28 @@ class UnitPriceObservationRankingService:
             if key not in {"price", "advertising_rate"}
             and not (key == "commission_rate" and has_frozen_tariff)
         }
+        provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+        cross_docking_basis = None
+        if isinstance(cross_docking, dict):
+            cross_docking_basis = {
+                key: cross_docking.get(key) for key in (
+                    "status", "reason", "evidence_complete", "rate_available",
+                    "amount_per_unit", "denominator_kind", "applicable_to_sku",
+                )
+            }
         material = {
-            "version": 1,
+            "version": 2,
             "inputs": assumption_inputs,
             "tariff_profiles": profiles if has_frozen_tariff else None,
             "commission_rate_without_range_profile": (
                 None if has_frozen_tariff else inputs.get("commission_rate")
             ),
+            "cost_provenance": {
+                key: provenance.get(key) for key in ("cost", "cross_docking_per_unit")
+                if isinstance(provenance.get(key), str)
+            },
+            "cross_docking_basis": cross_docking_basis,
+            "extended_cost_basis": extended_basis,
         }
         try:
             encoded = json.dumps(
@@ -215,7 +264,12 @@ class UnitPriceObservationRankingService:
             ).encode("utf-8")
         except (TypeError, ValueError):
             return None
-        return sha256(encoded).hexdigest()
+        return {
+            "assumption_signature": sha256(encoded).hexdigest(),
+            "extended_cost_mode": extended_basis["mode"],
+            "extended_cost_origin": extended_basis["origin"],
+            "extended_cost_signature": extended_basis["signature"],
+        }
 
     @staticmethod
     def _same_identity(left, right):

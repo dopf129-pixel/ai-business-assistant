@@ -749,8 +749,12 @@ def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
     assert target_prompt["stage"] == "target_margin"
     assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
     assert target["status"] == "FOUND"
-    assert target["price"] == "11.08"
+    # The current solver evaluates the canonical rounded per-unit fees at each
+    # cent. In this deliberately extreme 99.99% variable-rate case, the first
+    # cent-exact price that yields a positive kopeck is 0.11 RUB.
+    assert target["price"] == "0.11"
     assert target["goal_reached"] is True
+    assert target["previous_cent_goal_reached"] is False
     assert source.calls == [("3921245627", "user-1", False)]
 
 
@@ -910,11 +914,41 @@ def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominat
     assert basis["total_spend"] == "200.00"
     assert basis["amount_per_unit"] == "5.00"
     assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
-    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == float(
-        result["price_planning_result"]["rows"][0]["advertising_rate"]
-    )
+    applied_inputs = applied["price_scenario"]["inputs"]
+    assert applied_inputs["advertising_mode"]["value"] == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+    assert applied_inputs["advertising_cost_per_unit"]["value"] == 5.0
+    assert "advertising_rate" not in applied_inputs
     assert applied["price_scenario"]["calculated"]["advertising"] == 5.0
     assert len(source.calls) == 1
+
+
+def test_advertising_mode_can_switch_between_percentage_and_fixed_rubles_per_unit():
+    runtime, _source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        fixed_button = _find_button(scenario, "Реклама, ₽/успешную продажу")
+        fixed_prompt = runtime.handle_callback(fixed_button["callback"], user_id="user-1")
+        fixed = runtime.handle_text("600", user_id="user-1")
+
+        percent_button = _find_button(fixed, "Реклама, %")
+        percent_prompt = runtime.handle_callback(percent_button["callback"], user_id="user-1")
+        percent = runtime.handle_text("7", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert fixed_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert fixed["price_scenario"]["inputs"]["advertising_mode"]["value"] == (
+        "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+    )
+    assert fixed["price_scenario"]["inputs"]["advertising_cost_per_unit"]["value"] == 600.0
+    assert "advertising_rate" not in fixed["price_scenario"]["inputs"]
+    assert fixed["price_scenario"]["calculated"]["advertising"] == 600.0
+    assert percent_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert percent["price_scenario"]["inputs"]["advertising_rate"]["value"] == 7.0
+    assert "advertising_mode" not in percent["price_scenario"]["inputs"]
+    assert "advertising_cost_per_unit" not in percent["price_scenario"]["inputs"]
+    assert percent["price_scenario"]["calculated"]["advertising"] == 35.0
 
 
 def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for_selected_price():
@@ -1458,8 +1492,10 @@ def test_current_unit_economics_detail_has_entry_to_same_calculator_runtime():
     finally:
         reset_current_tenant_user_id(token)
 
-    assert result["keyboard"]["buttons"][0]["text"] == "🧮 Подставить свою цену"
+    assert result["keyboard"]["buttons"][0]["text"] == "🧮 Планировать цену"
     assert result["keyboard"]["buttons"][0]["callback"].startswith("upc:p:")
+    assert "Базовый режим" in result["message"]
+    assert "допущений" in result["message"]
     assert scenario["price_scenario"]["identity"]["sku"] == "3921245627"
 
 
@@ -1494,7 +1530,8 @@ def test_opening_calculator_clears_pending_period_and_expense_text_stages():
     finally:
         reset_current_tenant_user_id(token)
 
-    assert result["message"] == "Выберите товар для планирования цены:"
+    assert "Расширенная плановая экономика" in result["message"]
+    assert "не меняет данные на Ozon" in result["message"]
     assert result["keyboard"]["buttons"] == [{
         "text": "hook-2",
         "callback": result["keyboard"]["buttons"][0]["callback"],
@@ -1530,10 +1567,10 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
         reset_current_tenant_user_id(token)
 
     assert menu["keyboard"]["buttons"][0] == {
-        "text": "🧮 Калькулятор цены",
+        "text": "🧮 Плановая экономика",
         "callback": "upc:m",
     }
-    assert calculator_picker["message"] == "Выберите товар для планирования цены:"
+    assert "Расширенная плановая экономика" in calculator_picker["message"]
     assert calculator_picker["keyboard"]["buttons"] == [{
         "text": "hook-2",
         "callback": calculator_picker["keyboard"]["buttons"][0]["callback"],

@@ -338,3 +338,60 @@ def test_source_age_that_cannot_be_represented_safely_is_rejected():
     assert _service().build_sweep(context, {"price": ["450", "500", "550"]})[
         "code"
     ] == "SENSITIVITY_SOURCE_FRESHNESS_UNKNOWN"
+
+
+def test_sensitivity_reuses_exact_extended_expense_contract_for_every_price_cell():
+    scenario = UnitPriceScenarioService(TaxService())
+    service = UnitPriceSensitivityService(scenario)
+    context = _context()
+    extension = {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": "a" * 64,
+        "quantity_evidence_ref": "b" * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["EXTRA_SERVICE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01", "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "UTC",
+        },
+        "denominator_units": 100,
+        "components": [{
+            "component_key": "EXTRA_SERVICE", "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }],
+    }
+    context["extended_scenario"] = extension
+
+    result = service.build_sweep(context, {"price": ["500", "550", "600"]})
+
+    assert result["error"] is False
+    assert [cell["scenario"]["calculated"]["additional_unit_expenses"]
+            for cell in result["cells"]] == [5.0, 5.0, 5.0]
+    for cell in result["cells"]:
+        direct = scenario.calculate(
+            cell["inputs"], identity=cell["scenario"]["identity"],
+            provenance=cell["provenance"], sources=context["sources"],
+            extended_scenario=extension,
+        )
+        assert cell["scenario"]["calculated"] == direct["calculated"]
+    changed = deepcopy(context)
+    changed["extended_scenario"]["components"][0]["numerator_rub"] = "600.00"
+    assert service.context_signature(changed) != service.context_signature(context)
+
+
+def test_sensitivity_rejects_strict_return_evidence_without_extended_mode():
+    context = _context()
+    context["strict_return_evidence"] = {"status": "COMPLETE"}
+
+    result = _service().build_sweep(context, {"price": ["500", "550", "600"]})
+
+    assert result["error"] is True
+    assert result["code"] == "SENSITIVITY_CONTEXT_INVALID"

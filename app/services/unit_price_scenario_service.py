@@ -1,5 +1,8 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from uuid import uuid4
+from datetime import date
+import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class UnitPriceScenarioService:
@@ -18,6 +21,10 @@ class UnitPriceScenarioService:
         "advertising_rate",
         "discount_points_rate",
     )
+    ADVERTISING_MODES = frozenset({
+        "PERCENT_OF_SELLER_REVENUE",
+        "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+    })
     TAX_RATE_FIELDS = ("tax_rate", "minimum_tax_rate")
     REQUIRED_FIELDS = (
         "price",
@@ -26,7 +33,6 @@ class UnitPriceScenarioService:
         "logistics_per_unit",
         "last_mile_per_unit",
         "acquiring_per_unit",
-        "advertising_rate",
         "discount_points_rate",
         "tax_mode",
     )
@@ -37,6 +43,7 @@ class UnitPriceScenarioService:
         "logistics_per_unit": "RUB/unit",
         "last_mile_per_unit": "RUB/unit",
         "acquiring_per_unit": "RUB/unit",
+        "advertising_cost_per_unit": "RUB/successful_unit",
         "cross_docking_per_unit": "RUB/supplied_unit",
         "advertising_rate": "percent",
         "discount_points_rate": "percent",
@@ -54,18 +61,75 @@ class UnitPriceScenarioService:
     MAX_RATE_INPUT_DIGITS = 28
     MAX_INPUT_ADJUSTED_EXPONENT = 12
     MIN_INPUT_ADJUSTED_EXPONENT = -12
+    EXTENDED_COMPONENT_LIMIT = 64
+    EXTENDED_MAX_UNITS = 1_000_000_000
+    EXTENDED_MAX_AMOUNT = Decimal("999999999999.99")
+    EXTENDED_MODES = frozenset({"WINDOW_COST_ALLOCATION", "STRICT_RETAINED_COHORT"})
+    EXTENDED_SOURCE_COMPLETENESS = frozenset({"COMPLETE", "PARTIAL", "UNKNOWN", "CONFLICT"})
+    EXTENDED_ASSUMPTIONS = frozenset({
+        "OWNER_PRICE", "OWNER_COST", "OWNER_TARIFF_OVERRIDE", "OWNER_ADVERTISING",
+        "OWNER_DISCOUNT_POINTS",
+    })
+    _COMPONENT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+    _SAFE_REVISION_RE = re.compile(r"^[a-f0-9]{64}$")
+    _SAFE_POLICY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
     def __init__(self, tax_service):
         self.tax_service = tax_service
 
-    def calculate(self, inputs, identity=None, provenance=None, sources=None):
+    def calculate(
+        self, inputs, identity=None, provenance=None, sources=None, extended_scenario=None,
+        strict_return_evidence=None,
+    ):
         inputs = dict(inputs or {})
         identity = dict(identity or {})
         provenance = dict(provenance or {})
         sources = dict(sources or {})
+        extended = None
+        if extended_scenario is not None:
+            extended, extended_error = self._normalize_extended_scenario(extended_scenario)
+            if extended_error:
+                return self._extended_unavailable_result(
+                    extended_error, extended_scenario, identity, sources,
+                )
+            if extended["calculation_mode"] == "STRICT_RETAINED_COHORT":
+                strict_evidence, strict_error = self._normalize_strict_return_evidence(
+                    strict_return_evidence, identity,
+                )
+                if strict_error:
+                    return self._extended_unavailable_result(
+                        strict_error, extended_scenario, identity, sources,
+                    )
+                if strict_evidence["denominator_units"] != extended["denominator_units"]:
+                    return self._extended_unavailable_result(
+                        "STRICT_COHORT_DENOMINATOR_MISMATCH",
+                        extended_scenario, identity, sources,
+                    )
+                extended["additional_expense_per_unit"] = strict_evidence["loss_per_unit"]
+                extended["total_numerator_rub"] = strict_evidence["loss_pool"]
+                extended["included_component_keys"] = ["STRICT_RETAINED_COHORT_LOSS"]
+                extended["strict_loss_details"] = strict_evidence
+            elif strict_return_evidence is not None:
+                return self._extended_unavailable_result(
+                    "STRICT_COHORT_EVIDENCE_WITH_WINDOW_MODE",
+                    extended_scenario, identity, sources,
+                )
+            if extended["source_completeness"] != "COMPLETE":
+                return self._extended_unavailable_result(
+                    "SOURCE_EVIDENCE_" + extended["source_completeness"],
+                    extended_scenario, identity, sources,
+                )
+            if self._has_unscoped_cross_docking(inputs):
+                return self._extended_unavailable_result(
+                    "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE",
+                    extended_scenario, identity, sources,
+                )
         normalized, missing, invalid = self._normalize(inputs)
         try:
-            calculated = self._calculate_components(normalized)
+            calculated = self._calculate_components(
+                normalized,
+                additional_expenses=(extended["additional_expense_per_unit"] if extended else None),
+            )
         except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
             calculated = self._empty_calculation()
             invalid.append("calculation")
@@ -119,7 +183,15 @@ class UnitPriceScenarioService:
         }
         scenario_inputs = {}
         for field in self.UNITS:
-            if field == "cross_docking_per_unit" and field not in normalized:
+            if (
+                field in ("cross_docking_per_unit", "advertising_cost_per_unit")
+                and field not in normalized
+            ):
+                continue
+            if (
+                field == "advertising_rate"
+                and normalized.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+            ):
                 continue
             value = normalized.get(field)
             scenario_inputs[field] = {
@@ -129,6 +201,12 @@ class UnitPriceScenarioService:
                     field,
                     "manual" if field in inputs else "unknown",
                 ),
+            }
+        if "advertising_mode" in inputs:
+            scenario_inputs["advertising_mode"] = {
+                "value": normalized["advertising_mode"],
+                "unit": "advertising_mode",
+                "provenance": provenance.get("advertising_mode", "manual"),
             }
         scenario_inputs["tax_mode"] = {
             "value": str(tax_mode).upper() if tax_mode else None,
@@ -166,6 +244,18 @@ class UnitPriceScenarioService:
             "read_only": True,
             "executed": False,
         }
+        if extended is not None:
+            result["extended_calculation"] = self._public_extended_calculation(
+                extended, status="APPLIED" if available else "UNAVAILABLE",
+            )
+            if extended["additional_expense_per_unit"] > 0:
+                result["included_scope"].append(
+                    "confirmed additional expenses allocated per compatible window unit"
+                )
+            if extended["excluded_component_statuses"]:
+                result["excluded_scope"].append(
+                    "components excluded or unknown by the selected expense evidence"
+                )
         if "cross_docking" in calculated:
             cross_docking_included = calculated["cross_docking"] is not None
             result["cross_docking_included"] = cross_docking_included
@@ -197,15 +287,51 @@ class UnitPriceScenarioService:
                 )
         return result
 
-    def calculate_components_only(self, inputs):
+    def calculate_components_only(
+        self, inputs, extended_scenario=None, strict_return_evidence=None, identity=None,
+    ):
         """Return rounded one-sale money components without invoking TaxService.
 
         Aggregate planning flows use this projection to multiply canonical
         per-sale amounts by quantity, then calculate tax once on the aggregate.
         """
+        extended = None
+        if extended_scenario is not None:
+            extended, extended_error = self._normalize_extended_scenario(extended_scenario)
+            if extended_error:
+                return self._extended_components_unavailable(extended_error)
+            if extended["calculation_mode"] == "STRICT_RETAINED_COHORT":
+                strict_evidence, strict_error = self._normalize_strict_return_evidence(
+                    strict_return_evidence, identity,
+                )
+                if strict_error:
+                    return self._extended_components_unavailable(strict_error)
+                if strict_evidence["denominator_units"] != extended["denominator_units"]:
+                    return self._extended_components_unavailable(
+                        "STRICT_COHORT_DENOMINATOR_MISMATCH"
+                    )
+                extended["additional_expense_per_unit"] = strict_evidence["loss_per_unit"]
+                extended["total_numerator_rub"] = strict_evidence["loss_pool"]
+                extended["included_component_keys"] = ["STRICT_RETAINED_COHORT_LOSS"]
+                extended["strict_loss_details"] = strict_evidence
+            elif strict_return_evidence is not None:
+                return self._extended_components_unavailable(
+                    "STRICT_COHORT_EVIDENCE_WITH_WINDOW_MODE"
+                )
+            if extended["source_completeness"] != "COMPLETE":
+                return self._extended_components_unavailable(
+                    "SOURCE_EVIDENCE_" + extended["source_completeness"]
+                )
+            if self._has_unscoped_cross_docking(inputs):
+                return self._extended_components_unavailable(
+                    "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE"
+                )
         normalized, missing, invalid = self._normalize(dict(inputs or {}))
         try:
-            calculated = self._calculate_components(normalized)
+            calculated = self._calculate_components(
+                normalized,
+                additional_expenses=(extended["additional_expense_per_unit"] if extended else None),
+            )
         except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
             calculated = self._empty_calculation()
             invalid.append("calculation")
@@ -220,7 +346,7 @@ class UnitPriceScenarioService:
             float(self._money_decimal(normalized_cost))
             if normalized_cost is not None else None
         )
-        return {
+        result = {
             "error": False,
             "available": not missing and not invalid,
             "calculated": calculated,
@@ -229,13 +355,23 @@ class UnitPriceScenarioService:
             "read_only": True,
             "executed": False,
         }
+        if extended is not None:
+            result["extended_calculation"] = self._public_extended_calculation(
+                extended, status="APPLIED" if result["available"] else "UNAVAILABLE",
+            )
+        return result
 
-    def compare(self, inputs, current_price, identity=None, provenance=None, sources=None):
+    def compare(
+        self, inputs, current_price, identity=None, provenance=None, sources=None,
+        extended_scenario=None, strict_return_evidence=None,
+    ):
         scenario = self.calculate(
             inputs,
             identity=identity,
             provenance=provenance,
             sources=sources,
+            extended_scenario=extended_scenario,
+            strict_return_evidence=strict_return_evidence,
         )
         current_inputs = dict(inputs or {})
         current_inputs["price"] = current_price
@@ -244,6 +380,8 @@ class UnitPriceScenarioService:
             identity=identity,
             provenance=provenance,
             sources=sources,
+            extended_scenario=extended_scenario,
+            strict_return_evidence=strict_return_evidence,
         )
         scenario["comparison"] = {
             "kind": "same_assumptions_at_current_seller_price",
@@ -258,6 +396,16 @@ class UnitPriceScenarioService:
         normalized = {}
         missing = []
         invalid = []
+        if "advertising_mode" not in inputs:
+            advertising_mode = "PERCENT_OF_SELLER_REVENUE"
+        elif isinstance(inputs.get("advertising_mode"), str):
+            advertising_mode = inputs["advertising_mode"].strip().upper()
+        else:
+            advertising_mode = None
+        if advertising_mode not in self.ADVERTISING_MODES:
+            advertising_mode = "PERCENT_OF_SELLER_REVENUE"
+            invalid.append("advertising_mode")
+        normalized["advertising_mode"] = advertising_mode
         for field in self.MONEY_FIELDS + self.RATE_FIELDS + self.TAX_RATE_FIELDS:
             if field not in inputs or inputs.get(field) is None or inputs.get(field) == "":
                 normalized[field] = None
@@ -302,13 +450,37 @@ class UnitPriceScenarioService:
                 else:
                     normalized["cross_docking_per_unit"] = cross_docking
 
+        has_advertising_cost = (
+            "advertising_cost_per_unit" in inputs
+            and inputs.get("advertising_cost_per_unit") not in (None, "")
+        )
+        has_advertising_rate = (
+            "advertising_rate" in inputs and inputs.get("advertising_rate") not in (None, "")
+        )
+        if advertising_mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            if has_advertising_rate:
+                invalid.append("advertising_mode")
+            if not has_advertising_cost:
+                missing.append("advertising_cost_per_unit")
+            else:
+                advertising_cost = self._decimal(inputs.get("advertising_cost_per_unit"))
+                if advertising_cost is None or advertising_cost < 0:
+                    invalid.append("advertising_cost_per_unit")
+                else:
+                    normalized["advertising_cost_per_unit"] = advertising_cost
+        else:
+            if has_advertising_cost:
+                invalid.append("advertising_mode")
+            if not has_advertising_rate:
+                missing.append("advertising_rate")
+
         for field in self.REQUIRED_FIELDS:
             if field not in inputs or inputs.get(field) is None or inputs.get(field) == "":
                 if field not in missing:
                     missing.append(field)
         return normalized, missing, invalid
 
-    def _calculate_components(self, values):
+    def _calculate_components(self, values, additional_expenses=None):
         price = values.get("price")
         cost = values.get("cost")
         commission_rate = values.get("commission_rate")
@@ -328,11 +500,12 @@ class UnitPriceScenarioService:
             if price is not None and commission_rate is not None
             else None
         )
-        advertising = (
-            self._money_decimal(price * ad_rate / self._HUNDRED)
-            if price is not None and ad_rate is not None
-            else None
-        )
+        if values.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            advertising = self._money_decimal(values.get("advertising_cost_per_unit"))
+        elif price is not None and ad_rate is not None:
+            advertising = self._money_decimal(price * ad_rate / self._HUNDRED)
+        else:
+            advertising = None
         fees = (
             self._money_decimal(logistics + last_mile + acquiring)
             if None not in (logistics, last_mile, acquiring)
@@ -346,7 +519,7 @@ class UnitPriceScenarioService:
 
         profit_before_tax = None
         if None not in (price, cost, commission, advertising, fees):
-            profit_before_tax = self._money_decimal(
+            total_expenses = (
                 price - commission - fees - cost - advertising
                 - (
                     values.get("cross_docking_per_unit")
@@ -354,6 +527,9 @@ class UnitPriceScenarioService:
                     else Decimal("0")
                 )
             )
+            if additional_expenses is not None:
+                total_expenses -= additional_expenses
+            profit_before_tax = self._money_decimal(total_expenses)
         result = {
             "revenue": self._money_decimal(price) if price is not None else None,
             "discount_points": points,
@@ -373,7 +549,366 @@ class UnitPriceScenarioService:
                 self._money_decimal(cross_docking)
                 if cross_docking is not None else None
             )
+        if additional_expenses is not None:
+            result["additional_unit_expenses"] = self._money_decimal(additional_expenses)
         return result
+
+    def _normalize_extended_scenario(self, value):
+        expected = {
+            "schema_version", "calculation_mode", "expense_snapshot_ref",
+            "quantity_evidence_ref", "expense_policy_revision", "included_component_keys",
+            "excluded_component_statuses", "numerator_and_denominator_basis",
+            "source_completeness", "assumed_inputs", "scope", "denominator_units",
+            "components",
+        }
+        if not isinstance(value, dict) or set(value) != expected:
+            return None, "EXTENDED_CONTRACT_INVALID"
+        mode = value.get("calculation_mode")
+        if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+            return None, "EXTENDED_SCHEMA_UNSUPPORTED"
+        if not isinstance(mode, str) or mode not in self.EXTENDED_MODES:
+            return None, "EXTENDED_MODE_UNSUPPORTED"
+        for field in ("expense_snapshot_ref", "quantity_evidence_ref"):
+            reference = value.get(field)
+            if reference is not None and (
+                not isinstance(reference, str) or self._SAFE_REVISION_RE.fullmatch(reference) is None
+            ):
+                return None, "EXTENDED_REFERENCE_INVALID"
+        policy_revision = value.get("expense_policy_revision")
+        if (
+            not isinstance(policy_revision, str)
+            or self._SAFE_POLICY_RE.fullmatch(policy_revision) is None
+        ):
+            return None, "EXTENDED_POLICY_REVISION_INVALID"
+        completeness = value.get("source_completeness")
+        if not isinstance(completeness, str) or completeness not in self.EXTENDED_SOURCE_COMPLETENESS:
+            return None, "EXTENDED_SOURCE_COMPLETENESS_INVALID"
+        basis = value.get("numerator_and_denominator_basis")
+        if not isinstance(basis, dict) or set(basis) != {"numerator", "denominator"}:
+            return None, "EXTENDED_BASIS_INVALID"
+        allowed_basis = (
+            {"numerator": "WINDOW_EXPENSE_RUB", "denominator": "ORDERED_UNITS_WINDOW"},
+            {"numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW"},
+            {"numerator": "STRICT_COHORT_LOSS_RUB", "denominator": "RETAINED_UNITS_EXACT_COHORT"},
+        )
+        if basis not in allowed_basis:
+            return None, "EXTENDED_BASIS_INVALID"
+        if mode == "WINDOW_COST_ALLOCATION" and basis["numerator"] != "WINDOW_EXPENSE_RUB":
+            return None, "EXTENDED_BASIS_MODE_MISMATCH"
+        if mode == "STRICT_RETAINED_COHORT" and basis["numerator"] != "STRICT_COHORT_LOSS_RUB":
+            return None, "EXTENDED_BASIS_MODE_MISMATCH"
+        if mode == "STRICT_RETAINED_COHORT" and any(
+            value.get(field) is None for field in ("expense_snapshot_ref", "quantity_evidence_ref")
+        ):
+            return None, "STRICT_COHORT_EVIDENCE_REFERENCE_REQUIRED"
+        scope = self._normalize_extended_scope(value.get("scope"))
+        if scope is None:
+            return None, "EXTENDED_SCOPE_INVALID"
+        denominator_units = value.get("denominator_units")
+        if (
+            type(denominator_units) is not int
+            or not 1 <= denominator_units <= self.EXTENDED_MAX_UNITS
+        ):
+            return None, "ZERO_OR_INVALID_DENOMINATOR"
+        assumptions = value.get("assumed_inputs")
+        if (
+            not isinstance(assumptions, list) or len(assumptions) > 16
+            or any(
+                not isinstance(item, str) or item not in self.EXTENDED_ASSUMPTIONS
+                for item in assumptions
+            )
+            or len(set(assumptions)) != len(assumptions)
+        ):
+            return None, "EXTENDED_ASSUMPTIONS_INVALID"
+
+        included_keys = value.get("included_component_keys")
+        raw_components = value.get("components")
+        excluded = value.get("excluded_component_statuses")
+        if (
+            not isinstance(included_keys, list) or len(included_keys) > self.EXTENDED_COMPONENT_LIMIT
+            or any(not isinstance(key, str) or self._COMPONENT_KEY_RE.fullmatch(key) is None for key in included_keys)
+            or included_keys != sorted(set(included_keys))
+            or not isinstance(raw_components, list) or len(raw_components) > self.EXTENDED_COMPONENT_LIMIT
+            or not isinstance(excluded, dict) or len(excluded) > self.EXTENDED_COMPONENT_LIMIT
+        ):
+            return None, "EXTENDED_COMPONENTS_INVALID"
+        component_keys = []
+        total_numerator = Decimal("0")
+        normalized_components = []
+        for component in raw_components:
+            if (
+                not isinstance(component, dict)
+                or set(component) != {"component_key", "numerator_rub", "ownership"}
+                or component.get("ownership") != "ADDITIONAL"
+            ):
+                return None, "EXTENDED_COMPONENT_INVALID"
+            key = component.get("component_key")
+            raw_amount = component.get("numerator_rub")
+            if (
+                not isinstance(key, str) or self._COMPONENT_KEY_RE.fullmatch(key) is None
+                or not isinstance(raw_amount, str) or len(raw_amount) > 32
+            ):
+                return None, "EXTENDED_COMPONENT_INVALID"
+            amount = self._decimal(raw_amount)
+            if amount is None or amount < 0 or amount > self.EXTENDED_MAX_AMOUNT:
+                return None, "EXTENDED_COMPONENT_AMOUNT_INVALID"
+            if key in component_keys:
+                return None, "EXTENDED_COMPONENT_DUPLICATE"
+            component_keys.append(key)
+            total_numerator += amount
+            if total_numerator > self.EXTENDED_MAX_AMOUNT:
+                return None, "EXTENDED_COMPONENT_TOTAL_TOO_LARGE"
+            normalized_components.append({"component_key": key, "numerator_rub": amount})
+        if component_keys != included_keys:
+            return None, "EXTENDED_COMPONENT_KEYS_MISMATCH"
+        if mode == "STRICT_RETAINED_COHORT" and component_keys:
+            return None, "STRICT_COHORT_WINDOW_COMPONENTS_MIXED"
+        for key, status in excluded.items():
+            if (
+                not isinstance(key, str) or self._COMPONENT_KEY_RE.fullmatch(key) is None
+                or not isinstance(status, str) or status not in {"EXCLUDED", "UNKNOWN"}
+                or key in component_keys
+            ):
+                return None, "EXTENDED_EXCLUDED_COMPONENTS_INVALID"
+        if completeness == "COMPLETE" and not component_keys and not excluded:
+            # A zero is explicit only when a complete source is bound to an empty
+            # selected component set; missing source data never reaches this path.
+            total_numerator = Decimal("0")
+        additional_per_unit = self._money_decimal(total_numerator / denominator_units)
+        return {
+            "schema_version": 1,
+            "calculation_mode": mode,
+            "expense_snapshot_ref": value["expense_snapshot_ref"],
+            "quantity_evidence_ref": value["quantity_evidence_ref"],
+            "expense_policy_revision": policy_revision,
+            "included_component_keys": component_keys,
+            "excluded_component_statuses": dict(sorted(excluded.items())),
+            "numerator_and_denominator_basis": dict(basis),
+            "source_completeness": completeness,
+            "assumed_inputs": sorted(assumptions),
+            "scope": scope,
+            "denominator_units": denominator_units,
+            "total_numerator_rub": self._money_decimal(total_numerator),
+            "additional_expense_per_unit": additional_per_unit,
+        }, None
+
+    def _normalize_strict_return_evidence(self, value, expected_identity):
+        if not isinstance(value, dict) or value.get("error") is not False:
+            return None, "STRICT_COHORT_EVIDENCE_REQUIRED"
+        evidence_identity = value.get("identity")
+        identity_fields = {"owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema"}
+        if (
+            not isinstance(evidence_identity, dict)
+            or set(evidence_identity) != identity_fields
+            or any(not isinstance(item, str) or not item.strip() for item in evidence_identity.values())
+            or evidence_identity.get("sale_schema") not in {"FBO", "FBS"}
+            or not isinstance(expected_identity, dict)
+            or any(expected_identity.get(key) != evidence_identity[key] for key in identity_fields)
+        ):
+            return None, "STRICT_COHORT_IDENTITY_MISMATCH"
+        fees = value.get("fees")
+        quantity = value.get("quantity")
+        inventory = value.get("inventory")
+        strict_loss = value.get("strict_retained_cohort_loss")
+        if (
+            value.get("status") != "COMPLETE"
+            or value.get("read_only") is not True
+            or value.get("executed") is not False
+            or not isinstance(fees, dict)
+            or fees.get("status") != "COMPLETE"
+            or fees.get("cohort_matches") is not True
+            or not isinstance(quantity, dict)
+            or quantity.get("status") != "COMPLETE"
+            or quantity.get("cohort_matches") is not True
+            or not isinstance(inventory, dict)
+            or not isinstance(inventory.get("status"), str)
+            or inventory["status"] not in {"COMPLETE", "CONFIRMED_ZERO"}
+            or not isinstance(strict_loss, dict)
+            or strict_loss.get("status") != "AVAILABLE"
+            or strict_loss.get("model_scope") != "STRICT_RETAINED_COHORT"
+            or strict_loss.get("denominator_kind") != "RETAINED_UNITS_EXACT_COHORT"
+        ):
+            return None, "STRICT_COHORT_EVIDENCE_INCOMPLETE"
+
+        delivered = quantity.get("delivered_units")
+        returned = quantity.get("confirmed_returned_units_from_deliveries")
+        retained = quantity.get("retained_units")
+        denominator = strict_loss.get("denominator_units")
+        disposition_units = inventory.get("disposition_units")
+        if (
+            type(delivered) is not int or delivered <= 0
+            or type(returned) is not int or not 0 <= returned <= delivered
+            or type(retained) is not int or retained <= 0
+            or retained != delivered - returned
+            or type(denominator) is not int or denominator != retained
+            or type(disposition_units) is not int or disposition_units != returned
+        ):
+            return None, "STRICT_COHORT_QUANTITY_INVALID"
+        fee_pool = self._strict_money(fees.get("additional_exact_cohort_rub"))
+        inventory_cogs = self._strict_money(inventory.get("inventory_loss_cogs_rub"))
+        compensation = self._strict_money(inventory.get("compensation_deduction_rub"))
+        reported_fee_pool = self._strict_money(strict_loss.get("fee_loss_pool_rub"))
+        reported_pool = self._strict_money(strict_loss.get("loss_pool_rub"))
+        reported_per_unit = self._strict_money(strict_loss.get("loss_per_retained_unit_rub"))
+        if None in (fee_pool, inventory_cogs, compensation, reported_fee_pool, reported_pool, reported_per_unit):
+            return None, "STRICT_COHORT_AMOUNT_INVALID"
+        expected_pool = fee_pool + inventory_cogs - compensation
+        expected_per_unit = self._money_decimal(expected_pool / denominator)
+        if (
+            fee_pool < 0 or inventory_cogs < 0 or compensation < 0
+            or compensation > inventory_cogs
+            or expected_pool < 0
+            or reported_fee_pool != fee_pool
+            or reported_pool != expected_pool
+            or reported_per_unit != expected_per_unit
+        ):
+            return None, "STRICT_COHORT_ARITHMETIC_INVALID"
+        return {
+            "loss_pool": self._money_decimal(reported_pool),
+            "fee_loss_pool": self._money_decimal(fee_pool),
+            "inventory_loss_cogs": self._money_decimal(inventory_cogs),
+            "compensation_deduction": self._money_decimal(compensation),
+            "denominator_units": retained,
+            "loss_per_unit": self._money_decimal(reported_per_unit),
+        }, None
+
+    def _strict_money(self, value):
+        if not isinstance(value, str) or len(value) > 32:
+            return None
+        amount = self._decimal(value)
+        if amount is None or amount < 0 or amount > self.EXTENDED_MAX_AMOUNT:
+            return None
+        try:
+            rounded = amount.quantize(self._CENT, rounding=ROUND_HALF_UP)
+        except InvalidOperation:
+            return None
+        return rounded if rounded == amount else None
+
+    def _normalize_extended_scope(self, value):
+        fields = {"scope_kind", "from_date", "to_date", "date_basis", "timezone"}
+        if not isinstance(value, dict) or set(value) != fields:
+            return None
+        scope_kind = value.get("scope_kind")
+        if (
+            not isinstance(scope_kind, str)
+            or scope_kind not in {"REFERENCE_56_COMPLETED_LOCAL_DAYS", "EXPERIMENT_PHASE_WINDOW"}
+        ):
+            return None
+        if value.get("date_basis") != "LOCAL_CALENDAR_DAY":
+            return None
+        timezone_name = value.get("timezone")
+        if not isinstance(timezone_name, str) or not timezone_name or len(timezone_name) > 128:
+            return None
+        try:
+            ZoneInfo(timezone_name)
+            start = date.fromisoformat(value.get("from_date"))
+            end = date.fromisoformat(value.get("to_date"))
+        except (TypeError, ValueError, ZoneInfoNotFoundError, OSError):
+            return None
+        if start > end:
+            return None
+        days = (end - start).days + 1
+        if scope_kind == "REFERENCE_56_COMPLETED_LOCAL_DAYS" and days != 56:
+            return None
+        if scope_kind == "EXPERIMENT_PHASE_WINDOW" and not 1 <= days <= 28:
+            return None
+        return {
+            "scope_kind": scope_kind,
+            "from_date": start.isoformat(),
+            "to_date": end.isoformat(),
+            "date_basis": "LOCAL_CALENDAR_DAY",
+            "timezone": timezone_name,
+        }
+
+    @staticmethod
+    def _has_unscoped_cross_docking(inputs):
+        if not isinstance(inputs, dict) or "cross_docking_per_unit" not in inputs:
+            return False
+        return inputs.get("cross_docking_per_unit") not in (None, "")
+
+    def _public_extended_calculation(self, extended, *, status):
+        result = {
+            "schema_version": extended["schema_version"],
+            "calculation_mode": extended["calculation_mode"],
+            "status": status,
+            "expense_snapshot_ref": extended["expense_snapshot_ref"],
+            "quantity_evidence_ref": extended["quantity_evidence_ref"],
+            "expense_policy_revision": extended["expense_policy_revision"],
+            "included_component_keys": list(extended["included_component_keys"]),
+            "excluded_component_statuses": dict(extended["excluded_component_statuses"]),
+            "numerator_and_denominator_basis": dict(extended["numerator_and_denominator_basis"]),
+            "source_completeness": extended["source_completeness"],
+            "assumed_inputs": list(extended["assumed_inputs"]),
+            "scope": dict(extended["scope"]),
+            "total_numerator_rub": format(extended["total_numerator_rub"], ".2f"),
+            "denominator_units": extended["denominator_units"],
+            "denominator_kind": extended["numerator_and_denominator_basis"]["denominator"],
+            "additional_expense_per_unit_rub": format(
+                extended["additional_expense_per_unit"], ".2f",
+            ),
+        }
+        strict_details = extended.get("strict_loss_details")
+        if isinstance(strict_details, dict):
+            result["strict_cohort_loss"] = {
+                "status": status,
+                "fee_loss_pool_rub": format(strict_details["fee_loss_pool"], ".2f"),
+                "inventory_loss_cogs_rub": format(strict_details["inventory_loss_cogs"], ".2f"),
+                "compensation_deduction_rub": format(
+                    strict_details["compensation_deduction"], ".2f",
+                ),
+                "loss_pool_rub": format(strict_details["loss_pool"], ".2f"),
+                "retained_units": strict_details["denominator_units"],
+                "loss_per_retained_unit_rub": format(strict_details["loss_per_unit"], ".2f"),
+            }
+        return result
+
+    def _extended_unavailable_result(self, reason, raw_contract, identity, sources):
+        mode = None
+        if isinstance(raw_contract, dict):
+            raw_mode = raw_contract.get("calculation_mode")
+            if isinstance(raw_mode, str) and raw_mode in self.EXTENDED_MODES:
+                mode = raw_mode
+        return {
+            "error": False,
+            "available": False,
+            "kind": "PRICE_PLANNING_SCENARIO",
+            "identity": identity,
+            "scenario_id": str(identity.get("scenario_id") or uuid4().hex[:16]),
+            "scenario_version": self.VERSION,
+            "inputs": {},
+            "source_periods": sources.get("periods", {}),
+            "as_of": sources.get("as_of"),
+            "source_completeness": sources.get("completeness", {}),
+            "calculated": self._empty_calculation(),
+            "missing_inputs": [],
+            "invalid_inputs": [],
+            "extended_calculation": {
+                "schema_version": 1,
+                "calculation_mode": mode,
+                "status": "UNAVAILABLE",
+                "reason": reason,
+            },
+            "included_scope": [],
+            "excluded_scope": ["extended unit economics not applied"],
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _extended_components_unavailable(self, reason):
+        return {
+            "error": False,
+            "available": False,
+            "calculated": self._empty_calculation(),
+            "missing_inputs": [],
+            "invalid_inputs": [],
+            "extended_calculation": {
+                "schema_version": 1,
+                "status": "UNAVAILABLE",
+                "reason": reason,
+            },
+            "read_only": True,
+            "executed": False,
+        }
 
     def _calculate_tax_and_profit(self, values, mode, components):
         profit_before_tax = components["profit_before_tax"]

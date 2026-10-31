@@ -103,8 +103,8 @@ class PlanningPlanComparisonService:
                 } if PlanningCrossDockingAdapter.is_current(a) else {}),
             })
 
-        first_mix = self._project_mix(a) if comparison_reason is None else None
-        second_mix = self._project_mix(b) if comparison_reason is None else None
+        first_mix = self._project_mix(a, first.get("owner_id")) if comparison_reason is None else None
+        second_mix = self._project_mix(b, second.get("owner_id")) if comparison_reason is None else None
         if comparison_reason is None:
             compatible, reason = self._mix_compatibility(a, b, first_mix, second_mix)
         else:
@@ -163,7 +163,7 @@ class PlanningPlanComparisonService:
             "executed": False,
         }
 
-    def _project_mix(self, payload):
+    def _project_mix(self, payload, owner_id=None):
         mix = payload.get("sales_mix")
         items = payload.get("items")
         if (not isinstance(mix, dict) or not isinstance(items, list)
@@ -171,8 +171,20 @@ class PlanningPlanComparisonService:
             return None
         if mix.get("confirmed") is not True:
             return None
+        projected_items = deepcopy(PlanningCrossDockingAdapter.items_for_sales_mix(payload))
+        for item in projected_items:
+            if not isinstance(item, dict) or item.get("extended_scenario") is None:
+                continue
+            identity = item.get("identity")
+            if not isinstance(identity, dict):
+                return None
+            if owner_id is not None:
+                identity.update({
+                    "owner_id": str(owner_id),
+                    "sale_schema": str(identity.get("scheme") or "FBO").upper(),
+                })
         result = self.sales_mix_planning_service.calculate(
-            PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=mix.get("quantities"),
+            projected_items, quantities=mix.get("quantities"),
             period_label=mix.get("period_label"), expenses=mix.get("expenses"),
             expenses_confirmed=True,
             include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),

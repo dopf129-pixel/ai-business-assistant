@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
 from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_observation_normalizer import UnitPriceObservationNormalizer
 from services.unit_price_observation_quality_service import UnitPriceObservationQualityService
@@ -468,10 +469,19 @@ class TelegramUnitPriceObservationRuntimeService:
         )
         if tariff_resolution is not None:
             planning_sources["tariff_resolution"] = tariff_resolution
+        extended_scenario = item.get("extended_scenario")
+        if extended_scenario is not None:
+            extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                extended_scenario
+            )
+            if extended_scenario is None:
+                return self._error("PLANNING_OBSERVATION_EXTENDED_COST_BASIS_UNAVAILABLE")
         evaluated = self.result_service.evaluate(
             normalized, scenario_inputs=scenario_inputs,
             identity=scenario_identity, provenance=provenance,
             planning_sources=planning_sources,
+            extended_scenario=extended_scenario,
+            strict_return_evidence=item.get("strict_return_evidence"),
         )
         if not isinstance(evaluated, dict) or evaluated.get("error") is True:
             return self._error("UNIT_PRICE_OBSERVATION_EVALUATION_UNAVAILABLE")

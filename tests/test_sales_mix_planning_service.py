@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal
 
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.tax_service import TaxService
@@ -39,6 +40,33 @@ def _sample_inputs(**updates):
     return result
 
 
+def _extended_expense_contract(reference, amount, units=100):
+    return {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": reference * 64,
+        "quantity_evidence_ref": ("f" if reference != "f" else "e") * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["EXTRA_SERVICE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01", "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "UTC",
+        },
+        "denominator_units": units,
+        "components": [{
+            "component_key": "EXTRA_SERVICE", "numerator_rub": amount,
+            "ownership": "ADDITIONAL",
+        }],
+    }
+
+
 def _service():
     tax = _CountingTaxService()
     scenario = UnitPriceScenarioService(tax)
@@ -76,6 +104,40 @@ def test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once():
     assert result["rows"][0]["price_per_unit"] == "500.00"
     assert result["rows"][0]["components"]["cost_of_goods"] == "1500.00"
     assert len(tax.calls) == 1
+
+
+def test_extended_expenses_are_applied_per_sku_once_and_tax_is_aggregated_once():
+    service, tax = _service()
+    item_a = _item("SKU-A", _sample_inputs())
+    item_a["extended_scenario"] = _extended_expense_contract("a", "500.00")
+    item_b = _item("SKU-B", _sample_inputs(price="1000", cost="400"))
+    item_b["extended_scenario"] = _extended_expense_contract("b", "250.00")
+    quantities = {"SKU-A": 10, "SKU-B": 4}
+    common = {
+        "quantities": quantities,
+        "period_label": "2026-08-01 — 2026-08-31",
+        "expenses": [],
+        "expenses_confirmed": True,
+    }
+
+    baseline = service.calculate([_item("SKU-A", _sample_inputs()),
+                                  _item("SKU-B", _sample_inputs(price="1000", cost="400"))],
+                                 **common)
+    tax.calls.clear()
+    result = service.calculate([item_a, item_b], **common)
+
+    rows = {row["row_id"]: row for row in result["rows"]}
+    assert result["status"] == "COMPLETE"
+    assert rows["SKU-A"]["components"]["additional_unit_expenses"] == "50.00"
+    assert rows["SKU-B"]["components"]["additional_unit_expenses"] == "10.00"
+    assert result["components"]["additional_unit_expenses"] == "60.00"
+    assert Decimal(baseline["profit_before_tax_after_fixed_expenses"]) - Decimal(
+        result["profit_before_tax_after_fixed_expenses"]
+    ) == Decimal("60.00")
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == float(
+        Decimal(baseline["profit_before_tax_after_fixed_expenses"]) - Decimal("60.00")
+    )
 
 
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():

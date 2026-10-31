@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
 from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
@@ -24,6 +25,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         "cost": ("Себестоимость", "₽/шт.", False),
         "commission_rate": ("Комиссия Ozon", "%", False),
         "advertising_rate": ("Реклама", "% от цены", False),
+        "advertising_cost_per_unit": ("Реклама на успешную продажу", "₽/шт.", False),
         "discount_points_rate": ("Баллы за скидки", "% от цены", False),
         "logistics_per_unit": ("Логистика", "₽/шт.", False),
         "last_mile_per_unit": ("Последняя миля", "₽/шт.", False),
@@ -177,6 +179,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "snapshot": deepcopy(snapshot),
             "identity": identity,
             "inputs": inputs,
+            "extended_scenario": deepcopy(session.get("extended_scenario")),
+            "strict_return_evidence": deepcopy(session.get("strict_return_evidence")),
             "provenance": provenance,
             "sources": self._scenario_sources(session),
             "frozen_tariff_resolution": frozen_tariff,
@@ -238,7 +242,27 @@ class TelegramUnitPriceCalculatorRuntimeService:
             identity=self._scenario_identity(session),
             provenance=provenance,
             sources={**sources, "completeness": completeness},
+            **self._extended_scenario_kwargs(session),
         )
+        extended_scenario = session.get("extended_scenario")
+        strict_return_evidence = None
+        if extended_scenario is not None:
+            extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                extended_scenario
+            )
+            if (extended_scenario is None or calculated.get("available") is not True
+                    or (calculated.get("extended_calculation") or {}).get("status") != "APPLIED"):
+                return self._stale_result()
+            raw_strict_evidence = session.get("strict_return_evidence")
+            if raw_strict_evidence is not None:
+                strict_identity = self._scenario_identity(session)
+                strict_return_evidence = PlanningExtendedScenarioAdapter.project_strict_evidence(
+                    raw_strict_evidence,
+                    {key: strict_identity.get(key) for key in
+                     PlanningExtendedScenarioAdapter.STRICT_IDENTITY_FIELDS},
+                )
+                if strict_return_evidence is None:
+                    return self._stale_result()
         values = calculated.get("calculated") or {}
         allowed_projection = (
             "revenue", "discount_points", "taxable_revenue", "commission",
@@ -253,8 +277,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         }
         projection.update({key: values.get(key) for key in allowed_projection})
         projection["cross_docking"] = values.get("cross_docking")
+        if extended_scenario is not None:
+            projection["additional_unit_expenses"] = values.get("additional_unit_expenses")
         captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         schema_version = (
+            4 if extended_scenario is not None else
             PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION
             if frozen_tariff is not None
             else PlanningCrossDockingAdapter.CURRENT_VERSION
@@ -275,6 +302,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 },
                 "inputs": inputs,
                 "provenance": provenance,
+                **({"extended_scenario": extended_scenario,
+                    **({"strict_return_evidence": strict_return_evidence}
+                       if strict_return_evidence is not None else {})}
+                   if extended_scenario is not None else {}),
                 "sources": {
                     "periods": deepcopy(snapshot.get("source_periods") or {}),
                     "as_of": (snapshot.get("source_periods") or {}).get("seller_price_as_of"),
@@ -313,6 +344,32 @@ class TelegramUnitPriceCalculatorRuntimeService:
         item = payload["items"][0]
         identity = item.get("identity") if isinstance(item, dict) else None
         inputs, cross_docking = PlanningCrossDockingAdapter.restore_item(payload, item)
+        if not isinstance(identity, dict):
+            return self._stale_result()
+        extended_scenario = None
+        strict_return_evidence = None
+        if isinstance(item, dict) and payload.get("schema_version") == 4:
+            extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                item.get("extended_scenario")
+            )
+            if extended_scenario is None:
+                return self._stale_result()
+            if item.get("strict_return_evidence") is not None:
+                expected_strict_identity = {
+                    "owner_id": user,
+                    "store_id": str(identity.get("store_id") or ""),
+                    "product_id": str(identity.get("product_id") or ""),
+                    "offer_id": str(identity.get("offer_id") or ""),
+                    "sku": str(identity.get("sku") or ""),
+                    "sale_schema": str(identity.get("scheme") or "FBO").upper(),
+                }
+                strict_return_evidence = (
+                    PlanningExtendedScenarioAdapter.project_strict_evidence(
+                        item.get("strict_return_evidence"), expected_strict_identity,
+                    )
+                )
+                if strict_return_evidence is None:
+                    return self._stale_result()
         provenance = item.get("provenance") if isinstance(item, dict) else None
         sources = item.get("sources") if isinstance(item, dict) else None
         target_margin = payload.get("target_margin_percent")
@@ -336,7 +393,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         ):
             return self._stale_result()
         frozen_tariff = None
-        if payload.get("schema_version") == PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION:
+        has_frozen_tariff = (
+            payload.get("schema_version") == PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION
+            or (payload.get("schema_version") == 4 and "tariff_resolution" in sources)
+        )
+        if has_frozen_tariff:
             frozen_identity = {
                 "owner_id": user,
                 "store_id": str(identity.get("store_id") or ""),
@@ -386,13 +447,15 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "tenant_scope": scope, "sku": str(identity["sku"]),
             "snapshot": snapshot, "inputs": deepcopy(inputs),
             "provenance": deepcopy(provenance), "overrides": manual_fields,
+            "extended_scenario": deepcopy(extended_scenario),
+            "strict_return_evidence": deepcopy(strict_return_evidence),
             "created_at": now, "updated_at": now, "source_loaded_at": now,
             "source_age_seconds_at_load": 0, "source_ttl_seconds": 0,
             "restored_from_saved_plan": True,
             "frozen_tariff_resolution": deepcopy(frozen_tariff),
             "legacy_tariff_price_cents": (
                 UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
-                if payload.get("schema_version") != PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION
+                if not has_frozen_tariff
                 else None
             ),
             "manual_commission_price_cents": None,
@@ -471,6 +534,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
             or current.get("inputs") != source_context.get("inputs")
             or current.get("provenance") != source_context.get("provenance")
             or current.get("sources") != source_context.get("sources")
+            or current.get("extended_scenario") != source_context.get("extended_scenario")
+            or current.get("strict_return_evidence") != source_context.get("strict_return_evidence")
             or current.get("source_age_seconds", float("inf"))
             >= current.get("source_ttl_seconds", 0)
             or current.get("source_ttl_seconds", 0) > self.session_ttl_seconds
@@ -484,6 +549,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             identity=self._scenario_identity(session),
             provenance=provenance,
             sources=self._scenario_sources(session),
+            **self._extended_scenario_kwargs(session),
         )
         if calculated.get("available") is not True:
             return self._stale_result()
@@ -538,6 +604,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         provenance = deepcopy(cell.get("provenance") or {})
         scenario_identity = {
             "user_id": user,
+            "owner_id": user,
             "store_id": identity.get("store_id"),
             "tenant_scope": scope,
             "product_id": str(identity.get("product_id")),
@@ -547,6 +614,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "batch_id": origin.get("batch_id"),
             "batch_version": origin.get("batch_version"),
             "row_id": origin.get("row_id"),
+            "sale_schema": str((snapshot.get("product") or {}).get("scheme") or "FBO").upper(),
         }
         sources = deepcopy(source_context.get("sources") or {})
         result = self.scenario_service.calculate(
@@ -554,6 +622,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             identity=scenario_identity,
             provenance=provenance,
             sources=sources,
+            **self._extended_scenario_kwargs(source_context),
         )
         if result.get("available") is not True:
             return self._stale_result()
@@ -569,6 +638,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "sku": str(identity.get("sku") or ""),
             "snapshot": deepcopy(snapshot),
             "inputs": inputs,
+            "extended_scenario": deepcopy(source_context.get("extended_scenario")),
+            "strict_return_evidence": deepcopy(source_context.get("strict_return_evidence")),
             "provenance": provenance,
             "overrides": set(cell.get("coordinates", {}).keys()),
             "created_at": now,
@@ -704,13 +775,25 @@ class TelegramUnitPriceCalculatorRuntimeService:
         provenance = deepcopy(row.get("provenance") or {})
         inputs["price"] = format(candidate_price, "f")
         provenance["price"] = "batch_target_candidate"
+        extended_scenario = row.get("extended_scenario")
+        strict_return_evidence = row.get("strict_return_evidence")
+        if extended_scenario is not None:
+            extended_scenario = PlanningExtendedScenarioAdapter.project_extended(
+                extended_scenario
+            )
+            if extended_scenario is None:
+                return self._stale_result()
+        elif strict_return_evidence is not None:
+            return self._stale_result()
         scenario_identity = {
             "user_id": user,
+            "owner_id": user,
             "store_id": source_identity.get("store_id"),
             "tenant_scope": scope,
             "product_id": str(identity["product_id"]),
             "offer_id": str(identity["offer_id"]),
             "sku": str(identity["catalog_sku"]),
+            "sale_schema": str(declared_scheme or "FBO").strip().upper(),
             "batch_id": batch.get("batch_id"),
             "batch_version": version,
             "row_id": row_id,
@@ -725,7 +808,26 @@ class TelegramUnitPriceCalculatorRuntimeService:
             identity=scenario_identity,
             provenance=provenance,
             sources=scenario_sources,
+            **self._extended_scenario_kwargs({
+                "extended_scenario": extended_scenario,
+                "strict_return_evidence": strict_return_evidence,
+            }),
         )
+        if extended_scenario is not None and (
+            verified.get("available") is not True
+            or (verified.get("extended_calculation") or {}).get("status") != "APPLIED"
+        ):
+            return self._stale_result()
+        if strict_return_evidence is not None:
+            strict_return_evidence = PlanningExtendedScenarioAdapter.project_strict_evidence(
+                strict_return_evidence,
+                {
+                    key: scenario_identity.get(key)
+                    for key in PlanningExtendedScenarioAdapter.STRICT_IDENTITY_FIELDS
+                },
+            )
+            if strict_return_evidence is None:
+                return self._stale_result()
         try:
             verified_profit = Decimal(str(verified["calculated"]["profit"]))
         except (KeyError, InvalidOperation, TypeError, ValueError):
@@ -756,6 +858,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "source_loaded_at": now,
             "source_age_seconds_at_load": source_age,
             "source_ttl_seconds": source_ttl,
+            "extended_scenario": deepcopy(extended_scenario),
+            "strict_return_evidence": deepcopy(strict_return_evidence),
         }
         with self._lock:
             key = (user, scope)
@@ -803,7 +907,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if not token:
             return None
         return {
-            "text": "🧮 Подставить свою цену",
+            "text": "🧮 Планировать цену",
             "callback": "upc:p:" + token,
         }
 
@@ -951,12 +1055,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._edit_prompt(session, pending["field"],
                                      notice="Введите число не длиннее 80 символов.")
         candidate = dict(session["inputs"])
-        candidate[pending["field"]] = candidate_text
+        candidate_provenance = dict(session["provenance"])
+        self._apply_edited_input(candidate, candidate_provenance, pending["field"], candidate_text)
         validation = self.scenario_service.calculate(
             candidate,
             identity=self._scenario_identity(session),
-            provenance=session["provenance"],
+            provenance=candidate_provenance,
             sources=self._scenario_sources(session),
+            **self._extended_scenario_kwargs(session),
         )
         if pending["field"] in validation.get("invalid_inputs", []):
             return self._edit_prompt(
@@ -972,9 +1078,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 or current.get("version") != pending["version"]
             ):
                 return self._stale_result()
-            current["inputs"][pending["field"]] = candidate_text
-            current["provenance"][pending["field"]] = "manual_seller_assumption"
+            self._apply_edited_input(
+                current["inputs"], current["provenance"], pending["field"], candidate_text,
+            )
             current["overrides"].add(pending["field"])
+            if pending["field"] in {"advertising_rate", "advertising_cost_per_unit"}:
+                current["overrides"].discard("advertising_rate")
+                current["overrides"].discard("advertising_cost_per_unit")
+                current["overrides"].add(pending["field"])
+                if pending["field"] == "advertising_cost_per_unit":
+                    current["overrides"].add("advertising_mode")
             if pending["field"] == "commission_rate":
                 current["manual_commission_price_cents"] = (
                     UnitPriceTariffSnapshotAdapter.price_to_cents(
@@ -1281,6 +1394,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     identity=self._scenario_identity(session),
                     provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    **self._extended_scenario_kwargs(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
                     exact_price_rate_cents=self._planning_exact_price_cents(
@@ -1869,10 +1983,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         + "."
                     )
             if baseline.get("available") is True:
-                lines.append(
-                    "Пороги проверены по округлённой прибыли и налоговой политике магазина; "
-                    "шаг ДРР — 0,01 п.п. Это сценарий, не прогноз эффекта цены на спрос или рекламу."
-                )
+                if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                    lines.append(
+                        "Фиксированная реклама сохранена в ₽/успешную продажу для каждой цены; "
+                        "порог ДРР не смешивался с фиксированным расходом."
+                    )
+                else:
+                    lines.append(
+                        "Пороги проверены по округлённой прибыли и налоговой политике магазина; "
+                        "шаг ДРР — 0,01 п.п. Это сценарий, не прогноз эффекта цены на спрос или рекламу."
+                    )
             if is_grid:
                 lines.append(
                     "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
@@ -2065,12 +2185,24 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if "commission_rate" in outcome:
             candidate_inputs["commission_rate"] = outcome.get("commission_rate")
             candidate_provenance["commission_rate"] = outcome.get("commission_origin") or "unknown"
-        if outcome.get("advertising_rate") is not None:
-            candidate_inputs["advertising_rate"] = outcome.get("advertising_rate")
-            candidate_provenance["advertising_rate"] = (
-                "manual_seller_assumption"
-                if (result.get("advertising_basis") or {}).get("mode") != "SAME_DRR"
-                else candidate_provenance.get("advertising_rate", "unknown")
+        advertising_basis = result.get("advertising_basis") or {}
+        if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+            self._apply_advertising_input(
+                candidate_inputs, candidate_provenance,
+                mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
+                value=advertising_basis.get("amount_per_unit"),
+                origin="manual_seller_assumption",
+            )
+        elif outcome.get("advertising_rate") is not None:
+            self._apply_advertising_input(
+                candidate_inputs, candidate_provenance,
+                mode="PERCENT_OF_SELLER_REVENUE",
+                value=outcome.get("advertising_rate"),
+                origin=(
+                    candidate_provenance.get("advertising_rate", "unknown")
+                    if advertising_basis.get("mode") == "SAME_DRR"
+                    else "manual_seller_assumption"
+                ),
             )
         try:
             validation = self.scenario_service.calculate(
@@ -2078,6 +2210,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 identity=self._scenario_identity(session),
                 provenance=candidate_provenance,
                 sources=self._scenario_sources(session),
+                **self._extended_scenario_kwargs(session),
             )
         except Exception:
             validation = None
@@ -2113,6 +2246,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                             identity=self._scenario_identity(session),
                             provenance=candidate_provenance,
                             sources=self._scenario_sources(session),
+                            **self._extended_scenario_kwargs(session),
                         )
                     except Exception:
                         return None
@@ -2166,12 +2300,29 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 current["inputs"]["price"] = candidate_price
                 current["provenance"]["price"] = "manual_seller_assumption"
                 current["overrides"].add("price")
-                advertising_basis = result.get("advertising_basis") or {}
-                if outcome.get("advertising_rate") is not None:
-                    current["inputs"]["advertising_rate"] = candidate_inputs["advertising_rate"]
-                    current["provenance"]["advertising_rate"] = candidate_provenance.get(
-                        "advertising_rate", "unknown",
+                if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                    self._apply_advertising_input(
+                        current["inputs"], current["provenance"],
+                        mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
+                        value=advertising_basis.get("amount_per_unit"),
+                        origin="manual_seller_assumption",
                     )
+                    current["overrides"].discard("advertising_rate")
+                    current["overrides"].add("advertising_cost_per_unit")
+                    current["overrides"].add("advertising_mode")
+                elif outcome.get("advertising_rate") is not None:
+                    self._apply_advertising_input(
+                        current["inputs"], current["provenance"],
+                        mode="PERCENT_OF_SELLER_REVENUE",
+                        value=outcome.get("advertising_rate"),
+                        origin=(
+                            candidate_provenance.get("advertising_rate", "unknown")
+                            if advertising_basis.get("mode") == "SAME_DRR"
+                            else "manual_seller_assumption"
+                        ),
+                    )
+                    current["overrides"].discard("advertising_cost_per_unit")
+                    current["overrides"].discard("advertising_mode")
                     if advertising_basis.get("mode") != "SAME_DRR":
                         current["overrides"].add("advertising_rate")
                 current.pop("price_planning_result", None)
@@ -2253,6 +2404,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "LIMIT_NOT_CONFIRMED": "не подтверждено прямой проверкой",
                 "FINAL_CHECK_FAILED": "граница не прошла проверку",
                 "BASELINE_UNAVAILABLE": "база недоступна",
+                "FIXED_COST_BASIS_NOT_SOLVED": "не рассчитано для фиксированного расхода ₽/шт.",
             }
             return labels.get(status, "не рассчитано")
         return (
@@ -2327,6 +2479,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             identity=self._scenario_identity(session),
             provenance=effective_provenance,
             sources=self._scenario_sources(session),
+            **self._extended_scenario_kwargs(session),
         )
         commission_rate = effective_inputs.get("commission_rate")
         commission_origin = effective_provenance.get("commission_rate", "unknown")
@@ -2385,6 +2538,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         direct = self.scenario_service.calculate(
             session.get("inputs"), identity=self._scenario_identity(session),
             provenance=session.get("provenance"), sources=self._scenario_sources(session),
+            **self._extended_scenario_kwargs(session),
         )
         price = ((direct.get("inputs") or {}).get("price") or {}).get("value")
         snapshot = session.get("snapshot") or {}
@@ -2478,10 +2632,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
             if (exact_price_cents is not None
                     and exact_price_cents != candidate_price_cents):
                 return self._stale_result()
-        candidate["advertising_rate"] = outcome.get("advertising_rate")
+        self._apply_advertising_input(
+            candidate, candidate_provenance,
+            mode="PERCENT_OF_SELLER_REVENUE",
+            value=outcome.get("advertising_rate"),
+            origin="manual_seller_assumption",
+        )
         verified = self.scenario_service.calculate(
             candidate, identity=self._scenario_identity(session),
             provenance=candidate_provenance, sources=self._scenario_sources(session),
+            **self._extended_scenario_kwargs(session),
         )
         calculated = verified.get("calculated") or {}
         try:
@@ -2501,8 +2661,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     or self._active.get(key) != session["scenario_id"]
                     or current.get("version") != expected_version):
                 return self._stale_result()
-            current["inputs"]["advertising_rate"] = outcome["advertising_rate"]
-            current["provenance"]["advertising_rate"] = "manual_seller_assumption"
+            self._apply_advertising_input(
+                current["inputs"], current["provenance"],
+                mode="PERCENT_OF_SELLER_REVENUE",
+                value=outcome["advertising_rate"],
+                origin="manual_seller_assumption",
+            )
+            current["overrides"].discard("advertising_cost_per_unit")
+            current["overrides"].discard("advertising_mode")
             current["overrides"].add("advertising_rate")
             current.pop("advertising_cap_result", None)
             current.pop("price_planning_result", None)
@@ -2514,12 +2680,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _set_field(self, session, field, value, user, scope, expected_version):
         candidate = dict(session["inputs"])
-        candidate[field] = value
+        candidate_provenance = dict(session["provenance"])
+        self._apply_edited_input(candidate, candidate_provenance, field, value)
         validation = self.scenario_service.calculate(
             candidate,
             identity=self._scenario_identity(session),
-            provenance=session["provenance"],
+            provenance=candidate_provenance,
             sources=self._scenario_sources(session),
+            **self._extended_scenario_kwargs(session),
         )
         if field in validation.get("invalid_inputs", []):
             return self._stale_result()
@@ -2531,9 +2699,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 or current["version"] != expected_version
             ):
                 return self._stale_result()
-            current["inputs"][field] = value
-            current["provenance"][field] = "manual_seller_assumption"
+            self._apply_edited_input(current["inputs"], current["provenance"], field, value)
             current["overrides"].add(field)
+            if field in {"advertising_rate", "advertising_cost_per_unit"}:
+                current["overrides"].discard("advertising_rate")
+                current["overrides"].discard("advertising_cost_per_unit")
+                current["overrides"].add(field)
+                if field == "advertising_cost_per_unit":
+                    current["overrides"].add("advertising_mode")
             if field == "commission_rate":
                 current["manual_commission_price_cents"] = (
                     UnitPriceTariffSnapshotAdapter.price_to_cents(
@@ -3006,6 +3179,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     @staticmethod
     def _advertising_basis(inputs, provenance):
+        if inputs.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            return {
+                "mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+                "denominator": "SUCCESSFUL_UNITS",
+                "amount_per_unit": inputs.get("advertising_cost_per_unit"),
+                "origin": provenance.get("advertising_cost_per_unit", "unknown"),
+            }
         return {
             "mode": "SAME_DRR",
             "revenue_basis": "SELLER_REVENUE",
@@ -3015,6 +3195,18 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     @staticmethod
     def _valid_advertising_basis(basis, inputs, provenance):
+        if (
+            isinstance(basis, dict)
+            and set(basis) == {"mode", "denominator", "amount_per_unit", "origin"}
+        ):
+            return (
+                basis.get("mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                and basis.get("denominator") == "SUCCESSFUL_UNITS"
+                and basis.get("amount_per_unit") == inputs.get("advertising_cost_per_unit")
+                and inputs.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                and "advertising_rate" not in inputs
+                and basis.get("origin") == provenance.get("advertising_cost_per_unit")
+            )
         return (
             isinstance(basis, dict)
             and set(basis) == {"mode", "revenue_basis", "rate", "origin"}
@@ -3052,6 +3244,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             identity=identity,
             provenance=effective_provenance,
             sources=sources,
+            **self._extended_scenario_kwargs(session),
         )
         current_price = snapshot.get("suggested_inputs", {}).get("price")
         same_price = (
@@ -3066,6 +3259,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 identity=identity,
                 provenance=effective_provenance,
                 sources=sources,
+                **self._extended_scenario_kwargs(session),
             )
         elif current_price is not None and source_fresh:
             result["comparison"] = {
@@ -3189,10 +3383,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.append("Комиссия для выбранной цены не подтверждена.")
 
         if result.get("available") is True:
-            lines.append(
-                "Реклама: ДРР " + self._percent(inputs.get("advertising_rate"))
-                + " · " + self._money(values.get("advertising")) + "/шт."
-            )
+            if inputs.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+                lines.append(
+                    "Реклама: фиксированные "
+                    + self._money(inputs.get("advertising_cost_per_unit"))
+                    + " ₽ на успешную продажу."
+                )
+            else:
+                lines.append(
+                    "Реклама: ДРР " + self._percent(inputs.get("advertising_rate"))
+                    + " · " + self._money(values.get("advertising")) + "/шт."
+                )
             if values.get("cross_docking") is not None:
                 lines.append(
                     "Кросс-докинг учтён: "
@@ -3253,6 +3454,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 self._money(inputs.get(field))
                 for field in ("logistics_per_unit", "last_mile_per_unit", "acquiring_per_unit")
             ),
+            (
+                "Реклама фиксированная, на успешную продажу: "
+                + self._money(inputs.get("advertising_cost_per_unit"))
+            ) if inputs.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT" else
             "Реклама " + self._percent(inputs.get("advertising_rate")) + ": " + self._money(values.get("advertising")),
             "Баллы, оценка " + self._percent(inputs.get("discount_points_rate")) + ": " + self._money(values.get("discount_points")),
             cross_docking_line,
@@ -3411,6 +3616,43 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "executed": False,
         }
 
+    @staticmethod
+    def _apply_advertising_input(inputs, provenance, *, mode, value, origin):
+        if mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            inputs.pop("advertising_rate", None)
+            provenance.pop("advertising_rate", None)
+            inputs["advertising_mode"] = mode
+            inputs["advertising_cost_per_unit"] = value
+            provenance["advertising_mode"] = "manual_seller_assumption"
+            provenance["advertising_cost_per_unit"] = origin
+            return
+        inputs.pop("advertising_mode", None)
+        inputs.pop("advertising_cost_per_unit", None)
+        provenance.pop("advertising_mode", None)
+        provenance.pop("advertising_cost_per_unit", None)
+        inputs["advertising_rate"] = value
+        provenance["advertising_rate"] = origin
+
+    @classmethod
+    def _apply_edited_input(cls, inputs, provenance, field, value):
+        if field == "advertising_cost_per_unit":
+            cls._apply_advertising_input(
+                inputs, provenance,
+                mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
+                value=value,
+                origin="manual_seller_assumption",
+            )
+        elif field == "advertising_rate":
+            cls._apply_advertising_input(
+                inputs, provenance,
+                mode="PERCENT_OF_SELLER_REVENUE",
+                value=value,
+                origin="manual_seller_assumption",
+            )
+        else:
+            inputs[field] = value
+            provenance[field] = "manual_seller_assumption"
+
     def _scenario_identity(self, session):
         identity = dict(session["snapshot"].get("identity") or {})
         identity.update({
@@ -3420,7 +3662,27 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "scenario_id": session["scenario_id"],
             "scenario_version": session["version"],
         })
+        if session.get("extended_scenario") is not None:
+            identity.update({
+                "owner_id": session["user_id"],
+                "sale_schema": str(
+                    (session.get("snapshot", {}).get("product") or {}).get("scheme") or "FBO"
+                ).upper(),
+            })
         return identity
+
+    @staticmethod
+    def _extended_scenario_kwargs(value):
+        if not isinstance(value, dict):
+            return {}
+        extended = value.get("extended_scenario")
+        strict = value.get("strict_return_evidence")
+        if extended is None and strict is None:
+            return {}
+        return {
+            "extended_scenario": deepcopy(extended),
+            "strict_return_evidence": deepcopy(strict),
+        }
 
     def _scenario_sources(self, session):
         snapshot = session["snapshot"]

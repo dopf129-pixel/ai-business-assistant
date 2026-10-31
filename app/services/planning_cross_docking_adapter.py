@@ -192,6 +192,7 @@ class PlanningCrossDockingAdapter:
             cls.LEGACY_VERSION: cls.LEGACY_VERSION,
             cls.CURRENT_VERSION: cls.CURRENT_VERSION,
             cls.CURRENT_SCHEMA_VERSION: cls.CURRENT_VERSION,
+            4: cls.CURRENT_VERSION,
         }
         if schema_to_calculation.get(schema) != version:
             return None

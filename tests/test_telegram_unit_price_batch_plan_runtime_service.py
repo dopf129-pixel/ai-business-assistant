@@ -99,6 +99,35 @@ def _row(index, status="READY"):
     }
 
 
+def _extended_expense_contract():
+    return {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": "a" * 64,
+        "quantity_evidence_ref": "b" * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["ADDITIONAL_SERVICE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB",
+            "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01", "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 100,
+        "components": [{
+            "component_key": "ADDITIONAL_SERVICE",
+            "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }],
+    }
+
+
 class _BatchService:
     class _Planner:
         @staticmethod
@@ -922,7 +951,15 @@ def test_public_single_runtime_handoff_rechecks_candidate_and_uses_no_source_io(
     }
     candidate_inputs = {**snapshot["suggested_inputs"], "price": "600"}
     sources = {"periods": snapshot["source_periods"], "completeness": snapshot["source_completeness"]}
-    forwarded = scenario.calculate(candidate_inputs, identity={}, provenance={}, sources=sources)
+    extension = _extended_expense_contract()
+    calc_identity = {
+        "owner_id": "user-1", "store_id": "store-a", "product_id": "product-1",
+        "offer_id": "offer-1", "sku": "sku-1", "sale_schema": "FBO",
+    }
+    forwarded = scenario.calculate(
+        candidate_inputs, identity=calc_identity, provenance={}, sources=sources,
+        extended_scenario=extension,
+    )
     profit = forwarded["calculated"]["profit"]
     batch = {
         "kind": "UNIT_PRICE_BATCH_PLAN", "batch_id": "batch-1", "version": 3,
@@ -934,6 +971,7 @@ def test_public_single_runtime_handoff_rechecks_candidate_and_uses_no_source_io(
             "inputs": snapshot["suggested_inputs"], "provenance": snapshot["input_provenance"],
             "source_age_seconds_at_load": 1, "source_loaded_at": 100,
             "source_ttl_seconds": 600,
+            "extended_scenario": extension,
             "planning": {"target": {
                 "status": "FOUND", "price": "600",
                 "forward_result": {"available": True, "calculated": {"profit": profit}},
@@ -955,6 +993,8 @@ def test_public_single_runtime_handoff_rechecks_candidate_and_uses_no_source_io(
 
     assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert result["price_scenario"]["inputs"]["price"]["value"] == 600
+    assert result["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
+    assert result["price_scenario"]["calculated"]["additional_unit_expenses"] == 5.0
     assert session_identity["tenant_scope"] == "user-1::ozon::store-a"
     assert replay["status"] == "UNIT_PRICE_SCENARIO_STALE"
     assert source.calls == []

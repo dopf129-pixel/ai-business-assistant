@@ -1,3 +1,191 @@
+# 2026-10-31 — W43: повторно открытые устаревшие сравнения
+
+- Telegram result view проверяет актуальность phase-state revisions и event revisions обеих фаз, а также latest collection IDs. Старая запись из истории после нового CONTROL_UPDATE помечается устаревшей и не предлагает KEEP/SELECT.
+- Регрессия проходит через обычные кнопки `phase_results` → `result`; старая owner-decision кнопка также отклоняется.
+- Профиль экспериментов и Telegram: **117 passed in 7.28s**; полный Windows pytest: **4,352 passed in 43.81s**; `compileall` и `git diff --check` прошли. Exact-head Windows и full-verification CI прошли на кодовом коммите `48cc6709342e689b950dc0ba461b177963e7b4c9` (run `41200852297`). `data/tasks.json` восстановлен, созданный lock удалён.
+
+# 2026-10-31 — W42: исправления повторного review PR #722
+
+- Устаревшая кнопка выбора цены больше не принимает решение после изменения контрольных условий. Telegram callback содержит expected experiment revision; репозиторий в одной транзакции проверяет latest result, phase state revisions, control-event revisions и latest collection hashes.
+- Порог успешных продаж синхронизирован: зрелость не возвращает READY до достижения 30 проданных единиц, а сравнение использует ту же константу. При меньшей выборке сравнение/завершение не допускаются.
+- Добавлены регрессии в Telegram lifecycle, owner-decision repository и phase readiness.
+- Связанный Windows профиль: **117 passed in 7.15s**; полный Windows `pytest`: **4,352 passed in 46.30s**; `compileall` и `git diff --check` PASS. `data/tasks.json` восстановлен, созданный `data/tasks.json.lock` удалён.
+- Изменения локальные на ветке PR #722; публикация и exact-head CI ещё не выполнены. Классификация: **Architecture Review Required** из-за усиления атомарного repository guard.
+- Подробности: `UNIT_ECONOMICS_W42_REVIEW_REMEDIATION_2026-10-31.md`.
+
+# 2026-10-30 — W41: исправления повторного review PR #722
+
+- Зрелость модели привязана к `collected_at` локальной дате evidence; неизменённый старый снимок не становится зрелым от ожидания. Для учёта поздних фактов требуется новая коллекция.
+- У незапущенной фазы доступны восстановление явного подтверждения после перезапуска и двухшаговая отмена. Старая кнопка Finish не может завершить фазу по более новой ревизии результата.
+- Завершённая фаза принимает ограниченную append-only коллекцию поздних начислений/возвратов. Состояние фазы сохраняется FINISHED, экспериментная ревизия повышается, прежние comparison/owner decisions отклоняются как устаревшие до нового сравнения.
+- Окно с хотя бы одним неполным днём больше не объявляет отдельный компонент COMPLETE и не применяет его частичную ставку.
+- Связанный Windows профиль: **113 passed**; полный `pytest`: **4,351 passed in 44.59s**. `data/tasks.json` восстановлен после ожидаемого побочного эффекта legacy-тестов; `data/` чистый. Exact-head Windows/full-verification CI на `b0ad8f392630bd39ab40e75d5bbaae8969db417d` прошёл (runs `41063476652`, `41063468992`; Docker build/smoke включены). Независимое повторное review ожидается; merge/deploy/live Ozon/Telegram не выполнялись.
+- Детали: `UNIT_ECONOMICS_W41_REVIEW_REMEDIATION_2026-10-30.md`.
+
+# 2026-10-30 — Review-remediation для W39
+
+- Исправлены пять подтверждённых замечаний независимого review PR #722: полный source coverage обязателен для COMPLETE; история контрольных событий читается постранично по 10 с общим пределом; результат сохраняет режим абсолютной рекламы; первый запуск умеет запросить 56-дневный reference snapshot; Telegram предоставляет пользовательские действия для всего цикла фаз и решения.
+- Windows linked profile: **127 passed in 6.60s**. Полный Windows `pytest`: **4,346 passed in 42.30s**. `git diff --check` PASS; `git diff -- data` пустой после очистки временного test lock.
+- Исправления опубликованы в PR #722 коммитом `3dd56343ac29339e83d5fbcb4f8d563010876384`. Exact-head CI успешен: Windows и full verification (включая Docker build/smoke) в runs `41051047996` и `41051054590`. Независимое повторное review и реальная приёмка владельцем остаются pending; merge/deploy/live Ozon/API/bot не выполнялись.
+
+# 2026-10-30 — W39: review handoff и зелёный CI
+
+- PR #722 открыт поверх спецификации PR #721; пакет независимого архитектурного review: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`. Exact HEAD `b1b81592199348df40cdb6133b464f59fbe0768e` прошёл Windows/Linux/Docker Verify: [run 40956765471](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40956765471). Текущую голову PR и Checks проверять live в GitHub.
+- W38: disposable Windows full pytest **4,335 passed in 50.37s** на кодовом SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Legacy `data/tasks.json` diff/lock остались только во временной копии, checkout владельца не затронут.
+- W31 source-collection и candidate-phase инженерные блокеры закрыты в W40; оба пути покрыты синтетической сквозной проверкой. Реальная owner validation pending.
+- Architecture Review Required (127 files; +26,257/−247). Merge, deploy, live Ozon requests and real bot launch were not performed.
+
+- Disposable Windows full pytest: **4,335 passed in 50.37s** на `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Финальный запуск использовал CI-переменные и IANA timezone database, без storage-root override.
+- Legacy suite изменила `data/tasks.json` и lock только внутри временного checkout; основной checkout остался чистым, `data/` не изменился. Exact-head GitHub Verify документирован в W39 handoff.
+- W31 source acquisition и candidate-phase UX остаются открытыми ограничениями; synthetic acceptance не считается live owner validation.
+
+# 2026-10-29 — W37: backup/restore acceptance
+
+- A new synthetic test restores plan/cost inputs, expense snapshot, tariff, experiment, phase, collection/result and event history into a new root, then reopens them with a new repository instance. Restore schema version is current; another store sees none of the restored records.
+- Corrupt/future experiment and phase payload versions fail closed. Linked backup/migration profile: **46 passed in 2.94s**. Backup/restore implementation and real `data/` were untouched. Evidence: `UNIT_ECONOMICS_W37_BACKUP_RESTORE_ACCEPTANCE_2026-10-29.md`.
+- W31 first-run reference snapshot acquisition and Telegram candidate-phase setup remain owner-visible blockers.
+
+# 2026-10-29 — W36: конкурентность и ограниченные ресурсы
+
+- W36 added four deterministic regressions: competing baseline confirmation, competing phase collection, draft edit vs archive, and a 64-event fixed-seed finite soak. Exactly one concurrent writer wins each CAS; append-only history stays consistent and paginates within the 10-row limit.
+- Linked W36 profile: **64 passed in 4.36s**; isolated concurrency/soak tests: **4 passed in 0.99s**. Existing linked cases cover cancellation, rollback, shared request/time budgets, quotas, privacy and oversized responses. No production code or `data/` changed. Evidence: `UNIT_ECONOMICS_W36_CONCURRENCY_RESOURCE_ACCEPTANCE_2026-10-29.md`.
+- W31 first-run reference snapshot acquisition and Telegram candidate-phase setup remain owner-visible blockers; synthetic tests do not claim full live readiness.
+
+# 2026-10-29 — W35: числовая приёмка сквозных маршрутов
+
+- W35 linked Windows profile: **667 passed in 16.53s** across 47 test modules, covering N01–N18, price/expense consumers, experiment revisions, migrations, exports and public Telegram routes.
+- New assertions confirm modeled profit 36.00 ₽ at price 100 ₽ and 33.60 ₽ at price 95 ₽ in the synthetic Q30 route; these are estimates from frozen assumptions, not observed store profit. Incomplete returns recover in a new READY revision, prior finance result remains immutable, one posting with 3 units stays `posting_count=1/units=3`, and a failed collection transaction writes no partial history.
+- Two old repository tests expected schema version 10 although the current migration version is 12; assertions now use the repository’s declared version. Production behavior was not changed by W35.
+- W31 first-run source snapshot acquisition and Telegram candidate-phase setup remain owner-visible blockers; no live API/bot was used. Evidence: `UNIT_ECONOMICS_W35_CROSS_ROUTE_NUMERICAL_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W34: инструкция владельца и офлайн-приёмка
+
+- Добавлено руководство с точными существующими Telegram кнопками, поведением при missing/partial/corrected source и воспроизводимым offline synthetic test. Оно честно показывает, что реальный первый запуск блокируют отсутствие автоматического 56-дневного источника и отсутствие Telegram шага candidate-фазы.
+- Offline one-SKU case: **3 passed in 0.45s**. В изолированной Windows среде потребовалось явно указать уже установленную IANA timezone database; реальная Ozon/Telegram приёмка и передача ключей не нужны. См. `UNIT_ECONOMICS_W34_OWNER_GUIDE_ACCEPTANCE_2026-10-29.md`.
+
+# 2026-10-29 — W33: экспорт истории ценового эксперимента
+
+- Telegram карточка сохранённого эксперимента теперь предлагает JSON/CSV со всеми имеющимися в квотах версиями, фазами, сбором, результатами/сравнениями и решениями. Экспорт tenant/store scoped, не раскрывает прямые идентификаторы, сохраняет content hashes/revisions, не читает Ozon и не пересчитывает экономику.
+- Изолированный профиль: **113 passed in 4.47s**; общий export/document профиль: **17 passed in 0.96s**; `py_compile` и `git diff --check` PASS, `git diff -- data` пусто. См. `UNIT_ECONOMICS_W33_TELEGRAM_HISTORY_EXPORT_2026-10-29.md`.
+- W31 остаётся заблокирован для первого пользовательского запуска до подключения приложения к сбору полного 56-дневного reference snapshot.
+
+# 2026-10-29 — W32: история и результаты экспериментов в Telegram
+
+- В меню экспериментов доступны сохранённые записи; карточки показывают phase/result revisions и дают открыть точный frozen-plan/snapshot view без загрузки источников. Истории ограничены пагинацией по 10 записей.
+- Экран результата использует существующий recommendation service: объясняет исход и причины quality gates, не заявляет причинность и не меняет цену. Из активной фазы можно перейти к уже созданному наблюдению цены; повторное чтение карточки показывает поздние локальные результаты.
+- После перезапуска меню восстанавливает историю из Planning Workspace; старые memory-only callbacks безопасно отклоняются. Windows isolated W32 profile: **24 passed**; linked W31/W32 profile: **111 passed in 4.43s**; `py_compile`/diff-check pass, data diff empty. См. `UNIT_ECONOMICS_W32_TELEGRAM_EXPERIMENT_HISTORY_2026-10-29.md`.
+- W31 остаётся BLOCKED для обычного первого запуска: приложение ещё не создаёт полный 56-дневный reference snapshot через пользовательский flow. Эксперименты не создаются с неизвестными источниками. Следующий независимый этап — W33, связать сохранённые снимки/результаты с экспортом.
+
+# 2026-10-29 — W31: мастер ценового эксперимента в Telegram (условная готовность)
+
+- Новый experiment Telegram runtime подключён к текущему unit-economics меню и общему tenant-scoped Planning Workspace. При наличии точного полного 56-дневного снимка можно пройти пользовательское подтверждение baseline до BASELINE_ACTIVE; цены вводятся обычным текстом, история цены Ozon не заявляется.
+- Проверки: 96 passed in 3.72s, py_compile PASS, git diff --check PASS, git diff -- data пустой; synthetic data only.
+- Блокер полноценного W31: приложение не создаёт такой reference snapshot из доступных API внутри Telegram. Для обычного пользователя flow пока остановится с явным REFERENCE_SNAPSHOT_REQUIRED. Неполнота не маскируется нулём/полнотой. См. UNIT_ECONOMICS_W31_GUIDED_EXPERIMENT_WIZARD_2026-10-29.md.
+- Независимо доступная следующая работа: W32 — история/детали сохранённых экспериментальных записей. Полный пользовательский launch остаётся закрыт до подтверждённой интеграции источников.
+
+# 2026-10-29 — W30: понятные режимы экономики в Telegram
+
+- Базовый экран описывает доступную текущую/историческую экономику, а неизвестные расходы явно остаются неизвестными. Плановая экономика отдельно обозначена как модельный сценарий «что если», который не меняет данные Ozon.
+- В деталях SKU добавлено объяснение базового режима и действие для планирования цены/ручных допущений; добавление доступно только если сам runtime калькулятора подключён.
+- Проверен пользовательский маршрут ручного тарифа: после подтверждения открывается тот же SKU и scenario ID, неизменны плановая цена и себестоимость, комиссия получает происхождение ручного подтверждения.
+- Изолированный W30 profile: **69 passed in 2.11s**. Synthetic tests only; no live API/bot. Evidence: `UNIT_ECONOMICS_W30_TELEGRAM_GUIDED_ENTRY_2026-10-29.md`.
+- Следующий этап — W31: guided experiment wizard от SKU до активной baseline/candidate фазы.
+
+# 2026-10-29 — W29: рекомендации и решения владельца
+
+- Добавлен детерминированный разбор всех шести исходов W28 с понятным следующим шагом. Максимум выбирается только среди последних оценённых candidate revisions, прошедших совместимость с одной и той же базовой коллекцией/себестоимостью/налогом; несопоставимые и устаревшие данные не ранжируются.
+- Planning Workspace мигрирует v11→v12 аддитивно и сохраняет append-only журнал решений владельца с точной ссылкой на текущий результат candidate-фазы. Допустимы: оставить baseline, выбрать оценённого кандидата, продолжить тест или остановиться без изменения цены. Завершение требует актуального финального решения; продолжение не переводит эксперимент в COMPLETED.
+- Решение и расчёты остаются локальными: запись не меняет цену на Ozon. Данные решения ограничены allowlist и не содержат свободного текста.
+- Linked W26–W29 profile: **98 passed in 4.42s**; synthetic temporary storage, compile and `git diff --check` PASS; `git diff -- data` empty. Evidence: `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.
+- Следующий этап — W30: guided экран unit economics и маршрут ручного тарифа.
+
+# 2026-10-29 — W28: сопоставление зрелых ценовых фаз
+
+- Добавлен сервис сравнения baseline/candidate для совместимого режима распределения расходов по окну. Он требует одинаковых замороженных допущений, полного источникового покрытия, стабильных условий и зрелых фаз; strict retained cohort остаётся несопоставимым без доказанного распределения возвратов.
+- Прибыль на единицу считается как чистые начисления Ozon минус сохранённая себестоимость и налог через канонический TaxService. Отдельные комиссии, реклама и Performance CPC показываются для сверки и повторно не вычитаются. Возвращаются ₽/unit, абсолютная дельта и ограниченная рекомендация; проценты не показываются при нулевой/отрицательной базе, статистическая уверенность и причинность не заявляются.
+- Результат schema v2 проверяет арифметику и совместимость; репозиторий атомарно проверяет baseline/candidate revisions и контрольные события перед append. Старые schema-v1 результаты остаются читаемыми.
+- Linked W26–W28 profile: **50 passed in 3.41s**; synthetic temporary storage, `py_compile` and `git diff --check` PASS; `git diff -- data` empty. Evidence: `UNIT_ECONOMICS_W28_PHASE_COMPARISON_2026-10-29.md`.
+- Следующий этап — W29: объяснимая рекомендация и запись решения владельца без изменения цены Ozon.
+
+# 2026-10-29 — W27: зрелость результата и gates качества данных
+
+- Добавлены pure maturity gates и revisioned readiness service для завершённых фаз. Оценка использует строго latest immutable collection; finance/returns/CPC coverage, finite collection budget, семь полных локальных дней, минимум 30 eligible units и denominator проверяются отдельно.
+- Исправлена обработка нулевого/неизвестного количества: missing sold units имеют статус UNKNOWN, подтверждённый ноль блокирует расчёт на единицу; знаменатель всегда `SOLD_UNITS_WINDOW` при наличии положительного числа выкупленных единиц. Profit пока остаётся null — сравнение относится к W28.
+- Late collection append создаёт отдельную result revision, сохраняет прежние ссылки/хеши и не переписывает историю; повторный idempotency key не создаёт новую ревизию. Mixed prices и price history явно помечаются как неподтверждаемые из доступного источника.
+- Linked W25–W27 profile: **148 passed in 5.15s**; `py_compile`, staged `git diff --check` PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W27_MATURITY_GATES_2026-10-29.md`.
+- Следующий этап — W28: сравнение совместимых фаз и расчёт delta ₽/unit с guard-ами против ложной причинности.
+
+# 2026-10-29 — W26: сбор фактов завершённой фазы эксперимента
+
+- Добавлен сервис сбора точного завершённого окна через существующий reader с общим PeriodProfitOperationTrace. Проверяются owner/store/SKU/схема/цена, timezone и точная owner-confirmed отметка effective_from; поздний ответ после паузы/CAS conflict не сохраняется.
+- Аддитивная миграция v10→v11 добавила immutable phase collection snapshot и атомарную запись вместе с provisional WAITING_FOR_DATA result. Прибыль остаётся null до maturity/quantity/compatibility gates. Новый retry loop и фоновые запросы не вводились.
+- Изолированный linked profile: 64 passed in 3.21s; py_compile и git diff --check PASS; git diff -- data пустой. Реальные Ozon API и бот не запускались. Acceptance: UNIT_ECONOMICS_W26_PHASE_COLLECTION_2026-10-29.md.
+- Следующий этап — W27: maturity/quantity/source gates и отдельные result revisions по поздним фактам.
+
+# 2026-10-29 — W25: контрольные условия и pause/resume эксперимента
+
+- Добавлен чистый `UnitEconomicsExperimentControlService` с allowlist owner-reported флагов advertising/card/cost/inventory/promotion/tariff. Изменение и UNKNOWN формируют явные reason codes; доказательства и конфигурации прежней фазы не перезаписываются.
+- `PlanningWorkspaceRepository` атомарно записывает контрольные события, останавливает фазу и связанное observation, освобождает общий active-SKU guard, готовит новый сегмент и принимает только свежее подтверждение, согласованное с сохранённым baseline/candidate target.
+- Planning Workspace schema v9→v10 — аддитивная миграция с bounded append-only journal, content hash, CAS/idempotency и разрешением только первого baseline segment; cancel/archive корректно очищают resume target. Связанный профиль: **106 passed in 3.38s**; `py_compile`, `git diff --check` прошли; `git diff -- data` пуст. Code: `5c609de8`; acceptance: `UNIT_ECONOMICS_W25_PHASE_CONTROLS_2026-10-29.md`.
+- Следующий этап — W26: сбор окна завершённой фазы из существующих collectors и нового cost evidence с общим trace budget.
+
+# 2026-10-29 — W24: owner-confirm цены и времени эксперимента
+
+- W24 добавил read-only preview с revision tokens и атомарное подтверждение точной цены фазы вместе с owner-declared observation, phase/experiment revisions и общим SKU guard. Валидация включает timezone/future/full-local-day, exact plan/SKU link, existing observation quota, stale CAS и idempotency. Подтверждение владельца не трактуется как проверенная Ozon price history.
+- Planning Workspace v8→v9 миграция добавляет nullable phase link/evidence; legacy phases остаются без подтверждения. Связанный тестовый профиль: **96 passed in 2.84s**; `py_compile`, `git diff --check` прошли; `git diff -- data` пуст. Code: `e39bb48e`; acceptance: `UNIT_ECONOMICS_W24_PHASE_CONFIRMATION_2026-10-29.md`.
+- Следующий этап — W25: control flags и pause/resume фазы без изменения записанного evidence.
+
+# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W25
+
+- W23 добавил pure сервис выбора 2–10 цен в границах владельца, с копеечными точками tariff boundary, существующим canonical расчётом и учётом tie. Неизвестный тариф/комиссия и переполнение лимита закрывают ранжирование; без замороженного тарифа комиссия явно является ручным допущением. 87 связанных тестов, compile, `git diff --check` прошли; `git diff -- data` пуст. Evidence: `UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
+- W24 закрепил owner-confirm цены/времени и точную observation binding; W25 добавил контрольные флаги и раздельные pause/resume сегменты. Следующий этап — W26: сбор результата завершённого окна.
+
+- W22 (code commits `247ad97c0854`, `9993bad6b3d7`) добавил планирование максимальной прибыли ₽/шт: price bounds, 3–28 дней, default 7, threshold ≥0.01 ₽ и maturity gate 7 дней/30 единиц. Неполный draft сохраняется, но READY запрещён до валидных bounds и 2–10 уникальных candidate prices; после READY revision config заморожен. Incomplete draft history сохраняется при cancel/archive. Planning Workspace v8 migration не переписывает существующие записи. Linked W21/W22/snapshot/export profile: **156 passed in 6.76s**. Evidence: `UNIT_ECONOMICS_W22_PLAN_READINESS_2026-10-29.md`.
+- Следующий этап — W23: выбрать candidate prices существующими tariff-aware solvers и проверить canonical forward calculation.
+
+- W21 (code commit `788c6c8abcd9`) добавил pure state machine эксперимента, аддитивную DB schema v7 и общий атомарный active-SKU guard для observation/experiment с безопасным backfill конфликтов старых активных записей. На этом этапе application mutation покрывает отмену и архивирование; phase-confirmation workflow зависит от W24–W27. Linked profile: **130 passed in 5.74s**. Evidence: `UNIT_ECONOMICS_W21_STATE_MACHINE_ACTIVE_GUARD_2026-10-29.md`.
+- Следующий этап — W23: tariff-aware candidate price selection.
+
+- W20 добавил единый bounded, privacy-safe read model для сохранённой экономики эксперимента, coverage и точных revisions; JSON/CSV экспорт использует ту же проекцию без source reload и повторного расчёта. Фактический Telegram detail UI ожидает W32. Связанный изолированный профиль: **50 passed in 3.49s**. Evidence: `UNIT_ECONOMICS_W20_SNAPSHOT_VIEW_EXPORT_2026-10-29.md`.
+
+- W19 (code commit `d1e1fbac`) протянул frozen window/strict-cohort cost basis через observation result, quality и ranking: signatures связывают режим, scope, source refs, assumptions и per-unit amount. Несовпадающие модели и incomplete basis не сравниваются; `OWNER_COST` отмечается как `MANUAL_ASSUMPTION`. Узкая нормализация `scheme` → `sale_schema` для строгого расчёта не ослабляет exact identity gate. Старые observation/comparison records остаются читаемыми. Linked profile: **136 passed in 9.48s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Evidence: `UNIT_ECONOMICS_W19_COST_BASIS_COMPARABILITY_2026-10-29.md`.
+- Следующий этап — W22: durable experiment plan and readiness bounds.
+
+- W18 (commit `731be723`) добавил read-only reopen API для exact plan/calculation revision, expense content-hash snapshot, тарифного профиля и quantity observation result. Явное обновление плана, тарифа, observation и снимка не меняет ссылки старого эксперимента; correction сохраняется append-only result revision, а копия расширенного плана открывается без повторного source I/O. Связанный профиль: **79 passed in 5.77s**. Evidence: `UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`.
+- W17 добавил аддитивную схему Planning Workspace v6 для content-addressed снимков расходов и append-only экспериментов/фаз/результатов с exact-scope ссылками, CAS/idempotency и квотами. Старые планы и payload schema 1–4 сохранены; связанный профиль: **89 passed**, полный isolated `pytest`: **4,166 passed in 36.99s**. Evidence: `UNIT_ECONOMICS_W17_EXPERIMENT_REPOSITORY_2026-10-29.md`.
+
+- W16 протянул один canonical extended expense/strict-cohort contract через sensitivity, batch, sales mix, сохранение/восстановление планов и сравнение. Расширенные суммы попадают в projection до налога; sales mix сохраняет один aggregate tax call. Новый payload schema 4 совместим со схемами 1–3; database schema не менялся. Linked profile: **319 passed**; полный isolated repository `pytest`: **4,158 passed in 47.62s**. Acceptance: `UNIT_ECONOMICS_W16_CONSUMER_PARITY_2026-10-29.md`.
+- W15 поиск цены и bounded tariff guard остаются подтверждены: **168 passed in 1.86s**, `UNIT_ECONOMICS_W15_SOLVER_GUARDS_2026-10-29.md`.
+
+- W00–W02: baseline/inventory, lineage audit и Ozon source contract audit завершены.
+- W03 закрепил архитектуру Decision 064. W04 зафиксировал synthetic numeric oracles N01–N18; baseline профиль — **334 passed**. W05 добавил pure нормализацию подписанных расходов, dedup/conflict, ownership ledger и coverage. W06 добавил resolver финансовой рекламы и reconciliation-only Performance CPC; связанный профиль — **90 passed**.
+- W07 добавил pure return/non-buyout resolver, exact delivered/returned/retained cohort gate и отдельный inventory loss/recovery/compensation evidence. Optional opaque cohort binding проходит через нормализатор; отсутствие связи даёт структурированный incomplete result и закрывает strict расчёт. Связанный профиль W07/W06/W05 и legacy returns: **115 passed in 1.89s**.
+- W08 добавил pure resolver хранения/размещения и дополнительных услуг с disjoint mapping, confirmed-zero/missing gate, base overlap, account residual, one-off credits и delegation существующего кросс-докинга. Связанный W08/W07/W06/W05 profile: **89 passed in 1.23s**. Он не вычисляет per-unit rate и не подтверждает полноту всего магазина.
+- W09 добавил `UnitEconomicsWindowSnapshotService`: bounded последовательный сбор нормализованных evidence в общем дочернем operation trace, exact 56 completed local dates, отдельное окно фазы, точные requested/observed bounds и weighted `sum(expense)/sum(units)`. Короткая история, incomplete source/pages, 429, исчерпание parent/child бюджета, смешанные denominator kinds и нулевые единицы не превращаются в полную ставку; общий лимит 128 учитывает уже использованные попытки user operation. Совокупный normalized evidence ограничен 64 KiB; snapshots получают безопасные fingerprints. Связанный изолированный профиль W05–W09 и operation trace: **116 passed in 1.80s**; `py_compile`, `git diff --check` PASS, `git diff -- data` empty. Реальные источники пока не подключены, сборщик принимает только нормализованные evidence readers.
+- W10 добавил чистую `UnitEconomicsReadinessViewService`: готовые snapshots проецируются в `INCLUDED` / `EXCLUDED` / `UNKNOWN` с allowlisted source, observed и applied суммы/единицами и bounded reason codes. Подтверждённый ноль не становится unknown; отсутствующие metadata и zero denominator блокируют применение к ставке. Reference и phase остаются раздельными; пересекающиеся окна несравнимы. Объединённый изолированный W05–W10 профиль: **131 passed in 2.00s**.
+- W11 расширил canonical `UnitPriceScenarioService` версионированным дополнительным контрактом расходов. Полный оконный расход вычитается до существующего `TaxService`, legacy path сохраняется; неполнота, повтор ownership, неверные входы, неполная базовая экономика и смешение знаменателя кросс-докинга закрывают расчёт. `calculate_components_only` и `compare` следуют той же формуле. Strict retained cohort намеренно unavailable до W12. W05–W11 isolated profile: **175 passed in 2.71s**. Acceptance: `UNIT_ECONOMICS_W11_CANONICAL_FORWARD_2026-10-29.md`.
+- W12 включил strict return loss из W07 resolver в тот же canonical forward. Перед расчётом сверяются exact identity, cohort statuses, доставленные/возвращённые/оставшиеся единицы, disposition quantity, все суммы и формула loss pool; incomplete evidence, Q0, mismatched cohort, pending inventory и net credits fail closed. Window allocation отдельно, режимы не смешиваются. W05–W12 isolated profile: **184 passed in 2.75s**. Acceptance: `UNIT_ECONOMICS_W12_STRICT_RETAINED_CANONICAL_GATE_2026-10-29.md`.
+- W13 добавил налоговые regressions на расширенном сценарии: `NONE`, `USN_INCOME` с нулевыми и ненулевыми баллами, `USN_INCOME_MINUS_EXPENSES`, minimum-tax dominance и один налоговый вызов на grouped sales mix. Extra expense учитывается до существующего TaxService и не вычитается повторно после налога. Runtime policy не менялась. Адресный профиль: **44 passed in 1.42s**; combined W05–W13: **186 passed in 3.06s**. Acceptance: `UNIT_ECONOMICS_W13_TAX_POLICY_PARITY_2026-10-29.md`.
+- W14 added an explicit fixed-advertising-cost input in ₽ per successful sale alongside the existing percent mode. The absolute amount may exceed the seller price and is retained through repricing/comparison; changing mode clears the other representation, saved plans validate and preserve the exact mode, and percentage compensation thresholds are not synthesized for fixed-cost scenarios. Focused W14 profile: **201 passed in 3.10s**; linked consumers profile: **136 passed in 2.62s**. Acceptance: `UNIT_ECONOMICS_W14_ADVERTISING_MODES_2026-10-29.md`.
+- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`, `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`, `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`, `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`, `UNIT_ECONOMICS_W08_STORAGE_ADDITIONAL_EXPENSES_2026-10-28.md`, `UNIT_ECONOMICS_W09_WINDOW_SNAPSHOTS_2026-10-28.md`, `UNIT_ECONOMICS_W10_READINESS_VIEW_2026-10-29.md`, `UNIT_ECONOMICS_W11_CANONICAL_FORWARD_2026-10-29.md`, `UNIT_ECONOMICS_W12_STRICT_RETAINED_CANONICAL_GATE_2026-10-29.md`, `UNIT_ECONOMICS_W13_TAX_POLICY_PARITY_2026-10-29.md`, `UNIT_ECONOMICS_W14_ADVERTISING_MODES_2026-10-29.md`, `UNIT_ECONOMICS_W15_SOLVER_GUARDS_2026-10-29.md`, `UNIT_ECONOMICS_W16_CONSUMER_PARITY_2026-10-29.md`, `UNIT_ECONOMICS_W17_EXPERIMENT_REPOSITORY_2026-10-29.md`, `UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`, `UNIT_ECONOMICS_W19_COST_BASIS_COMPARABILITY_2026-10-29.md`, `UNIT_ECONOMICS_W21_STATE_MACHINE_ACTIVE_GUARD_2026-10-29.md`, `UNIT_ECONOMICS_W22_PLAN_READINESS_2026-10-29.md`. Provider-specific source adapters and product user flow remain pending; durable experiment storage and exact frozen input reopen are implemented, program IN_PROGRESS, next W23.
+
+# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W02
+
+- Создана реализационная ветка от exact spec PR #721; сохранность tracked/ignored owner data подтверждена baseline manifest. Код расчёта и data files не менялись.
+- W01 зафиксировал lineage текущих источников; W02 отделил подтверждённые официальными материалами Ozon endpoint families от точных параметров, которые пока подтверждаются только реализацией/примером. Для Analytics no-Premium отсутствующие `cancellations`/`returns`/`delivered_units` считаются недоступными, не нулевыми.
+- W02 audit: `UNIT_ECONOMICS_W02_OZON_API_CONTRACT_AUDIT_2026-10-28.md`. Программа W03–W39 остаётся IN_PROGRESS; этот этап не означает production readiness или реальную проверку API.
+
+# 2026-10-28 — W01 завершён: lineage источников и потребителей
+
+- Read-only карта W01: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`. Отмечены актуальные vs accrual/report/event даты, точный SKU/store scope, знаменатель и completeness для всех существующих затрат и наблюдений.
+- Подтверждено: `FinanceService.sales_count` считает положительные строки товара в posting, а не quantity; `get_daily_finance(..., sku=...)` может включить полный `total_amount` совпавшей multi-product операции, несмотря на SKU-фильтр. Оба поля требуют осторожного использования для нового strict SKU P&L.
+- W00–W01 завершены на implementation branch от spec PR #721; runtime код и тесты не менялись, owner data не читались/не трогались. Следующий этап W02 — официальная сверка API contracts.
+
+# 2026-10-28 — исполнение W00–W39 начато
+
+- W00 завершён: PR #721 проверен на exact HEAD `f76d2dd90e4298113c037278666532715974e4a8`; `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`. Implementation branch создана от exact spec HEAD; baseline owner-data inventory без чтения содержимого сохранён в `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
+- Рабочее дерево при старте было чистым; `data/`, ignored tenant storage, `.env` и базы не менялись. Исполняемый код не менялся; следующий этап W01 — подтверждение lineage источников и потребителей.
+
 # 2026-10-28 — новая программа: экономика SKU и управляемые эксперименты
 
 - PR #719 и #720 слиты в main по авторизации владельца: merge SHA 6bf89cc8 и 9315046c. Последний reviewed implementation HEAD 28e6ae77 прошёл Verify 40667273360 на Windows/Linux; исторические записи ниже о незавершённом merge относятся к прежним checkpoint.

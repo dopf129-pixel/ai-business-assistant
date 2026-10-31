@@ -32,6 +32,8 @@ class SalesMixPlanningService:
         canonical_rows = []
         excluded = []
         totals = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+        additional_expense_total = Decimal("0.00")
+        has_extended_expenses = False
         cross_docking_total = Decimal("0.00")
         cross_docking_complete = True
         quantity_known = True
@@ -53,6 +55,9 @@ class SalesMixPlanningService:
                 continue
 
             inputs = item.get("inputs") if isinstance(item.get("inputs"), dict) else {}
+            extended_scenario = item.get("extended_scenario")
+            strict_return_evidence = item.get("strict_return_evidence")
+            has_extended_expenses = has_extended_expenses or extended_scenario is not None
             policy = self._tax_policy(inputs)
             if policy is None:
                 policy_missing = True
@@ -61,6 +66,8 @@ class SalesMixPlanningService:
 
             if quantity == 0:
                 row_components = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+                if extended_scenario is not None:
+                    row_components["additional_unit_expenses"] = Decimal("0.00")
                 if include_cross_docking:
                     row_components["cross_docking"] = Decimal("0.00")
                 unit_price = self._decimal(inputs.get("price"))
@@ -70,7 +77,12 @@ class SalesMixPlanningService:
                 ))
                 continue
 
-            projected = self.scenario_service.calculate_components_only(inputs)
+            projected = self.scenario_service.calculate_components_only(
+                inputs,
+                extended_scenario=extended_scenario,
+                strict_return_evidence=strict_return_evidence,
+                identity=identity,
+            )
             if projected.get("available") is not True:
                 complete = False
                 if include_cross_docking:
@@ -81,11 +93,29 @@ class SalesMixPlanningService:
                     "reason": "UNIT_INPUTS_INCOMPLETE",
                     "missing_inputs": list(projected.get("missing_inputs") or [])[:12],
                     "invalid_inputs": list(projected.get("invalid_inputs") or [])[:12],
+                    **({"extended_reason": (projected.get("extended_calculation") or {}).get("reason")}
+                       if isinstance(projected.get("extended_calculation"), dict) else {}),
                 })
                 continue
 
             unit = projected.get("calculated") or {}
             row_components = {}
+            additional_unit_expense = self._decimal(unit.get("additional_unit_expenses"))
+            if extended_scenario is not None:
+                if additional_unit_expense is None:
+                    complete = False
+                    excluded.append({
+                        "row_id": row_id,
+                        "label": label,
+                        "reason": "EXTENDED_EXPENSE_COMPONENT_UNKNOWN",
+                    })
+                    continue
+                row_components["additional_unit_expenses"] = (
+                    additional_unit_expense * quantity
+                ).quantize(Decimal("0.01"))
+                additional_expense_total += row_components["additional_unit_expenses"]
+                if additional_expense_total > self.MAX_AGGREGATE_AMOUNT:
+                    return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
             for field in self.MONEY_COMPONENTS:
                 source_field = "cost" if field == "cost_of_goods" else field
                 value = self._decimal(unit.get(source_field))
@@ -171,6 +201,8 @@ class SalesMixPlanningService:
                     tax_status = "TAX_CALCULATION_UNAVAILABLE"
 
         components = {field: self._money(value) for field, value in totals.items()}
+        if has_extended_expenses:
+            components["additional_unit_expenses"] = self._money(additional_expense_total)
         if include_cross_docking:
             components["cross_docking"] = (
                 self._money(cross_docking_total) if cross_docking_complete else None
