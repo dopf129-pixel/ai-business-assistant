@@ -1,3 +1,7 @@
+# 2026-10-31 — MA22: tenant/revision guards для ценовых сценариев
+
+- Проверены existing owner/store exact binding, stale callbacks после смены SKU/источника и restart, замороженные версии тарифа и атомарное сравнение revisions при двух параллельных сохранениях. Переноса данных между одинаковыми SKU в разных магазинах нет. Linked Windows profile: **130 passed in 4.05s**; production change не требовался.
+
 # 2026-10-31 — MA21: parity экспорта маржи до рекламы
 
 - Подтверждено, что sensitivity CSV/JSON экспортирует ту же before-ad projection, расчётные рекламные/налоговые значения, expense scope, bases и source periods из сохранённого сценария; export не перечитывает источник. Связанный Windows профиль: **48 passed in 1.54s**.

@@ -1,3 +1,9 @@
+# MA22 — owner/store/revision isolation and concurrency
+
+- `tests/test_unit_price_scenario_telegram_runtime.py` covers old callbacks after store switch, same-SKU store isolation, source refresh and SKU replacement. Batch/sensitivity callbacks remain owner/store-bound and expire; saved-plan reopen preserves a frozen tariff until explicit refresh.
+- `tests/test_saved_planning_plan_telegram_flow.py` verifies stale plan actions and revision CAS; `tests/test_planning_workspace_repository.py::test_concurrent_compare_and_swap_has_one_winner` proves exactly one of two simultaneous revision-1 writes succeeds and the other conflicts.
+- Linked Windows profile across repository, saved-plan flow, single-price runtime, batch runtime and sensitivity runtime: **130 passed in 4.05s**. No production code change was needed.
+
 # MA21 — before-ad projection в CSV/JSON из одного snapshot
 
 - `tests/test_telegram_unit_price_sensitivity_runtime_service.py::test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_price` now exports both formats and asserts JSON and CSV carry the exact `pre_ad_margin` from the displayed sensitivity cells, including tax/revenue/unit basis, expense-scope completeness and source periods. It also checks ad/tax scenario values, source-as-of metadata, and exactly one initial source read.
