@@ -1,3 +1,8 @@
+# MA21 — before-ad projection в CSV/JSON из одного snapshot
+
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py::test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_price` now exports both formats and asserts JSON and CSV carry the exact `pre_ad_margin` from the displayed sensitivity cells, including tax/revenue/unit basis, expense-scope completeness and source periods. It also checks ad/tax scenario values, source-as-of metadata, and exactly one initial source read.
+- Linked export/security profile: `tests/test_analytics_export_service.py`, `tests/test_analytics_export_serializer.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py` — **48 passed in 1.54s**. Existing serializer regressions cover CSV formula-injection handling, unknown versus zero/null and row/document byte limits.
+
 # MA20 — frozen plans, совместимость схем и read-only чтение
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh` проверяет legacy v2 plan без tariff/ad basis, его открытие без source read и смену тарифа только в новой revision после явного refresh; старый revision остаётся прежним. `test_single_save_list_open_and_continue_uses_historical_snapshot_without_source_calls` проверяет открытие сохранённого плана после restart без нового Ozon query.

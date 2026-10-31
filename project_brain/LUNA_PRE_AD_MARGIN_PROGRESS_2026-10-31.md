@@ -52,7 +52,7 @@
 | MA18 | MA12,MA15 | DONE | Current/history tax basis retained; experiment snapshot/result provenance and absent tax basis explicitly labeled without recalculation; 113 passed in 4.23s across 8 modules; implementation SHA `e99612e0`. |
 | MA19 | MA13,MA17,MA18 | DONE | Public offline acceptance through current card, local details, candidate price, manual candidate tariff, advertising entry, before/after result and saved plan; decimal-comma persistence and local details token bugs fixed. Linked profile: 121 passed in 3.60s; implementation `d8532f9a`. |
 | MA20 | MA14,MA19 | VERIFIED_EXISTING | Legacy v1/v2 frozen plan reads, tariff freeze, explicit-refresh revision, future/corrupt schema rejection, and no hidden DB writes verified. Added repository read-invariance regression. Linked profile: 51 passed in 2.35s; test commit `2423742b`. |
-| MA21 | MA20 | NOT_STARTED | — |
+| MA21 | MA20 | VERIFIED_EXISTING | Existing snapshot-based exports preserve before-ad projection/bases/completeness/source periods and after-ad values. Added CSV/JSON exact projection parity and one-source-read regression. Linked profile: 48 passed in 1.54s; test commit `7c4f6595`. |
 | MA22 | MA20,MA21 | NOT_STARTED | — |
 | MA23 | MA17,MA22 | NOT_STARTED | — |
 | MA24 | MA20,MA21,MA22 | NOT_STARTED | — |
@@ -117,7 +117,11 @@
 - Production implementation is VERIFIED_EXISTING; no frozen payload or schema was migrated. Existing public v2 restore proves no source reads and preserves saved tariff assumptions; explicit tariff refresh plus save appends revision 2 while revision 1 remains unchanged. Existing repository guards reject corrupt and future payloads.
 - Added `tests/test_planning_workspace_repository.py` assertions that persisted document fields, revision list, JSON payload and timestamps are identical before/after reading/listing corrupt and future-schema documents. Regression/test commit: `2423742b` (`Verify frozen plan reads remain immutable`).
 - Final linked Windows profile on test SHA `2423742b`: two modules, **51 passed in 2.35s**. `git diff --check` PASS. `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API or bot launch.
-- Next: MA21 export parity for the same before/after-ad projection and source snapshot; test existing CSV/JSON boundaries for matching metadata without source reload.
+- MA21 input checkpoint: MA20 docs SHA `d755162c`; MA20 regression SHA `2423742b`.
+- Existing sensitivity/batch export boundaries require no production change: they serialize the already-created snapshot, including nested `pre_ad_margin`, before/after-ad values, input/provenance, one-successful-unit basis, source periods and source-as-of metadata. Freshness changes the row's status only; no source is reloaded by export.
+- Extended the sensitivity runtime regression to emit CSV and JSON from the same displayed matrix, asserting byte-format parsed projections equal the originating snapshot cell, with revenue/tax/unit basis, expense completeness, source periods, scenario ad/tax values and source-as-of equality. `source.calls` remains exactly 1.
+- Final linked Windows profile on test SHA `7c4f6595`: 4 modules — **48 passed in 1.54s**. Existing serializer suite covers formula injection, size limits and nullable-versus-zero. `git diff --check` PASS; `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No production/schema change, live API or bot.
+- Next: MA22 tenant/store/revision and concurrency guards for displayed and exported snapshots.
 
 ## Правила исполнения
 
