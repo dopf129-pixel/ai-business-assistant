@@ -470,6 +470,17 @@ def test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_r
             (json.dumps({"schema_version": 99}), second["document_id"]),
         )
         connection.commit()
+        before_read = (
+            tuple(connection.execute(
+                "SELECT document_id, revision, state_revision, schema_version, "
+                "calculation_version, updated_at FROM planning_documents "
+                "ORDER BY document_id",
+            ).fetchall()),
+            tuple(connection.execute(
+                "SELECT document_id, revision, payload_json, created_at "
+                "FROM planning_revisions ORDER BY document_id, revision",
+            ).fetchall()),
+        )
         connection.close()
 
         assert repo.get_document(first["document_id"])["code"] == "PLANNING_DOCUMENT_CORRUPT"
@@ -479,6 +490,22 @@ def test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_r
         assert {item["document_id"] for item in listed["items"]} == {
             first["document_id"], second["document_id"],
         }
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            after_read = (
+                tuple(connection.execute(
+                    "SELECT document_id, revision, state_revision, schema_version, "
+                    "calculation_version, updated_at FROM planning_documents "
+                    "ORDER BY document_id",
+                ).fetchall()),
+                tuple(connection.execute(
+                    "SELECT document_id, revision, payload_json, created_at "
+                    "FROM planning_revisions ORDER BY document_id, revision",
+                ).fetchall()),
+            )
+        finally:
+            connection.close()
+        assert after_read == before_read
     finally:
         reset_current_tenant_user_id(token)
 
