@@ -1,3 +1,8 @@
+# MA24 — unit-price backup/restore into a new root
+
+- `tests/test_unit_price_backup_restore.py::test_unit_price_records_survive_backup_verify_dry_run_and_new_root_restore` now saves frozen plan revisions 1 and 2, exports both, archives isolated storage, verifies and dry-runs restore, then opens a fresh repository and compares both restored revisions and export columns/rows/metadata exactly with pre-backup snapshots.
+- The same test restores two historical observation-result revisions, verifies history ordering and tenant/store isolation, and confirms a rejected synthetic raw response is absent from restored SQLite bytes. Linked profile across unit-price backup, daily-use end-to-end restore and archive-safety modules: **26 passed in 3.36s**.
+
 # MA23 — source budgets, local reads and incomplete evidence
 
 - `tests/test_product_unit_economics_telegram_ui.py` and saved-plan/detail flows prove details read the captured projection without another source query; `tests/test_telegram_unit_price_sensitivity_runtime_service.py` proves export uses its snapshot. Query cache is tenant-scoped; in-flight identical calculations are deduplicated, while different stores/users remain separate.

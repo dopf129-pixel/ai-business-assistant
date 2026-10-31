@@ -1,3 +1,7 @@
+# 2026-10-31 — MA24: unit economics backup/restore
+
+- Synthetic isolated backup now proves both old and new saved-plan revisions, frozen historical observation result history and matching saved-plan exports survive verification/dry-run/restore into a new storage root and repository instance. Tenant isolation and raw-response exclusion remain covered. Linked Windows profile: **26 passed in 3.36s**.
+
 # 2026-10-31 — MA23: query budgets, локальные детали и partial evidence
 
 - Подтверждены локальные details/export без повторного source read, tenant-scoped query cache и in-flight dedup, общие дедлайн/HTTP attempt limits с cooperative cancellation; unavailable/partial остаются неизвестными, а не нулевыми или полными. Linked Windows profile: **141 passed in 4.50s**; production change не требовался.

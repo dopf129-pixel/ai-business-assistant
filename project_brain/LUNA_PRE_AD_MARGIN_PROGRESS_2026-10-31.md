@@ -55,7 +55,7 @@
 | MA21 | MA20 | VERIFIED_EXISTING | Existing snapshot-based exports preserve before-ad projection/bases/completeness/source periods and after-ad values. Added CSV/JSON exact projection parity and one-source-read regression. Linked profile: 48 passed in 1.54s; test commit `7c4f6595`. |
 | MA22 | MA20,MA21 | VERIFIED_EXISTING | Owner/store binding, same-SKU cross-store isolation, invalidation after refresh/restart, frozen saved tariff revisions and concurrent revision CAS verified. Linked profile: 130 passed in 4.05s; production change not needed. |
 | MA23 | MA17,MA22 | VERIFIED_EXISTING | Local details/export reads, tenant-scoped cache, in-flight dedup, shared operation budgets/cancellation, and honest unavailable/partial output verified. Linked profile: 141 passed in 4.50s; production change not needed. |
-| MA24 | MA20,MA21,MA22 | NOT_STARTED | — |
+| MA24 | MA20,MA21,MA22 | DONE | Synthetic archive verified and restored into a new root; old/new plan revisions, history and exact frozen exports survive; tenant isolation/raw-response exclusion verified. Linked profile: 26 passed in 3.36s; regression commit `6b06eb43`. |
 | MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | NOT_STARTED | — |
 | MA26 | MA19,MA23,MA24,MA25 | NOT_STARTED | — |
 | MA27 | MA26 | NOT_STARTED | — |
@@ -127,7 +127,11 @@
 - MA23 input checkpoint: MA22 docs SHA `3358fa04`.
 - MA23 verified existing behavior: detail ledger and export consume already-captured projections; the same product query uses tenant-scoped cache; identical in-flight calculations deduplicate within owner/store but do not cross those scopes. Explicit source work shares parent deadline/HTTP attempt budget, reserves attempts atomically and propagates cancellation; cross-dock sources fail closed when budgets/evidence are incomplete. Partial/unknown expenses and advertising are not promoted to zero or complete.
 - Linked Windows profile on unchanged production implementation: 12 modules — **141 passed in 4.50s**. `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API/bot.
-- Next: MA24 synthetic backup/restore in an isolated temporary root, then verify new repository instance, old/new plan, history/export, tenant isolation and secret/raw-response exclusion.
+- MA24 input checkpoint: MA23 docs SHA `f4698b70`.
+- Extended the synthetic archive test to persist two separately calculated plan revisions and export each before backup. After archive verification, dry-run and restore into a distinct temporary root, a newly constructed repository returns both exact old/new payloads; both restored exports match pre-backup rows, columns and metadata and remain marked not recalculated. The existing two-revision observation history is retained.
+- Tenant B/store B cannot read the restored plan, tariff or observation. A disallowed synthetic raw API response is not persisted and is absent from restored DB bytes. All project/storage roots are `tmp_path`; no owner files/data are read or written.
+- Final linked Windows profile on test SHA `6b06eb43`: 3 modules — **26 passed in 3.36s**. `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. Test commit `6b06eb43`; no production/backup schema change.
+- Next: MA25 independent numeric regressions for N01–N20, including pre-ad tax arithmetic, denominator, expense ownership and missing/credit/partial cases.
 
 ## Правила исполнения
 
