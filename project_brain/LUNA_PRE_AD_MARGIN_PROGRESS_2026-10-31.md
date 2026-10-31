@@ -83,7 +83,7 @@
 
 ## Resume реализации MA16 / MA17
 
-- MA16 input SHA: `37843765`. Implementation commit SHA: pending; record the exact output SHA after commit.
+- MA16 input SHA: `37843765`. Implementation commit SHA: `f693e3f3`.
 - Changed production files: `app/services/product_unit_economics_query_service.py`, `app/services/assistant_button_handler_service.py`, and `app/services/assistant_keyboard_service.py`. Regression files: `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, and `tests/test_product_unit_economics_telegram_ui.py`.
 - `format_expense_breakdown` uses only the already returned `pre_ad_margin` and safe existing result fields. Current ledger reconciles seller price less known non-ad expenses and tax to the exact displayed profit; partial/unknown amounts are visible and never zero-filled. Historical exact evidence reports period totals and successful-unit denominator, retains recorded tax, uses a calculated unclassified remainder instead of inventing Ozon labels, and independently reconciles after-ad net. Cross-dock's per-unit rate plus accrual/accepted-unit denominator is visibly a non-additive subline.
 - The “Из чего складывается” button uses an opaque per-user callback token backed by a 15-minute/512-entry in-memory cache of rendered detail only. The detail callback never re-runs the economics query; other-user and expired tokens fail closed. No persistence/schema change or raw source-ID storage.
