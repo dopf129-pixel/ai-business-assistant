@@ -57,7 +57,7 @@
 | MA23 | MA17,MA22 | VERIFIED_EXISTING | Local details/export reads, tenant-scoped cache, in-flight dedup, shared operation budgets/cancellation, and honest unavailable/partial output verified. Linked profile: 141 passed in 4.50s; production change not needed. |
 | MA24 | MA20,MA21,MA22 | DONE | Synthetic archive verified and restored into a new root; old/new plan revisions, history and exact frozen exports survive; tenant isolation/raw-response exclusion verified. Linked profile: 26 passed in 3.36s; regression commit `6b06eb43`. |
 | MA25 | MA06,MA07,MA08,MA09,MA12,MA14 | DONE | Fixed-value N03/N05/N17 oracles added; exact tax-service call inputs/order checked; N01–N20 mapped to named canonical regressions. Linked Windows profile: 388 passed in 6.73s on test SHA `fcec0254`; no production change. |
-| MA26 | MA19,MA23,MA24,MA25 | NOT_STARTED | — |
+| MA26 | MA19,MA23,MA24,MA25 | IN_PROGRESS | Starting from MA25 docs SHA `35082a11`; link the public offline flow with historical/current models, solver/grid/mix, tariff, saved revisions, returns/expenses, observations, experiments and exports. |
 | MA27 | MA26 | NOT_STARTED | — |
 | MA28 | MA27 | NOT_STARTED | — |
 | MA29 | MA28 | NOT_STARTED | — |
@@ -141,6 +141,11 @@
 - Final linked canonical Windows profile on test SHA `fcec0254`: 14 modules — **388 passed in 6.73s**. It covers current model, scenario/tax, historical evidence, tariff, cross-dock supply/finance, strict return loss, mix, public Telegram callbacks and saved repository. `git diff --check` passed before the test commit; `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock absent. Test commit `fcec0254`; no live API or bot.
 - MA25 docs checkpoint follows the test commit. No formula implementation change was necessary; numeric meaning is asserted against fixed values from the task and existing canonical service entry points, not copied test formulas.
 - Next: MA26 linked regression/self-review across current, plan, historical, grid/solver/mix, tariff, saved plans, returns, expenses, observations/experiments and exports.
+
+### MA26 — linked regression and self-review (in progress)
+
+- Input checkpoint: MA25 docs SHA `35082a11`; MA25 regression SHA `fcec0254`. The linked profile will use only synthetic/offline sources. Review focus: no hidden source read, no change to legacy after-ad fields, saved revisions remain frozen, and current/scenario/historical tax bases stay distinct.
+- No additional production change is planned absent a reproducible regression. Record the exact modules and final count before advancing.
 
 ## Правила исполнения
 
