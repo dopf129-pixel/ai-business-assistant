@@ -6099,3 +6099,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_product_unit_economics_query.py` verifies historical ad evidence unavailable is rendered as a user-readable reason and never as a zero result.
 - `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_exact_evidence_is_attached_to_the_matching_historical_query_row` verifies before-ad and after-ad values appear together only when exact advertising is proven included in the matching historical net, with stored tax provenance and period.
 - Linked Windows profile across current integration, historical query, historical pre-ad service and primary Telegram UI: **42 passed in 1.07s**. `py_compile` and `git diff --check` pass; owner data unchanged.
+
+# MA16 — breakdown ledger and snapshot callback
+
+- `tests/test_current_unit_economics_integration.py` proves a current ledger from the same pre-ad projection: seller revenue − known non-ad expenses − store-policy tax = displayed before-ad profit, exact to kopeck. It verifies expense provenance, current finance sales/day window, unknown expense/advertising not filled with zero, and the cross-dock 400 ₽ / 40 delivered-unit subline is explicitly non-additive. Both summary and detail outputs pass through `split_telegram_text` limits.
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_exact_evidence_is_attached_to_the_matching_historical_query_row` verifies historical revenue, known COGS, calculated unclassified non-ad balance, preserved tax, exact-SKU included advertising and after-ad profit; the after-ad bridge must reconcile to 0.00 ₽ and unknown types are not presented as explicit Ozon operations.
+- `tests/test_product_unit_economics_query.py` checks UNAVAILABLE details state the precise user-readable block, show unknown advertising/expense scope, and do not render fabricated zero amounts.
+- `tests/test_product_unit_economics_telegram_ui.py` exercises the button callback from a successful SKU view, proves the callback makes no second query, prevents cross-user access, rejects expired tokens and retains independent snapshots for two SKUs for the same user.
+- Final focused Windows profile: **44 passed in 1.12s** across current integration, historical query/pre-ad service and Telegram UI. `py_compile` and `git diff --check` PASS; owner-data hash remains unchanged and lock is absent.

@@ -1,4 +1,7 @@
 import inspect
+import secrets
+from collections import OrderedDict
+from time import monotonic
 
 from period_profit_telegram_contract import (
     build_period_profit_telegram_menu,
@@ -14,6 +17,8 @@ from services.app_build_metadata_service import AppBuildMetadataService
 class AssistantButtonHandlerService:
 
     PRODUCT_DECISIONS_PAGE_SIZE = 8
+    UNIT_ECONOMICS_DETAIL_TTL_SECONDS = 15 * 60
+    UNIT_ECONOMICS_DETAIL_CACHE_MAX_ENTRIES = 512
 
 
     DECISION_LABELS = {
@@ -302,6 +307,7 @@ class AssistantButtonHandlerService:
         self.build_metadata_service = (
             build_metadata_service or AppBuildMetadataService()
         )
+        self._unit_economics_detail_snapshots = OrderedDict()
 
 
     def prepare_context(
@@ -1676,6 +1682,12 @@ class AssistantButtonHandlerService:
             return (
                 self._open_unit_economics_menu()
             )
+
+        if isinstance(button_id, str) and button_id.startswith(
+            "unit_economics_details:"
+        ):
+            token = button_id.split(":", 1)[1]
+            return self._show_unit_economics_breakdown(token, user_id)
 
         if button_id.startswith(
             "unit_economics:"
@@ -5644,10 +5656,24 @@ class AssistantButtonHandlerService:
             "message": message,
             "unit_economics": result
         }
-        if (
-            result.get("error") is not True
-            and self.unit_price_calculator_runtime_service is not None
-        ):
+        if result.get("error") is not True and self.keyboard_service is not None:
+            breakdown_callback = None
+            breakdown_formatter = getattr(
+                self.unit_economics_query,
+                "format_expense_breakdown",
+                None,
+            )
+            if user_id is not None and callable(breakdown_formatter):
+                try:
+                    detail_message = breakdown_formatter(result)
+                except Exception:
+                    detail_message = None
+                if isinstance(detail_message, str) and detail_message.strip():
+                    breakdown_callback = self._store_unit_economics_detail_snapshot(
+                        user_id,
+                        detail_message,
+                    )
+
             button_builder = getattr(
                 self.unit_price_calculator_runtime_service,
                 "build_product_entry_button",
@@ -5655,14 +5681,62 @@ class AssistantButtonHandlerService:
             )
             if callable(button_builder):
                 button = button_builder(user_id, sku)
-                output["keyboard"] = self.keyboard_service.build_unit_economics_detail_keyboard(button)
                 if button:
                     output["message"] += (
                         "\n\nБазовый режим: это оценка по доступным фактическим данным; "
                         "пропуски выше не заменяются нулём. Для планирования новой цены и ручных "
                         "допущений откройте плановую экономику кнопкой ниже."
                     )
+            else:
+                button = None
+            output["keyboard"] = self.keyboard_service.build_unit_economics_detail_keyboard(
+                button,
+                breakdown_callback=breakdown_callback,
+            )
         return output
+
+    def _store_unit_economics_detail_snapshot(self, user_id, message):
+        now = monotonic()
+        expired = [
+            key
+            for key, value in self._unit_economics_detail_snapshots.items()
+            if value.get("expires_at", 0) <= now
+        ]
+        for key in expired:
+            self._unit_economics_detail_snapshots.pop(key, None)
+        token = secrets.token_urlsafe(6)
+        key = (str(user_id), token)
+        self._unit_economics_detail_snapshots[key] = {
+            "expires_at": now + self.UNIT_ECONOMICS_DETAIL_TTL_SECONDS,
+            "message": str(message),
+        }
+        self._unit_economics_detail_snapshots.move_to_end(key)
+        while len(self._unit_economics_detail_snapshots) > self.UNIT_ECONOMICS_DETAIL_CACHE_MAX_ENTRIES:
+            self._unit_economics_detail_snapshots.popitem(last=False)
+        return "unit_economics_details:" + token
+
+    def _show_unit_economics_breakdown(self, token, user_id):
+        key = (str(user_id), str(token)) if user_id is not None else None
+        snapshot = (
+            self._unit_economics_detail_snapshots.get(key)
+            if key is not None
+            else None
+        )
+        if not isinstance(snapshot, dict) or snapshot.get("expires_at", 0) <= monotonic():
+            if key is not None:
+                self._unit_economics_detail_snapshots.pop(key, None)
+            return {
+                "error": False,
+                "code": "UNIT_ECONOMICS_BREAKDOWN_EXPIRED",
+                "message": (
+                    "Расшифровка устарела или относится к другой карточке. "
+                    "Откройте SKU заново; источники при этом не запрашивались."
+                ),
+            }
+        return {
+            "error": False,
+            "message": snapshot["message"],
+        }
 
 
     def _extract_sku(

@@ -563,8 +563,17 @@ class AssistantKeyboardService:
             "buttons": buttons,
         }
 
-    def build_unit_economics_detail_keyboard(self, calculator_button=None):
+    def build_unit_economics_detail_keyboard(
+        self,
+        calculator_button=None,
+        breakdown_callback=None,
+    ):
         buttons = []
+        if breakdown_callback:
+            buttons.append({
+                "text": "Из чего складывается",
+                "callback": str(breakdown_callback),
+            })
         if isinstance(calculator_button, dict):
             buttons.append(dict(calculator_button))
         buttons.append({"text": "Юнит-экономика", "callback": "unit_economics"})

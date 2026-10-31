@@ -164,9 +164,8 @@ def test_current_query_uses_live_price_and_prepared_expenses():
 def test_current_response_shows_rubles_and_percentages():
     service, _, _ = _service()
 
-    response = service.format_response(
-        service.query("hook-2")
-    )
+    result = service.query("hook-2")
+    response = service.format_response(result)
 
     assert "Цена:\n96.00 ₽ — 100.0%" in response
     assert "Комиссия Ozon:\n13.44 ₽ — 14.0%" in response
@@ -194,6 +193,24 @@ def test_current_response_shows_rubles_and_percentages():
     assert "Реклама" not in response
     assert "Хранение" not in response
 
+    breakdown = service.format_expense_breakdown(result)
+    assert "Основание: текущая модель; до рекламы, после налога." in breakdown
+    assert "Знаменатель: 1 успешная единица; процент — от цены продавца до баллов." in breakdown
+    assert "Налоговая политика: УСН Доходы." in breakdown
+    assert "Выручка продавца: +96.00 ₽" in breakdown
+    assert "Себестоимость: −21.00 ₽" in breakdown
+    assert "Прибыль до налога по учтённым расходам: +39.21 ₽" in breakdown
+    assert "Налог: −5.76 ₽" in breakdown
+    assert "Маржа до рекламы: +33.45 ₽" in breakdown
+    assert "Сверка с карточкой: 0.00 ₽ расхождения." in breakdown
+    assert "Не включены: кросс-докинг, размещение, возвраты и отмены, хранение, прочие расходы" in breakdown
+    assert "фактическая сумма неизвестна, это не 0 ₽" in breakdown
+    assert "Цена продавца: актуальна на 25.08.2026 07:00 UTC." in breakdown
+    assert "Окно начислений: 50 продаж; дни с продажами 2/2." in breakdown
+    breakdown_chunks = split_telegram_text(breakdown)
+    assert "".join(breakdown_chunks) == breakdown
+    assert all(len(chunk) <= 3800 for chunk in breakdown_chunks)
+
 
 def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
     facts = _facts(
@@ -218,6 +235,7 @@ def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
 
     result = service.query("hook-2")
     response = service.format_response(result)
+    breakdown = service.format_expense_breakdown(result)
 
     assert result["cross_docking_per_unit"] == 10.0
     assert result["cross_docking_included"] is True
@@ -239,6 +257,10 @@ def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
     assert "фактически поставленные единицы" in result["note"]
     assert "Основано на последних финансовых начислениях Ozon: 50 продаж за 2 дн." in response
     assert "среднее начислений кросс-докинга за 56 завершённых дней" in response
+    assert "Кросс-докинг: −10.00 ₽" in breakdown
+    assert "начисления 400.00 ₽ / фактически принято 40 шт.; повторно не прибавлять" in breakdown
+    assert "Окно кросс-докинга: 2026-08-24 — 2026-10-18 · полные дни 56/56" in breakdown
+    assert "Сверка с карточкой: 0.00 ₽ расхождения." in breakdown
 
 
 def test_current_economics_leaves_profit_unchanged_and_labels_incomplete_cross_docking():
@@ -331,6 +353,10 @@ def test_current_pre_ad_projection_is_unavailable_when_seller_price_is_missing()
     assert "Маржа до рекламы (после налога):\nне рассчитана" in response
     assert "После рекламы: не рассчитана — расход рекламы неизвестен" in response
     assert "0.00 ₽ / шт." not in response
+    breakdown = service.format_expense_breakdown(result)
+    assert "Маржа до рекламы не рассчитана" in breakdown
+    assert "Неизвестные суммы не заменены нулём." in breakdown
+    assert "0.00 ₽" not in breakdown
 
 
 def test_current_pre_ad_source_periods_are_allowlisted_and_bounded():

@@ -2914,3 +2914,29 @@ USN income-minus-expenses can produce different taxes before and after advertisi
 Status:
 
 Implemented additively in the existing scenario, tax, sales-mix, Telegram and export services. MA14 linked profile: 261 passed across 9 modules; no live requests. Full pytest and exact-head CI remain pending.
+
+---
+
+## Decision 054
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Read-only unit-economics expense breakdown snapshot
+
+Decision:
+
+- The “Из чего складывается” callback renders a preformatted breakdown from the exact result that produced the SKU card. Clicking it must not call the Ozon source or recalculate economics.
+- Keep only the bounded detail text in process memory, keyed by Telegram user and opaque callback token, with a 15-minute expiry and a 512-entry cap. The token from another user or an expired/replaced snapshot fails closed with a reopen instruction.
+- Do not persist the breakdown or raw source evidence. Label nested cross-dock details as already included; historical unclassified values are calculation residuals, never an Ozon operation name.
+
+Reason:
+
+An explanation must reconcile to the exact values the user saw, without fetching a newer result on callback and silently changing the displayed basis. A short-lived read-only snapshot avoids source traffic and persistent schema changes while bounding memory use and cross-user access.
+
+Status:
+
+Implemented in the existing assistant handler, keyboard and unit-economics formatter. MA16 focused profile: 44 passed; full pytest and exact-head CI remain pending.

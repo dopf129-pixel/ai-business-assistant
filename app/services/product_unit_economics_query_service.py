@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
 from time import monotonic
 from services.tenant_context import get_current_tenant_user_id
@@ -601,6 +602,326 @@ class ProductUnitEconomicsQueryService:
         )
 
         return "\n".join(lines)
+
+    def format_expense_breakdown(self, result):
+        """Explain the exact existing pre-ad snapshot without re-reading sources."""
+        if not isinstance(result, dict) or result.get("error") is True:
+            return "Расшифровка недоступна: нет результата юнит-экономики."
+        projection = result.get("pre_ad_margin")
+        if not isinstance(projection, dict):
+            return "Расшифровка недоступна: в результате нет маржи до рекламы."
+
+        lines = [
+            f"🧾 Из чего складывается маржа — SKU {result.get('sku') or '—'}",
+            "Снимок той же карточки; источники повторно не запрашивались.",
+        ]
+        status = projection.get("status")
+        if status != "AVAILABLE":
+            reason = projection.get("reason")
+            if isinstance(reason, str) and reason:
+                explanation = self.PRE_AD_REASON_LABELS.get(
+                    reason,
+                    "данных недостаточно или они несовместимы",
+                )
+                lines.append("Маржа до рекламы не рассчитана: " + explanation + ".")
+            else:
+                lines.append("Маржа до рекламы пока не рассчитана.")
+            lines.append("Неизвестные суммы не заменены нулём.")
+            self._append_unavailable_expense_scope(lines, projection)
+            self._append_breakdown_periods(lines, result, projection)
+            return "\n".join(lines)
+
+        if projection.get("basis") == "CURRENT_MODEL":
+            lines.extend(self._format_current_expense_breakdown(result, projection))
+        elif projection.get("basis") == "HISTORICAL_RECONCILIATION":
+            lines.extend(self._format_historical_expense_breakdown(projection))
+        else:
+            lines.append("Основание расчёта не поддерживается для расшифровки.")
+        self._append_breakdown_periods(lines, result, projection)
+        return "\n".join(lines)
+
+    def _append_unavailable_expense_scope(self, lines, projection):
+        scope = projection.get("expense_scope")
+        if not isinstance(scope, dict):
+            return
+        unknown = scope.get("unknown_non_ad_expense_keys") or []
+        labels = [
+            self.PRE_AD_EXPENSE_LABELS[key]
+            for key in unknown
+            if isinstance(key, str) and key in self.PRE_AD_EXPENSE_LABELS
+        ]
+        if labels:
+            lines.append("Не подтверждены: " + ", ".join(labels) + ".")
+        if projection.get("advertising_status") == "UNKNOWN":
+            lines.append("Реклама: сумма неизвестна, не считается нулём.")
+        excluded = scope.get("excluded_expense_keys") or []
+        if "FIXED_STORE_OVERHEAD" in excluded:
+            lines.append("Постоянные расходы магазина не распределяются на SKU.")
+
+    def _format_current_expense_breakdown(self, result, projection):
+        lines = [
+            "Основание: текущая модель; до рекламы, после налога.",
+            "Знаменатель: 1 успешная единица; процент — от цены продавца до баллов.",
+        ]
+        tax_mode = self.PRE_AD_TAX_MODE_LABELS.get(
+            projection.get("tax_mode"),
+            "не подтверждён",
+        )
+        lines.append("Налоговая политика: " + tax_mode + ".")
+        price = self._breakdown_decimal(projection.get("price_per_unit_rub"))
+        tax = self._breakdown_decimal(projection.get("tax_per_unit_rub"))
+        profit = self._breakdown_decimal(projection.get("profit_per_unit_rub"))
+        scope = projection.get("expense_scope")
+        known = scope.get("known_non_ad_expenses_rub") if isinstance(scope, dict) else None
+        known = known if isinstance(known, dict) else {}
+        expenses = {}
+        for key, value in known.items():
+            amount = self._breakdown_decimal(value)
+            if amount is not None and key in self.PRE_AD_EXPENSE_LABELS:
+                expenses[key] = amount
+
+        if price is None or tax is None or profit is None:
+            lines.append("Сверка сумм недоступна: обязательная сумма отсутствует.")
+            return lines
+
+        lines.append("\nНа 1 успешную единицу:")
+        lines.append("Выручка продавца: " + self._signed_breakdown_money(price))
+        for key in sorted(expenses):
+            contribution = -expenses[key]
+            label = self.PRE_AD_EXPENSE_LABELS[key].capitalize()
+            source = self._current_expense_source(key, result, projection)
+            lines.append(
+                f"{label}: {self._signed_breakdown_money(contribution)}"
+                + (" · " + source if source else "")
+            )
+
+        subtotal_before_tax = price - sum(expenses.values(), Decimal("0.00"))
+        lines.append(
+            "Прибыль до налога по учтённым расходам: "
+            + self._signed_breakdown_money(subtotal_before_tax)
+        )
+        lines.append("Налог: " + self._signed_breakdown_money(-tax))
+        reconciled = subtotal_before_tax - tax
+        lines.append("Маржа до рекламы: " + self._signed_breakdown_money(reconciled))
+        difference = reconciled - profit
+        if difference == Decimal("0.00"):
+            lines.append("Сверка с карточкой: 0.00 ₽ расхождения.")
+        else:
+            lines.append(
+                "⚠️ Сверка с карточкой не сошлась: "
+                + self._signed_breakdown_money(difference)
+                + ". Суммы не скорректированы автоматически."
+            )
+
+        unknown = scope.get("unknown_non_ad_expense_keys") or [] if isinstance(scope, dict) else []
+        unknown_labels = [
+            self.PRE_AD_EXPENSE_LABELS[key]
+            for key in unknown
+            if isinstance(key, str) and key in self.PRE_AD_EXPENSE_LABELS
+        ]
+        if unknown_labels:
+            lines.append("Не включены: " + ", ".join(unknown_labels) + " — суммы не подтверждены.")
+        advertising = projection.get("advertising_status")
+        if advertising == "UNKNOWN":
+            lines.append("Реклама исключена из показателя до рекламы; фактическая сумма неизвестна, это не 0 ₽.")
+        excluded = scope.get("excluded_expense_keys") or [] if isinstance(scope, dict) else []
+        if "FIXED_STORE_OVERHEAD" in excluded:
+            lines.append("Постоянные расходы магазина не распределяются на SKU.")
+
+        cross_docking = result.get("cross_docking")
+        if "CROSS_DOCKING" in expenses and isinstance(cross_docking, dict):
+            amount = (
+                cross_docking.get("expense_by_sku")
+                if cross_docking.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit"
+                else cross_docking.get("expense_total")
+            )
+            units = (
+                cross_docking.get("supplied_units_sku")
+                if cross_docking.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit"
+                else cross_docking.get("supplied_units_store")
+            )
+            if amount is not None and units is not None:
+                normalized_amount = self._breakdown_decimal(amount)
+                lines.append(
+                    "Кросс-докинг — детализация строки выше: начисления "
+                    + (f"{normalized_amount:.2f} ₽" if normalized_amount is not None else "—")
+                    + " / фактически принято "
+                    + str(units)
+                    + " шт.; повторно не прибавлять."
+                )
+        return lines
+
+    def _format_historical_expense_breakdown(self, projection):
+        scope = projection.get("expense_scope")
+        scope = scope if isinstance(scope, dict) else {}
+        advertising = projection.get("advertising")
+        advertising = advertising if isinstance(advertising, dict) else {}
+        units = projection.get("units_sold")
+        revenue = self._breakdown_decimal(projection.get("revenue_rub"))
+        before_profit = self._breakdown_decimal(projection.get("profit_rub"))
+        tax = self._breakdown_decimal(projection.get("tax_rub"))
+        ad = self._breakdown_decimal(advertising.get("amount_rub"))
+        known = scope.get("known_non_ad_expenses_rub")
+        known = known if isinstance(known, dict) else {}
+        known_expenses = {
+            key: amount
+            for key, value in known.items()
+            if key in self.PRE_AD_EXPENSE_LABELS
+            and (amount := self._breakdown_decimal(value)) is not None
+        }
+        if (
+            type(units) is not int or units <= 0
+            or revenue is None or before_profit is None or tax is None
+            or ad is None or advertising.get("included_in_net") is not True
+        ):
+            return [
+                "Историческая расшифровка неполная: нет точного объёма, налога "
+                "или подтверждённых рекламных начислений."
+            ]
+
+        known_total = sum(known_expenses.values(), Decimal("0.00"))
+        other_remainder = revenue - known_total - tax - before_profit
+        after_ad = projection.get("after_ad")
+        after_total = (
+            self._breakdown_decimal(after_ad.get("profit_rub"))
+            if isinstance(after_ad, dict)
+            else None
+        )
+        lines = [
+            "Основание: сверка исторического SKU; налог сохранён из результата периода.",
+            f"Знаменатель: {units} успешных единиц; источник — точные начисления по SKU.",
+            "\nЗа весь период:",
+            "Выручка продавца: " + self._signed_breakdown_money(revenue),
+        ]
+        for key in sorted(known_expenses):
+            lines.append(
+                self.PRE_AD_EXPENSE_LABELS[key].capitalize()
+                + ": "
+                + self._signed_breakdown_money(-known_expenses[key])
+                + " · известная часть expense scope"
+            )
+        lines.append(
+            "Остаток прочих не рекламных начислений (расчётный, не разбит по типам): "
+            + self._signed_breakdown_money(-other_remainder)
+        )
+        lines.append("Налог периода: " + self._signed_breakdown_money(-tax))
+        lines.append("Маржа до рекламы: " + self._signed_breakdown_money(before_profit))
+        lines.append(
+            "Сверка до рекламы: "
+            + self._signed_breakdown_money(revenue - known_total - other_remainder - tax)
+            + " (ожидается " + self._format_money(before_profit) + ")."
+        )
+        pre_ad_difference = revenue - known_total - other_remainder - tax - before_profit
+        lines.append(
+            "Сверка суммы до рекламы: "
+            + self._format_money(pre_ad_difference)
+            + " расхождения; остаток прочих начислений рассчитан балансом."
+        )
+        lines.append(
+            "Реклама exact-SKU, уже включённая в net: "
+            + self._signed_breakdown_money(-ad)
+            + f" · {units} шт., корректировки учтены один раз"
+        )
+        if after_total is not None:
+            lines.append("Прибыль после рекламы: " + self._signed_breakdown_money(after_total))
+            ad_difference = before_profit - ad - after_total
+            if ad_difference == Decimal("0.00"):
+                lines.append("Сверка after-ad: 0.00 ₽ расхождения.")
+            else:
+                lines.append(
+                    "⚠️ Сверка after-ad не сошлась: "
+                    + self._signed_breakdown_money(ad_difference)
+                    + ". Суммы не скорректированы."
+                )
+        unknown = scope.get("unknown_non_ad_expense_keys") or []
+        labels = [
+            self.PRE_AD_EXPENSE_LABELS[key]
+            for key in unknown
+            if isinstance(key, str) and key in self.PRE_AD_EXPENSE_LABELS
+        ]
+        if labels:
+            lines.append("Не распределены по отдельным типам: " + ", ".join(labels) + ".")
+        lines.append("Расчётный остаток — баланс, а не подпись операции Ozon; не считайте подтипы повторно.")
+        return lines
+
+    def _current_expense_source(self, key, result, projection):
+        if key == "COGS":
+            return "себестоимость из локальной записи, на 1 шт."
+        if key == "CROSS_DOCKING":
+            evidence = result.get("cross_docking")
+            if isinstance(evidence, dict):
+                period = " — ".join(
+                    str(evidence.get(field))
+                    for field in ("date_from", "date_to")
+                    if evidence.get(field)
+                )
+                method = "SKU" if evidence.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit" else "магазин"
+                return f"среднее по {method}, delivered cross-dock units" + (f", период {period}" if period else "")
+        periods = projection.get("source_periods") or {}
+        finance = periods.get("current_finance_averages") if isinstance(periods, dict) else None
+        if isinstance(finance, dict):
+            start, end = finance.get("date_from"), finance.get("date_to")
+            if start and end:
+                return f"среднее финансовых начислений за {start} — {end}, на 1 шт."
+        return "текущая модель, на 1 шт."
+
+    def _append_breakdown_periods(self, lines, result, projection):
+        periods = projection.get("source_periods")
+        if not isinstance(periods, dict):
+            return
+        seller_price = periods.get("seller_price")
+        if isinstance(seller_price, dict):
+            as_of = self._format_as_of(seller_price.get("as_of"))
+            if as_of:
+                lines.append("Цена продавца: актуальна на " + as_of + ".")
+        finance = periods.get("current_finance_averages")
+        if isinstance(finance, dict) and finance.get("observed_sales_days") is not None:
+            sales = result.get("finance_sample_sales") if isinstance(result, dict) else None
+            sales_text = str(sales) if type(sales) is int and sales >= 0 else "—"
+            requested = finance.get("requested_days")
+            requested_text = str(requested) if type(requested) is int else "—"
+            lines.append(
+                "Окно начислений: "
+                + sales_text
+                + " продаж; дни с продажами "
+                + str(finance.get("observed_sales_days"))
+                + "/"
+                + requested_text
+                + "."
+            )
+        historical = periods.get("historical_window")
+        if isinstance(historical, dict):
+            start, end = historical.get("date_from"), historical.get("date_to")
+            if start and end:
+                lines.append(f"Окно начислений Ozon: {start} — {end}.")
+        cross = periods.get("cross_docking")
+        if isinstance(cross, dict):
+            start, end = cross.get("date_from"), cross.get("date_to")
+            if start and end:
+                days = cross.get("days_complete")
+                expected = cross.get("days_expected")
+                completeness = f" · полные дни {days}/{expected}" if days is not None and expected is not None else ""
+                lines.append(f"Окно кросс-докинга: {start} — {end}{completeness}.")
+
+    @staticmethod
+    def _breakdown_decimal(value):
+        if isinstance(value, bool) or value in (None, ""):
+            return None
+        try:
+            amount = Decimal(str(value))
+            if not amount.is_finite():
+                return None
+            return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _signed_breakdown_money(cls, amount):
+        value = cls._breakdown_decimal(amount)
+        if value is None:
+            return "—"
+        sign = "+" if value >= 0 else "−"
+        return sign + f"{abs(value):.2f} ₽"
 
     def _format_current_response(self, result):
         sku = result.get("sku", "—")

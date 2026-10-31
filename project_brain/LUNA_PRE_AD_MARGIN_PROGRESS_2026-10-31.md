@@ -18,6 +18,7 @@
 - MA13 DONE: price-grid candidates now expose before/after-ad values and explicit denominator/basis metadata; existing ranking remains after-ad RUB per successful unit. A separate explicit no-ad grid mode uses zero only as a scenario assumption, keeps the active ad override when applying a candidate, and does not rank rows with incompatible bases together. Linked Windows profile: **255 passed in 5.89s** across 9 modules; owner-data hash unchanged. Implementation/checkpoint SHA is recorded below after the stage commit.
 - MA14 DONE: target/sensitivity/batch consumers and exports reuse the existing candidate before-ad projection; no second scenario/search/source evaluation is introduced. Sales mix returns a tax-aware pre-ad aggregate from the same public aggregate tax call, preserves existing after-ad totals, and weights profit by seller revenue. Linked Windows profile: **261 passed in 5.38s** across 9 modules; owner-data hash unchanged. Implementation SHA `0ead66f5`; journal checkpoint follows this commit.
 - MA15 DONE: the current/historical SKU screen leads with post-tax before-ad RUB/unit and seller-price margin, plus tax basis/mode, expense completeness, ad availability and source windows. Exact historical after-ad appears only when exact ads are proven already included; UNKNOWN stays unavailable, never zero. The existing formatter/splitter is reused. Linked Windows profile: **42 passed in 1.07s** across 4 modules; compile/diff checks and owner-data checks pass. Implementation commit `271c5ee4`; journal checkpoint follows this commit.
+- MA16 DONE: a local-only “Из чего складывается” action renders the same current/historical `pre_ad_margin` snapshot with amounts, provenance, periods, denominator, unknown classes and reconciliation. Nested crossdock totals are explicitly non-additive; historical unnamed costs remain a computed residual. Callback token is user-scoped, short-lived and bounded; no second source read. Linked Windows profile: **44 passed in 1.12s** across 4 modules; compile/diff checks and owner data hash pass. Implementation/checkpoint SHA recorded below.
 - Подтверждено владельцем: before-ad после налога и прочих расходов, процент от общей выручки продавца до вычета баллов.
 - Новый отдельный before-ad расчёт не требует известной рекламы; неизвестный after-ad остаётся неизвестным.
 - Сценарий использует налог при нулевой рекламе; historical add-back сохраняет налог исходного периода. Основания не смешиваются.
@@ -44,8 +45,8 @@
 | MA13 | MA11 | DONE | Candidate before/after outputs, default ranking, explicit no-ad mode and same-basis ranking verified; linked profile 255 passed in 5.92s; data hash unchanged; implementation commit `7219e6e3`. |
 | MA14 | MA13 | DONE | Target/sensitivity/batch reuse the same candidate projection; aggregate mix adds tax-aware no-ad output with weighted N14 basis; UI/export coverage; linked profile 261 passed in 5.34s; owner-data hash unchanged. |
 | MA15 | MA10,MA11,MA12 | DONE | Current/historical primary screen displays the existing projection and basis/completeness/source/ad context; unknown ads remain unavailable. Linked profile 42 passed in 1.07s; owner-data SHA-1 unchanged; implementation checkpoint recorded below. |
-| MA16 | MA15 | IN_PROGRESS | Add an “Из чего складывается” action with amounts, provenance, periods and denominators; reconcile ledger totals to the exact selected projection and label nested totals to prevent double counting. |
-| MA17 | MA16 | NOT_STARTED | — |
+| MA16 | MA15 | DONE | Current/historical local ledger plus user-scoped 15-minute snapshot callback; no requery, exact arithmetic, unknowns visible, crossdock nested subtotal marked non-additive. Linked profile 44 passed in 1.12s; owner data hash unchanged. |
+| MA17 | MA16 | IN_PROGRESS | Add specific user actions for missing cost/tariff/source data, and return to the exact SKU/scenario/revision. Unsupported sources need a concrete reason; refresh only on explicit action and no automatic retry loops. |
 | MA18 | MA12,MA15 | NOT_STARTED | — |
 | MA19 | MA13,MA17,MA18 | NOT_STARTED | — |
 | MA20 | MA14,MA19 | NOT_STARTED | — |
@@ -72,13 +73,22 @@
 - `py_compile` over affected production services and `git diff --check` pass. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live requests or real bot.
 - MA14 завершён commit `0ead66f5`; актуальная точка продолжения находится в Resume MA15 / MA16 ниже.
 
-## Resume реализации MA15 / MA16
+## Исторический Resume реализации MA15
 
 - MA15 input SHA: `e7fe4824`. Implementation commit SHA: `271c5ee4` (`Show pre-ad margin on primary SKU screen`).
 - MA15 changed `app/services/product_unit_economics_query_service.py` and `app/services/product_unit_economics_provider.py`; regressions are in `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, and `tests/test_product_unit_economics_historical_pre_ad_margin.py`.
 - The existing current/historical `format_response` now places the canonical post-tax pre-ad projection before the legacy details. The current projection carries only a whitelist tax mode. UNKNOWN ads explicitly make after-ad profit unavailable; historical after-ad appears only when exact ads are proven included in the same net. Completeness, user-readable unavailable reason, seller-price/finance windows and historical accrual dates are visible; the existing Telegram splitter remains the only splitting path.
 - Final focused Windows profile: **42 passed in 1.07s** across current integration, historical query, historical pre-ad service and Telegram UI. `py_compile` and `git diff --check` PASS. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API or bot.
-- Next: MA16 expense drill-down action. Inspect exact canonical expense ledger/evidence; preserve total and ownership semantics, make nested subtotals visibly non-additive, include source periods/denominators, and verify sum-to-projection with cents before MA17.
+- MA15 completed at `271c5ee4`; current continuation is the MA16 / MA17 Resume below.
+
+## Resume реализации MA16 / MA17
+
+- MA16 input SHA: `37843765`. Implementation commit SHA: pending; record the exact output SHA after commit.
+- Changed production files: `app/services/product_unit_economics_query_service.py`, `app/services/assistant_button_handler_service.py`, and `app/services/assistant_keyboard_service.py`. Regression files: `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, and `tests/test_product_unit_economics_telegram_ui.py`.
+- `format_expense_breakdown` uses only the already returned `pre_ad_margin` and safe existing result fields. Current ledger reconciles seller price less known non-ad expenses and tax to the exact displayed profit; partial/unknown amounts are visible and never zero-filled. Historical exact evidence reports period totals and successful-unit denominator, retains recorded tax, uses a calculated unclassified remainder instead of inventing Ozon labels, and independently reconciles after-ad net. Cross-dock's per-unit rate plus accrual/accepted-unit denominator is visibly a non-additive subline.
+- The “Из чего складывается” button uses an opaque per-user callback token backed by a 15-minute/512-entry in-memory cache of rendered detail only. The detail callback never re-runs the economics query; other-user and expired tokens fail closed. No persistence/schema change or raw source-ID storage.
+- Final linked Windows profile: **44 passed in 1.12s** on the four current/query/historical/Telegram modules. First run found a string money-format issue on crossdock detail; fixed before the final full profile. `py_compile`, `git diff --check` PASS. `data/tasks.json` SHA-1 remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. No live API or bot.
+- Next: MA17 needs to connect existing user flows for missing cost/tariff/expense sources without refreshing automatically. Check which existing manual cost/tariff/source-update buttons can be entered from the breakdown and return to the same SKU/scenario; unsupported data remains unavailable with a concrete reason.
 
 ## Правила исполнения
 

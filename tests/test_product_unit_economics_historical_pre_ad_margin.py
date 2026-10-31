@@ -301,6 +301,18 @@ def test_exact_evidence_is_attached_to_the_matching_historical_query_row(service
     assert "Полнота расходов без рекламы: частичная" in response
     assert "После учтённой рекламы: 21.50 ₽ / шт. · 21.50%" in response
     assert "Исторический период начислений Ozon: 2026-10-01 — 2026-10-07" in response
+    breakdown = query.format_expense_breakdown(result)
+    assert "Знаменатель: 30 успешных единиц; источник — точные начисления по SKU." in breakdown
+    assert "Выручка продавца: +3000.00 ₽" in breakdown
+    assert "Себестоимость: −900.00 ₽ · известная часть expense scope" in breakdown
+    assert "Остаток прочих не рекламных начислений (расчётный, не разбит по типам): −960.00 ₽" in breakdown
+    assert "Налог периода: −135.00 ₽" in breakdown
+    assert "Маржа до рекламы: +1005.00 ₽" in breakdown
+    assert "Реклама exact-SKU, уже включённая в net: −360.00 ₽ · 30 шт., корректировки учтены один раз" in breakdown
+    assert "Прибыль после рекламы: +645.00 ₽" in breakdown
+    assert "Сверка after-ad: 0.00 ₽ расхождения." in breakdown
+    assert "Сверка суммы до рекламы: 0.00 ₽ расхождения; остаток прочих начислений рассчитан балансом." in breakdown
+    assert "баланс, а не подпись операции Ozon" in breakdown
 
 
 @pytest.mark.parametrize(

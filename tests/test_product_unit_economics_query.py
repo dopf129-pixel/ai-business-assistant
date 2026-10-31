@@ -150,6 +150,10 @@ def test_query_finds_sku_and_returns_unit_economics():
     assert "Причина: точные расходы на рекламу не подключены" in response
     assert "HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED" not in response
     assert "0.00 ₽ / шт." not in response
+    breakdown = service.format_expense_breakdown(result)
+    assert "Маржа до рекламы не рассчитана: точные расходы на рекламу не подключены." in breakdown
+    assert "Реклама: сумма неизвестна, не считается нулём." in breakdown
+    assert "0.00 ₽" not in breakdown
     assert period_profit_service.calls[0][
         "products"
     ][0]["sku"] == "hook-2"

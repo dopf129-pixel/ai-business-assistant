@@ -31,6 +31,7 @@ class FakeUnitEconomicsQuery:
             products=products
         )
         self.queries = []
+        self.breakdown_calls = []
 
     def query(self, sku):
         self.queries.append(sku)
@@ -78,6 +79,10 @@ class FakeUnitEconomicsQuery:
             "Расчётная прибыль с 1 шт:\n510.00 ₽\n\n"
             "Маржа:\n34.00%"
         )
+
+    def format_expense_breakdown(self, result):
+        self.breakdown_calls.append(result["sku"])
+        return "🧾 Проверенная локальная расшифровка — " + result["sku"]
 
 
 def _build_handler(products=None):
@@ -160,7 +165,8 @@ def test_select_sku_calls_existing_query_and_displays_result():
     )
 
     result = handler.handle(
-        "unit_economics:hook-2"
+        "unit_economics:hook-2",
+        user_id=42,
     )
 
     assert query.queries == ["hook-2"]
@@ -169,6 +175,50 @@ def test_select_sku_calls_existing_query_and_displays_result():
     assert "Unit Economics — hook-2" in result["message"]
     assert "Расчётная прибыль с 1 шт:" in result["message"]
     assert "Чистая прибыль" not in result["message"]
+    detail_button = result["keyboard"]["buttons"][0]
+    assert detail_button["text"] == "Из чего складывается"
+    detail_result = handler.handle(
+        detail_button["callback"],
+        user_id=42,
+    )
+    assert query.queries == ["hook-2"]
+    assert query.breakdown_calls == ["hook-2"]
+    assert detail_result["message"] == "🧾 Проверенная локальная расшифровка — hook-2"
+
+
+def test_unit_economics_breakdown_snapshot_is_user_scoped_and_expires():
+    handler, query = _build_handler()
+    result = handler.handle("unit_economics:hook-2", user_id=42)
+    callback = result["keyboard"]["buttons"][0]["callback"]
+
+    other_user = handler.handle(callback, user_id=99)
+    assert other_user["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
+    assert query.queries == ["hook-2"]
+
+    key = ("42", callback.split(":", 1)[1])
+    handler._unit_economics_detail_snapshots[key]["expires_at"] = 0
+    expired = handler.handle(callback, user_id=42)
+    assert expired["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
+    assert query.queries == ["hook-2"]
+
+
+def test_unit_economics_detail_callbacks_keep_their_own_sku_snapshot():
+    handler, query = _build_handler()
+    first = handler.handle("unit_economics:sku-one", user_id=42)
+    second = handler.handle("unit_economics:sku-two", user_id=42)
+
+    first_detail = handler.handle(
+        first["keyboard"]["buttons"][0]["callback"],
+        user_id=42,
+    )
+    second_detail = handler.handle(
+        second["keyboard"]["buttons"][0]["callback"],
+        user_id=42,
+    )
+
+    assert first_detail["message"].endswith("sku-one")
+    assert second_detail["message"].endswith("sku-two")
+    assert query.queries == ["sku-one", "sku-two"]
 
 
 def test_unknown_expenses_are_displayed_as_dashes():
