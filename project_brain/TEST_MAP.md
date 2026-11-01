@@ -5,7 +5,7 @@
 - `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_sales_mix_planning_service.py`: before-ad остаётся доступен при неизвестной рекламе; partial expenses не становятся нулём и scope переносится в результат.
 - `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_analytics_export_service.py`: сводка/экспорт показывают неполный состав расходов.
 - `tests/test_unit_price_scenario_telegram_runtime.py`: детализация показывает T0, T1 и налоговый эффект, а при неизвестной рекламе показывает T0 и честно обозначает T1 как нерассчитанный.
-- Проверки 2026-11-01: связанный профиль **208 passed**, полный Windows pytest **4,411 passed**. Exact-head GitHub CI должен быть запущен после публикации нового PR head.
+- Проверки 2026-11-01: связанный профиль **208 passed**, локальный полный Windows pytest **4,411 passed**. PR #724 code head `2e82355d1b0353be0ea3eeb4ed722bba0ac9e498` прошёл run `41328828173`: Windows и Linux — по **4,411 passed**, Docker build/smoke PASS. CI тестировал PR merge ref `142e97a80ce08caf047a1b52701bf1c5333ea1d9`; artifact ID `13092810821` (`sha256:e9d661a1f64b050fef668e91e7eb61d821c46adc1d64cc4b7e610a17a68df184`).
 
 # MA26 — linked margin before-ad acceptance flows
 

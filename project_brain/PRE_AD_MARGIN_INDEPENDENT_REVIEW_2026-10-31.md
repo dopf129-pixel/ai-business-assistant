@@ -43,7 +43,8 @@
 - Закрыты: stale seller-cost callback между магазинами/SKU; устаревший query cache после явного refresh/save; пропажа before-ad при неизвестной рекламе; потеря partial expense scope в mix/output/export; отсутствие явного T0/T1 в деталях сценария.
 - Связанный профиль на текущей локальной голове: **208 passed**; полный Windows pytest: **4,411 passed in 45.99s**.
 - `python -m compileall -q app tests` и `git diff --check`: PASS. `data/tasks.json` восстановлен к исходному SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
-- Нужны публикация изменённой головы PR #724, повторный независимый review и новые Windows/Linux/Docker checks на точном SHA. До их появления CI помечен `PENDING`, а не унаследован от исходной головы.
+- Кодовая голова PR #724 `2e82355d1b0353be0ea3eeb4ed722bba0ac9e498` прошла Verify run `41328828173`: Windows и Linux — по **4,411 passed**, Docker build/smoke — PASS. PR runner проверял merge ref `142e97a80ce08caf047a1b52701bf1c5333ea1d9`; SHA-bound artifact ID `13092810821`, digest `sha256:e9d661a1f64b050fef668e91e7eb61d821c46adc1d64cc4b7e610a17a68df184`.
+- Пять исправлений добавлены в открытый PR #724. Нужен повторный независимый review; merge/deploy/bot launch не выполнялись.
 
 - Полный Windows `pytest`: **4,404 passed in 46.19s**, полный прогон без `-k` и deselect на тестовом SHA `eb14db29`.
 - Первый прогон выявил недостаточный fake в одном legacy test: он не реализовывал существующий `build_unit_economics_detail_keyboard`. Fake дополнен без изменения production-контракта; целевой модуль: **10 passed**, после чего полный suite повторно прошёл.
