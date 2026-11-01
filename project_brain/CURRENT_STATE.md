@@ -3,7 +3,7 @@
 - Исправлены дополнительные review-находки: SKU/состояние калькулятора переживают переход из деталей; frozen before-ad/tax projections остаются в сохранённых single/batch планах и JSON-экспорте; sales mix сохраняет известный subtotal при UNKNOWN рекламе и не поднимает локальный confirmed-zero в общий ноль.
 - OrderedDict-кэши деталей и одноразовых действий защищены общей блокировкой от конкурентной очистки, вставки и вытеснения.
 - Связанный профиль: **290 passed**; полный Windows pytest: **4,416 passed in 46.01s**; `compileall app tests` и `git diff --check` PASS. Тестовый побочный эффект в `data/tasks.json` восстановлен, SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
-- Эти изменения ещё не опубликованы в PR #724; после фиксации нужен exact-head CI и повторный независимый review. Слияние/развёртывание/запуск бота не выполнялись.
+- Коммит опубликован в PR #724. SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head GitHub Actions run `41332959642`: Windows и Linux/Docker — success; artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`. Нужен повторный независимый review. Слияние/развёртывание/запуск бота не выполнялись.
 
 # 2026-11-01 — PR #724: исправления review R1–R5
 
