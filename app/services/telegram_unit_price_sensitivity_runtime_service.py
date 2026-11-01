@@ -385,6 +385,18 @@ class TelegramUnitPriceSensitivityRuntimeService:
                 line = f"{index}. {coordinate_text}: {self._status_label(cell.get('status'))}"
                 if reason:
                     line += f" ({str(reason)[:48]})"
+                pre_ad = scenario.get("pre_ad_margin") or {}
+                if pre_ad.get("status") == "AVAILABLE":
+                    pre_ad_label = (
+                        "до рекламы по неполному составу расходов"
+                        if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL"
+                        else "до рекламы"
+                    )
+                    line += (
+                        f"; {pre_ad_label}: "
+                        f"{self._number(pre_ad.get('profit_per_unit_rub'))} ₽/шт. "
+                        f"({self._number(pre_ad.get('margin_percent'))}%)"
+                    )
             lines.append(line + ".")
         best = self._find_cell(cells, result.get("best_checked_cell_id"))
         worst = self._find_cell(cells, result.get("worst_checked_cell_id"))

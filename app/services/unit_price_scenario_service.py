@@ -410,6 +410,14 @@ class UnitPriceScenarioService:
             "error": False,
             "available": not missing and not invalid,
             "calculated": calculated,
+            "pre_ad_expense_scope": self._build_pre_ad_expense_scope(
+                normalized,
+                pre_ad_components,
+                additional_expenses=(
+                    extended["additional_expense_per_unit"] if extended else None
+                ),
+                extended=extended,
+            ),
             "missing_inputs": list(dict.fromkeys(missing)),
             "invalid_inputs": list(dict.fromkeys(invalid)),
             "read_only": True,
@@ -805,6 +813,96 @@ class UnitPriceScenarioService:
             "reason": "UNMODELED_NON_AD_EXPENSES" if unknown_expenses else None,
         })
         return base
+
+    def _build_pre_ad_expense_scope(
+        self, normalized, components, *, additional_expenses=None, extended=None,
+    ):
+        known_expenses = {
+            "COGS": normalized.get("cost"),
+            "OZON_COMMISSION": components.get("commission"),
+            "LOGISTICS": normalized.get("logistics_per_unit"),
+            "LAST_MILE": normalized.get("last_mile_per_unit"),
+            "ACQUIRING": normalized.get("acquiring_per_unit"),
+        }
+        known_expenses = {
+            key: value for key, value in known_expenses.items() if value is not None
+        }
+        unknown_expenses = {
+            "STORAGE", "PLACEMENT", "RETURNS_AND_CANCELLATIONS",
+            "UNMAPPED_NON_AD_EXPENSES",
+        }
+        excluded_expense_reasons = {
+            "ADVERTISING": "EXCLUDED_BY_DEFINITION",
+            "FIXED_STORE_OVERHEAD": "OUTSIDE_SKU_CONTRIBUTION_SCOPE",
+        }
+        included_expense_keys = set(known_expenses)
+        confirmed_zero_expense_keys = set()
+        cross_docking = normalized.get("cross_docking_per_unit")
+        if cross_docking is None:
+            unknown_expenses.add("CROSS_DOCKING")
+        else:
+            known_expenses["CROSS_DOCKING"] = cross_docking
+            included_expense_keys.add("CROSS_DOCKING")
+        if additional_expenses is not None:
+            strict_return_loss = bool(
+                extended and isinstance(extended.get("strict_loss_details"), dict)
+            )
+            if strict_return_loss:
+                known_expenses["RETURN_LOSS_STRICT_COHORT"] = additional_expenses
+                unknown_expenses.discard("RETURNS_AND_CANCELLATIONS")
+                included_expense_keys.add("RETURNS_AND_CANCELLATIONS")
+            else:
+                known_expenses["CONFIRMED_ADDITIONAL_EXPENSES"] = additional_expenses
+            if extended:
+                for component in extended["components"]:
+                    component_key = component["component_key"]
+                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
+                    if scope_key:
+                        included_expense_keys.add(scope_key)
+                        unknown_expenses.discard(scope_key)
+                        if (
+                            scope_key in {"STORAGE", "PLACEMENT"}
+                            and component["numerator_rub"] == 0
+                        ):
+                            confirmed_zero_expense_keys.add(scope_key)
+                            known_expenses[scope_key] = Decimal("0.00")
+                    else:
+                        included_expense_keys.add(component_key)
+                for component_key in extended["included_component_keys"]:
+                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
+                    if scope_key:
+                        included_expense_keys.add(scope_key)
+                        unknown_expenses.discard(scope_key)
+                for key, status in extended["excluded_component_statuses"].items():
+                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(key, key)
+                    if status == "UNKNOWN":
+                        unknown_expenses.add(scope_key)
+                    else:
+                        unknown_expenses.discard(scope_key)
+                        excluded_expense_reasons[scope_key] = (
+                            "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
+                        )
+                if (
+                    additional_expenses == 0
+                    and extended["components"]
+                    and all(
+                        self._SCOPE_COMPONENT_CATEGORIES.get(component["component_key"])
+                        for component in extended["components"]
+                    )
+                ):
+                    known_expenses.pop("CONFIRMED_ADDITIONAL_EXPENSES", None)
+        return {
+            "status": "PARTIAL" if unknown_expenses else "COMPLETE",
+            "known_non_ad_expenses_rub": {
+                key: float(value) if isinstance(value, Decimal) else value
+                for key, value in sorted(known_expenses.items())
+            },
+            "included_expense_keys": sorted(included_expense_keys),
+            "confirmed_zero_expense_keys": sorted(confirmed_zero_expense_keys),
+            "unknown_non_ad_expense_keys": sorted(unknown_expenses),
+            "excluded_expense_keys": sorted(excluded_expense_reasons),
+            "excluded_expense_reasons": excluded_expense_reasons,
+        }
 
     def _build_advertising_tax_bridge(
         self,

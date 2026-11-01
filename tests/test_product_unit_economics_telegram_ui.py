@@ -5,6 +5,7 @@ import services.assistant_button_handler_service as assistant_button_handler_mod
 from services.assistant_keyboard_service import (
     AssistantKeyboardService
 )
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 
 
 class FakeAssistant:
@@ -240,6 +241,10 @@ def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(mo
                 }
             return result
 
+        def refresh(self, sku):
+            self.refresh_calls = getattr(self, "refresh_calls", 0) + 1
+            return self.query(sku)
+
         def format_expense_breakdown(self, result):
             return "Расшифровка " + result["sku"]
 
@@ -263,7 +268,9 @@ def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(mo
 
     result = handler.handle("unit_economics:sku-1", user_id=42)
     callbacks = [button["callback"] for button in result["keyboard"]["buttons"]]
-    assert "seller_cost_return:sku-1" in callbacks
+    cost_callback = next(item for item in callbacks if item.startswith("seller_cost_return:"))
+    assert cost_callback != "seller_cost_return:sku-1"
+    assert len(cost_callback.encode("utf-8")) <= 64
     assert "upc:p:scenario-sku-1" in callbacks
     refresh = next(item for item in callbacks if item.startswith("unit_economics_refresh:"))
     assert query.queries == ["sku-1"]
@@ -281,6 +288,7 @@ def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(mo
     refreshed = handler.handle(refresh, user_id=42)
     assert refreshed["error"] is False
     assert query.queries == ["sku-1", "sku-1"]
+    assert query.refresh_calls == 1
 
     tenant["value"] = "owner::ozon::store-b"
     stale = handler.handle(refresh, user_id=42)
@@ -291,6 +299,51 @@ def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(mo
     )
     assert stale_detail["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
     assert query.queries == ["sku-1", "sku-1"]
+
+
+def test_old_seller_cost_entry_button_is_bound_to_user_and_store(monkeypatch):
+    tenant = {"value": "owner::ozon::store-a"}
+    monkeypatch.setattr(
+        assistant_button_handler_module,
+        "get_current_tenant_user_id",
+        lambda: tenant["value"],
+    )
+    handler = AssistantButtonHandlerService(assistant=FakeAssistant())
+
+    class CostFlow:
+        def __init__(self):
+            self.selected = []
+
+        def select_sku(self, user_id, sku, return_to_unit_economics=False):
+            self.selected.append((user_id, sku, return_to_unit_economics))
+            return {"error": False, "seller_cost_input_pending": True}
+
+    cost_flow = CostFlow()
+    adapter = SellerCostTelegramAdapter(
+        assistant=FakeAssistant(),
+        keyboard_service=AssistantKeyboardService(),
+        button_handler=handler,
+        seller_cost_service=cost_flow,
+    )
+    callback = handler.create_seller_cost_return_callback(42, "sku-1")
+    assert callback and "sku-1" not in callback
+
+    tenant["value"] = "owner::ozon::store-b"
+    stale = adapter.handle_button(callback, user_id=42)
+    assert stale["error"] is True
+    assert stale["code"] == "SELLER_COST_ENTRY_STALE"
+    assert cost_flow.selected == []
+
+    tenant["value"] = "owner::ozon::store-a"
+    replay = adapter.handle_button(callback, user_id=42)
+    assert replay["error"] is True
+    assert replay["code"] == "SELLER_COST_ENTRY_STALE"
+    assert cost_flow.selected == []
+
+    fresh = handler.create_seller_cost_return_callback(42, "sku-1")
+    accepted = adapter.handle_button(fresh, user_id=42)
+    assert accepted["seller_cost_input_pending"] is True
+    assert cost_flow.selected == [(42, "sku-1", True)]
 
 
 def test_unknown_expenses_are_displayed_as_dashes():

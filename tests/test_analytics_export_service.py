@@ -198,7 +198,13 @@ def test_saved_plan_sales_mix_and_advertising_cap_exports_expose_same_frozen_com
             "row_id": "r1", "quantity": 3, "price_per_unit": "500",
             "components": {"commission": "55"},
         }], "excluded_rows": [],
-        "pre_ad_margin": {"status": "AVAILABLE", "profit_rub": "110.00", "margin_percent": "27.50"},
+        "pre_ad_margin": {
+            "status": "AVAILABLE", "profit_rub": "110.00", "margin_percent": "27.50",
+            "expense_scope": {
+                "status": "PARTIAL",
+                "unknown_non_ad_expense_keys": ["STORAGE"],
+            },
+        },
     }, "json"))
     cap = _json(service.export_advertising_cap(document, [{
         "product_id": "p1", "offer_id": "offer-1", "sku": "sku-1",
@@ -218,6 +224,10 @@ def test_saved_plan_sales_mix_and_advertising_cap_exports_expose_same_frozen_com
         assert "owner_id" not in json.dumps(row)
     assert mix["metadata"]["pre_ad_margin"] == {
         "status": "AVAILABLE", "profit_rub": "110.00", "margin_percent": "27.50",
+        "expense_scope": {
+            "status": "PARTIAL",
+            "unknown_non_ad_expense_keys": ["STORAGE"],
+        },
     }
 
 

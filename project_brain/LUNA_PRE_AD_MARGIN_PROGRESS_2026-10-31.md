@@ -6,6 +6,8 @@
 
 ## Resume
 
+- 2026-11-01 review remediation R1–R5 локально исправлена: callbacks себестоимости стали одноразовыми и tenant-bound, cost save/explicit refresh обходят query cache; sensitivity/batch/mix не прячут независимый no-ad subtotal при unknown advertising; expense completeness переносится через aggregate и export; детализация показывает T0/T1. Связанный профиль **208 passed**, полный Windows pytest **4,411 passed in 45.99s**, `compileall app tests` и `git diff --check` прошли. `data/tasks.json` восстановлен к исходному SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. Exact-head CI после публикации обновлённой PR #724 головы ещё не запущен; merge/deploy/bot launch не выполнялись.
+
 - MA00 DONE: PR #721/#722/#723 открыты, их базы/head сверены; создана отдельная `codex/pre-ad-margin-implementation-20261031` от точной головы ТЗ `34007a9b229092b6d54f6194d6037b50f23b2d1c`. До изменений дерево было чистым; `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствовал. См. `PRE_AD_MARGIN_MA00_BASELINE_2026-10-31.md`.
 - MA01–MA04 DONE: зафиксированы current/historical/scenario consumers, исторический add-back boundary и versioned `pre_ad_margin` v1 contract. Исходный профиль **89 passed in 1.74s**; hashes owner data неизменны. Подробности в `PRE_AD_MARGIN_AUDIT_2026-10-31.md` и Decision 051.
 - MA05 DONE: добавлена additive `pre_ad_margin` v1 canonical no-ad projection; при неизвестной рекламе before доступен, legacy after-ad result остаётся unavailable; internal no-ad zero не попадает во входы. Crossdock + extended guard сохранён, partial-проекция исключает crossdock и маркирует его unknown. Final linked profile **313 passed in 4.83s**; исходные данные чистые и hash совпадает. См. audit §MA05.

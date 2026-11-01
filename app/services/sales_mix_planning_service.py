@@ -33,6 +33,16 @@ class SalesMixPlanningService:
         excluded = []
         totals = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
         pre_ad_profit_before_tax_total = Decimal("0.00")
+        pre_ad_revenue_total = Decimal("0.00")
+        pre_ad_discount_points_total = Decimal("0.00")
+        pre_ad_complete = True
+        pre_ad_policy_set = set()
+        pre_ad_policy_missing = False
+        pre_ad_known_expenses = {}
+        pre_ad_included_expense_keys = set()
+        pre_ad_confirmed_zero_expense_keys = set()
+        pre_ad_unknown_expense_keys = set()
+        pre_ad_excluded_expense_reasons = {}
         additional_expense_total = Decimal("0.00")
         has_extended_expenses = False
         cross_docking_total = Decimal("0.00")
@@ -50,6 +60,7 @@ class SalesMixPlanningService:
             if quantity is None:
                 quantity_known = False
                 complete = False
+                pre_ad_complete = False
                 if include_cross_docking:
                     cross_docking_complete = False
                 excluded.append({"row_id": row_id, "label": label, "reason": "QUANTITY_UNKNOWN"})
@@ -85,6 +96,71 @@ class SalesMixPlanningService:
                 strict_return_evidence=strict_return_evidence,
                 identity=identity,
             )
+            unit = projected.get("calculated") or {}
+            pre_ad_unit_profit = self._decimal(unit.get("pre_ad_profit_before_tax"))
+            pre_ad_revenue = self._decimal(unit.get("revenue"))
+            pre_ad_discount_points = self._decimal(unit.get("discount_points"))
+            ad_fields = set(getattr(
+                self.scenario_service, "ADVERTISING_INPUT_FIELDS", (),
+            ))
+            non_ad_missing = [
+                field for field in (projected.get("missing_inputs") or [])
+                if field not in ad_fields
+            ]
+            non_ad_invalid = [
+                field for field in (projected.get("invalid_inputs") or [])
+                if field not in ad_fields
+            ]
+            unit_scope = projected.get("pre_ad_expense_scope")
+            pre_ad_row_available = (
+                not non_ad_missing
+                and not non_ad_invalid
+                and pre_ad_unit_profit is not None
+                and pre_ad_revenue is not None
+                and pre_ad_discount_points is not None
+                and isinstance(unit_scope, dict)
+            )
+            if pre_ad_row_available:
+                pre_ad_profit_before_tax_total += (
+                    pre_ad_unit_profit * quantity
+                ).quantize(Decimal("0.01"))
+                pre_ad_revenue_total += (pre_ad_revenue * quantity).quantize(Decimal("0.01"))
+                pre_ad_discount_points_total += (
+                    pre_ad_discount_points * quantity
+                ).quantize(Decimal("0.01"))
+                if abs(pre_ad_profit_before_tax_total) > self.MAX_AGGREGATE_AMOUNT:
+                    return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
+                if abs(pre_ad_revenue_total) > self.MAX_AGGREGATE_AMOUNT:
+                    return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
+                if abs(pre_ad_discount_points_total) > self.MAX_AGGREGATE_AMOUNT:
+                    return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
+                if policy is None:
+                    pre_ad_policy_missing = True
+                else:
+                    pre_ad_policy_set.add(policy)
+                scope_known = unit_scope.get("known_non_ad_expenses_rub") or {}
+                for key, raw_amount in scope_known.items():
+                    amount = self._decimal(raw_amount)
+                    if amount is None:
+                        pre_ad_complete = False
+                        continue
+                    pre_ad_known_expenses[key] = pre_ad_known_expenses.get(
+                        key, Decimal("0.00"),
+                    ) + (amount * quantity).quantize(Decimal("0.01"))
+                pre_ad_included_expense_keys.update(
+                    unit_scope.get("included_expense_keys") or []
+                )
+                pre_ad_confirmed_zero_expense_keys.update(
+                    unit_scope.get("confirmed_zero_expense_keys") or []
+                )
+                pre_ad_unknown_expense_keys.update(
+                    unit_scope.get("unknown_non_ad_expense_keys") or []
+                )
+                pre_ad_excluded_expense_reasons.update(
+                    unit_scope.get("excluded_expense_reasons") or {}
+                )
+            else:
+                pre_ad_complete = False
             if projected.get("available") is not True:
                 complete = False
                 if include_cross_docking:
@@ -100,7 +176,6 @@ class SalesMixPlanningService:
                 })
                 continue
 
-            unit = projected.get("calculated") or {}
             row_components = {}
             pre_ad_unit_profit = self._decimal(unit.get("pre_ad_profit_before_tax"))
             if pre_ad_unit_profit is None:
@@ -112,9 +187,6 @@ class SalesMixPlanningService:
                 })
                 continue
             pre_ad_row_profit = (pre_ad_unit_profit * quantity).quantize(Decimal("0.01"))
-            pre_ad_profit_before_tax_total += pre_ad_row_profit
-            if abs(pre_ad_profit_before_tax_total) > self.MAX_AGGREGATE_AMOUNT:
-                return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
             row_components["pre_ad_profit_before_tax"] = pre_ad_row_profit
             additional_unit_expense = self._decimal(unit.get("additional_unit_expenses"))
             if extended_scenario is not None:
@@ -176,6 +248,9 @@ class SalesMixPlanningService:
         expense_total = sum((amount for _name, amount in fixed_expenses), Decimal("0.00"))
         if expense_total > self.MAX_FIXED_EXPENSE_TOTAL:
             return self._error("FIXED_EXPENSE_TOTAL_LIMIT_EXCEEDED")
+        if expense_total:
+            pre_ad_known_expenses["FIXED_PLANNING_EXPENSES"] = expense_total
+            pre_ad_included_expense_keys.add("FIXED_PLANNING_EXPENSES")
         pre_tax_subtotal = totals["profit_before_tax"] - expense_total
         pre_ad_pre_tax_subtotal = pre_ad_profit_before_tax_total - expense_total
         if abs(pre_tax_subtotal) > self.MAX_AGGREGATE_AMOUNT:
@@ -184,6 +259,8 @@ class SalesMixPlanningService:
             return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
         all_rows_known = quantity_known and complete and not excluded
         same_policy = len(policy_set) == 1 and not policy_missing
+        pre_ad_rows_known = quantity_known and pre_ad_complete
+        pre_ad_same_policy = len(pre_ad_policy_set) == 1 and not pre_ad_policy_missing
         tax = None
         final_profit = None
         margin = None
@@ -229,9 +306,9 @@ class SalesMixPlanningService:
                         if pre_ad_tax is not None:
                             pre_ad_tax = pre_ad_tax.quantize(Decimal("0.01"))
                             pre_ad_profit = pre_ad_pre_tax_subtotal - pre_ad_tax
-                            if totals["revenue"] != 0:
+                            if pre_ad_revenue_total != 0:
                                 pre_ad_margin = (
-                                    pre_ad_profit * Decimal("100") / totals["revenue"]
+                                    pre_ad_profit * Decimal("100") / pre_ad_revenue_total
                                 ).quantize(Decimal("0.01"))
                                 pre_ad_status = "AVAILABLE"
                                 pre_ad_reason = None
@@ -246,6 +323,40 @@ class SalesMixPlanningService:
                         )
                 else:
                     tax_status = "TAX_CALCULATION_UNAVAILABLE"
+
+        elif pre_ad_rows_known and pre_ad_same_policy:
+            mode, rate, minimum_rate = next(iter(pre_ad_policy_set))
+            try:
+                tax_result = self.tax_service.calculate(
+                    mode=mode,
+                    revenue=float(pre_ad_revenue_total),
+                    gross_profit=float(pre_ad_pre_tax_subtotal),
+                    tax_rate=float(rate) if rate is not None else None,
+                    minimum_tax_rate=float(minimum_rate) if minimum_rate is not None else None,
+                    discount_points=float(pre_ad_discount_points_total),
+                )
+            except (ArithmeticError, OverflowError, TypeError, ValueError):
+                tax_result = {"error": True}
+            if (
+                isinstance(tax_result, dict)
+                and tax_result.get("error") is not True
+                and tax_result.get("configured")
+            ):
+                pre_ad_tax = self._decimal(tax_result.get("tax_amount"))
+                if pre_ad_tax is not None:
+                    pre_ad_tax = pre_ad_tax.quantize(Decimal("0.01"))
+                    pre_ad_profit = pre_ad_pre_tax_subtotal - pre_ad_tax
+                    if pre_ad_revenue_total != 0:
+                        pre_ad_margin = (
+                            pre_ad_profit * Decimal("100") / pre_ad_revenue_total
+                        ).quantize(Decimal("0.01"))
+                        pre_ad_status = "AVAILABLE"
+                        pre_ad_reason = "AFTER_AD_SCENARIO_UNAVAILABLE"
+                    else:
+                        pre_ad_status = "UNDEFINED_ZERO_REVENUE"
+                        pre_ad_reason = "ZERO_REVENUE_DENOMINATOR"
+            else:
+                pre_ad_reason = "NO_AD_TAX_CALCULATION_UNAVAILABLE"
 
         components = {field: self._money(value) for field, value in totals.items()}
         if has_extended_expenses:
@@ -285,11 +396,24 @@ class SalesMixPlanningService:
                 "tax_basis": "AGGREGATE_NO_AD_SCENARIO",
                 "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
                 "unit_basis": "AGGREGATE_REVENUE_WEIGHTED",
-                "revenue_rub": self._money(totals["revenue"]),
+                "revenue_rub": self._money(pre_ad_revenue_total),
                 "profit_before_tax_rub": self._money(pre_ad_pre_tax_subtotal),
                 "tax_rub": self._money(pre_ad_tax) if pre_ad_tax is not None else None,
                 "profit_rub": self._money(pre_ad_profit) if pre_ad_profit is not None else None,
                 "margin_percent": self._money(pre_ad_margin) if pre_ad_margin is not None else None,
+                "expense_scope": {
+                    "status": "PARTIAL" if pre_ad_unknown_expense_keys else "COMPLETE",
+                    "known_non_ad_expenses_rub": {
+                        key: self._money(value)
+                        for key, value in sorted(pre_ad_known_expenses.items())
+                    },
+                    "included_expense_keys": sorted(pre_ad_included_expense_keys),
+                    "confirmed_zero_expense_keys": sorted(pre_ad_confirmed_zero_expense_keys),
+                    "unknown_non_ad_expense_keys": sorted(pre_ad_unknown_expense_keys),
+                    "excluded_expense_keys": sorted(pre_ad_excluded_expense_reasons),
+                    "excluded_expense_reasons": pre_ad_excluded_expense_reasons,
+                    "fixed_planning_expenses_rub": self._money(expense_total),
+                },
                 "reason": pre_ad_reason,
             },
             "margin_status": "DEFINED" if margin is not None else "UNDEFINED_ZERO_REVENUE" if all_rows_known and totals["revenue"] == 0 else "UNAVAILABLE",

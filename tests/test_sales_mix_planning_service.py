@@ -161,7 +161,10 @@ def test_mix_pre_ad_tax_bridge_uses_one_aggregate_tax_call_and_preserves_after_a
     assert result["tax"] == "3.90"
     assert result["profit"] == "22.10"
     assert result["margin_percent"] == "22.10"
-    assert result["pre_ad_margin"] == {
+    assert {
+        key: value for key, value in result["pre_ad_margin"].items()
+        if key != "expense_scope"
+    } == {
         "schema_version": 1,
         "status": "AVAILABLE",
         "basis": "WEIGHTED_AGGREGATE_NO_AD_AFTER_TAX",
@@ -175,6 +178,22 @@ def test_mix_pre_ad_tax_bridge_uses_one_aggregate_tax_call_and_preserves_after_a
         "margin_percent": "32.30",
         "reason": None,
     }
+    expense_scope = result["pre_ad_margin"]["expense_scope"]
+    assert expense_scope["status"] == "PARTIAL"
+    assert expense_scope["known_non_ad_expenses_rub"] == {
+        "ACQUIRING": "2.00",
+        "COGS": "30.00",
+        "CONFIRMED_ADDITIONAL_EXPENSES": "3.00",
+        "LAST_MILE": "3.00",
+        "LOGISTICS": "10.00",
+        "OZON_COMMISSION": "14.00",
+    }
+    assert "EXTRA_SERVICE" in expense_scope["included_expense_keys"]
+    assert {"CROSS_DOCKING", "PLACEMENT", "STORAGE"}.issubset(
+        expense_scope["unknown_non_ad_expense_keys"]
+    )
+    assert expense_scope["excluded_expense_keys"] == ["ADVERTISING", "FIXED_STORE_OVERHEAD"]
+    assert expense_scope["fixed_planning_expenses_rub"] == "0.00"
     assert len(tax.calls) == 1
     assert tax.calls[0]["gross_profit"] == 26.0
     assert tax.calls[0]["comparison_gross_profit"] == 38.0
@@ -205,6 +224,33 @@ def test_mix_pre_ad_margin_uses_revenue_weighting_not_mean_of_sku_percentages():
     assert result["pre_ad_margin"]["margin_percent"] == "27.50"
     assert result["pre_ad_margin"]["margin_percent"] != "25.00"
     assert len(tax.calls) == 1
+
+
+def test_mix_keeps_pre_ad_tax_margin_available_with_unknown_advertising_and_exposes_scope():
+    service, tax = _service()
+    item = _item("SKU-A", _sample_inputs(advertising_rate=None))
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 2},
+        period_label="2026-08-01 — 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["coverage_complete"] is False
+    assert result["tax"] is None and result["profit"] is None
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["revenue_rub"] == "1000.00"
+    assert result["pre_ad_margin"]["profit_before_tax_rub"] == "430.00"
+    assert result["pre_ad_margin"]["tax_rub"] == "48.00"
+    assert result["pre_ad_margin"]["profit_rub"] == "382.00"
+    assert result["pre_ad_margin"]["margin_percent"] == "38.20"
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert scope["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in scope["unknown_non_ad_expense_keys"]
+    assert "STORAGE" in scope["unknown_non_ad_expense_keys"]
+    assert scope["known_non_ad_expenses_rub"]["COGS"] == "300.00"
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 430.0
 
 
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():
@@ -254,7 +300,11 @@ def test_v2_sales_mix_marks_unconfirmed_cross_docking_partial_instead_of_zero():
     assert result["status"] == "PARTIAL"
     assert result["components"]["cross_docking"] is None
     assert result["profit"] is None
-    assert tax.calls == []
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["expense_scope"]["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 2150.0
 
 
 def test_v2_complete_window_without_sku_rate_does_not_become_zero_expense():
@@ -279,7 +329,11 @@ def test_v2_complete_window_without_sku_rate_does_not_become_zero_expense():
     assert result["cross_docking_status"] == "PARTIAL_OR_UNAVAILABLE"
     assert result["components"]["cross_docking"] is None
     assert result["profit"] is None
-    assert tax.calls == []
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["expense_scope"]["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 2150.0
 
 
 def test_aggregate_minimum_tax_does_not_sum_standalone_taxes():

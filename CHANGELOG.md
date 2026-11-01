@@ -1,3 +1,10 @@
+# 2026-11-01 — исправления review PR #724: маржа до рекламы
+
+- Одноразовая кнопка ввода себестоимости теперь связана с владельцем, магазином и конкретным SKU; явный возврат после сохранения себестоимости обновляет расчёт мимо кэша.
+- Цена/чувствительность, пакетный сценарий и состав продаж сохраняют доступную маржу до рекламы, когда реклама неизвестна; неизвестные прочие расходы раскрываются как неполный состав и не превращаются в ноль.
+- Подробности плановой экономики показывают T0 без рекламы и T1 после рекламы; если T1 нельзя рассчитать, это явно указано. CSV/JSON и сводка набора переносят scope известных/неизвестных расходов.
+- Регрессии по пяти замечаниям: **208 passed** в связанном профиле; полный Windows pytest: **4,411 passed**. Exact-head CI ожидает публикации обновлённой головы PR #724.
+
 # 2026-10-31 — MA24: unit economics backup/restore
 
 - Synthetic isolated backup now proves both old and new saved-plan revisions, frozen historical observation result history and matching saved-plan exports survive verification/dry-run/restore into a new storage root and repository instance. Tenant isolation and raw-response exclusion remain covered. Linked Windows profile: **26 passed in 3.36s**.

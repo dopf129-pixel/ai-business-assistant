@@ -5,6 +5,10 @@ from services.product_unit_economics_query_service import (
     ProductUnitEconomicsQueryService
 )
 from services.tax_service import TaxService
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 from telegram_app_layer.telegram_progress_feedback import split_telegram_text
 
 
@@ -159,6 +163,28 @@ def test_current_query_uses_live_price_and_prepared_expenses():
     assert costs.calls == ["4108512640"]
     assert source.calls[0]["sku"] == "hook-2"
     assert len(source.calls[0]["accrual_dates"]) == 2
+
+
+def test_explicit_refresh_bypasses_cached_unit_economics_after_cost_change():
+    service, source, costs = _service(
+        facts=_facts(cross_docking={"evidence_complete": True}),
+    )
+    service.cache_ttl_seconds = 600
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        initial = service.query("hook-2")
+        costs.costs["4108512640"] = 45.0
+        cached = service.query("hook-2")
+        refreshed = service.refresh("hook-2")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert initial["cost"] == 21.0
+    assert cached["cost"] == 21.0
+    assert cached["cache"]["status"] == "hit"
+    assert refreshed["cost"] == 45.0
+    assert refreshed["cache"]["status"] == "miss"
+    assert len(source.calls) == 2
 
 
 def test_current_response_shows_rubles_and_percentages():

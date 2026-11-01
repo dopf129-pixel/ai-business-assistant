@@ -154,6 +154,45 @@ def test_single_sensitivity_runs_locally_pages_and_applies_only_explicit_fresh_c
     assert source.calls == 1
 
 
+def test_sensitivity_displays_pre_ad_margin_when_advertising_is_unknown():
+    single, sensitivity, source = _runtime()
+    load_snapshot = source.load_snapshot
+
+    def without_advertising(*args, **kwargs):
+        snapshot = load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["advertising_rate"] = None
+        return snapshot
+
+    source.load_snapshot = without_advertising
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        entry = single.build_product_entry_button("user-1", "sku-1")
+        opened = single.handle_callback(entry["callback"], user_id="user-1")
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1",
+        )
+        values = sensitivity.handle_callback(
+            _find(prompt, "Ось · Цена продавца"), user_id="user-1",
+        )
+        report = sensitivity.handle_text("500;550;600", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert opened["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+    assert values["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+    assert report["status"] == "UNIT_PRICE_SENSITIVITY_READY"
+    cells = report["sensitivity_result"]["cells"]
+    assert len(cells) == 3
+    assert all(cell["status"] != "AVAILABLE" for cell in cells)
+    assert all(
+        cell["scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+        for cell in cells
+    )
+    assert "до рекламы по неполному составу расходов" in report["message"]
+    assert "после рекламы" not in report["message"]
+
+
 def test_sensitivity_result_discloses_fixed_cross_docking_input_for_each_scenario():
     single, sensitivity, source = _runtime()
     original_load_snapshot = source.load_snapshot

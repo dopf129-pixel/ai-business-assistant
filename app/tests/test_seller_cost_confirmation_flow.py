@@ -72,6 +72,11 @@ class _ResumeButtonHandler:
     def __init__(self):
         self.callbacks = []
 
+    def consume_seller_cost_return_callback(self, user_id, token):
+        if user_id == "user" and token == "entry-token":
+            return {"error": False, "sku": "sku-1"}
+        return {"error": True, "code": "SELLER_COST_ENTRY_STALE"}
+
     def handle(self, callback, user_id=None):
         self.callbacks.append((callback, user_id))
         return {"error": False, "message": callback, "read_only_ozon": True}
@@ -101,7 +106,7 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
         )
         token = set_current_tenant_user_id("user::ozon::store-a")
         try:
-            selected = adapter.handle_button("seller_cost_return:sku-1", user_id="user")
+            selected = adapter.handle_button("seller_cost_return:entry-token", user_id="user")
             self.assertTrue(selected["seller_cost_input_pending"])
             preview = adapter.handle_text("430", user_id="user")
             saved = adapter.handle_button(
@@ -137,7 +142,7 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
         )
         token_a = set_current_tenant_user_id("user::ozon::store-a")
         try:
-            adapter.handle_button("seller_cost_return:sku-1", user_id="user")
+            adapter.handle_button("seller_cost_return:entry-token", user_id="user")
             preview = adapter.handle_text("430", user_id="user")
             saved = adapter.handle_button(
                 preview["keyboard"]["buttons"][0]["callback"], user_id="user"

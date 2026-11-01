@@ -453,6 +453,26 @@ def test_sales_mix_public_flow_confirms_zero_expenses_and_saves_revision_without
     assert len(source.calls) == 1
 
 
+def test_sales_mix_pre_ad_summary_labels_partial_expense_scope():
+    lines = []
+    TelegramSavedPlanningPlanRuntimeService._append_sales_mix_pre_ad_summary(
+        lines,
+        {
+            "status": "AVAILABLE",
+            "profit_rub": "382.00",
+            "margin_percent": "38.20",
+            "expense_scope": {
+                "status": "PARTIAL",
+                "unknown_non_ad_expense_keys": ["CROSS_DOCKING", "STORAGE"],
+            },
+        },
+    )
+
+    assert "Прибыль до рекламы после налога: 382.00 ₽" in lines[0]
+    assert "по неполному составу расходов" in lines[0]
+    assert "кросс-докинг, хранение" in lines[1]
+
+
 def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
     source.cross_docking = _confirmed_cross_docking_source("12.00", 100)

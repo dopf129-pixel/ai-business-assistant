@@ -1,3 +1,12 @@
+# PR #724 — исправления review R1–R5 (2026-11-01)
+
+- `tests/test_product_unit_economics_telegram_ui.py` и `app/tests/test_seller_cost_confirmation_flow.py`: одноразовый callback себестоимости привязан к пользователю/магазину и не переиспользуется; явный post-save возврат вызывает refresh.
+- `tests/test_current_unit_economics_integration.py` и `tests/test_product_unit_economics_query_cache.py`: refresh обходит кэш юнит-экономики.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_sales_mix_planning_service.py`: before-ad остаётся доступен при неизвестной рекламе; partial expenses не становятся нулём и scope переносится в результат.
+- `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_analytics_export_service.py`: сводка/экспорт показывают неполный состав расходов.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: детализация показывает T0, T1 и налоговый эффект, а при неизвестной рекламе показывает T0 и честно обозначает T1 как нерассчитанный.
+- Проверки 2026-11-01: связанный профиль **208 passed**, полный Windows pytest **4,411 passed**. Exact-head GitHub CI должен быть запущен после публикации нового PR head.
+
 # MA26 — linked margin before-ad acceptance flows
 
 - Linked offline regression covers the current/historical card, pre-ad/after-ad scenario and tax bridge, target/grid/sensitivity/batch/mix, frozen commission profiles, saved-plan flows and repository revisions, return/expense/cross-docking evidence, observation lifecycle, price experiments, exports, and isolated archive restore.

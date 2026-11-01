@@ -3589,6 +3589,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
             cross_docking,
             values.get("cross_docking"),
         )
+        tax_bridge = result.get("advertising_tax_bridge") or {}
+        tax_before_ad = tax_bridge.get("tax_before_ad_rub")
+        if tax_before_ad is None:
+            tax_before_ad = (result.get("pre_ad_margin") or {}).get("tax_per_unit_rub")
+        tax_after_ad = tax_bridge.get("tax_after_ad_rub")
+        if tax_after_ad is None:
+            tax_after_ad = values.get("tax")
+        if tax_after_ad is None:
+            tax_lines = ["Налог после рекламы (T1): не рассчитан."]
+        else:
+            tax_lines = [
+                "Налог: " + self._money(tax_after_ad) + " ("
+                + self._percent(values.get("effective_tax_rate"))
+                + " цены; T1, после рекламы)"
+            ]
+        if tax_before_ad is not None:
+            tax_lines.append("Налог без рекламы (T0): " + self._money(tax_before_ad))
+        if tax_bridge.get("tax_effect_of_advertising_rub") is not None:
+            tax_lines.append(
+                "Налоговый эффект рекламы (T0 − T1): "
+                + self._money(tax_bridge.get("tax_effect_of_advertising_rub"))
+            )
         sku = session["sku"]
         lines = [
             "🧮 Плановая юнит-экономика",
@@ -3612,7 +3634,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Баллы, оценка " + self._percent(inputs.get("discount_points_rate")) + ": " + self._money(values.get("discount_points")),
             cross_docking_line,
             "Выручка для налога: " + self._money(values.get("taxable_revenue")),
-            "Налог: " + self._money(values.get("tax")) + " (" + self._percent(values.get("effective_tax_rate")) + " цены)",
+            *tax_lines,
             "",
         ]
         lines.extend(self._pre_ad_projection_lines(result))

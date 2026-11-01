@@ -1089,6 +1089,20 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                         f"{self._number(current.get('profit'), ' ₽/шт.')} "
                         f"({self._number(current.get('margin_percent'), '%')}); маржа до рекламы недоступна."
                     )
+            else:
+                pre_ad = (row.get("scenario") or {}).get("pre_ad_margin") or {}
+                if pre_ad.get("status") == "AVAILABLE":
+                    before_label = (
+                        "Маржа до рекламы по неполному составу расходов"
+                        if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL"
+                        else "Маржа до рекламы"
+                    )
+                    lines.append(
+                        f"Цена {self._number(inputs.get('price'), ' ₽')}; {before_label}: "
+                        f"{self._number(pre_ad.get('profit_per_unit_rub'), ' ₽/шт.')} "
+                        f"({self._number(pre_ad.get('margin_percent'), '%')}); "
+                        "расчёт после рекламы недоступен."
+                    )
             if break_even.get("status") == "FOUND":
                 lines.append(f"Безубыточность: {self._number(break_even.get('price'), ' ₽')}.")
             if target.get("status") == "FOUND" and row.get("status") == "READY":

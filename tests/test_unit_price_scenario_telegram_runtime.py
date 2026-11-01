@@ -531,6 +531,55 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     assert "Прибыль: 226,00 ₽/шт." in short["message"]
 
 
+def test_scenario_details_show_no_ad_and_after_ad_tax_bridge():
+    runtime, source = _runtime()
+    original_load_snapshot = source.load_snapshot
+
+    def profit_tax_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"].update({
+            "price": "100", "cost": "30", "commission_rate": "14",
+            "logistics_per_unit": "10", "last_mile_per_unit": "3",
+            "acquiring_per_unit": "2", "advertising_rate": None,
+            "discount_points_rate": "0", "tax_mode": "USN_INCOME_MINUS_EXPENSES",
+            "tax_rate": "15", "minimum_tax_rate": "1",
+        })
+        return snapshot
+
+    source.load_snapshot = profit_tax_snapshot
+    tenant = _activate()
+    try:
+        opened = _select_catalog_product(runtime)
+        initial_details = runtime.handle_callback(
+            _find_button(opened, "Подробности расчёта")["callback"],
+            user_id="user-1",
+        )
+        ad_button = next(
+            button for button in opened["keyboard"]["buttons"]
+            if str(button.get("callback", "")).endswith(":advertising_rate")
+        )
+        prompt = runtime.handle_callback(ad_button["callback"], user_id="user-1")
+        ready = runtime.handle_text("12", user_id="user-1")
+        details = runtime.handle_callback(
+            _find_button(ready, "Подробности расчёта")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert ready["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert initial_details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert "Налог без рекламы (T0): 6,15 ₽" in initial_details["message"]
+    assert "Налог после рекламы (T1): не рассчитан." in initial_details["message"]
+    assert "Налоговый эффект рекламы (T0 − T1)" not in initial_details["message"]
+    assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert "Налог без рекламы (T0): 6,15 ₽" in details["message"]
+    assert "Налог: 4,35 ₽" in details["message"]
+    assert "T1, после рекламы" in details["message"]
+    assert "Налоговый эффект рекламы (T0 − T1): 1,80 ₽" in details["message"]
+
+
 def test_target_margin_input_retries_then_shows_verified_price_without_changing_scenario():
     runtime, source = _runtime()
     token = _activate()

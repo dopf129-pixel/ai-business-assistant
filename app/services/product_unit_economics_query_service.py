@@ -131,6 +131,13 @@ class ProductUnitEconomicsQueryService:
         self._query_cache = {}
 
     def query(self, sku):
+        return self._query(sku, force_refresh=False)
+
+    def refresh(self, sku):
+        """Bypass a fresh cache entry for an explicit user-requested refresh."""
+        return self._query(sku, force_refresh=True)
+
+    def _query(self, sku, *, force_refresh):
         target_sku = str(sku or "").strip()
 
         if not target_sku:
@@ -150,9 +157,11 @@ class ProductUnitEconomicsQueryService:
                 "message": "SKU не найден"
             }
 
-        return self.query_for_product(target_sku, product)
+        return self.query_for_product(
+            target_sku, product, force_refresh=force_refresh,
+        )
 
-    def query_for_product(self, sku, product):
+    def query_for_product(self, sku, product, *, force_refresh=False):
         """Run the existing economics query with an already resolved catalog row."""
         target_sku = str(sku or "").strip()
         normalized_product = self._normalize_product(product)
@@ -186,7 +195,8 @@ class ProductUnitEconomicsQueryService:
         now = self.cache_clock()
 
         if (
-            self.cache_ttl_seconds > 0
+            not force_refresh
+            and self.cache_ttl_seconds > 0
             and cached is not None
             and now - cached["stored_at"]
             < self.cache_ttl_seconds

@@ -1128,23 +1128,11 @@ class TelegramSavedPlanningPlanRuntimeService:
             lines.append(f"Расход за период · {expense.get('name')}: {expense.get('amount')} ₽.")
         if result.get("coverage_complete") is True:
             lines.append(f"Налог: {result.get('tax') if result.get('tax') is not None else 'не рассчитан (' + str(result.get('tax_status')) + ')'} ₽; итоговая прибыль: {result.get('profit') if result.get('profit') is not None else 'не определена'} ₽; маржа: {result.get('margin_percent') if result.get('margin_percent') is not None else 'не определена'}%.")
-            pre_ad = result.get("pre_ad_margin") or {}
-            if pre_ad.get("status") == "AVAILABLE":
-                lines.append(
-                    f"Прибыль до рекламы после налога: {pre_ad.get('profit_rub')} ₽; "
-                    f"маржа до рекламы: {pre_ad.get('margin_percent')}% от общей выручки. "
-                    "Доля взвешена по общей выручке набора, а не усреднена по SKU."
-                )
-            else:
-                lines.append(
-                    "Маржа набора до рекламы недоступна: "
-                    + str(pre_ad.get("reason") or pre_ad.get("status") or "нет полного tax результата")
-                    + "."
-                )
         else:
             lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
             for excluded in result.get("excluded_rows", [])[:10]:
                 lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
+        self._append_sales_mix_pre_ad_summary(lines, result.get("pre_ad_margin") or {})
         if result.get("coverage_complete") is True:
             self._append_sales_mix_advertising_cap(lines, payload, result)
         buttons = [
@@ -1153,6 +1141,44 @@ class TelegramSavedPlanningPlanRuntimeService:
         ]
         return self._result("SALES_MIX_PREVIEW", "\n".join(lines)[:3800], self._keyboard(buttons),
                             sales_mix_result=result, read_only=True, executed=False)
+
+    @staticmethod
+    def _append_sales_mix_pre_ad_summary(lines, pre_ad):
+        if pre_ad.get("status") != "AVAILABLE":
+            lines.append(
+                "Маржа набора до рекламы недоступна: "
+                + str(pre_ad.get("reason") or pre_ad.get("status") or "нет полного tax результата")
+                + "."
+            )
+            return
+        scope = pre_ad.get("expense_scope")
+        if not isinstance(scope, dict):
+            scope_label = "состав расходов не зафиксирован в снимке"
+        elif scope.get("status") == "PARTIAL":
+            scope_label = "по неполному составу расходов"
+        else:
+            scope_label = "по подтверждённому составу расходов"
+        lines.append(
+            f"Прибыль до рекламы после налога: {pre_ad.get('profit_rub')} ₽; "
+            f"маржа до рекламы: {pre_ad.get('margin_percent')}% от общей выручки. "
+            f"Доля взвешена по общей выручке набора, а не усреднена по SKU ({scope_label})."
+        )
+        unknown = (scope or {}).get("unknown_non_ad_expense_keys") or []
+        if unknown:
+            labels = {
+                "COGS": "себестоимость",
+                "OZON_COMMISSION": "комиссия Ozon",
+                "LOGISTICS": "логистика",
+                "LAST_MILE": "последняя миля",
+                "ACQUIRING": "эквайринг",
+                "CROSS_DOCKING": "кросс-докинг",
+                "STORAGE": "хранение",
+                "PLACEMENT": "размещение",
+                "RETURNS_AND_CANCELLATIONS": "возвраты и отмены",
+                "UNMAPPED_NON_AD_EXPENSES": "прочие расходы",
+            }
+            shown = [labels.get(str(key), "прочие расходы") for key in unknown[:6]]
+            lines.append("Не учтены неизвестные суммы: " + ", ".join(shown) + ".")
 
     def _append_sales_mix_advertising_cap(self, lines, payload, result):
         """Show summed standalone caps without claiming a group optimization."""

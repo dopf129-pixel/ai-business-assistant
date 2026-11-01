@@ -4,7 +4,7 @@
 Реализационная ветка: `codex/pre-ad-margin-implementation-20261031`
 Целевая ветка PR: `codex/pre-ad-margin-spec-20261031` (ветка задания PR #723)
 Реализационный PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/724
-Текущее состояние CI: run `41240191495` прошёл на SHA `fd4d79ed76fb1c2b77382e0f02a14fc22e3edd00`; любой последующий head должен получить собственные checks, видимые в PR выше.
+Предыдущий CI: run `41240191495` прошёл на исходном SHA `fd4d79ed76fb1c2b77382e0f02a14fc22e3edd00`. Для последующих правок нужен отдельный exact-head CI; результаты прежней головы к ним не относятся.
 Слияние, развёртывание, live-запросы и запуск бота этим изменением не выполняются.
 
 ## Что меняется
@@ -37,6 +37,13 @@
 | Сохранённые планы и выгрузки | Новые поля в совместимых frozen snapshots/exports без обновления Ozon | Просмотр/экспорт старого snapshot не освежает источники; новая revision создаётся только существующим явным действием |
 
 ## Локальная проверка
+
+### Review remediation R1–R5 (2026-11-01)
+
+- Закрыты: stale seller-cost callback между магазинами/SKU; устаревший query cache после явного refresh/save; пропажа before-ad при неизвестной рекламе; потеря partial expense scope в mix/output/export; отсутствие явного T0/T1 в деталях сценария.
+- Связанный профиль на текущей локальной голове: **208 passed**; полный Windows pytest: **4,411 passed in 45.99s**.
+- `python -m compileall -q app tests` и `git diff --check`: PASS. `data/tasks.json` восстановлен к исходному SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
+- Нужны публикация изменённой головы PR #724, повторный независимый review и новые Windows/Linux/Docker checks на точном SHA. До их появления CI помечен `PENDING`, а не унаследован от исходной головы.
 
 - Полный Windows `pytest`: **4,404 passed in 46.19s**, полный прогон без `-k` и deselect на тестовом SHA `eb14db29`.
 - Первый прогон выявил недостаточный fake в одном legacy test: он не реализовывал существующий `build_unit_economics_detail_keyboard`. Fake дополнен без изменения production-контракта; целевой модуль: **10 passed**, после чего полный suite повторно прошёл.

@@ -54,7 +54,38 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                 self.seller_cost_service.clear_pending(user_id)
                 return self.seller_cost_service.export_table()
             if callback_text.startswith("seller_cost_return:"):
-                sku = callback_text.split(":", 1)[1]
+                token = callback_text.split(":", 1)[1]
+                resolver = getattr(
+                    self.button_handler,
+                    "consume_seller_cost_return_callback",
+                    None,
+                )
+                if not callable(resolver):
+                    return {
+                        "error": True,
+                        "handled": True,
+                        "code": "SELLER_COST_ENTRY_STALE",
+                        "message": "Кнопка устарела. Откройте SKU заново.",
+                        "read_only_ozon": True,
+                    }
+                resolved = resolver(user_id, token)
+                if not isinstance(resolved, dict) or resolved.get("error") is not False:
+                    return resolved if isinstance(resolved, dict) else {
+                        "error": True,
+                        "handled": True,
+                        "code": "SELLER_COST_ENTRY_STALE",
+                        "message": "Кнопка устарела. Откройте SKU заново.",
+                        "read_only_ozon": True,
+                    }
+                sku = str(resolved.get("sku") or "")
+                if not sku:
+                    return {
+                        "error": True,
+                        "handled": True,
+                        "code": "SELLER_COST_ENTRY_STALE",
+                        "message": "Кнопка устарела. Откройте SKU заново.",
+                        "read_only_ozon": True,
+                    }
                 return self.seller_cost_service.select_sku(
                     user_id, sku, return_to_unit_economics=True,
                 )
@@ -76,6 +107,11 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                         "message": "SKU для возврата недоступен. Откройте карточку заново.",
                         "read_only_ozon": True,
                     }
+                refresher = getattr(
+                    self.button_handler, "refresh_unit_economics", None,
+                )
+                if callable(refresher):
+                    return refresher(sku, user_id=user_id)
                 return super().handle_button("unit_economics:" + sku, user_id)
             if callback_text.startswith("seller_cost:"):
                 sku = callback_text.split(":", 1)[1]
