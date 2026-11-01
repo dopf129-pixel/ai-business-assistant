@@ -6189,7 +6189,7 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_product_unit_economics_query.py::test_pre_ad_breakdown_labels_rounding_adjustment_and_reconciles_to_card` фиксирует пользовательскую подпись корректировки и нулевое расхождение в итоговой сверке.
 - `tests/test_pre_ad_margin_projection.py::test_storage_aliases_confirm_zero_only_when_the_entire_category_total_is_zero` проверяет STORAGE aliases в `calculate` и `calculate_components_only`: положительный компонент отменяет локальное подтверждение нуля.
 - `tests/test_sales_mix_planning_service.py::test_mixed_storage_inclusion_and_exclusion_is_partial_not_globally_excluded` проверяет смешанный охват нескольких SKU.
-- Результаты на финальном локальном коде: linked profile **158 passed in 4.21s**; полный Windows `pytest -q -p no:cacheprovider` **4,420 passed in 46.19s**; `compileall app tests` и `git diff --check` PASS.
+- Результаты на кодовом SHA `18ba381b663370aa6a78264bba012c24c8c073ad`: linked profile **158 passed in 4.21s**; полный Windows `pytest -q -p no:cacheprovider` **4,420 passed in 46.19s**; `compileall app tests` и `git diff --check` PASS. Exact-head run `41338557148` passed Windows/Linux full suites и Docker build/smoke; artifact `13096362251` (`sha256:1a82c63bb909d4bfe71151142526811db5037b1eaf6c6ce2bcf0468511a942f5`).
 
 # 2026-11-01 — дополнительные regressions review PR #724
 

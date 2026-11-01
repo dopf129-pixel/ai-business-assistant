@@ -12,7 +12,7 @@
 - Исправлено округление состава известных расходов: остаток в несколько копеек отражается как `ROUNDING_ADJUSTMENT`, Telegram-детализация показывает подпись и сходится с канонической прибылью.
 - STORAGE/PLACEMENT aliases агрегируются по категории до вывода `CONFIRMED_ZERO`.
 - Конфликт между явным исключением категории у одного SKU и включённой категорией другого SKU превращает агрегированное покрытие в partial/unknown.
-- Добавлены четыре регрессии в sales mix, pre-ad projection и formatter; linked profile **158 passed**, полный Windows suite **4,420 passed**. Exact-head CI и независимый повторный review после публикации нового SHA ещё нужны.
+- Добавлены четыре регрессии в sales mix, pre-ad projection и formatter; linked profile **158 passed**, полный Windows suite **4,420 passed**. Code SHA `18ba381b663370aa6a78264bba012c24c8c073ad` прошёл exact-head run `41338557148`: Windows/Linux full suites, Docker build и smoke — success; artifact `13096362251`, digest `sha256:1a82c63bb909d4bfe71151142526811db5037b1eaf6c6ce2bcf0468511a942f5`. Независимый повторный review нового diff ещё нужен.
 
 ## Что меняется
 
