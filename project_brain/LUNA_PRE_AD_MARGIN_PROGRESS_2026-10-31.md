@@ -273,4 +273,6 @@
 - Новая end-to-end регрессия `test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts` воспроизводит 60 и 64 включённых компонентов одновременно с 64 исключёнными типами, сохраняет frozen capture в SQLite и читает все проекции обратно; 73-й derived key остаётся отвергнутым.
 - Связанный профиль из 9 модулей: **163 passed in 4.43s**. Полный Windows pytest: **4,422 passed in 47.55s**. `compileall app tests` и `git diff --check` PASS.
 - Полный pytest изменил две известные тестовые строки в `data/tasks.json` и создал пустой lock; diff проверен, затем только эти тестовые побочные эффекты восстановлены/удалены. SHA-1 baseline `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
-- Текущий checkpoint: код и документация готовы к публикации на PR #724; после push необходимо проверить exact-head CI и повторить independent review. Merge/deploy/live API и запуск бота не выполнять.
+- Исправление закоммичено как `7de3598cdc0d07fd41bfce738fc3e7ef3edf466d` (`Accept full derived pre-ad expense scope`) и опубликовано в PR #724.
+- Exact-head GitHub Actions run `41343413057` прошёл на проверяемом merge ref `416fe0fe3ba22eec49e367370e83dd40573270ef`: Windows/Linux full suite — по **4,422 passed**, Docker build и smoke — success. Artifact `13098127220`, digest `sha256:ba829ba86632fcf8fe644ab7068e9e4f467ca88b4fd0f0f2f67e99b288ff05f9`.
+- Последующая запись этого результата в документацию создаёт новый docs-only PR head; проверить его exact-head checks перед повторным независимым review. Merge/deploy/live API и запуск бота не выполнять.

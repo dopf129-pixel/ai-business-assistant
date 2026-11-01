@@ -3,6 +3,7 @@
 - Валидатор frozen `pre_ad_margin.expense_scope` учитывает, что проекция дополняет до 64 source components базовыми и производными ключами. Производные списки и причины ограничены 72 элементами; проверки структуры, идентификаторов и дубликатов сохранены.
 - Новый end-to-end тест сохраняет и повторно читает планы с 60/64 включёнными компонентами и 64 исключёнными типами; проверено отклонение 73-го ключа.
 - Linked profile: **163 passed in 4.43s**. Full Windows pytest: **4,422 passed in 47.55s**. `compileall app tests` и `git diff --check` PASS. `data/tasks.json` вернулся к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
+- Кодовый SHA `7de3598cdc0d07fd41bfce738fc3e7ef3edf466d` прошёл exact-head run `41343413057`: Windows и Linux по **4,422 passed**, Docker build/smoke — PASS; artifact `13098127220` (`sha256:ba829ba86632fcf8fe644ab7068e9e4f467ca88b4fd0f0f2f67e99b288ff05f9`).
 
 # 2026-11-01 — PR #724: устранены три повторные review-находки
 

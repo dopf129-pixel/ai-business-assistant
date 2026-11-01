@@ -3,6 +3,7 @@
 - `tests/test_saved_planning_plan_telegram_flow.py::test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts` проверяет публичную генерацию frozen capture, сохранение в изолированную SQLite-репозиторию и повторное чтение при 60/64 дополнительных компонентах и 64 исключённых типах. Также закреплён предел 72 derived keys.
 - Связанный Windows профиль (saved plans, repository, extended-scenario adapter, pre-ad projection, scenario contract, sales mix, current economics и query/UI): **163 passed in 4.43s**. Полный Windows pytest: **4,422 passed in 47.55s**; `compileall app tests` и `git diff --check` PASS.
 - `data/tasks.json` восстановлен после известного побочного эффекта полного pytest: SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
+- Exact-head GitHub Actions на кодовом SHA `7de3598cdc0d07fd41bfce738fc3e7ef3edf466d`: run `41343413057` success, Windows/Linux по **4,422 passed**, Docker build/smoke PASS; artifact `13098127220` (`sha256:ba829ba86632fcf8fe644ab7068e9e4f467ca88b4fd0f0f2f67e99b288ff05f9`).
 
 # PR #724 — исправления review R1–R5 (2026-11-01)
 

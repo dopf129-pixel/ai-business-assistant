@@ -12,7 +12,8 @@
 - Исправлен отказ сохранять валидный frozen capture, если extended source содержит 60–64 компонента: derived scope дополнительно перечисляет базовые категории и причины исключений. Отдельный лимит для списков scope/reasons теперь 72; источник остаётся ограничен 64 компонентами, формат/уникальность/allowlist и payload budget сохранены.
 - Regression в `tests/test_saved_planning_plan_telegram_flow.py` сохраняет и перечитывает 60- и 64-компонентные сценарии при 64 исключённых типах; также проверяет отказ 73-го derived key.
 - Связанный профиль **163 passed in 4.43s**, полный локальный Windows pytest **4,422 passed in 47.55s**, `compileall` и `git diff --check` PASS. Пользовательские данные восстановлены к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
-- После публикации исправления проверить exact-head CI и провести независимый review; текущие доказательства не распространяются на последующий SHA.
+- Code SHA `7de3598cdc0d07fd41bfce738fc3e7ef3edf466d` прошёл exact-head run `41343413057`: Windows/Linux full suites по **4,422 passed**, Docker build/smoke success; artifact `13098127220` (`sha256:ba829ba86632fcf8fe644ab7068e9e4f467ca88b4fd0f0f2f67e99b288ff05f9`).
+- Перед повторным независимым review проверить exact-head CI для последующей docs-only записи этого результата.
 
 ## Повторный review R1–R3 — исправления подготовлены (2026-11-01)
 
