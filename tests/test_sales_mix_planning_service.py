@@ -237,6 +237,13 @@ def test_mix_keeps_pre_ad_tax_margin_available_with_unknown_advertising_and_expo
     )
 
     assert result["coverage_complete"] is False
+    assert result["after_ad_status"] == "INCOMPLETE_ADVERTISING"
+    assert result["total_quantity"] == 2
+    assert result["included_rows"] == 1
+    assert result["components"]["revenue"] == "1000.00"
+    assert result["components"]["advertising"] is None
+    assert result["components"]["profit_before_tax"] is None
+    assert result["profit_before_tax_after_fixed_expenses"] is None
     assert result["tax"] is None and result["profit"] is None
     assert result["pre_ad_margin"]["status"] == "AVAILABLE"
     assert result["pre_ad_margin"]["revenue_rub"] == "1000.00"
@@ -244,6 +251,8 @@ def test_mix_keeps_pre_ad_tax_margin_available_with_unknown_advertising_and_expo
     assert result["pre_ad_margin"]["tax_rub"] == "48.00"
     assert result["pre_ad_margin"]["profit_rub"] == "382.00"
     assert result["pre_ad_margin"]["margin_percent"] == "38.20"
+    assert result["rows"][0]["components"]["advertising"] is None
+    assert result["rows"][0]["profit_before_tax_contribution"] is None
     scope = result["pre_ad_margin"]["expense_scope"]
     assert scope["status"] == "PARTIAL"
     assert "CROSS_DOCKING" in scope["unknown_non_ad_expense_keys"]
@@ -251,6 +260,81 @@ def test_mix_keeps_pre_ad_tax_margin_available_with_unknown_advertising_and_expo
     assert scope["known_non_ad_expenses_rub"]["COGS"] == "300.00"
     assert len(tax.calls) == 1
     assert tax.calls[0]["gross_profit"] == 430.0
+
+
+def test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix():
+    service, _tax = _service()
+    item = _item("SKU-A", _sample_inputs(
+        advertising_rate=None, cross_docking_per_unit="12.00",
+    ))
+    item["sources"] = {"cross_docking": {
+        "evidence_complete": True,
+        "rate_available": True,
+        "applicable_to_sku": True,
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "amount_per_unit": "12.00",
+    }}
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 2},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True, include_cross_docking=True,
+    )
+
+    assert result["after_ad_status"] == "INCOMPLETE_ADVERTISING"
+    assert result["components"]["cross_docking"] == "24.00"
+    assert result["cross_docking_status"] == "CONFIRMED"
+
+
+def test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero():
+    service, _tax = _service()
+    item_zero = _item("SKU-ZERO", _sample_inputs())
+    item_positive = _item("SKU-PAID", _sample_inputs())
+    item_zero["extended_scenario"] = _extended_expense_contract("a", "0.00")
+    item_zero["extended_scenario"]["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    item_zero["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "0.00",
+        "ownership": "ADDITIONAL",
+    }]
+    item_positive["extended_scenario"] = _extended_expense_contract("b", "100.00")
+    item_positive["extended_scenario"]["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    item_positive["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "100.00",
+        "ownership": "ADDITIONAL",
+    }]
+
+    mixed = service.calculate(
+        [item_zero, item_positive],
+        quantities={"SKU-ZERO": 10, "SKU-PAID": 10},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+    item_zero_second = _item("SKU-ZERO-2", _sample_inputs())
+    item_zero_second["extended_scenario"] = _extended_expense_contract("c", "0.00")
+    item_zero_second["extended_scenario"]["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    item_zero_second["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "0.00",
+        "ownership": "ADDITIONAL",
+    }]
+    all_zero = service.calculate(
+        [item_zero, item_zero_second],
+        quantities={"SKU-ZERO": 10, "SKU-ZERO-2": 10},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    mixed_scope = mixed["pre_ad_margin"]["expense_scope"]
+    assert mixed["error"] is False
+    assert "STORAGE" not in mixed_scope["confirmed_zero_expense_keys"]
+    assert "STORAGE" not in mixed_scope["known_non_ad_expenses_rub"]
+    assert mixed_scope["known_non_ad_expenses_rub"]["CONFIRMED_ADDITIONAL_EXPENSES"] == "10.00"
+    zero_scope = all_zero["pre_ad_margin"]["expense_scope"]
+    assert "STORAGE" in zero_scope["confirmed_zero_expense_keys"]
+    assert zero_scope["known_non_ad_expenses_rub"]["STORAGE"] == "0.00"
 
 
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():

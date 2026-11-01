@@ -286,6 +286,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "invalid_inputs": list(calculated.get("invalid_inputs") or [])[:20],
         }
         projection.update({key: values.get(key) for key in allowed_projection})
+        # These projections are already calculated from the exact saved inputs.
+        # Keep them as an additive, versioned snapshot so opening an old plan
+        # never needs a source read or silently recalculates its history.
+        for field in ("pre_ad_margin", "advertising_tax_bridge"):
+            value = calculated.get(field)
+            if isinstance(value, dict):
+                projection[field] = deepcopy(value)
         projection["cross_docking"] = values.get("cross_docking")
         if extended_scenario is not None:
             projection["additional_unit_expenses"] = values.get("additional_unit_expenses")

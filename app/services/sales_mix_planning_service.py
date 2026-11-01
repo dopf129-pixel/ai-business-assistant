@@ -32,6 +32,7 @@ class SalesMixPlanningService:
         canonical_rows = []
         excluded = []
         totals = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+        after_ad_unknown_components = set()
         pre_ad_profit_before_tax_total = Decimal("0.00")
         pre_ad_revenue_total = Decimal("0.00")
         pre_ad_discount_points_total = Decimal("0.00")
@@ -40,7 +41,8 @@ class SalesMixPlanningService:
         pre_ad_policy_missing = False
         pre_ad_known_expenses = {}
         pre_ad_included_expense_keys = set()
-        pre_ad_confirmed_zero_expense_keys = set()
+        pre_ad_confirmed_zero_expense_candidates = set()
+        pre_ad_confirmed_zero_expense_intersection = None
         pre_ad_unknown_expense_keys = set()
         pre_ad_excluded_expense_reasons = {}
         additional_expense_total = Decimal("0.00")
@@ -150,9 +152,18 @@ class SalesMixPlanningService:
                 pre_ad_included_expense_keys.update(
                     unit_scope.get("included_expense_keys") or []
                 )
-                pre_ad_confirmed_zero_expense_keys.update(
+                row_confirmed_zero_keys = set(
                     unit_scope.get("confirmed_zero_expense_keys") or []
                 )
+                pre_ad_confirmed_zero_expense_candidates.update(
+                    row_confirmed_zero_keys
+                )
+                if pre_ad_confirmed_zero_expense_intersection is None:
+                    pre_ad_confirmed_zero_expense_intersection = row_confirmed_zero_keys
+                else:
+                    pre_ad_confirmed_zero_expense_intersection.intersection_update(
+                        row_confirmed_zero_keys
+                    )
                 pre_ad_unknown_expense_keys.update(
                     unit_scope.get("unknown_non_ad_expense_keys") or []
                 )
@@ -161,20 +172,27 @@ class SalesMixPlanningService:
                 )
             else:
                 pre_ad_complete = False
+            after_ad_partial_only = (
+                projected.get("available") is not True
+                and pre_ad_row_available
+                and not non_ad_missing
+                and not non_ad_invalid
+            )
             if projected.get("available") is not True:
                 complete = False
-                if include_cross_docking:
-                    cross_docking_complete = False
-                excluded.append({
-                    "row_id": row_id,
-                    "label": label,
-                    "reason": "UNIT_INPUTS_INCOMPLETE",
-                    "missing_inputs": list(projected.get("missing_inputs") or [])[:12],
-                    "invalid_inputs": list(projected.get("invalid_inputs") or [])[:12],
-                    **({"extended_reason": (projected.get("extended_calculation") or {}).get("reason")}
-                       if isinstance(projected.get("extended_calculation"), dict) else {}),
-                })
-                continue
+                if not after_ad_partial_only:
+                    if include_cross_docking:
+                        cross_docking_complete = False
+                    excluded.append({
+                        "row_id": row_id,
+                        "label": label,
+                        "reason": "UNIT_INPUTS_INCOMPLETE",
+                        "missing_inputs": list(projected.get("missing_inputs") or [])[:12],
+                        "invalid_inputs": list(projected.get("invalid_inputs") or [])[:12],
+                        **({"extended_reason": (projected.get("extended_calculation") or {}).get("reason")}
+                           if isinstance(projected.get("extended_calculation"), dict) else {}),
+                    })
+                    continue
 
             row_components = {}
             pre_ad_unit_profit = self._decimal(unit.get("pre_ad_profit_before_tax"))
@@ -208,6 +226,10 @@ class SalesMixPlanningService:
                 source_field = "cost" if field == "cost_of_goods" else field
                 value = self._decimal(unit.get(source_field))
                 if value is None:
+                    if after_ad_partial_only and field in {"advertising", "profit_before_tax"}:
+                        row_components[field] = None
+                        after_ad_unknown_components.add(field)
+                        continue
                     complete = False
                     break
                 row_components[field] = (value * quantity).quantize(Decimal("0.01"))
@@ -239,10 +261,19 @@ class SalesMixPlanningService:
             if not set(self.MONEY_COMPONENTS).issubset(row_components):
                 excluded.append({"row_id": row_id, "label": label, "reason": "UNIT_COMPONENT_UNKNOWN"})
                 continue
-            canonical_rows.append(self._row_result(
+            row_result = self._row_result(
                 row_id, label, quantity, row_components,
                 unit_price=self._decimal(unit.get("revenue")),
-            ))
+            )
+            if after_ad_partial_only:
+                row_result["after_ad_status"] = "INCOMPLETE_ADVERTISING"
+                row_result["after_ad_missing_inputs"] = list(
+                    projected.get("missing_inputs") or []
+                )[:12]
+                row_result["after_ad_invalid_inputs"] = list(
+                    projected.get("invalid_inputs") or []
+                )[:12]
+            canonical_rows.append(row_result)
 
         fixed_expenses = self._validated_expenses(expenses)
         expense_total = sum((amount for _name, amount in fixed_expenses), Decimal("0.00"))
@@ -261,6 +292,21 @@ class SalesMixPlanningService:
         same_policy = len(policy_set) == 1 and not policy_missing
         pre_ad_rows_known = quantity_known and pre_ad_complete
         pre_ad_same_policy = len(pre_ad_policy_set) == 1 and not pre_ad_policy_missing
+        pre_ad_confirmed_zero_expense_keys = (
+            set(pre_ad_confirmed_zero_expense_intersection or ())
+            if pre_ad_rows_known and pre_ad_same_policy
+            else set()
+        )
+        # A zero confirmed for one SKU is not a zero for the whole mix. If a
+        # category is also included by another SKU (or its coverage is partial),
+        # retain its amount in the aggregate additional-expense pool and remove
+        # the misleading category-specific zero.
+        for key in (
+            pre_ad_confirmed_zero_expense_candidates
+            - pre_ad_confirmed_zero_expense_keys
+        ):
+            if pre_ad_known_expenses.get(key) == Decimal("0.00"):
+                pre_ad_known_expenses.pop(key, None)
         tax = None
         final_profit = None
         margin = None
@@ -359,6 +405,8 @@ class SalesMixPlanningService:
                 pre_ad_reason = "NO_AD_TAX_CALCULATION_UNAVAILABLE"
 
         components = {field: self._money(value) for field, value in totals.items()}
+        for field in after_ad_unknown_components:
+            components[field] = None
         if has_extended_expenses:
             components["additional_unit_expenses"] = self._money(additional_expense_total)
         if include_cross_docking:
@@ -374,6 +422,12 @@ class SalesMixPlanningService:
             "included_rows": len(canonical_rows),
             "excluded_rows": excluded,
             "coverage_complete": all_rows_known,
+            "after_ad_status": (
+                "INCOMPLETE_ADVERTISING"
+                if "advertising" in after_ad_unknown_components
+                else "COMPLETE" if all_rows_known else "PARTIAL_INPUTS"
+            ),
+            "after_ad_unknown_components": sorted(after_ad_unknown_components),
             "total_quantity": sum(row["quantity"] for row in canonical_rows),
             "rows": canonical_rows,
             "components": components,
@@ -384,7 +438,10 @@ class SalesMixPlanningService:
                 for name, amount in fixed_expenses
             ],
             "fixed_expense_total": self._money(expense_total),
-            "profit_before_tax_after_fixed_expenses": self._money(pre_tax_subtotal),
+            "profit_before_tax_after_fixed_expenses": (
+                None if "profit_before_tax" in after_ad_unknown_components
+                else self._money(pre_tax_subtotal)
+            ),
             "tax": self._money(tax) if tax is not None and all_rows_known and same_policy else None,
             "tax_status": tax_status,
             "profit": self._money(final_profit) if final_profit is not None else None,
@@ -512,6 +569,7 @@ class SalesMixPlanningService:
 
     @staticmethod
     def _row_result(row_id, label, quantity, components, *, unit_price=None):
+        profit_before_tax = components.get("profit_before_tax")
         return {
             "row_id": row_id,
             "label": label,
@@ -521,7 +579,10 @@ class SalesMixPlanningService:
                 key: SalesMixPlanningService._money(value) if value is not None else None
                 for key, value in components.items()
             },
-            "profit_before_tax_contribution": SalesMixPlanningService._money(components["profit_before_tax"]),
+            "profit_before_tax_contribution": (
+                SalesMixPlanningService._money(profit_before_tax)
+                if profit_before_tax is not None else None
+            ),
         }
 
     @staticmethod

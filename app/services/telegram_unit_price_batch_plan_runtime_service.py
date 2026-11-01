@@ -672,6 +672,10 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "effective_tax_rate", "profit", "margin_percent", "cross_docking",
             ):
                 projection[field] = calculated.get(field)
+            for field in ("pre_ad_margin", "advertising_tax_bridge"):
+                value = projection_result.get(field)
+                if isinstance(value, dict):
+                    projection[field] = deepcopy(value)
             if extended_scenario is not None:
                 projection["additional_unit_expenses"] = calculated.get(
                     "additional_unit_expenses"

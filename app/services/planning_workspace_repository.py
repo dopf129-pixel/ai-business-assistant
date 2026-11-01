@@ -141,6 +141,27 @@ class PlanningWorkspaceRepository:
         "discount_points", "taxable_revenue", "commission", "advertising",
         "fees", "profit_before_tax", "tax", "effective_tax_rate", "profit",
         "margin_percent", "cross_docking", "additional_unit_expenses",
+        "pre_ad_margin", "advertising_tax_bridge",
+    })
+    _PRE_AD_PROJECTION_FIELDS = frozenset({
+        "schema_version", "basis", "tax_basis", "revenue_basis", "currency",
+        "unit_basis", "status", "price_per_unit_rub", "profit_per_unit_rub",
+        "margin_percent", "tax_per_unit_rub", "advertising_status",
+        "expense_scope", "missing_inputs", "invalid_inputs", "reason",
+        "source_periods", "as_of", "read_only", "executed",
+    })
+    _PRE_AD_EXPENSE_SCOPE_FIELDS = frozenset({
+        "status", "known_non_ad_expenses_rub", "included_expense_keys",
+        "confirmed_zero_expense_keys", "unknown_non_ad_expense_keys",
+        "excluded_expense_keys", "excluded_expense_reasons",
+    })
+    _ADVERTISING_TAX_BRIDGE_FIELDS = frozenset({
+        "schema_version", "revenue_basis", "before_ad_tax_basis",
+        "after_ad_tax_basis", "status", "tax_before_ad_rub",
+        "tax_after_ad_rub", "advertising_per_unit_rub",
+        "tax_effect_of_advertising_rub", "profit_before_ad_rub",
+        "profit_after_ad_rub", "expected_profit_after_ad_rub",
+        "reconciliation_delta_rub", "expense_scope_status", "reason",
     })
     _SOURCE_FIELDS = frozenset({
         "periods", "as_of", "loaded_at", "completeness", "cross_docking",
@@ -5519,6 +5540,16 @@ class PlanningWorkspaceRepository:
                     if not isinstance(value, list) or len(value) > 20 or any(not isinstance(v, str) or len(v) > 80 for v in value):
                         return None
                     clean_projection[field] = list(value)
+                elif field == "pre_ad_margin":
+                    clean = self._clean_saved_pre_ad_projection(value)
+                    if clean is None:
+                        return None
+                    clean_projection[field] = clean
+                elif field == "advertising_tax_bridge":
+                    clean = self._clean_saved_advertising_tax_bridge(value)
+                    if clean is None:
+                        return None
+                    clean_projection[field] = clean
                 else:
                     clean = self._decimal_string(value, nullable=True)
                     if clean is False:
@@ -7349,6 +7380,152 @@ class PlanningWorkspaceRepository:
                 "config": normalized,
             },
         }
+
+    @classmethod
+    def _clean_saved_pre_ad_projection(cls, value):
+        if (not isinstance(value, dict)
+                or set(value) - cls._PRE_AD_PROJECTION_FIELDS
+                or type(value.get("schema_version")) is not int
+                or value.get("schema_version") != 1
+                or value.get("basis") != "PRICE_SCENARIO_NO_AD"
+                or value.get("tax_basis") != "NO_ADVERTISING_SCENARIO"
+                or value.get("revenue_basis") != "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+                or value.get("currency") != "RUB"
+                or value.get("unit_basis") != "ONE_SUCCESSFUL_UNIT"
+                or value.get("status") not in {"AVAILABLE", "UNAVAILABLE"}
+                or value.get("advertising_status") != "EXCLUDED_BY_DEFINITION"
+                or value.get("read_only") is not True
+                or value.get("executed") is not False):
+            return None
+        required = {
+            "schema_version", "basis", "tax_basis", "revenue_basis", "currency",
+            "unit_basis", "status", "price_per_unit_rub", "profit_per_unit_rub",
+            "margin_percent", "tax_per_unit_rub", "advertising_status",
+            "expense_scope", "missing_inputs", "invalid_inputs", "read_only", "executed",
+        }
+        if not required.issubset(value):
+            return None
+        source_periods = value.get("source_periods")
+        if source_periods is not None and not isinstance(source_periods, dict):
+            return None
+        as_of = value.get("as_of")
+        if as_of is not None and (not isinstance(as_of, str) or len(as_of) > 80):
+            return None
+        numeric_fields = (
+            "price_per_unit_rub", "profit_per_unit_rub", "margin_percent",
+            "tax_per_unit_rub",
+        )
+        clean = {
+            key: value[key]
+            for key in (
+                "schema_version", "basis", "tax_basis", "revenue_basis", "currency",
+                "unit_basis", "status", "advertising_status", "read_only", "executed",
+            )
+        }
+        for field in numeric_fields:
+            amount = cls._decimal_string(value.get(field), nullable=True)
+            if amount is False:
+                return None
+            clean[field] = amount
+        for field in ("missing_inputs", "invalid_inputs"):
+            entries = value.get(field)
+            if (not isinstance(entries, list) or len(entries) > 20
+                    or any(not isinstance(entry, str) or not 1 <= len(entry) <= 80
+                           for entry in entries)):
+                return None
+            clean[field] = list(entries)
+        reason = value.get("reason")
+        if reason is not None and (
+            not isinstance(reason, str) or re.fullmatch(r"[A-Z0-9_]{1,80}", reason) is None
+        ):
+            return None
+        clean["reason"] = reason
+
+        scope = value.get("expense_scope")
+        if (not isinstance(scope, dict)
+                or set(scope) - cls._PRE_AD_EXPENSE_SCOPE_FIELDS
+                or scope.get("status") not in {"COMPLETE", "PARTIAL", "UNKNOWN"}):
+            return None
+        known = scope.get("known_non_ad_expenses_rub")
+        if not isinstance(known, dict) or len(known) > 64:
+            return None
+        clean_known = {}
+        for key, raw_amount in known.items():
+            if not isinstance(key, str) or re.fullmatch(r"[A-Z0-9_]{1,80}", key) is None:
+                return None
+            amount = cls._decimal_string(raw_amount, nullable=False)
+            if amount is False:
+                return None
+            clean_known[key] = amount
+        clean_scope = {"status": scope["status"], "known_non_ad_expenses_rub": clean_known}
+        for field in (
+            "included_expense_keys", "confirmed_zero_expense_keys",
+            "unknown_non_ad_expense_keys", "excluded_expense_keys",
+        ):
+            entries = scope.get(field, [])
+            if (not isinstance(entries, list) or len(entries) > 64
+                    or any(not isinstance(entry, str)
+                           or re.fullmatch(r"[A-Z0-9_]{1,80}", entry) is None
+                           for entry in entries)
+                    or len(entries) != len(set(entries))):
+                return None
+            clean_scope[field] = sorted(entries)
+        reasons = scope.get("excluded_expense_reasons", {})
+        if not isinstance(reasons, dict) or len(reasons) > 64:
+            return None
+        clean_reasons = {}
+        for key, reason_code in reasons.items():
+            if (not isinstance(key, str)
+                    or re.fullmatch(r"[A-Z0-9_]{1,80}", key) is None
+                    or not isinstance(reason_code, str)
+                    or re.fullmatch(r"[A-Z0-9_]{1,80}", reason_code) is None):
+                return None
+            clean_reasons[key] = reason_code
+        clean_scope["excluded_expense_reasons"] = clean_reasons
+        clean["expense_scope"] = clean_scope
+        return clean
+
+    @classmethod
+    def _clean_saved_advertising_tax_bridge(cls, value):
+        if (not isinstance(value, dict)
+                or set(value) - cls._ADVERTISING_TAX_BRIDGE_FIELDS
+                or type(value.get("schema_version")) is not int
+                or value.get("schema_version") != 1
+                or value.get("revenue_basis") != "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+                or value.get("before_ad_tax_basis") != "NO_ADVERTISING_SCENARIO"
+                or value.get("after_ad_tax_basis") != "SCENARIO_WITH_ADVERTISING"
+                or value.get("status") not in {
+                    "AVAILABLE", "UNAVAILABLE", "RECONCILIATION_MISMATCH",
+                }
+                or value.get("expense_scope_status") not in {"COMPLETE", "PARTIAL", "UNKNOWN", None}):
+            return None
+        required = cls._ADVERTISING_TAX_BRIDGE_FIELDS
+        if not required.issubset(value):
+            return None
+        clean = {
+            key: value[key]
+            for key in (
+                "schema_version", "revenue_basis", "before_ad_tax_basis",
+                "after_ad_tax_basis", "status", "expense_scope_status",
+            )
+        }
+        for field in (
+            "tax_before_ad_rub", "tax_after_ad_rub", "advertising_per_unit_rub",
+            "tax_effect_of_advertising_rub", "profit_before_ad_rub",
+            "profit_after_ad_rub", "expected_profit_after_ad_rub",
+            "reconciliation_delta_rub",
+        ):
+            amount = cls._decimal_string(value.get(field), nullable=True)
+            if amount is False:
+                return None
+            clean[field] = amount
+        reason = value.get("reason")
+        if reason is not None and (
+            not isinstance(reason, str) or re.fullmatch(r"[A-Z0-9_]{1,80}", reason) is None
+        ):
+            return None
+        clean["reason"] = reason
+        return clean
 
     @staticmethod
     def _title(value):

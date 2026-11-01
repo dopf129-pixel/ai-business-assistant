@@ -1,5 +1,6 @@
 from copy import deepcopy
 from decimal import Decimal
+import json
 import pytest
 
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -21,6 +22,7 @@ from services.period_profit_query_service import PeriodProfitQueryService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 from services.period_profit_summary_service import PeriodProfitSummaryService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 
 
 class _Products:
@@ -1244,6 +1246,7 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
         assert saved_rates == {"sku-1": "12.00", "sku-2": "20.00"}
         listing = handler.handle("upp:m", user_id="user-1")
         detail = handler.handle(_button(listing, "План партии · v1"), user_id="user-1")
+        assert "До рекламы после налога:" in detail["message"]
         reopened = handler.handle(_button(detail, "Продолжить по сохранённым допущениям"), user_id="user-1")
         assert reopened["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
         assert len(reopened["batch_plan"]["rows"]) == 2
@@ -1261,6 +1264,8 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
             user_id="user-1",
         )
         assert recaptured["error"] is False
+        for item in recaptured["payload"]["items"]:
+            assert item["projection"]["pre_ad_margin"]["status"] == "AVAILABLE"
         scope = plan_service.repository._scope("user-1", "store-a")
         assert plan_service.repository._payload(recaptured["payload"], scope) is not None
     finally:
@@ -2306,6 +2311,9 @@ def test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenar
         )
         assert capture["error"] is False
         assert capture["payload"]["items"][0]["inputs"]["price"] == "100.01"
+        saved_projection = capture["payload"]["items"][0]["projection"]
+        assert saved_projection["pre_ad_margin"] == selected["price_scenario"]["pre_ad_margin"]
+        assert saved_projection["advertising_tax_bridge"] == selected["price_scenario"]["advertising_tax_bridge"]
         assert service.repository._payload(
             capture["payload"], service.repository._scope("user-1", "store-a"),
         ) is not None
@@ -2314,7 +2322,18 @@ def test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenar
         assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
         saved = handler.handle_text("MA19 price plan", user_id="user-1")
         assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
-        saved_item = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
+        saved_document = service.get_document(saved["document_id"])["document"]
+        saved_item = saved_document["payload"]["items"][0]
+        listing = handler.handle("upp:m", user_id="user-1")
+        reopened = handler.handle(
+            _button(listing, "MA19 price plan · v1"), user_id="user-1",
+        )
+        assert "До рекламы после налога:" in reopened["message"]
+        exported = AnalyticsExportService().export_saved_plan(saved_document, "json")
+        assert exported["error"] is False
+        exported_document = json.loads(exported["file_content"].decode("utf-8"))
+        assert "source_periods" not in saved_item["projection"]["pre_ad_margin"]
+        assert exported_document["rows"][0]["projection"]["pre_ad_margin"] == saved_item["projection"]["pre_ad_margin"]
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -2323,4 +2342,116 @@ def test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenar
     assert saved_item["inputs"]["commission_rate"] == "22"
     assert saved_item["inputs"]["advertising_rate"] == "8"
     assert saved_item["provenance"]["commission_rate"] == "manual_seller_assumption"
+    assert len(source.calls) == 1
+
+
+def test_adapter_preserves_calculator_selection_from_unit_economics_details_to_price_plan(tmp_path):
+    _saved_runtime, single, source, _service_obj = _setup(tmp_path)
+
+    class CurrentEconomicsQuery:
+        product_service = source.product_service
+        cost_service = None
+
+        def query(self, sku):
+            return {
+                "error": False, "available": True, "source": "historical", "sku": sku,
+                "unit_price": 500.0, "cost": 100.0, "marketplace_fees": 140.0,
+                "tax": 30.0, "net_profit_per_unit": 230.0, "margin_percent": 46.0,
+                "missing_fields": ["advertising", "storage", "returns"],
+                "pre_ad_margin": {
+                    "status": "AVAILABLE", "profit_per_unit_rub": 246.0,
+                    "margin_percent": 49.2, "advertising_status": "UNKNOWN",
+                },
+            }
+
+        @staticmethod
+        def format_response(_result):
+            return "Текущая маржа до рекламы: 246.00 ₽/шт."
+
+        @staticmethod
+        def format_expense_breakdown(_result):
+            return "Расходы по SKU."
+
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=single.keyboard_service,
+        unit_economics_query=CurrentEconomicsQuery(),
+        unit_price_calculator_runtime_service=single,
+    )
+    adapter = SellerCostTelegramAdapter(
+        assistant=None, keyboard_service=single.keyboard_service,
+        button_handler=handler,
+    )
+    tenant = _activate()
+    try:
+        current = adapter.handle_button("unit_economics:sku-1", user_id="user-1")
+        details = adapter.handle_button(
+            _button(current, "Из чего складывается"), user_id="user-1",
+        )
+        calculator = adapter.handle_button(
+            _button(details, "🧮 Планировать цену"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert calculator["status"] in {
+        "UNIT_PRICE_SCENARIO_READY", "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+    }
+    assert calculator["status"] != "UNIT_PRICE_SCENARIO_STALE"
+    assert calculator["price_scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+
+
+def test_saved_sales_mix_with_unknown_advertising_keeps_quantity_revenue_and_pre_ad_result(tmp_path):
+    saved_runtime, single, source, _service_obj = _setup(tmp_path)
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["advertising_rate"] = None
+        snapshot["input_provenance"]["advertising_rate"] = "unknown"
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        save_prompt = saved_runtime.handle_callback(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("Неизвестная реклама", user_id="user-1")
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Неизвестная реклама · v1"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        date_prompt = saved_runtime.handle_text("01.08.2026 - 31.08.2026", user_id="user-1")
+        quantity_prompt = saved_runtime.handle_text("10", user_id="user-1")
+        preview = saved_runtime.handle_text("0", user_id="user-1")
+        saved_mix = saved_runtime.handle_callback(
+            _button(preview, "Подтвердить и сохранить ревизию"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    result = preview["sales_mix_result"]
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert date_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert quantity_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert result["total_quantity"] == 10
+    assert result["included_rows"] == 1
+    assert result["components"]["revenue"] == "5000.00"
+    assert result["components"]["advertising"] is None
+    assert result["components"]["profit_before_tax"] is None
+    assert result["profit_before_tax_after_fixed_expenses"] is None
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert "Успешные продажи: 10 шт.; состав: 1/1 строк." in preview["message"]
+    assert "Выручка: 5000.00 ₽" in preview["message"]
+    assert "реклама неизвестна" in preview["message"]
+    assert "Итог после рекламы не рассчитан" in preview["message"]
+    assert "Прибыль до рекламы после налога:" in saved_mix["message"]
     assert len(source.calls) == 1

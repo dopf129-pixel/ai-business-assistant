@@ -1,3 +1,6 @@
+from collections import OrderedDict
+from threading import Event, Thread
+
 from services.assistant_button_handler_service import (
     AssistantButtonHandlerService
 )
@@ -400,3 +403,79 @@ def test_existing_memory_handler_is_preserved():
         "error": False,
         "memory": {"user_id": 10}
     }
+
+
+def test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe(monkeypatch):
+    handler = AssistantButtonHandlerService(
+        assistant=FakeAssistant(), keyboard_service=AssistantKeyboardService(),
+    )
+    tenant = {"value": "owner::ozon::store-a"}
+    monkeypatch.setattr(
+        assistant_button_handler_module,
+        "get_current_tenant_user_id",
+        lambda: tenant["value"],
+    )
+    iteration_paused = Event()
+    release_iteration = Event()
+    second_started = Event()
+    second_finished = Event()
+    errors = []
+
+    class PausingOrderedDict(OrderedDict):
+        pause_next_iteration = True
+
+        def items(self):
+            entries = super().items()
+            if not self.pause_next_iteration:
+                return entries
+            self.pause_next_iteration = False
+
+            def paused_entries():
+                for index, entry in enumerate(entries):
+                    yield entry
+                    if index == 0:
+                        iteration_paused.set()
+                        if not release_iteration.wait(5):
+                            raise AssertionError("test did not release snapshot iteration")
+
+            return paused_entries()
+
+    handler._unit_economics_detail_snapshots = PausingOrderedDict({
+        ("old-user-a", "old-a"): {"expires_at": 9999999999},
+        ("old-user-b", "old-b"): {"expires_at": 9999999999},
+    })
+
+    def store_first():
+        try:
+            handler._store_unit_economics_detail_snapshot(
+                "first-user", "first snapshot", sku="sku-1",
+            )
+        except Exception as exc:  # surfaced in the assertion thread below
+            errors.append(exc)
+
+    def store_second():
+        second_started.set()
+        try:
+            handler._store_unit_economics_detail_snapshot(
+                "second-user", "second snapshot", sku="sku-2",
+            )
+        except Exception as exc:  # surfaced in the assertion thread below
+            errors.append(exc)
+        finally:
+            second_finished.set()
+
+    first = Thread(target=store_first)
+    first.start()
+    assert iteration_paused.wait(2)
+    second = Thread(target=store_second)
+    second.start()
+    assert second_started.wait(2)
+    second_was_blocked_by_snapshot_lock = not second_finished.wait(0.05)
+    release_iteration.set()
+    first.join(2)
+    second.join(2)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert second_was_blocked_by_snapshot_lock is True
+    assert errors == []
+    assert len(handler._unit_economics_detail_snapshots) == 4

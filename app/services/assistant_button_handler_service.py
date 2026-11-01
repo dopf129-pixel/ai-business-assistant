@@ -2,6 +2,7 @@ import inspect
 import secrets
 from collections import OrderedDict
 from time import monotonic
+from threading import RLock
 
 from period_profit_telegram_contract import (
     build_period_profit_telegram_menu,
@@ -312,6 +313,7 @@ class AssistantButtonHandlerService:
         )
         self._unit_economics_detail_snapshots = OrderedDict()
         self._seller_cost_entry_actions = OrderedDict()
+        self._unit_economics_state_lock = RLock()
 
 
     def prepare_context(
@@ -5731,16 +5733,9 @@ class AssistantButtonHandlerService:
         self, user_id, message, *, sku=None, calculator_button=None, cost_callback=None,
     ):
         now = monotonic()
-        expired = [
-            key
-            for key, value in self._unit_economics_detail_snapshots.items()
-            if value.get("expires_at", 0) <= now
-        ]
-        for key in expired:
-            self._unit_economics_detail_snapshots.pop(key, None)
         token = secrets.token_urlsafe(6)
         key = (str(user_id), token)
-        self._unit_economics_detail_snapshots[key] = {
+        snapshot = {
             "expires_at": now + self.UNIT_ECONOMICS_DETAIL_TTL_SECONDS,
             "message": str(message),
             "sku": str(sku or ""),
@@ -5748,24 +5743,36 @@ class AssistantButtonHandlerService:
             "calculator_button": dict(calculator_button) if isinstance(calculator_button, dict) else None,
             "cost_callback": str(cost_callback) if cost_callback else None,
         }
-        self._unit_economics_detail_snapshots.move_to_end(key)
-        while len(self._unit_economics_detail_snapshots) > self.UNIT_ECONOMICS_DETAIL_CACHE_MAX_ENTRIES:
-            self._unit_economics_detail_snapshots.popitem(last=False)
+        with self._unit_economics_state_lock:
+            expired = [
+                expired_key
+                for expired_key, value in self._unit_economics_detail_snapshots.items()
+                if value.get("expires_at", 0) <= now
+            ]
+            for expired_key in expired:
+                self._unit_economics_detail_snapshots.pop(expired_key, None)
+            self._unit_economics_detail_snapshots[key] = snapshot
+            self._unit_economics_detail_snapshots.move_to_end(key)
+            while len(self._unit_economics_detail_snapshots) > self.UNIT_ECONOMICS_DETAIL_CACHE_MAX_ENTRIES:
+                self._unit_economics_detail_snapshots.popitem(last=False)
         return "unit_economics_details:" + token
 
     def _refresh_unit_economics_snapshot(self, token, user_id):
         key = (str(user_id), str(token)) if user_id is not None else None
-        snapshot = self._unit_economics_detail_snapshots.get(key) if key else None
         current_tenant = str(get_current_tenant_user_id() or "")
-        if (
-            not isinstance(snapshot, dict)
-            or snapshot.get("expires_at", 0) <= monotonic()
-            or not current_tenant
-            or snapshot.get("tenant_scope") != current_tenant
-            or not snapshot.get("sku")
-        ):
-            if key is not None:
-                self._unit_economics_detail_snapshots.pop(key, None)
+        with self._unit_economics_state_lock:
+            snapshot = self._unit_economics_detail_snapshots.get(key) if key else None
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("expires_at", 0) <= monotonic()
+                or not current_tenant
+                or snapshot.get("tenant_scope") != current_tenant
+                or not snapshot.get("sku")
+            ):
+                if key is not None:
+                    self._unit_economics_detail_snapshots.pop(key, None)
+                snapshot = None
+        if snapshot is None:
             return {
                 "error": False,
                 "code": "UNIT_ECONOMICS_REFRESH_CONTEXT_STALE",
@@ -5790,19 +5797,25 @@ class AssistantButtonHandlerService:
         if user_id is None or not target_sku:
             return None
         now = monotonic()
-        for key, action in list(self._seller_cost_entry_actions.items()):
-            if action.get("expires_at", 0) <= now:
-                self._seller_cost_entry_actions.pop(key, None)
         token = secrets.token_urlsafe(6)
         key = (str(user_id), token)
-        self._seller_cost_entry_actions[key] = {
+        action = {
             "sku": target_sku,
             "tenant_scope": str(get_current_tenant_user_id() or ""),
             "expires_at": now + self.SELLER_COST_ENTRY_TTL_SECONDS,
         }
-        self._seller_cost_entry_actions.move_to_end(key)
-        while len(self._seller_cost_entry_actions) > self.SELLER_COST_ENTRY_MAX_ENTRIES:
-            self._seller_cost_entry_actions.popitem(last=False)
+        with self._unit_economics_state_lock:
+            expired = [
+                expired_key
+                for expired_key, value in self._seller_cost_entry_actions.items()
+                if value.get("expires_at", 0) <= now
+            ]
+            for expired_key in expired:
+                self._seller_cost_entry_actions.pop(expired_key, None)
+            self._seller_cost_entry_actions[key] = action
+            self._seller_cost_entry_actions.move_to_end(key)
+            while len(self._seller_cost_entry_actions) > self.SELLER_COST_ENTRY_MAX_ENTRIES:
+                self._seller_cost_entry_actions.popitem(last=False)
         callback = "seller_cost_return:" + token
         return callback if len(callback.encode("utf-8")) <= 64 else None
 
@@ -5810,7 +5823,8 @@ class AssistantButtonHandlerService:
         if user_id is None or not str(token or "").strip():
             return {"error": True, "code": "SELLER_COST_ENTRY_STALE", "read_only_ozon": True}
         key = (str(user_id), str(token).strip())
-        action = self._seller_cost_entry_actions.pop(key, None)
+        with self._unit_economics_state_lock:
+            action = self._seller_cost_entry_actions.pop(key, None)
         if (
             not isinstance(action, dict)
             or action.get("expires_at", 0) <= monotonic()
@@ -5828,18 +5842,21 @@ class AssistantButtonHandlerService:
 
     def _show_unit_economics_breakdown(self, token, user_id):
         key = (str(user_id), str(token)) if user_id is not None else None
-        snapshot = (
-            self._unit_economics_detail_snapshots.get(key)
-            if key is not None
-            else None
-        )
-        if (
-            not isinstance(snapshot, dict)
-            or snapshot.get("expires_at", 0) <= monotonic()
-            or snapshot.get("tenant_scope") != str(get_current_tenant_user_id() or "")
-        ):
-            if key is not None:
-                self._unit_economics_detail_snapshots.pop(key, None)
+        with self._unit_economics_state_lock:
+            snapshot = (
+                self._unit_economics_detail_snapshots.get(key)
+                if key is not None
+                else None
+            )
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("expires_at", 0) <= monotonic()
+                or snapshot.get("tenant_scope") != str(get_current_tenant_user_id() or "")
+            ):
+                if key is not None:
+                    self._unit_economics_detail_snapshots.pop(key, None)
+                snapshot = None
+        if snapshot is None:
             return {
                 "error": False,
                 "code": "UNIT_ECONOMICS_BREAKDOWN_EXPIRED",

@@ -761,6 +761,18 @@ class TelegramSavedPlanningPlanRuntimeService:
                 lines.append("   Черновик; не заполнено: " + ", ".join(projection["missing_inputs"][:8]))
             else:
                 lines.append("   Расчёт сохранён как историческая проекция.")
+            pre_ad = projection.get("pre_ad_margin")
+            if isinstance(pre_ad, dict) and pre_ad.get("status") == "AVAILABLE":
+                pre_ad_scope = pre_ad.get("expense_scope")
+                scope_text = (
+                    "по неполному составу расходов"
+                    if isinstance(pre_ad_scope, dict) and pre_ad_scope.get("status") == "PARTIAL"
+                    else "по сохранённому составу расходов"
+                )
+                lines.append(
+                    f"   До рекламы после налога: {pre_ad.get('profit_per_unit_rub')} ₽/шт. · "
+                    f"{pre_ad.get('margin_percent')}% от цены продавца ({scope_text})."
+                )
             if PlanningCrossDockingAdapter.is_current(payload):
                 evidence = ((item.get("sources") or {}).get("cross_docking") or {})
                 if evidence.get("rate_available") is True:
@@ -800,7 +812,16 @@ class TelegramSavedPlanningPlanRuntimeService:
                     if projection.get("coverage_complete") is True:
                         lines.append(f"Выручка {projection['components']['revenue']} ₽; прибыль {projection.get('profit') or 'не рассчитана'} ₽; маржа {projection.get('margin_percent') or 'не определена'}%.")
                     else:
-                        lines.append("Показан подтверждённый subtotal; итоговая прибыль и маржа набора недоступны.")
+                        if projection.get("after_ad_status") == "INCOMPLETE_ADVERTISING":
+                            lines.append(
+                                "Итог после рекламы не рассчитан: рекламные расходы неизвестны. "
+                                "Количество, выручка и доступная маржа до рекламы показаны отдельно."
+                            )
+                        else:
+                            lines.append("Показан подтверждённый subtotal; итоговая прибыль и маржа набора недоступны.")
+                    self._append_sales_mix_pre_ad_summary(
+                        lines, projection.get("pre_ad_margin") or {},
+                    )
                     cross_docking_total = (projection.get("components") or {}).get("cross_docking")
                     if projection.get("cross_docking_status"):
                         if cross_docking_total is None:
@@ -1096,24 +1117,43 @@ class TelegramSavedPlanningPlanRuntimeService:
         ]
         for row in result.get("rows", []):
             components = row.get("components") or {}
+            advertising = components.get("advertising")
+            advertising_text = (
+                f"{advertising} ₽" if advertising is not None else "неизвестна"
+            )
             row_line = (
                 f"• {row.get('label')}: {row.get('quantity')} × "
                 f"{row.get('price_per_unit')} → выручка {components.get('revenue')} ₽; "
                 f"себест. {components.get('cost_of_goods')} ₽; "
                 f"комиссия {components.get('commission')} ₽; "
-                f"реклама {components.get('advertising')} ₽; "
+                f"реклама {advertising_text}; "
                 f"fees {components.get('fees')} ₽; "
             )
             if "cross_docking" in components:
                 row_line += f"кросс-докинг {components.get('cross_docking')} ₽; "
-            row_line += f"вклад {row.get('profit_before_tax_contribution')} ₽."
+            contribution = row.get("profit_before_tax_contribution")
+            row_line += (
+                f"вклад {contribution} ₽."
+                if contribution is not None
+                else "вклад после рекламы не рассчитан."
+            )
             lines.append(row_line)
         components = result.get("components") or {}
         lines.extend([
             f"Выручка: {components.get('revenue')} ₽; баллы: {components.get('discount_points')} ₽.",
-            f"Прибыль до дополнительных расходов и налога: {components.get('profit_before_tax')} ₽.",
+            "Прибыль до дополнительных расходов и налога: "
+            + (
+                f"{components.get('profit_before_tax')} ₽."
+                if components.get("profit_before_tax") is not None
+                else "не рассчитана."
+            ),
             f"Дополнительные расходы за период: {result.get('fixed_expense_total')} ₽; подтверждение: {'да' if updated.get('expenses_confirmed') else 'нет'}.",
-            f"Прибыль до налога после расходов: {result.get('profit_before_tax_after_fixed_expenses')} ₽.",
+            "Прибыль до налога после расходов: "
+            + (
+                f"{result.get('profit_before_tax_after_fixed_expenses')} ₽."
+                if result.get("profit_before_tax_after_fixed_expenses") is not None
+                else "не рассчитана."
+            ),
         ])
         if result.get("cross_docking_status"):
             cross_docking_total = components.get("cross_docking")
@@ -1129,7 +1169,13 @@ class TelegramSavedPlanningPlanRuntimeService:
         if result.get("coverage_complete") is True:
             lines.append(f"Налог: {result.get('tax') if result.get('tax') is not None else 'не рассчитан (' + str(result.get('tax_status')) + ')'} ₽; итоговая прибыль: {result.get('profit') if result.get('profit') is not None else 'не определена'} ₽; маржа: {result.get('margin_percent') if result.get('margin_percent') is not None else 'не определена'}%.")
         else:
-            lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
+            if result.get("after_ad_status") == "INCOMPLETE_ADVERTISING":
+                lines.append(
+                    "Итог после рекламы не рассчитан: рекламные расходы неизвестны. "
+                    "Количество, выручка и доступная маржа до рекламы показаны отдельно."
+                )
+            else:
+                lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
             for excluded in result.get("excluded_rows", [])[:10]:
                 lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
         self._append_sales_mix_pre_ad_summary(lines, result.get("pre_ad_margin") or {})
