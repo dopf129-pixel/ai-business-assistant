@@ -6183,6 +6183,14 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_telegram_unit_economics_experiment_runtime.py` checks saved experiment results show their source date/window and only a count of linked snapshots, that unpersisted tax basis stays explicitly unknown, and that frozen legacy snapshots show only the saved tax mode/rate while saying its origin is not stored. Old plans without tax mode and tax-free plans remain readable.
 - `tests/test_unit_economics_experiment_snapshot_view_service.py` confirms frozen view/export remains read-only and unrecalculated; phase collection/comparison, recommendation ranking, and state-machine guards remain covered by their existing modules.
 - Final linked Windows profile across 8 modules: **113 passed in 4.23s**. No schema, stored result, source read, ranking objective or W42–W44 guard changed.
+# 2026-11-01 — PR #724: округление и покрытие expense scope
+
+- `tests/test_sales_mix_planning_service.py::test_pre_ad_expense_ledger_reconciles_canonical_unit_rounding_across_quantity` проверяет копеечную себестоимость на 100 единиц и точное совпадение суммы детализации с канонической прибылью.
+- `tests/test_product_unit_economics_query.py::test_pre_ad_breakdown_labels_rounding_adjustment_and_reconciles_to_card` фиксирует пользовательскую подпись корректировки и нулевое расхождение в итоговой сверке.
+- `tests/test_pre_ad_margin_projection.py::test_storage_aliases_confirm_zero_only_when_the_entire_category_total_is_zero` проверяет STORAGE aliases в `calculate` и `calculate_components_only`: положительный компонент отменяет локальное подтверждение нуля.
+- `tests/test_sales_mix_planning_service.py::test_mixed_storage_inclusion_and_exclusion_is_partial_not_globally_excluded` проверяет смешанный охват нескольких SKU.
+- Результаты на финальном локальном коде: linked profile **158 passed in 4.21s**; полный Windows `pytest -q -p no:cacheprovider` **4,420 passed in 46.19s**; `compileall app tests` и `git diff --check` PASS.
+
 # 2026-11-01 — дополнительные regressions review PR #724
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_adapter_preserves_calculator_selection_from_unit_economics_details_to_price_plan` проверяет реальный adapter→handler переход по кнопкам с сохранением SKU; `test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario` проверяет frozen projection через capture, repository save/reopen и JSON export; пакетный saved-plan acceptance проверяет те же поля после reopening.

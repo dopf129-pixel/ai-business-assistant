@@ -337,6 +337,59 @@ def test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero():
     assert zero_scope["known_non_ad_expenses_rub"]["STORAGE"] == "0.00"
 
 
+def test_pre_ad_expense_ledger_reconciles_canonical_unit_rounding_across_quantity():
+    service, _tax = _service()
+    item = _item("SKU-HALF-CENT", _sample_inputs(cost="150.005"))
+
+    result = service.calculate(
+        [item], quantities={"SKU-HALF-CENT": 100},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    projection = result["pre_ad_margin"]
+    known = projection["expense_scope"]["known_non_ad_expenses_rub"]
+    known_total = sum((Decimal(value) for value in known.values()), Decimal("0.00"))
+    assert projection["revenue_rub"] == "50000.00"
+    assert projection["profit_before_tax_rub"] == "21500.00"
+    assert known["COGS"] == "15001.00"
+    assert known["ROUNDING_ADJUSTMENT"] == "-1.00"
+    assert Decimal(projection["revenue_rub"]) - known_total == Decimal(
+        projection["profit_before_tax_rub"]
+    )
+
+
+def test_mixed_storage_inclusion_and_exclusion_is_partial_not_globally_excluded():
+    service, _tax = _service()
+    excluded_item = _item("SKU-EXCLUDED", _sample_inputs())
+    excluded_item["extended_scenario"] = _extended_expense_contract("a", "0.00")
+    excluded_item["extended_scenario"]["excluded_component_statuses"] = {
+        "STORAGE": "EXCLUDED",
+    }
+    included_item = _item("SKU-INCLUDED", _sample_inputs())
+    included_item["extended_scenario"] = _extended_expense_contract("b", "100.00")
+    included_item["extended_scenario"]["included_component_keys"] = [
+        "FINANCE_PAID_STORAGE",
+    ]
+    included_item["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "100.00",
+        "ownership": "ADDITIONAL",
+    }]
+
+    result = service.calculate(
+        [excluded_item, included_item], quantities={"SKU-EXCLUDED": 1, "SKU-INCLUDED": 1},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert scope["status"] == "PARTIAL"
+    assert "STORAGE" in scope["included_expense_keys"]
+    assert "STORAGE" in scope["unknown_non_ad_expense_keys"]
+    assert "STORAGE" not in scope["excluded_expense_keys"]
+    assert "STORAGE" not in scope["excluded_expense_reasons"]
+
+
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():
     service, tax = _service()
     inputs = _sample_inputs(cross_docking_per_unit="12.00")

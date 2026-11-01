@@ -55,6 +55,7 @@ class ProductUnitEconomicsQueryService:
         "LOGISTICS": "логистика",
         "LAST_MILE": "последняя миля",
         "ACQUIRING": "эквайринг",
+        "ROUNDING_ADJUSTMENT": "корректировка округления",
         "CROSS_DOCKING": "кросс-докинг",
         "STORAGE": "хранение",
         "PLACEMENT": "размещение",

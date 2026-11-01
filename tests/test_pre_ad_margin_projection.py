@@ -378,6 +378,41 @@ def test_complete_zero_storage_evidence_is_not_reported_as_unknown():
     assert "RETURNS_AND_CANCELLATIONS" in scope["unknown_non_ad_expense_keys"]
 
 
+def test_storage_aliases_confirm_zero_only_when_the_entire_category_total_is_zero():
+    contract = _additional_expense_contract()
+    contract["included_component_keys"] = ["FINANCE_PAID_STORAGE", "STORAGE"]
+    contract["components"] = [
+        {
+            "component_key": "FINANCE_PAID_STORAGE",
+            "numerator_rub": "100.00",
+            "ownership": "ADDITIONAL",
+        },
+        {
+            "component_key": "STORAGE",
+            "numerator_rub": "0.00",
+            "ownership": "ADDITIONAL",
+        },
+    ]
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+    service = UnitPriceScenarioService(TaxService())
+
+    calculated = service.calculate(inputs, extended_scenario=contract)
+    components_only = service.calculate_components_only(
+        inputs, extended_scenario=contract,
+    )
+
+    for scope in (
+        calculated["pre_ad_margin"]["expense_scope"],
+        components_only["pre_ad_expense_scope"],
+    ):
+        assert "STORAGE" in scope["included_expense_keys"]
+        assert "STORAGE" not in scope["confirmed_zero_expense_keys"]
+        assert "STORAGE" not in scope["known_non_ad_expenses_rub"]
+        assert scope["known_non_ad_expenses_rub"]["CONFIRMED_ADDITIONAL_EXPENSES"] == 1.0
+        assert "STORAGE" not in scope["unknown_non_ad_expense_keys"]
+
+
 def test_explicitly_excluded_storage_is_not_mislabeled_as_zero_or_unknown():
     contract = _additional_expense_contract()
     contract["excluded_component_statuses"] = {"STORAGE": "EXCLUDED"}

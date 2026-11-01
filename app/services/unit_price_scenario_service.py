@@ -725,6 +725,13 @@ class UnitPriceScenarioService:
             "LAST_MILE": normalized["last_mile_per_unit"],
             "ACQUIRING": normalized["acquiring_per_unit"],
         }
+        known_expenses = {
+            key: self._money_decimal(value) if value is not None else None
+            for key, value in known_expenses.items()
+        }
+        known_expenses = {
+            key: value for key, value in known_expenses.items() if value is not None
+        }
         unknown_expenses = {
             "STORAGE",
             "PLACEMENT",
@@ -741,7 +748,7 @@ class UnitPriceScenarioService:
         if cross_docking is None:
             unknown_expenses.add("CROSS_DOCKING")
         else:
-            known_expenses["CROSS_DOCKING"] = cross_docking
+            known_expenses["CROSS_DOCKING"] = self._money_decimal(cross_docking)
             included_expense_keys.add("CROSS_DOCKING")
         if additional_expenses is not None:
             strict_return_loss = bool(
@@ -754,34 +761,14 @@ class UnitPriceScenarioService:
             else:
                 known_expenses["CONFIRMED_ADDITIONAL_EXPENSES"] = additional_expenses
             if extended:
-                for component in extended["components"]:
-                    component_key = component["component_key"]
-                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
-                    if scope_key:
-                        included_expense_keys.add(scope_key)
-                        unknown_expenses.discard(scope_key)
-                        if (
-                            scope_key in {"STORAGE", "PLACEMENT"}
-                            and component["numerator_rub"] == 0
-                        ):
-                            confirmed_zero_expense_keys.add(scope_key)
-                            known_expenses[scope_key] = Decimal("0.00")
-                    else:
-                        included_expense_keys.add(component_key)
-                for component_key in extended["included_component_keys"]:
-                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
-                    if scope_key:
-                        included_expense_keys.add(scope_key)
-                        unknown_expenses.discard(scope_key)
-                for key, status in extended["excluded_component_statuses"].items():
-                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(key, key)
-                    if status == "UNKNOWN":
-                        unknown_expenses.add(scope_key)
-                    else:
-                        unknown_expenses.discard(scope_key)
-                        excluded_expense_reasons[scope_key] = (
-                            "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
-                        )
+                self._apply_extended_expense_scope(
+                    extended,
+                    known_expenses=known_expenses,
+                    included_expense_keys=included_expense_keys,
+                    confirmed_zero_expense_keys=confirmed_zero_expense_keys,
+                    unknown_expense_keys=unknown_expenses,
+                    excluded_expense_reasons=excluded_expense_reasons,
+                )
                 if (
                     additional_expenses == 0
                     and extended["components"]
@@ -791,6 +778,12 @@ class UnitPriceScenarioService:
                     )
                 ):
                     known_expenses.pop("CONFIRMED_ADDITIONAL_EXPENSES", None)
+        if self._add_pre_ad_rounding_adjustment(
+            known_expenses,
+            normalized.get("price"),
+            components.get("profit_before_tax"),
+        ):
+            included_expense_keys.add("ROUNDING_ADJUSTMENT")
         excluded_expenses = sorted(excluded_expense_reasons)
 
         base.update({
@@ -825,6 +818,10 @@ class UnitPriceScenarioService:
             "ACQUIRING": normalized.get("acquiring_per_unit"),
         }
         known_expenses = {
+            key: self._money_decimal(value) if value is not None else None
+            for key, value in known_expenses.items()
+        }
+        known_expenses = {
             key: value for key, value in known_expenses.items() if value is not None
         }
         unknown_expenses = {
@@ -841,7 +838,7 @@ class UnitPriceScenarioService:
         if cross_docking is None:
             unknown_expenses.add("CROSS_DOCKING")
         else:
-            known_expenses["CROSS_DOCKING"] = cross_docking
+            known_expenses["CROSS_DOCKING"] = self._money_decimal(cross_docking)
             included_expense_keys.add("CROSS_DOCKING")
         if additional_expenses is not None:
             strict_return_loss = bool(
@@ -854,34 +851,14 @@ class UnitPriceScenarioService:
             else:
                 known_expenses["CONFIRMED_ADDITIONAL_EXPENSES"] = additional_expenses
             if extended:
-                for component in extended["components"]:
-                    component_key = component["component_key"]
-                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
-                    if scope_key:
-                        included_expense_keys.add(scope_key)
-                        unknown_expenses.discard(scope_key)
-                        if (
-                            scope_key in {"STORAGE", "PLACEMENT"}
-                            and component["numerator_rub"] == 0
-                        ):
-                            confirmed_zero_expense_keys.add(scope_key)
-                            known_expenses[scope_key] = Decimal("0.00")
-                    else:
-                        included_expense_keys.add(component_key)
-                for component_key in extended["included_component_keys"]:
-                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
-                    if scope_key:
-                        included_expense_keys.add(scope_key)
-                        unknown_expenses.discard(scope_key)
-                for key, status in extended["excluded_component_statuses"].items():
-                    scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(key, key)
-                    if status == "UNKNOWN":
-                        unknown_expenses.add(scope_key)
-                    else:
-                        unknown_expenses.discard(scope_key)
-                        excluded_expense_reasons[scope_key] = (
-                            "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
-                        )
+                self._apply_extended_expense_scope(
+                    extended,
+                    known_expenses=known_expenses,
+                    included_expense_keys=included_expense_keys,
+                    confirmed_zero_expense_keys=confirmed_zero_expense_keys,
+                    unknown_expense_keys=unknown_expenses,
+                    excluded_expense_reasons=excluded_expense_reasons,
+                )
                 if (
                     additional_expenses == 0
                     and extended["components"]
@@ -891,6 +868,12 @@ class UnitPriceScenarioService:
                     )
                 ):
                     known_expenses.pop("CONFIRMED_ADDITIONAL_EXPENSES", None)
+        if self._add_pre_ad_rounding_adjustment(
+            known_expenses,
+            normalized.get("price"),
+            components.get("profit_before_tax"),
+        ):
+            included_expense_keys.add("ROUNDING_ADJUSTMENT")
         return {
             "status": "PARTIAL" if unknown_expenses else "COMPLETE",
             "known_non_ad_expenses_rub": {
@@ -903,6 +886,85 @@ class UnitPriceScenarioService:
             "excluded_expense_keys": sorted(excluded_expense_reasons),
             "excluded_expense_reasons": excluded_expense_reasons,
         }
+
+    def _apply_extended_expense_scope(
+        self,
+        extended,
+        *,
+        known_expenses,
+        included_expense_keys,
+        confirmed_zero_expense_keys,
+        unknown_expense_keys,
+        excluded_expense_reasons,
+    ):
+        category_states = {}
+        category_amounts = {}
+        for component in extended["components"]:
+            component_key = component["component_key"]
+            scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(component_key)
+            if scope_key is None:
+                included_expense_keys.add(component_key)
+                continue
+            included_expense_keys.add(scope_key)
+            category_states.setdefault(scope_key, set()).add("INCLUDED")
+            category_amounts[scope_key] = (
+                category_amounts.get(scope_key, Decimal("0.00"))
+                + component["numerator_rub"]
+            )
+
+        for key, status in extended["excluded_component_statuses"].items():
+            scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(key)
+            if scope_key is None:
+                if status == "UNKNOWN":
+                    unknown_expense_keys.add(key)
+                else:
+                    unknown_expense_keys.discard(key)
+                    excluded_expense_reasons[key] = (
+                        "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
+                    )
+                continue
+            category_states.setdefault(scope_key, set()).add(status)
+
+        for scope_key, states in category_states.items():
+            if "UNKNOWN" in states or {"INCLUDED", "EXCLUDED"}.issubset(states):
+                unknown_expense_keys.add(scope_key)
+                excluded_expense_reasons.pop(scope_key, None)
+                continue
+            if "EXCLUDED" in states:
+                unknown_expense_keys.discard(scope_key)
+                excluded_expense_reasons[scope_key] = (
+                    "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
+                )
+                continue
+
+            included_expense_keys.add(scope_key)
+            unknown_expense_keys.discard(scope_key)
+            excluded_expense_reasons.pop(scope_key, None)
+            if (
+                scope_key in {"STORAGE", "PLACEMENT"}
+                and category_amounts.get(scope_key) == Decimal("0.00")
+            ):
+                confirmed_zero_expense_keys.add(scope_key)
+                known_expenses[scope_key] = Decimal("0.00")
+
+    def _add_pre_ad_rounding_adjustment(self, known_expenses, revenue, profit_before_tax):
+        if revenue is None or profit_before_tax is None:
+            return False
+        target_expenses = (
+            self._money_decimal(revenue) - self._money_decimal(profit_before_tax)
+        )
+        known_total = sum(
+            (
+                value for value in known_expenses.values()
+                if isinstance(value, Decimal)
+            ),
+            Decimal("0.00"),
+        )
+        adjustment = self._money_decimal(target_expenses - known_total)
+        if adjustment == Decimal("0.00"):
+            return False
+        known_expenses["ROUNDING_ADJUSTMENT"] = adjustment
+        return True
 
     def _build_advertising_tax_bridge(
         self,

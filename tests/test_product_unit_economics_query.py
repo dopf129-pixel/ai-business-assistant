@@ -289,6 +289,42 @@ def test_pre_ad_breakdown_explains_unsupported_sources_and_existing_manual_paths
     assert "0.00 ₽" not in detail
 
 
+def test_pre_ad_breakdown_labels_rounding_adjustment_and_reconciles_to_card():
+    service, _ = make_query_service(products=[], profits=[])
+    result = {
+        "error": False,
+        "sku": "hook-2",
+        "price": 500.0,
+        "pre_ad_margin": {
+            "status": "AVAILABLE",
+            "basis": "CURRENT_MODEL",
+            "tax_mode": "NONE",
+            "price_per_unit_rub": "500.00",
+            "tax_per_unit_rub": "0.00",
+            "profit_per_unit_rub": "215.00",
+            "advertising_status": "EXCLUDED_BY_DEFINITION",
+            "expense_scope": {
+                "status": "PARTIAL",
+                "known_non_ad_expenses_rub": {
+                    "ACQUIRING": "5.00",
+                    "COGS": "150.01",
+                    "LAST_MILE": "5.00",
+                    "LOGISTICS": "25.00",
+                    "OZON_COMMISSION": "100.00",
+                    "ROUNDING_ADJUSTMENT": "-0.01",
+                },
+                "unknown_non_ad_expense_keys": [],
+                "excluded_expense_keys": [],
+            },
+        },
+    }
+
+    detail = service.format_expense_breakdown(result)
+
+    assert "Корректировка округления: +0.01 ₽" in detail
+    assert "Сверка с карточкой: 0.00 ₽ расхождения." in detail
+
+
 def test_query_selects_only_requested_sku():
     service, period_profit_service = (
         make_query_service(

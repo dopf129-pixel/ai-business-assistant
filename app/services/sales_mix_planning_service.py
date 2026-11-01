@@ -297,6 +297,14 @@ class SalesMixPlanningService:
             if pre_ad_rows_known and pre_ad_same_policy
             else set()
         )
+        # A source may explicitly exclude a category for one SKU while another
+        # SKU has evidence for it. The aggregate is only partially covered in
+        # that case; do not report the category as globally excluded.
+        for key in list(pre_ad_excluded_expense_reasons):
+            if key in pre_ad_included_expense_keys or key in pre_ad_unknown_expense_keys:
+                pre_ad_excluded_expense_reasons.pop(key, None)
+                if key in pre_ad_included_expense_keys:
+                    pre_ad_unknown_expense_keys.add(key)
         # A zero confirmed for one SKU is not a zero for the whole mix. If a
         # category is also included by another SKU (or its coverage is partial),
         # retain its amount in the aggregate additional-expense pool and remove
