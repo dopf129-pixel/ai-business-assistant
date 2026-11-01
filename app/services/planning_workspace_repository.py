@@ -66,6 +66,9 @@ class PlanningWorkspaceRepository:
     MAX_UNIT_PRICE_OBSERVATION_NOTE_LENGTH = 500
     MAX_REVISIONS_PER_DOCUMENT = 20
     MAX_PAYLOAD_BYTES = 64 * 1024
+    # The source scenario allows 64 components. Its saved projection can also
+    # contain model-owned expense keys and derived rounding/exclusion entries.
+    MAX_SAVED_PRE_AD_SCOPE_ENTRIES = 72
     MAX_PAGE_SIZE = 10
     MAX_SALES_MIX_QUANTITY_PER_ITEM = 100_000
     MAX_SALES_MIX_TOTAL_QUANTITY = 1_000_000
@@ -7463,7 +7466,8 @@ class PlanningWorkspaceRepository:
             "unknown_non_ad_expense_keys", "excluded_expense_keys",
         ):
             entries = scope.get(field, [])
-            if (not isinstance(entries, list) or len(entries) > 64
+            if (not isinstance(entries, list)
+                    or len(entries) > cls.MAX_SAVED_PRE_AD_SCOPE_ENTRIES
                     or any(not isinstance(entry, str)
                            or re.fullmatch(r"[A-Z0-9_]{1,80}", entry) is None
                            for entry in entries)
@@ -7471,7 +7475,8 @@ class PlanningWorkspaceRepository:
                 return None
             clean_scope[field] = sorted(entries)
         reasons = scope.get("excluded_expense_reasons", {})
-        if not isinstance(reasons, dict) or len(reasons) > 64:
+        if (not isinstance(reasons, dict)
+                or len(reasons) > cls.MAX_SAVED_PRE_AD_SCOPE_ENTRIES):
             return None
         clean_reasons = {}
         for key, reason_code in reasons.items():

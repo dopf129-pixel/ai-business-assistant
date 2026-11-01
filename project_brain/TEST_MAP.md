@@ -1,3 +1,9 @@
+# PR #724 — максимальный derived expense scope в сохранённых планах
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts` проверяет публичную генерацию frozen capture, сохранение в изолированную SQLite-репозиторию и повторное чтение при 60/64 дополнительных компонентах и 64 исключённых типах. Также закреплён предел 72 derived keys.
+- Связанный Windows профиль (saved plans, repository, extended-scenario adapter, pre-ad projection, scenario contract, sales mix, current economics и query/UI): **163 passed in 4.43s**. Полный Windows pytest: **4,422 passed in 47.55s**; `compileall app tests` и `git diff --check` PASS.
+- `data/tasks.json` восстановлен после известного побочного эффекта полного pytest: SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
+
 # PR #724 — исправления review R1–R5 (2026-11-01)
 
 - `tests/test_product_unit_economics_telegram_ui.py` и `app/tests/test_seller_cost_confirmation_flow.py`: одноразовый callback себестоимости привязан к пользователю/магазину и не переиспользуется; явный post-save возврат вызывает refresh.

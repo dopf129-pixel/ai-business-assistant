@@ -362,6 +362,60 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         reset_current_tenant_user_id(tenant)
 
 
+@pytest.mark.parametrize("component_count", [60, 64])
+def test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts(
+    tmp_path, component_count,
+):
+    _saved_runtime, single, _source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        component_keys = [f"EXTRA_{index:02d}" for index in range(component_count)]
+        excluded_keys = [f"EXCLUDED_{index:02d}" for index in range(64)]
+        extended = _extended_expense_contract("1.00", 100)
+        extended["included_component_keys"] = component_keys
+        extended["components"] = [{
+            "component_key": key,
+            "numerator_rub": "1.00",
+            "ownership": "ADDITIONAL",
+        } for key in component_keys]
+        extended["excluded_component_statuses"] = {
+            key: "EXCLUDED" for key in excluded_keys
+        }
+        single._scenarios[scenario_id]["extended_scenario"] = extended
+
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        assert capture["error"] is False
+        pre_ad = capture["payload"]["items"][0]["projection"]["pre_ad_margin"]
+        scope = pre_ad["expense_scope"]
+        assert len(scope["included_expense_keys"]) == 5 + component_count
+        assert len(scope["excluded_expense_keys"]) == 66
+        assert len(scope["excluded_expense_reasons"]) == 66
+        oversized_pre_ad = deepcopy(pre_ad)
+        oversized_keys = oversized_pre_ad["expense_scope"]["included_expense_keys"]
+        for index in range(72 - len(oversized_keys)):
+            oversized_keys.append(f"OVER_LIMIT_{index:02d}")
+        assert len(oversized_keys) == 72
+        oversized_keys.append("OVER_LIMIT_72")
+        assert PlanningWorkspaceRepository._clean_saved_pre_ad_projection(
+            oversized_pre_ad,
+        ) is None
+
+        saved = service.save_capture(
+            f"Large expense scope {component_count}", capture,
+        )
+        assert saved["error"] is False, saved
+        stored = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
+        stored_scope = stored["projection"]["pre_ad_margin"]["expense_scope"]
+        assert stored_scope["included_expense_keys"] == scope["included_expense_keys"]
+        assert stored_scope["excluded_expense_keys"] == scope["excluded_expense_keys"]
+        assert stored_scope["excluded_expense_reasons"] == scope["excluded_expense_reasons"]
+        assert stored["extended_scenario"] == extended
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
     tenant = _activate()
