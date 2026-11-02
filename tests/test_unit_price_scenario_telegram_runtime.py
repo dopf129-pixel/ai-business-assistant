@@ -847,6 +847,70 @@ def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario(
     assert source.calls == [("3921245627", "user-1", False)]
 
 
+def test_price_option_comparison_pages_complete_rows_with_matching_apply_buttons():
+    runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")['callback'], user_id="user-1",
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Сравнить цены")["callback"], user_id="user-1",
+        )
+        result = runtime.handle_text(
+            "; ".join(str(price) for price in range(500, 600, 10)),
+            user_id="user-1",
+        )
+        next_page_callback = next(
+            button["callback"] for button in result["keyboard"]["buttons"]
+            if button["text"].startswith("Следующие")
+        )
+        next_page = runtime.handle_callback(next_page_callback, user_id="user-1")
+        last_page_callback = next(
+            button["callback"] for button in next_page["keyboard"]["buttons"]
+            if button["text"].startswith("Следующие")
+        )
+        last_page = runtime.handle_callback(last_page_callback, user_id="user-1")
+        apply_last = runtime.handle_callback(
+            _find_button(last_page, "Подставить вариант 10")['callback'],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    def numbered_rows(response):
+        return [
+            line for line in response["message"].splitlines()
+            if any(line.startswith(f"{number}. ") for number in range(1, 11))
+        ]
+
+    first_buttons = [button["text"] for button in result["keyboard"]["buttons"]]
+    last_buttons = [button["text"] for button in last_page["keyboard"]["buttons"]]
+    assert prompt["stage"] == "price_options"
+    assert len(result["price_planning_result"]["rows"]) == 10
+    assert "Страница 1/3: варианты 1–4 из 10." in result["message"]
+    assert "Страница 2/3: варианты 5–8 из 10." in next_page["message"]
+    assert "Страница 3/3: варианты 9–10 из 10." in last_page["message"]
+    assert [line.split(".", 1)[0] for line in numbered_rows(result)] == ["1", "2", "3", "4"]
+    assert all(line.endswith(".") for line in numbered_rows(result))
+    assert [line.split(".", 1)[0] for line in numbered_rows(next_page)] == ["5", "6", "7", "8"]
+    assert [line.split(".", 1)[0] for line in numbered_rows(last_page)] == ["9", "10"]
+    assert all(line.endswith(".") for response in (result, next_page, last_page)
+               for line in numbered_rows(response))
+    assert all(len(response["message"]) < 3500
+               for response in (result, next_page, last_page))
+    assert "Подставить вариант 4" in first_buttons
+    assert "Подставить вариант 5" not in first_buttons
+    assert "Подставить вариант 9" in last_buttons
+    assert "Подставить вариант 10" in last_buttons
+    assert "Подставить вариант 1" not in last_buttons
+    assert apply_last["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert apply_last["price_scenario"]["inputs"]["price"]["value"] == 590.0
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
 def test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads():
     tariff = _FrozenRangeTariffRuntime()
     runtime, source = _runtime(tariff_profile_runtime_service=tariff)

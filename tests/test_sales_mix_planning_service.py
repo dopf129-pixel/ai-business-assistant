@@ -108,6 +108,39 @@ def test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once():
     assert len(tax.calls) == 1
 
 
+def test_typed_period_advertising_is_excluded_from_pre_ad_profit_and_legacy_expense_is_unknown():
+    service, _tax = _service()
+    item = _item("SKU-A", _sample_inputs(
+        price="500", cost="100", commission_rate="15", advertising_rate="8",
+        discount_points_rate="20", logistics_per_unit="40", last_mile_per_unit="10",
+        acquiring_per_unit="5", tax_mode="USN_INCOME", tax_rate="6",
+        minimum_tax_rate="1",
+    ))
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 10}, period_label="2026-08-01 — 2026-08-31",
+        expenses=[
+            {"category": "ADVERTISING", "name": "CPC", "amount": "100.00"},
+            {"category": "OTHER", "name": "Упаковка", "amount": "200.00"},
+            # The pre-category contract remains accepted but cannot be assumed non-ad.
+            {"name": "Реклама", "amount": "50.00"},
+        ],
+        expenses_confirmed=True,
+    )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert result["fixed_expense_total"] == "350.00"
+    assert result["profit_before_tax_after_fixed_expenses"] == "1950.00"
+    assert result["profit"] == "1710.00"
+    assert result["pre_ad_margin"]["profit_before_tax_rub"] == "2500.00"
+    assert result["pre_ad_margin"]["profit_rub"] == "2260.00"
+    assert scope["status"] == "PARTIAL"
+    assert scope["known_non_ad_expenses_rub"]["FIXED_PLANNING_EXPENSES"] == "200.00"
+    assert scope["fixed_planning_expenses_rub"] == "200.00"
+    assert scope["fixed_planning_advertising_expenses_rub"] == "100.00"
+    assert "UNCLASSIFIED_FIXED_PLANNING_EXPENSES" in scope["unknown_non_ad_expense_keys"]
+
+
 def test_extended_expenses_are_applied_per_sku_once_and_tax_is_aggregated_once():
     service, tax = _service()
     item_a = _item("SKU-A", _sample_inputs())

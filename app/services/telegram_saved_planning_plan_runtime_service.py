@@ -1054,12 +1054,45 @@ class TelegramSavedPlanningPlanRuntimeService:
                 return self._save_sales_mix_preview(scope, pending, updated)
             updated["stage"] = "expense_entry"
             updated["expense_index"] = 0
-            return self._save_sales_mix_pending_and_prompt(scope, pending, updated, f"Расход 1/{count}: введите название и сумму через точку с запятой, например Упаковка; 250.00")
+            return self._save_sales_mix_pending_and_prompt(
+                scope, pending, updated,
+                f"Расход 1/{count}: тип; название; сумма. Например: "
+                "Реклама; CPC; 1250.00 или Прочее; Упаковка; 250.00",
+            )
         if stage == "expense_entry":
-            parts = value.split(";", 1)
-            if len(parts) != 2 or not parts[0].strip() or len(parts[0].strip()) > 80:
-                return self._sales_mix_prompt(scope, pending, "Не понял расход. Введите название; сумма, например Реклама; 1250.00")
-            amount = self.sales_mix_planning_service._decimal(parts[1].strip().replace(",", "."))
+            parts = [part.strip() for part in value.split(";", 2)]
+            category_aliases = {
+                "реклама": "ADVERTISING",
+                "advertising": "ADVERTISING",
+                "ad": "ADVERTISING",
+                "прочее": "OTHER",
+                "прочие расходы": "OTHER",
+                "прочий": "OTHER",
+                "other": "OTHER",
+            }
+            if len(parts) == 3:
+                category = category_aliases.get(parts[0].casefold())
+                name, raw_amount = parts[1], parts[2]
+                if category is None:
+                    return self._sales_mix_prompt(
+                        scope, pending,
+                        "Укажите тип «Реклама» или «Прочее», затем название и сумму: "
+                        "Реклама; CPC; 1250.00 или Прочее; Упаковка; 250.00",
+                    )
+            elif len(parts) == 2:
+                # Keep legacy two-part entries after advertising classification was
+                # introduced, but never guess their category from the free-form name.
+                category = "UNCLASSIFIED"
+                name, raw_amount = parts
+            else:
+                return self._sales_mix_prompt(
+                    scope, pending,
+                    "Не понял расход. Введите тип; название; сумма: "
+                    "Реклама; CPC; 1250.00 или Прочее; Упаковка; 250.00",
+                )
+            if not name or len(name) > 80:
+                return self._sales_mix_prompt(scope, pending, "Название расхода должно содержать от 1 до 80 символов.")
+            amount = self.sales_mix_planning_service._decimal(raw_amount.replace(",", "."))
             if amount is None or amount < 0 or amount > self.sales_mix_planning_service.MAX_AMOUNT:
                 return self._sales_mix_prompt(scope, pending, "Сумма расхода не принята. Укажите неотрицательную сумму до 1 000 000 000 ₽.")
             current_expense_total = sum(
@@ -1068,13 +1101,21 @@ class TelegramSavedPlanningPlanRuntimeService:
             )
             if current_expense_total + amount > self.sales_mix_planning_service.MAX_FIXED_EXPENSE_TOTAL:
                 return self._sales_mix_prompt(scope, pending, "Сумма дополнительных расходов за период не должна превышать 1 000 000 000 ₽.")
-            updated["expenses"].append({"name": parts[0].strip(), "amount": format(amount.quantize(Decimal('0.01')), '.2f')})
+            updated["expenses"].append({
+                "name": name,
+                "amount": format(amount.quantize(Decimal('0.01')), '.2f'),
+                "category": category,
+            })
             updated["expense_index"] += 1
             if updated["expense_index"] >= updated["expense_count"]:
                 updated["stage"] = "preview"
                 updated["expenses_confirmed"] = True
                 return self._save_sales_mix_preview(scope, pending, updated)
-            return self._save_sales_mix_pending_and_prompt(scope, pending, updated, f"Расход {updated['expense_index'] + 1}/{updated['expense_count']}: название; сумма")
+            return self._save_sales_mix_pending_and_prompt(
+                scope, pending, updated,
+                f"Расход {updated['expense_index'] + 1}/{updated['expense_count']}: "
+                "тип; название; сумма (Реклама или Прочее)",
+            )
         return self._stale()
 
     def _save_sales_mix_pending_and_prompt(self, scope, previous, updated, message):
@@ -1165,7 +1206,15 @@ class TelegramSavedPlanningPlanRuntimeService:
                     "ставка рассчитана по физическим поставкам за сохранённый период."
                 )
         for expense in result.get("fixed_expenses", []):
-            lines.append(f"Расход за период · {expense.get('name')}: {expense.get('amount')} ₽.")
+            category_label = {
+                "ADVERTISING": "реклама",
+                "OTHER": "прочее",
+                "UNCLASSIFIED": "тип не указан; состав маржи до рекламы неполон",
+            }.get(expense.get("category"), "тип не указан")
+            lines.append(
+                f"Расход за период · {expense.get('name')}: "
+                f"{expense.get('amount')} ₽ ({category_label})."
+            )
         if result.get("coverage_complete") is True:
             lines.append(f"Налог: {result.get('tax') if result.get('tax') is not None else 'не рассчитан (' + str(result.get('tax_status')) + ')'} ₽; итоговая прибыль: {result.get('profit') if result.get('profit') is not None else 'не определена'} ₽; маржа: {result.get('margin_percent') if result.get('margin_percent') is not None else 'не определена'}%.")
         else:

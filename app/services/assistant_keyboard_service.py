@@ -678,9 +678,10 @@ class AssistantKeyboardService:
                     "text": "Подставить цену для цели",
                     "callback": f"upc:u:{sid}:{ver}:t",
                 })
-        elif mode == "price_grid":
+        elif mode in {"price_grid", "price_options"}:
             rows = result.get("rows") or []
-            page_size = 10
+            is_grid = mode == "price_grid"
+            page_size = 10 if is_grid else 4
             total_pages = max(1, (len(rows) + page_size - 1) // page_size)
             if type(page) is not int or not 0 <= page < total_pages:
                 page = 0
@@ -695,29 +696,24 @@ class AssistantKeyboardService:
                     })
             if page > 0:
                 buttons.append({
-                    "text": "◀ Предыдущие 10 цен",
+                    "text": "◀ Предыдущие 10 цен" if is_grid else "◀ Предыдущие цены",
                     "callback": f"upc:w:{sid}:{ver}:{page - 1}",
                 })
             if page + 1 < total_pages:
                 buttons.append({
-                    "text": "Следующие 10 цен ▶",
+                    "text": "Следующие 10 цен ▶" if is_grid else "Следующие цены ▶",
                     "callback": f"upc:w:{sid}:{ver}:{page + 1}",
                 })
-            buttons.append({
-                "text": "Новая ценовая сетка",
-                "callback": f"upc:n:{sid}:{ver}",
-            })
-        elif allow_apply and mode == "price_options":
-            for index, row in enumerate(result.get("rows") or []):
-                if row.get("available") is True:
-                    buttons.append({
-                        "text": f"Подставить вариант {index + 1}",
-                        "callback": f"upc:u:{sid}:{ver}:{index}",
-                    })
-            buttons.extend([
-                {"text": "Указать ДРР для каждой цены", "callback": f"upc:d:{sid}:{ver}"},
-                {"text": "Указать расход на продажу", "callback": f"upc:h:{sid}:{ver}"},
-            ])
+            if is_grid:
+                buttons.append({
+                    "text": "Новая ценовая сетка",
+                    "callback": f"upc:n:{sid}:{ver}",
+                })
+            elif allow_apply:
+                buttons.extend([
+                    {"text": "Указать ДРР для каждой цены", "callback": f"upc:d:{sid}:{ver}"},
+                    {"text": "Указать расход на продажу", "callback": f"upc:h:{sid}:{ver}"},
+                ])
         buttons.extend([
             {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
             {"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"},

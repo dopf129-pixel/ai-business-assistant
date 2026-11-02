@@ -995,7 +995,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     return self._stale_result()
                 stored = session.get("price_planning_result") or {}
                 if (str(page) != parts[4] or page < 0
-                        or stored.get("mode") != "price_grid"):
+                        or stored.get("mode") not in {"price_grid", "price_options"}):
                     return self._stale_result()
                 return self._price_planning_result_screen(session, page=page)
             if action == "u" and len(parts) == 5:
@@ -1828,12 +1828,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
         result = stored.get("result") or {}
         all_rows = result.get("rows") or []
         is_grid = mode == "price_grid"
-        page_size = 10
-        total_pages = max(1, (len(all_rows) + page_size - 1) // page_size) if is_grid else 1
+        is_comparison = mode in {"price_grid", "price_options"}
+        page_size = 10 if is_grid else 4 if mode == "price_options" else 1
+        total_pages = (
+            max(1, (len(all_rows) + page_size - 1) // page_size)
+            if is_comparison else 1
+        )
         if type(page) is not int or not 0 <= page < total_pages:
             return self._stale_result()
-        first_row = page * page_size if is_grid else 0
-        visible_rows = all_rows[first_row:first_row + page_size] if is_grid else all_rows
+        first_row = page * page_size if is_comparison else 0
+        visible_rows = all_rows[first_row:first_row + page_size] if is_comparison else all_rows
         identity = session.get("snapshot", {}).get("identity") or {}
         product = session.get("snapshot", {}).get("product") or {}
         title = (
@@ -1946,6 +1950,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 end_number = min(len(all_rows), first_row + page_size)
                 lines.append(
                     f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number}."
+                )
+            elif mode == "price_options" and total_pages > 1:
+                start_number = first_row + 1
+                end_number = min(len(all_rows), first_row + page_size)
+                lines.append(
+                    f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number} "
+                    f"из {len(all_rows)}."
                 )
             advertising_mode = advertising_basis.get("mode")
             lines.append(

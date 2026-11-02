@@ -1,3 +1,10 @@
+# 2026-11-02 — новые регрессии PR #724
+
+- `tests/test_sales_mix_planning_service.py::test_typed_period_advertising_is_excluded_from_pre_ad_profit_and_legacy_expense_is_unknown` подтверждает, что явная периодная реклама входит в общий after-ad расход, но остаётся вне pre-ad прибыли; нерозмеченный старый расход не угадывается и помечает scope как partial.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit` проверяет ввод «Реклама; CPC; 100» через публичный Telegram flow: на 10 шт. прибыль до рекламы остаётся 2 460 ₽, after-ad результат уменьшается на 100 ₽.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_option_comparison_pages_complete_rows_with_matching_apply_buttons` проверяет 10 цен на трёх страницах, полные строки и соответствие кнопок только текущим вариантам; последний вариант остаётся применимым.
+- Профиль 15 связанных модулей: **349 passed in 8.53s**. Полный Windows suite: **4,429 passed in 44.13s**. `compileall app tests` и `git diff --check` PASS; пользовательские данные восстановлены к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Exact-head CI ожидается после push.
+
 # PR #724 — независимая before-ad проекция и строгая потеря возвратов (2026-11-02)
 
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_price_comparison_keeps_pre_ad_projection_when_advertising_is_unknown` проходит публичный путь Telegram при подтверждённой комиссии и неизвестной рекламе: baseline и обе цены показывают маржу до рекламы, after-ad остаётся недоступной, лучший вариант не выбирается, комиссия отображается подтверждённой.

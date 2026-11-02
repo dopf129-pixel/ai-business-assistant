@@ -2532,3 +2532,50 @@ def test_saved_sales_mix_with_unknown_advertising_keeps_quantity_revenue_and_pre
     assert "Итог после рекламы не рассчитан" in preview["message"]
     assert "Прибыль до рекламы после налога:" in saved_mix["message"]
     assert len(source.calls) == 1
+
+
+def test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit(tmp_path):
+    saved_runtime, single, source, _service_obj = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("0.00", 100)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        save_prompt = saved_runtime.handle_callback(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("Review typed expenses", user_id="user-1")
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Review typed expenses · v1"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        date_prompt = saved_runtime.handle_text(
+            "01.08.2026 - 31.08.2026", user_id="user-1",
+        )
+        quantity_prompt = saved_runtime.handle_text("10", user_id="user-1")
+        expense_prompt = saved_runtime.handle_text("1", user_id="user-1")
+        preview = saved_runtime.handle_text("Реклама; CPC; 100", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    result = preview["sales_mix_result"]
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert date_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert quantity_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert expense_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["profit_rub"] == "2460.00"
+    assert result["profit"] == "1960.00"
+    assert result["fixed_expenses"] == [{
+        "name": "CPC", "amount": "100.00", "category": "ADVERTISING",
+    }]
+    assert result["pre_ad_margin"]["expense_scope"][
+        "fixed_planning_advertising_expenses_rub"
+    ] == "100.00"
+    assert "Расход за период · CPC: 100.00 ₽ (реклама)." in preview["message"]
+    assert len(source.calls) == 1

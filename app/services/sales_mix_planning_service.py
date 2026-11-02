@@ -276,14 +276,30 @@ class SalesMixPlanningService:
             canonical_rows.append(row_result)
 
         fixed_expenses = self._validated_expenses(expenses)
-        expense_total = sum((amount for _name, amount in fixed_expenses), Decimal("0.00"))
+        expense_total = sum(
+            (amount for _name, amount, _category in fixed_expenses), Decimal("0.00"),
+        )
+        fixed_non_ad_expense_total = sum(
+            (amount for _name, amount, category in fixed_expenses if category == "OTHER"),
+            Decimal("0.00"),
+        )
+        fixed_advertising_expense_total = sum(
+            (amount for _name, amount, category in fixed_expenses if category == "ADVERTISING"),
+            Decimal("0.00"),
+        )
+        fixed_unclassified_expense_total = sum(
+            (amount for _name, amount, category in fixed_expenses if category == "UNCLASSIFIED"),
+            Decimal("0.00"),
+        )
         if expense_total > self.MAX_FIXED_EXPENSE_TOTAL:
             return self._error("FIXED_EXPENSE_TOTAL_LIMIT_EXCEEDED")
-        if expense_total:
-            pre_ad_known_expenses["FIXED_PLANNING_EXPENSES"] = expense_total
+        if fixed_non_ad_expense_total:
+            pre_ad_known_expenses["FIXED_PLANNING_EXPENSES"] = fixed_non_ad_expense_total
             pre_ad_included_expense_keys.add("FIXED_PLANNING_EXPENSES")
+        if fixed_unclassified_expense_total:
+            pre_ad_unknown_expense_keys.add("UNCLASSIFIED_FIXED_PLANNING_EXPENSES")
         pre_tax_subtotal = totals["profit_before_tax"] - expense_total
-        pre_ad_pre_tax_subtotal = pre_ad_profit_before_tax_total - expense_total
+        pre_ad_pre_tax_subtotal = pre_ad_profit_before_tax_total - fixed_non_ad_expense_total
         if abs(pre_tax_subtotal) > self.MAX_AGGREGATE_AMOUNT:
             return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
         if abs(pre_ad_pre_tax_subtotal) > self.MAX_AGGREGATE_AMOUNT:
@@ -442,8 +458,8 @@ class SalesMixPlanningService:
             **({"cross_docking_status": "CONFIRMED" if cross_docking_complete else "PARTIAL_OR_UNAVAILABLE"}
                if include_cross_docking else {}),
             "fixed_expenses": [
-                {"name": name, "amount": self._money(amount)}
-                for name, amount in fixed_expenses
+                {"name": name, "amount": self._money(amount), "category": category}
+                for name, amount, category in fixed_expenses
             ],
             "fixed_expense_total": self._money(expense_total),
             "profit_before_tax_after_fixed_expenses": (
@@ -477,7 +493,10 @@ class SalesMixPlanningService:
                     "unknown_non_ad_expense_keys": sorted(pre_ad_unknown_expense_keys),
                     "excluded_expense_keys": sorted(pre_ad_excluded_expense_reasons),
                     "excluded_expense_reasons": pre_ad_excluded_expense_reasons,
-                    "fixed_planning_expenses_rub": self._money(expense_total),
+                    "fixed_planning_expenses_rub": self._money(fixed_non_ad_expense_total),
+                    "fixed_planning_advertising_expenses_rub": self._money(
+                        fixed_advertising_expense_total
+                    ),
                 },
                 "reason": pre_ad_reason,
             },
@@ -524,9 +543,17 @@ class SalesMixPlanningService:
         try:
             expense_total = Decimal("0")
             for expense in expenses:
-                if not isinstance(expense, dict) or set(expense) != {"name", "amount"}:
+                if not isinstance(expense, dict):
+                    return "INVALID_FIXED_EXPENSES"
+                if set(expense) not in (
+                    {"name", "amount"},
+                    {"name", "amount", "category"},
+                ):
                     return "INVALID_FIXED_EXPENSES"
                 if not isinstance(expense["name"], str) or not expense["name"].strip() or len(expense["name"]) > 80:
+                    return "INVALID_FIXED_EXPENSES"
+                category = expense.get("category", "UNCLASSIFIED")
+                if category not in {"OTHER", "ADVERTISING", "UNCLASSIFIED"}:
                     return "INVALID_FIXED_EXPENSES"
                 amount = self._decimal(expense["amount"])
                 if amount is None or amount < 0 or amount > self.MAX_AMOUNT:
@@ -540,7 +567,11 @@ class SalesMixPlanningService:
 
     def _validated_expenses(self, expenses):
         return [
-            (" ".join(expense["name"].split()), self._decimal(expense["amount"]).quantize(Decimal("0.01")))
+            (
+                " ".join(expense["name"].split()),
+                self._decimal(expense["amount"]).quantize(Decimal("0.01")),
+                expense.get("category", "UNCLASSIFIED"),
+            )
             for expense in expenses
         ]
 
