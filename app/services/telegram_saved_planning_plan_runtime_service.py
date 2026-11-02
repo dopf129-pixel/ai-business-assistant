@@ -25,6 +25,11 @@ class TelegramSavedPlanningPlanRuntimeService:
     MAX_ACTIONS = 512
     PAGE_SIZE = 10
     COMPARISON_PAGE_SIZE = 8
+    COMPARISON_EXPENSE_CATEGORY_LABELS = {
+        "ADVERTISING": "реклама",
+        "OTHER": "прочее",
+        "UNCLASSIFIED": "не указана",
+    }
 
     def __init__(self, planning_service, single_runtime, batch_runtime,
                  keyboard_service, clock=None, sales_mix_planning_service=None,
@@ -1694,7 +1699,8 @@ class TelegramSavedPlanningPlanRuntimeService:
                     f"{source_summary(source_before)} → {source_summary(source_after)}"
                 )
         expense_changes = [
-            f"• Расход «{str(change.get('name') or 'Без названия')[:60]}»: "
+            f"• Расход «{str(change.get('name') or 'Без названия')[:60]}» · "
+            f"категория «{self.COMPARISON_EXPENSE_CATEGORY_LABELS.get(change.get('category'), 'не указана')}»: "
             f"{change.get('before', '0.00')} → {change.get('after', '0.00')} ₽ "
             f"(изменение {change.get('delta', '—')} ₽)."
             for change in comparison.get("expense_changes") or []
