@@ -915,6 +915,13 @@ class UnitPriceScenarioService:
         for key, status in extended["excluded_component_statuses"].items():
             scope_key = self._SCOPE_COMPONENT_CATEGORIES.get(key)
             if scope_key is None:
+                # This status describes the extended source pool. It must not
+                # override a same-named base amount already supplied by the
+                # canonical unit-economics model.
+                if key in known_expenses:
+                    unknown_expense_keys.discard(key)
+                    excluded_expense_reasons.pop(key, None)
+                    continue
                 if status == "UNKNOWN":
                     unknown_expense_keys.add(key)
                 else:

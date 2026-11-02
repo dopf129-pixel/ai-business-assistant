@@ -431,6 +431,31 @@ def test_explicitly_excluded_storage_is_not_mislabeled_as_zero_or_unknown():
     assert "STORAGE" not in scope["unknown_non_ad_expense_keys"]
 
 
+def test_extended_base_expense_status_does_not_override_known_base_expense():
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+    service = UnitPriceScenarioService(TaxService())
+
+    for status in ("EXCLUDED", "UNKNOWN"):
+        contract = _additional_expense_contract()
+        contract["excluded_component_statuses"] = {"LOGISTICS": status}
+
+        calculated = service.calculate(inputs, extended_scenario=contract)
+        components_only = service.calculate_components_only(
+            inputs, extended_scenario=contract,
+        )
+
+        scopes = (
+            calculated["pre_ad_margin"]["expense_scope"],
+            components_only["pre_ad_expense_scope"],
+        )
+        for scope in scopes:
+            assert scope["known_non_ad_expenses_rub"]["LOGISTICS"] == 10.0
+            assert "LOGISTICS" in scope["included_expense_keys"]
+            assert "LOGISTICS" not in scope["unknown_non_ad_expense_keys"]
+            assert "LOGISTICS" not in scope["excluded_expense_keys"]
+
+
 def test_zero_price_has_no_pre_ad_profit_percentage_instead_of_fabricated_zero():
     inputs = _inputs(price="0")
     inputs.pop("advertising_rate")

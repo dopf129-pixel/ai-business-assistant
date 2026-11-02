@@ -390,6 +390,27 @@ def test_mixed_storage_inclusion_and_exclusion_is_partial_not_globally_excluded(
     assert "STORAGE" not in scope["excluded_expense_reasons"]
 
 
+def test_sales_mix_keeps_known_base_logistics_when_extended_source_excludes_it():
+    service, _tax = _service()
+    item = _item("SKU-LOGISTICS", _sample_inputs())
+    item["extended_scenario"] = _extended_expense_contract("a", "0.00")
+    item["extended_scenario"]["excluded_component_statuses"] = {
+        "LOGISTICS": "EXCLUDED",
+    }
+
+    result = service.calculate(
+        [item], quantities={"SKU-LOGISTICS": 10},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["error"] is False
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert scope["known_non_ad_expenses_rub"]["LOGISTICS"] == "250.00"
+    assert "LOGISTICS" in scope["included_expense_keys"]
+    assert "LOGISTICS" not in scope["unknown_non_ad_expense_keys"]
+    assert "LOGISTICS" not in scope["excluded_expense_keys"]
+
+
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():
     service, tax = _service()
     inputs = _sample_inputs(cross_docking_per_unit="12.00")

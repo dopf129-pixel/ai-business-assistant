@@ -1,3 +1,9 @@
+# PR #724 — конфликт статусов дополнительного и базового расходов (2026-11-02)
+
+- `tests/test_pre_ad_margin_projection.py::test_extended_base_expense_status_does_not_override_known_base_expense` проверяет `EXCLUDED` и `UNKNOWN` для LOGISTICS одновременно в `calculate` и `calculate_components_only`: известная сумма остаётся включённой и не получает вторую противоречивую метку.
+- `tests/test_sales_mix_planning_service.py::test_sales_mix_keeps_known_base_logistics_when_extended_source_excludes_it` проверяет сохранение известной логистики после умножения на количество SKU.
+- Новые регрессии до изменения воспроизводили ошибку; после исправления проходят. Связанный профиль девяти модулей: **165 passed in 4.30s**; полный Windows pytest: **4,424 passed in 47.82s**.
+
 # PR #724 — максимальный derived expense scope в сохранённых планах
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts` проверяет публичную генерацию frozen capture, сохранение в изолированную SQLite-репозиторию и повторное чтение при 60/64 дополнительных компонентах и 64 исключённых типах. Также закреплён предел 72 derived keys.
