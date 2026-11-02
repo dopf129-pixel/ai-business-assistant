@@ -5,7 +5,7 @@
 - Review нашёл, что новый UI добавлял поле `category` к расходам, но `PlanningWorkspaceRepository._valid_sales_mix` отклонял такие записи как неизвестную схему. Preview считался, однако кнопка подтверждения не создавала revision.
 - Validator теперь поддерживает категории `ADVERTISING`, `OTHER`, `UNCLASSIFIED` с точной проверкой типа и allowlist. Старые записи `{name, amount}` продолжают читаться без миграции; произвольные ключи/категории отвергаются.
 - Добавлена regression публичного ввода → confirm → revision 2 → repository reopen → recalculate → JSON export, плюс проверки неверных категорий и round-trip старого формата.
-- До исправления две новые проверки падали; после — linked **97 passed in 3.38s**, полный Windows suite **4,430 passed in 46.42s**. `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. `python -m compileall -q app tests` и `git diff --check` прошли; exact-head CI ещё предстоит.
+- До исправления две новые проверки падали; после — linked **97 passed in 3.38s**, полный Windows suite **4,430 passed in 46.42s**. `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. `python -m compileall -q app tests` и `git diff --check` прошли. Code SHA `f7a0207129746278365365a8f28a9dcf909e1fd6` прошёл exact-head run `41442747525`: Windows/Linux по **4,430 passed**, Docker build/smoke PASS; artifact `13139189114`, digest `sha256:d27d89f22acb2a56df735541e7662a4656c466e9a903cae95ebe24e5c6a864a5`.
 - PR #724 остаётся открытым; слияния и развёртывания нет.
 
 ## Remediation — два P2 из follow-up review (2026-11-02)

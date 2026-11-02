@@ -2,7 +2,7 @@
 
 - Валидатор сохранённого sales mix теперь принимает только разрешённые поля категории `ADVERTISING`, `OTHER`, `UNCLASSIFIED` и сохраняет их в frozen revision; прежние записи `{name, amount}` остаются читаемыми.
 - Регрессия проходит публичный путь ввода «Реклама; CPC; 100» → подтверждение → повторное чтение ревизии → перерасчёт и JSON-выгрузку. Неизвестные категории отклоняются.
-- Связанный профиль: **97 passed in 3.38s**; полный Windows pytest: **4,430 passed in 46.42s**. Данные после тестов восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует. Exact-head CI для новой головы ещё ожидается.
+- Связанный профиль: **97 passed in 3.38s**; полный Windows pytest: **4,430 passed in 46.42s**. Данные после тестов восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует. Code SHA `f7a0207129746278365365a8f28a9dcf909e1fd6` прошёл exact-head run `41442747525`: Windows/Linux по **4,430 passed**, Docker build/smoke PASS; artifact `13139189114`, digest `sha256:d27d89f22acb2a56df735541e7662a4656c466e9a903cae95ebe24e5c6a864a5`.
 
 # 2026-11-02 — PR #724: исправлены два новых P2 review замечания
 
