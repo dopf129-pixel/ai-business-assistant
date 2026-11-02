@@ -2,7 +2,7 @@
 
 - В sales mix введена явная категория дополнительных расходов. Категория «Реклама» вычитается из after-ad итога, но не из pre-ad; «Прочее» учитывается и в pre-ad; старые вводы без категории сохраняют after-ad поведение и делают pre-ad расходную полноту частичной.
 - Результат сравнения цен разбит на страницы по 4 варианта; кнопки выбора ограничены видимыми строками. Для сетки цен оставлено прежнее отображение 10 точек на страницу.
-- Добавлены service-level и Telegram end-to-end регрессии. Связанные модули: **349 passed in 8.53s**; полный локальный Windows suite: **4,429 passed in 44.13s**; `compileall` и `git diff --check` PASS. Тестовые побочные изменения `data/tasks.json` восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. Проверка GitHub на обновлённый SHA ещё ожидается.
+- Добавлены service-level и Telegram end-to-end регрессии. Связанные модули: **349 passed in 8.53s**; полный локальный Windows suite: **4,429 passed in 44.13s**; `compileall` и `git diff --check` PASS. Тестовые побочные изменения `data/tasks.json` восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. Кодовый SHA `b393c1765b26294293c9c22a87b1657260027ce5` прошёл run `41437642412`: Windows/Linux по **4,429 passed**, Docker build и smoke PASS; artifact `13137521134`, digest `sha256:f7903c823ac8861d4452e96646ec291ebdb75f2ac6600a3bfc59d3ae8ae0340d`.
 
 # 2026-11-02 — PR #724: исправлены два P2 замечания review
 
