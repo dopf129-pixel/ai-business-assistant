@@ -422,7 +422,11 @@ def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp
     try:
         current = _select_single(single)
         scenario_id = current["price_scenario"]["scenario_id"]
-        single._scenarios[scenario_id]["extended_scenario"] = _strict_extended_contract()
+        strict_contract = _strict_extended_contract()
+        strict_contract["excluded_component_statuses"] = {
+            "RETURNS_AND_CANCELLATIONS": "EXCLUDED",
+        }
+        single._scenarios[scenario_id]["extended_scenario"] = strict_contract
         single._scenarios[scenario_id]["strict_return_evidence"] = _strict_return_evidence()
         capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
         assert capture["error"] is False
@@ -430,6 +434,11 @@ def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp
         assert saved["error"] is False
         stored = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
         assert stored["strict_return_evidence"]["strict_retained_cohort_loss"]["loss_per_retained_unit_rub"] == "3.50"
+        stored_scope = stored["projection"]["pre_ad_margin"]["expense_scope"]
+        assert float(stored_scope["known_non_ad_expenses_rub"]["RETURN_LOSS_STRICT_COHORT"]) == 3.5
+        assert "RETURNS_AND_CANCELLATIONS" in stored_scope["included_expense_keys"]
+        assert "RETURNS_AND_CANCELLATIONS" not in stored_scope["excluded_expense_keys"]
+        assert "RETURNS_AND_CANCELLATIONS" not in stored_scope["unknown_non_ad_expense_keys"]
         assert "private-return-id" not in repr(stored)
         assert "private-supply-id" not in repr(stored)
         assert "raw_response" not in repr(stored)
@@ -447,6 +456,20 @@ def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp
         assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
         assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
         assert reopened["price_scenario"]["calculated"]["additional_unit_expenses"] == 3.5
+        reopened_scope = reopened["price_scenario"]["pre_ad_margin"]["expense_scope"]
+        assert {
+            key: Decimal(str(value))
+            for key, value in reopened_scope["known_non_ad_expenses_rub"].items()
+        } == {
+            key: Decimal(str(value))
+            for key, value in stored_scope["known_non_ad_expenses_rub"].items()
+        }
+        for field in (
+            "included_expense_keys", "confirmed_zero_expense_keys",
+            "unknown_non_ad_expense_keys", "excluded_expense_keys",
+            "excluded_expense_reasons", "status",
+        ):
+            assert reopened_scope[field] == stored_scope[field]
         assert len(source.calls) == 1
     finally:
         reset_current_tenant_user_id(tenant)

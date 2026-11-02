@@ -900,6 +900,45 @@ def test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_
     assert len(tariff.calls) == 1
 
 
+def test_price_comparison_keeps_pre_ad_projection_when_advertising_is_unknown():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        card = _select_catalog_product(runtime)
+        prompt = runtime.handle_callback(
+            _find_button(card, "Сравнить цены")["callback"], user_id="user-1",
+        )
+        result = runtime.handle_text("500; 550", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    rows = result["price_planning_result"]["rows"]
+    assert prompt["stage"] == "price_options"
+    assert [row["status"] for row in rows] == ["MISSING_INPUTS", "MISSING_INPUTS"]
+    assert [row["missing_inputs"] for row in rows] == [
+        ["advertising_rate"], ["advertising_rate"],
+    ]
+    assert [row["pre_ad_margin"]["profit_per_unit_rub"] for row in rows] == [
+        226.0, 266.1,
+    ]
+    assert [row["pre_ad_margin"]["margin_percent"] for row in rows] == [
+        45.2, 48.38,
+    ]
+    assert all(row["after_ad"]["status"] == "UNAVAILABLE" for row in rows)
+    assert all(row["profit"] is None and row["goal_reached"] is None for row in rows)
+    assert result["price_planning_result"]["best_prices"] == []
+    assert result["price_planning_result"]["ranking_status"] == "NO_AVAILABLE_CANDIDATES"
+    assert "База 500,00 ₽: до рекламы 226,00 ₽/шт." in result["message"]
+    assert "после рекламы не рассчитана; заполните Реклама; комиссия 15,00%" in result["message"]
+    assert "до рекламы 226,00 ₽/шт." in result["message"]
+    assert "до рекламы 266,10 ₽/шт." in result["message"]
+    assert "прибыль после рекламы не рассчитана; заполните Реклама" in result["message"]
+    assert "максимум" not in result["message"].lower()
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert len(tariff.calls) == 1
+
+
 def test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising():
     runtime, source = _runtime()
     token = _activate()

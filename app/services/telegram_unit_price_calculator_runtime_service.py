@@ -1905,10 +1905,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 baseline_line += self._money(baseline.get("profit")) + "/шт."
                 lines.append(baseline_line)
             elif baseline:
-                lines.append(
-                    "База " + self._money(baseline.get("price"))
-                    + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
-                )
+                baseline_pre_ad = baseline.get("pre_ad_margin") or {}
+                if baseline_pre_ad.get("status") == "AVAILABLE":
+                    baseline_line = (
+                        "База " + self._money(baseline.get("price")) + ": до рекламы "
+                        + self._money(baseline_pre_ad.get("profit_per_unit_rub"))
+                        + "/шт. ("
+                        + self._percent(baseline_pre_ad.get("margin_percent"))
+                        + "); прибыль после рекламы не рассчитана"
+                    )
+                    missing = self._price_planning_missing_labels(baseline)
+                    if missing:
+                        baseline_line += "; заполните " + ", ".join(missing)
+                    if baseline.get("commission_rate") is not None:
+                        baseline_line += "; комиссия " + self._percent(
+                            baseline.get("commission_rate")
+                        )
+                    lines.append(baseline_line + ".")
+                else:
+                    lines.append(
+                        "База " + self._money(baseline.get("price"))
+                        + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
+                    )
             advertising_basis = result.get("advertising_basis") or {}
             if is_grid:
                 grid = result.get("price_grid") or {}
@@ -1991,6 +2009,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         "Прибыли отдельных вариантов рассчитаны, но налоговые или расчётные "
                         "основания различаются; общий максимум не выбран."
                     )
+                elif any(
+                    (row.get("pre_ad_margin") or {}).get("status") == "AVAILABLE"
+                    for row in visible_rows
+                ):
+                    lines.append(
+                        "Прибыль после рекламы не рассчитана; варианты не ранжированы."
+                    )
                 else:
                     lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
             for index, row in enumerate(visible_rows, start=first_row + 1):
@@ -2007,6 +2032,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     missing = self._price_planning_missing_labels(
                         row.get("forward_result") or row
                     )
+                    pre_ad = row.get("pre_ad_margin") or {}
+                    if pre_ad.get("status") == "AVAILABLE":
+                        line = (
+                            f"{index}. {self._money(row.get('price'))}: до рекламы "
+                            f"{self._money(pre_ad.get('profit_per_unit_rub'))}/шт. "
+                            f"({self._percent(pre_ad.get('margin_percent'))})"
+                        )
+                        if pre_ad.get("expense_scope_status") == "PARTIAL":
+                            line += "; учтены не все расходы"
+                        line += "; прибыль после рекламы не рассчитана"
+                        if missing:
+                            line += "; заполните " + ", ".join(missing)
+                        if row.get("commission_rate") is not None:
+                            line += "; комиссия " + self._percent(row.get("commission_rate"))
+                        lines.append(line + ".")
+                        continue
                     detail = "расчёт недоступен"
                     if missing:
                         detail += "; заполните " + ", ".join(missing)

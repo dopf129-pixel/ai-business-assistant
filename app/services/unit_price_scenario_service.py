@@ -930,6 +930,19 @@ class UnitPriceScenarioService:
                         "EXPLICITLY_EXCLUDED_BY_SOURCE_SCOPE"
                     )
                 continue
+            if (
+                scope_key == "RETURNS_AND_CANCELLATIONS"
+                and status == "EXCLUDED"
+                and isinstance(extended.get("strict_loss_details"), dict)
+                and "RETURN_LOSS_STRICT_COHORT" in known_expenses
+                and "INCLUDED" not in category_states.get(scope_key, set())
+            ):
+                # The validated strict cohort is independently included in
+                # known_expenses. An exclusion from the generic extended pool
+                # must not label that same strict loss as excluded. If another
+                # mapped component includes the category too, retain the
+                # conflict below as partial coverage instead of hiding it.
+                continue
             category_states.setdefault(scope_key, set()).add(status)
 
         for scope_key, states in category_states.items():

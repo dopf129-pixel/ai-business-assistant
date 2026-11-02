@@ -765,9 +765,12 @@ class UnitPriceTargetPlanningService:
             status = self._forward_status(forward)
             available = status == "CALCULATED"
             calculated = (forward or {}).get("calculated") or {}
+            # The canonical forward result keeps an independent no-ad
+            # projection even when after-ad profit is unavailable, for example
+            # because the advertising assumption is missing.
             pre_ad_margin = self._compact_pre_ad_margin(
                 (forward or {}).get("pre_ad_margin")
-            ) if available else None
+            )
             row_ranking_basis = self._comparison_ranking_basis(
                 candidate_inputs, normalized_advertising_mode,
             )
@@ -859,6 +862,7 @@ class UnitPriceTargetPlanningService:
                 "commission_status": baseline_row.get("commission_status"),
                 "advertising_rate": baseline_row.get("advertising_rate"),
                 "advertising_per_unit": baseline_row.get("advertising_per_unit"),
+                "missing_inputs": list(baseline_row.get("missing_inputs") or []),
                 "pre_ad_margin": deepcopy(baseline_row.get("pre_ad_margin")),
                 "after_ad": deepcopy(baseline_row.get("after_ad")),
                 "ranking_basis": deepcopy(baseline_row.get("ranking_basis")),

@@ -54,6 +54,73 @@ def _additional_expense_contract():
     }
 
 
+def _strict_return_contract():
+    contract = _additional_expense_contract()
+    contract.update({
+        "calculation_mode": "STRICT_RETAINED_COHORT",
+        "numerator_and_denominator_basis": {
+            "numerator": "STRICT_COHORT_LOSS_RUB",
+            "denominator": "RETAINED_UNITS_EXACT_COHORT",
+        },
+        "included_component_keys": [],
+        "excluded_component_statuses": {"RETURNS_AND_CANCELLATIONS": "EXCLUDED"},
+        "scope": {
+            "scope_kind": "EXPERIMENT_PHASE_WINDOW",
+            "from_date": "2026-10-01",
+            "to_date": "2026-10-07",
+            "date_basis": "LOCAL_CALENDAR_DAY",
+            "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 100,
+        "components": [],
+    })
+    return contract
+
+
+def _strict_return_evidence():
+    return {
+        "error": False,
+        "status": "COMPLETE",
+        "identity": {
+            "owner_id": "owner-1",
+            "store_id": "store-1",
+            "product_id": "product-1",
+            "offer_id": "offer-1",
+            "sku": "sku-1",
+            "sale_schema": "FBO",
+        },
+        "fees": {
+            "status": "COMPLETE",
+            "cohort_matches": True,
+            "additional_exact_cohort_rub": "300.00",
+        },
+        "quantity": {
+            "status": "COMPLETE",
+            "cohort_matches": True,
+            "delivered_units": 110,
+            "confirmed_returned_units_from_deliveries": 10,
+            "retained_units": 100,
+        },
+        "inventory": {
+            "status": "COMPLETE",
+            "disposition_units": 10,
+            "inventory_loss_cogs_rub": "60.00",
+            "compensation_deduction_rub": "10.00",
+        },
+        "strict_retained_cohort_loss": {
+            "status": "AVAILABLE",
+            "model_scope": "STRICT_RETAINED_COHORT",
+            "denominator_kind": "RETAINED_UNITS_EXACT_COHORT",
+            "denominator_units": 100,
+            "fee_loss_pool_rub": "300.00",
+            "loss_pool_rub": "350.00",
+            "loss_per_retained_unit_rub": "3.50",
+        },
+        "read_only": True,
+        "executed": False,
+    }
+
+
 class _TaxSpy:
     SUPPORTED_MODES = TaxService.SUPPORTED_MODES
 
@@ -454,6 +521,66 @@ def test_extended_base_expense_status_does_not_override_known_base_expense():
             assert "LOGISTICS" in scope["included_expense_keys"]
             assert "LOGISTICS" not in scope["unknown_non_ad_expense_keys"]
             assert "LOGISTICS" not in scope["excluded_expense_keys"]
+
+
+def test_strict_return_loss_is_not_simultaneously_included_and_excluded():
+    inputs = _inputs()
+    inputs.pop("advertising_rate")
+    identity = {
+        "owner_id": "owner-1",
+        "store_id": "store-1",
+        "product_id": "product-1",
+        "offer_id": "offer-1",
+        "sku": "sku-1",
+        "sale_schema": "FBO",
+    }
+    service = UnitPriceScenarioService(TaxService())
+    contract = _strict_return_contract()
+    evidence = _strict_return_evidence()
+
+    calculated = service.calculate(
+        inputs, identity=identity, extended_scenario=contract,
+        strict_return_evidence=evidence,
+    )
+    components_only = service.calculate_components_only(
+        inputs, identity=identity, extended_scenario=contract,
+        strict_return_evidence=evidence,
+    )
+
+    for scope in (
+        calculated["pre_ad_margin"]["expense_scope"],
+        components_only["pre_ad_expense_scope"],
+    ):
+        assert scope["known_non_ad_expenses_rub"]["RETURN_LOSS_STRICT_COHORT"] == 3.5
+        assert "RETURNS_AND_CANCELLATIONS" in scope["included_expense_keys"]
+        assert "RETURNS_AND_CANCELLATIONS" not in scope["excluded_expense_keys"]
+        assert "RETURNS_AND_CANCELLATIONS" not in scope["unknown_non_ad_expense_keys"]
+
+    # An explicit exclusion that conflicts with a mapped included component is
+    # still partial evidence, even when the strict cohort amount is known.
+    mixed_contract = dict(contract)
+    mixed_contract["components"] = [{
+        "component_key": "RETURNS_AND_CANCELLATIONS",
+        "numerator_rub": "10.00",
+        "ownership": "ADDITIONAL",
+    }]
+    mixed = service.calculate(
+        inputs, identity=identity, extended_scenario=mixed_contract,
+        strict_return_evidence=evidence,
+    )["pre_ad_margin"]["expense_scope"]
+    assert "RETURNS_AND_CANCELLATIONS" in mixed["unknown_non_ad_expense_keys"]
+    assert "RETURNS_AND_CANCELLATIONS" not in mixed["excluded_expense_keys"]
+
+    unknown_contract = dict(contract)
+    unknown_contract["excluded_component_statuses"] = {
+        "RETURNS_AND_CANCELLATIONS": "UNKNOWN",
+    }
+    unknown = service.calculate(
+        inputs, identity=identity, extended_scenario=unknown_contract,
+        strict_return_evidence=evidence,
+    )["pre_ad_margin"]["expense_scope"]
+    assert "RETURNS_AND_CANCELLATIONS" in unknown["unknown_non_ad_expense_keys"]
+    assert "RETURNS_AND_CANCELLATIONS" not in unknown["excluded_expense_keys"]
 
 
 def test_zero_price_has_no_pre_ad_profit_percentage_instead_of_fabricated_zero():

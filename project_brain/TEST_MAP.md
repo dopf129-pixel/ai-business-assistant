@@ -1,3 +1,10 @@
+# PR #724 — независимая before-ad проекция и строгая потеря возвратов (2026-11-02)
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_comparison_keeps_pre_ad_projection_when_advertising_is_unknown` проходит публичный путь Telegram при подтверждённой комиссии и неизвестной рекламе: baseline и обе цены показывают маржу до рекламы, after-ad остаётся недоступной, лучший вариант не выбирается, комиссия отображается подтверждённой.
+- `tests/test_pre_ad_margin_projection.py::test_strict_return_loss_is_not_simultaneously_included_and_excluded` проверяет обычный и components-only расчёты; отдельный mapped-включённый компонент сохраняет partial/unknown при строгой когорте.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss` проверяет scope после frozen save/reopen и отсутствие противоречивых included/excluded меток.
+- Связанный профиль 12 модулей: **304 passed in 6.29s**; полный Windows pytest: **4,426 passed in 46.21s**. `compileall app tests` и `git diff --check` PASS. Тестовое изменение `data/tasks.json` восстановлено к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
+
 # PR #724 — конфликт статусов дополнительного и базового расходов (2026-11-02)
 
 - `tests/test_pre_ad_margin_projection.py::test_extended_base_expense_status_does_not_override_known_base_expense` проверяет `EXCLUDED` и `UNKNOWN` для LOGISTICS одновременно в `calculate` и `calculate_components_only`: известная сумма остаётся включённой и не получает вторую противоречивую метку.
