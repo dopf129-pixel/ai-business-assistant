@@ -2,7 +2,7 @@
 
 - Сравнение сохранённых планов агрегирует расходы по паре «название + категория». Перенос одинаковой суммы между `OTHER` и `ADVERTISING` отражается двумя направленными строками; Telegram показывает русское название категории, JSON/CSV сохраняют её в `expense_changes`.
 - Расходы старых планов без категории трактуются как `UNCLASSIFIED`, чтобы прежние frozen-снимки сохраняли прежний смысл.
-- До публикации прошли связанный профиль из пяти модулей **98 passed in 3.42s** и полный Windows pytest **4,431 passed in 45.75s**. Тестовые побочные изменения восстановлены: `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Текущий code/docs head ожидает exact-head CI.
+- Связанный профиль из пяти модулей: **98 passed in 3.42s**; полный локальный Windows pytest: **4,431 passed in 45.75s**. Exact-head Verify run `41448897286` на code SHA `cc7c6e7cbf6c36bc025a2f400e6c65bc10c523d3` прошёл: Windows/Linux по **4,431 passed**, Docker build/smoke PASS; artifact `13143113848`, digest `sha256:16956bbb86da648049eacefd4c718bc72382cb27dd4e9dd8bd71dfd69807922b`. Тестовые побочные изменения восстановлены: `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Новый документальный commit требует exact-head CI.
 
 # 2026-11-02 — PR #724: исправлено сохранение категорий периодных расходов
 
