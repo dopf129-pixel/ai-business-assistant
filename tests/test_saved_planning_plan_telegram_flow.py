@@ -2609,3 +2609,111 @@ def test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit(tmp_p
     ] == "100.00"
     assert "Расход за период · CPC: 100.00 ₽ (реклама)." in preview["message"]
     assert len(source.calls) == 1
+
+
+def test_large_sales_mix_preview_keeps_summary_and_all_details_accessible(tmp_path):
+    keyboard = AssistantKeyboardService()
+    scenario = UnitPriceScenarioService(TaxService())
+    overview_items = [{
+        "identity": {
+            "product_id": f"product-{index}",
+            "offer_id": f"offer-{index}",
+            "catalog_sku": f"sku-{index}",
+        },
+    } for index in range(1, 11)]
+
+    class TenProductOverview:
+        def get_price_plan_selection(self):
+            return {"error": False, "items": deepcopy(overview_items)}
+
+    class LongNameBatchBuilder(_BatchBuilder):
+        def build(self, *args, **kwargs):
+            result = super().build(*args, **kwargs)
+            for index, row in enumerate(result["rows"], start=1):
+                row["snapshot"]["product"]["name"] = (
+                    f"Крючки самоклеящиеся усиленные универсальные для кухни и ванной "
+                    f"с комплектом креплений номер {index:02d}"
+                )
+            return result
+
+    batch_builder = LongNameBatchBuilder(scenario)
+    batch_builder.cross_docking_by_sku = {
+        f"sku-{index}": _confirmed_cross_docking_source("0.00")
+        for index in range(1, 11)
+    }
+    batch = TelegramUnitPriceBatchPlanRuntimeService(
+        batch_plan_service=batch_builder,
+        product_overview_service=TenProductOverview(),
+        keyboard_service=keyboard,
+    )
+    source = _Source()
+    single = TelegramUnitPriceCalculatorRuntimeService(
+        source=source, scenario_service=scenario, keyboard_service=keyboard,
+        target_planning_service=UnitPriceTargetPlanningService(scenario),
+    )
+    plan_service = SavedPlanningPlanService(
+        PlanningWorkspaceRepository(db_path=tmp_path / "plans.sqlite"), scenario,
+    )
+    saved_runtime = TelegramSavedPlanningPlanRuntimeService(
+        plan_service, single, batch, keyboard,
+        sales_mix_planning_service=SalesMixPlanningService(scenario, scenario.tax_service),
+    )
+    tenant = _activate()
+    try:
+        batch.begin_from_overview_selection("user-1")
+        batch_result = batch.handle_text("25", user_id="user-1")
+        title_prompt = saved_runtime.handle_callback(
+            _button(batch_result, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("Длинный план десяти SKU", user_id="user-1")
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Длинный план десяти SKU · v1"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        current = saved_runtime.handle_text("01.08.2026 - 31.08.2026", user_id="user-1")
+        for _ in range(10):
+            current = saved_runtime.handle_text("10", user_id="user-1")
+        current = saved_runtime.handle_text("20", user_id="user-1")
+        for index in range(1, 21):
+            expense_name = (
+                f"Услуга маркетплейса с подробным описанием вида "
+                f"{index:02d} за расчётный период"
+            )
+            current = saved_runtime.handle_text(
+                f"Прочее; {expense_name}; 10", user_id="user-1",
+            )
+        preview = current
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    from telegram_app_layer.telegram_progress_feedback import split_telegram_text
+
+    message = preview["message"]
+    chunks = split_telegram_text(message)
+    assert title_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert len(message) > 3800
+    assert len(chunks) > 1
+    assert "Прибыль до рекламы после налога:" in chunks[0]
+    assert "Не учтены неизвестные суммы:" in chunks[0]
+    assert "итоговая прибыль:" in chunks[0]
+    assert "Не учтены неизвестные суммы:" in message
+    assert "итоговая прибыль:" in message
+    assert any(
+        button["text"] == "Подтвердить и сохранить ревизию"
+        for button in preview["keyboard"]["buttons"]
+    )
+    assert "Услуга маркетплейса с подробным описанием вида 01 за расчётный период" in message
+    assert "Услуга маркетплейса с подробным описанием вида 20 за расчётный период" in message
+    assert "Крючки самоклеящиеся усиленные универсальные" in message
+    assert "расчётный период: 10.00 ₽ (прочее)." in chunks[-1]
+    assert all(
+        sum(2 if ord(character) > 0xFFFF else 1 for character in chunk) <= 3800
+        for chunk in chunks
+    )
+    assert "".join(chunks) == message

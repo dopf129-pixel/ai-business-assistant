@@ -259,6 +259,26 @@ def test_mix_pre_ad_margin_uses_revenue_weighting_not_mean_of_sku_percentages():
     assert len(tax.calls) == 1
 
 
+def test_mix_margin_percentages_do_not_render_negative_zero():
+    service, _tax = _service()
+    item = _item("SKU-NEAR-ZERO", _sample_inputs(
+        price="1000", cost="940.01", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0", tax_mode="USN_INCOME", tax_rate="6",
+        minimum_tax_rate="1",
+    ))
+
+    result = service.calculate(
+        [item], quantities={"SKU-NEAR-ZERO": 1},
+        period_label="01.08.2026 - 31.08.2026", expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["profit"] == "-0.01"
+    assert result["pre_ad_margin"]["profit_rub"] == "-0.01"
+    assert result["margin_percent"] == "0.00"
+    assert result["pre_ad_margin"]["margin_percent"] == "0.00"
+
+
 def test_mix_keeps_pre_ad_tax_margin_available_with_unknown_advertising_and_exposes_scope():
     service, tax = _service()
     item = _item("SKU-A", _sample_inputs(advertising_rate=None))

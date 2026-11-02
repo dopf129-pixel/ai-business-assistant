@@ -469,7 +469,7 @@ class SalesMixPlanningService:
             "tax": self._money(tax) if tax is not None and all_rows_known and same_policy else None,
             "tax_status": tax_status,
             "profit": self._money(final_profit) if final_profit is not None else None,
-            "margin_percent": self._money(margin) if margin is not None else None,
+            "margin_percent": self._percent(margin) if margin is not None else None,
             "pre_ad_margin": {
                 "schema_version": 1,
                 "status": pre_ad_status,
@@ -481,7 +481,7 @@ class SalesMixPlanningService:
                 "profit_before_tax_rub": self._money(pre_ad_pre_tax_subtotal),
                 "tax_rub": self._money(pre_ad_tax) if pre_ad_tax is not None else None,
                 "profit_rub": self._money(pre_ad_profit) if pre_ad_profit is not None else None,
-                "margin_percent": self._money(pre_ad_margin) if pre_ad_margin is not None else None,
+                "margin_percent": self._percent(pre_ad_margin) if pre_ad_margin is not None else None,
                 "expense_scope": {
                     "status": "PARTIAL" if pre_ad_unknown_expense_keys else "COMPLETE",
                     "known_non_ad_expenses_rub": {
@@ -642,6 +642,11 @@ class SalesMixPlanningService:
     @staticmethod
     def _money(value):
         return format(value.quantize(Decimal("0.01")), ".2f")
+
+    @staticmethod
+    def _percent(value):
+        rounded = value.quantize(Decimal("0.01"))
+        return "0.00" if rounded == 0 else format(rounded, ".2f")
 
     @staticmethod
     def _error(code):

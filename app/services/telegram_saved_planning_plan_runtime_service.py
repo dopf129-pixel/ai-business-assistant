@@ -1161,6 +1161,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 else "Строка: Q × цена → выручка · себестоимость · комиссия · реклама · fees · вклад до налога (₽)."
             ),
         ]
+        detail_lines = ["Детализация по SKU:"]
         for row in result.get("rows", []):
             components = row.get("components") or {}
             advertising = components.get("advertising")
@@ -1183,7 +1184,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 if contribution is not None
                 else "вклад после рекламы не рассчитан."
             )
-            lines.append(row_line)
+            detail_lines.append(row_line)
         components = result.get("components") or {}
         lines.extend([
             f"Выручка: {components.get('revenue')} ₽; баллы: {components.get('discount_points')} ₽.",
@@ -1210,13 +1211,14 @@ class TelegramSavedPlanningPlanRuntimeService:
                     f"Кросс-докинг для плановых продаж: {cross_docking_total} ₽; "
                     "ставка рассчитана по физическим поставкам за сохранённый период."
                 )
+        expense_details = []
         for expense in result.get("fixed_expenses", []):
             category_label = {
                 "ADVERTISING": "реклама",
                 "OTHER": "прочее",
                 "UNCLASSIFIED": "тип не указан; состав маржи до рекламы неполон",
             }.get(expense.get("category"), "тип не указан")
-            lines.append(
+            expense_details.append(
                 f"Расход за период · {expense.get('name')}: "
                 f"{expense.get('amount')} ₽ ({category_label})."
             )
@@ -1231,15 +1233,19 @@ class TelegramSavedPlanningPlanRuntimeService:
             else:
                 lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
             for excluded in result.get("excluded_rows", [])[:10]:
-                lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
+                detail_lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
         self._append_sales_mix_pre_ad_summary(lines, result.get("pre_ad_margin") or {})
         if result.get("coverage_complete") is True:
             self._append_sales_mix_advertising_cap(lines, payload, result)
+        if expense_details:
+            detail_lines.append("Дополнительные расходы:")
+            detail_lines.extend(expense_details)
+        lines.extend(["", *detail_lines])
         buttons = [
             {"text": "Подтвердить и сохранить ревизию", "callback": f"upp:a:{token}"},
             {"text": "Отмена", "callback": "upp:c"},
         ]
-        return self._result("SALES_MIX_PREVIEW", "\n".join(lines)[:3800], self._keyboard(buttons),
+        return self._result("SALES_MIX_PREVIEW", "\n".join(lines), self._keyboard(buttons),
                             sales_mix_result=result, read_only=True, executed=False)
 
     @staticmethod
