@@ -2,7 +2,7 @@
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_large_sales_mix_preview_keeps_summary_and_all_details_accessible` проходит публичное создание/сохранение batch-плана, ввод продаж для 10 SKU и 20 дополнительных расходов. Проверяет, что финансовый итог и warning стоят в первой части, все SKU и расходы доступны в частях до 3 800 UTF-16 units, а результат сохраняет кнопку подтверждения.
 - `tests/test_sales_mix_planning_service.py::test_mix_margin_percentages_do_not_render_negative_zero` фиксирует случай прибыли `-0.01 ₽`: прибыль остаётся отрицательной, а before-ad и after-ad проценты показывают `0.00%` без минуса.
-- Полный Windows pytest: **4,433 passed in 46.77s**; `python -m compileall -q app tests` и `git diff --check` PASS.
+- Полный Windows pytest: **4,433 passed in 46.77s**; `python -m compileall -q app tests` и `git diff --check` PASS. Exact-head Verify `41455445557` для code SHA `2557d68a5a9160d6f6c51d330b35d231cd7dc2b6`: Windows full suite passed (**4,433**), Linux full-verification и Docker build/smoke passed; artifact `13145429548`, digest `sha256:fffbf5ecd5441d75d796b209991c623ea45b3ea7cb51e478473421f15de9eb01`.
 
 # 2026-11-02 — новые регрессии PR #724
 

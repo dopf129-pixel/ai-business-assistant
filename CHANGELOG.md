@@ -2,7 +2,7 @@
 
 - В предпросмотре плана сводная прибыль, налоги и предупреждения теперь стоят перед строками SKU и расходов; полное сообщение проходит общий Telegram splitter вместо тихого обрезания на 3 800 символах.
 - Проценты агрегированной маржи нормализуют округлённый ноль до `0.00%`, сохраняя отрицательную прибыль в рублях.
-- Новые regressions покрывают публичный план на 10 SKU и 20 расходов и почти нулевую прибыль после налога. Полный Windows pytest: **4,433 passed in 46.77s**; `compileall app tests` и `git diff --check` PASS. `data/tasks.json` восстановлен к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. Проверка CI для публикуемого HEAD ожидается.
+- Новые regressions покрывают публичный план на 10 SKU и 20 расходов и почти нулевую прибыль после налога. Полный Windows pytest: **4,433 passed in 46.77s**; `compileall app tests` и `git diff --check` PASS. `data/tasks.json` восстановлен к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. Кодовый commit `2557d68a5a9160d6f6c51d330b35d231cd7dc2b6` прошёл exact-head Verify `41455445557`: Windows **4,433 passed in 139.83s**, full-verification и Docker build/smoke PASS. Artifact `13145429548`, digest `sha256:fffbf5ecd5441d75d796b209991c623ea45b3ea7cb51e478473421f15de9eb01`.
 
 # 2026-11-02 — PR #724: сравнение категорий дополнительных расходов
 
