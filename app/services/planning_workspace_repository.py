@@ -74,6 +74,9 @@ class PlanningWorkspaceRepository:
     MAX_SALES_MIX_TOTAL_QUANTITY = 1_000_000
     MAX_SALES_MIX_EXPENSES = 20
     MAX_SALES_MIX_EXPENSE_TOTAL = Decimal("1000000000.00")
+    _SALES_MIX_EXPENSE_CATEGORIES = frozenset({
+        "OTHER", "ADVERTISING", "UNCLASSIFIED",
+    })
     _TITLE_LIMIT = 80
     _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
     _OBSERVATION_STATUSES = frozenset({"ACTIVE", "FINISHED", "ARCHIVED"})
@@ -5947,10 +5950,17 @@ class PlanningWorkspaceRepository:
             return False
         expense_total = Decimal("0")
         for expense in expenses:
-            if not isinstance(expense, dict) or set(expense) != {"name", "amount"}:
+            if not isinstance(expense, dict) or set(expense) not in (
+                {"name", "amount"}, {"name", "amount", "category"},
+            ):
                 return False
             if not PlanningWorkspaceRepository._short_text(expense.get("name"), 80):
                 return False
+            if "category" in expense:
+                category = expense.get("category")
+                if (not isinstance(category, str)
+                        or category not in PlanningWorkspaceRepository._SALES_MIX_EXPENSE_CATEGORIES):
+                    return False
             amount = PlanningWorkspaceRepository._decimal_string(expense.get("amount"))
             if (amount is False or Decimal(amount) < 0
                     or (not allow_legacy and Decimal(amount) >

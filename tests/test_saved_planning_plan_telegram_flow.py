@@ -6,6 +6,7 @@ import pytest
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.planning_workspace_repository import PlanningWorkspaceRepository
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -2535,7 +2536,7 @@ def test_saved_sales_mix_with_unknown_advertising_keeps_quantity_revenue_and_pre
 
 
 def test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit(tmp_path):
-    saved_runtime, single, source, _service_obj = _setup(tmp_path)
+    saved_runtime, single, source, service = _setup(tmp_path)
     source.cross_docking = _confirmed_cross_docking_source("0.00", 100)
     tenant = _activate()
     try:
@@ -2557,6 +2558,23 @@ def test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit(tmp_p
         quantity_prompt = saved_runtime.handle_text("10", user_id="user-1")
         expense_prompt = saved_runtime.handle_text("1", user_id="user-1")
         preview = saved_runtime.handle_text("Реклама; CPC; 100", user_id="user-1")
+        confirmed = saved_runtime.handle_callback(
+            _button(preview, "Подтвердить и сохранить ревизию"), user_id="user-1",
+        )
+        reopened = service.get_document(saved["document_id"])
+        reopened_payload = reopened["document"]["payload"]
+        reopened_mix = reopened_payload["sales_mix"]
+        reopened_result = saved_runtime.sales_mix_planning_service.calculate(
+            PlanningCrossDockingAdapter.items_for_sales_mix(reopened_payload),
+            quantities=reopened_mix["quantities"],
+            period_label=reopened_mix["period_label"],
+            expenses=reopened_mix["expenses"],
+            expenses_confirmed=reopened_mix["confirmed"],
+            include_cross_docking=PlanningCrossDockingAdapter.is_current(reopened_payload),
+        )
+        exported = AnalyticsExportService().export_sales_mix(
+            reopened["document"], reopened_result, "json",
+        )
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -2568,6 +2586,18 @@ def test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit(tmp_p
     assert quantity_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
     assert expense_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
     assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert confirmed["status"] == "PLANNING_DOCUMENT_DETAILS"
+    assert reopened["document"]["current_revision"] == 2
+    assert reopened_mix["expenses"] == [{
+        "name": "CPC", "amount": "100.00", "category": "ADVERTISING",
+    }]
+    assert reopened_result["error"] is not True
+    assert reopened_result["fixed_expenses"] == result["fixed_expenses"]
+    assert reopened_result["pre_ad_margin"]["profit_rub"] == "2460.00"
+    assert reopened_result["profit"] == "1960.00"
+    assert exported["error"] is False
+    exported_json = json.loads(exported["file_content"].decode("utf-8"))
+    assert exported_json["metadata"]["fixed_expenses"] == result["fixed_expenses"]
     assert result["pre_ad_margin"]["status"] == "AVAILABLE"
     assert result["pre_ad_margin"]["profit_rub"] == "2460.00"
     assert result["profit"] == "1960.00"

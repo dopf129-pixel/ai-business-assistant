@@ -1,5 +1,13 @@
 # Пакет независимого review: маржа SKU до рекламы
 
+## Remediation — сохранение категорий расходов в frozen sales mix (2026-11-02)
+
+- Review нашёл, что новый UI добавлял поле `category` к расходам, но `PlanningWorkspaceRepository._valid_sales_mix` отклонял такие записи как неизвестную схему. Preview считался, однако кнопка подтверждения не создавала revision.
+- Validator теперь поддерживает категории `ADVERTISING`, `OTHER`, `UNCLASSIFIED` с точной проверкой типа и allowlist. Старые записи `{name, amount}` продолжают читаться без миграции; произвольные ключи/категории отвергаются.
+- Добавлена regression публичного ввода → confirm → revision 2 → repository reopen → recalculate → JSON export, плюс проверки неверных категорий и round-trip старого формата.
+- До исправления две новые проверки падали; после — linked **97 passed in 3.38s**, полный Windows suite **4,430 passed in 46.42s**. `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. `python -m compileall -q app tests` и `git diff --check` прошли; exact-head CI ещё предстоит.
+- PR #724 остаётся открытым; слияния и развёртывания нет.
+
 ## Remediation — два P2 из follow-up review (2026-11-02)
 
 - Периодная реклама в сохранённом sales mix раньше вычиталась из `pre_ad_margin`, поскольку все введённые расходы считались нерекламными. Ввод теперь явно принимает тип `Реклама` или `Прочее`; рекламные расходы остаются в after-ad прибыли, не меняя before-ad. Старые вводы без типа сохраняются в after-ad, но не предполагаются нерекламными: before-ad expense scope помечается partial. Свободное название не классифицируется автоматически.
