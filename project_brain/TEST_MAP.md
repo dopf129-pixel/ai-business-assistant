@@ -2,7 +2,7 @@
 
 - `tests/test_pre_ad_margin_projection.py::test_extended_base_expense_status_does_not_override_known_base_expense` проверяет `EXCLUDED` и `UNKNOWN` для LOGISTICS одновременно в `calculate` и `calculate_components_only`: известная сумма остаётся включённой и не получает вторую противоречивую метку.
 - `tests/test_sales_mix_planning_service.py::test_sales_mix_keeps_known_base_logistics_when_extended_source_excludes_it` проверяет сохранение известной логистики после умножения на количество SKU.
-- Новые регрессии до изменения воспроизводили ошибку; после исправления проходят. Связанный профиль девяти модулей: **165 passed in 4.30s**; полный Windows pytest: **4,424 passed in 47.82s**.
+- Новые регрессии до изменения воспроизводили ошибку; после исправления проходят. Связанный профиль девяти модулей: **165 passed in 4.30s**; полный Windows pytest: **4,424 passed in 47.82s**. Exact-head GitHub Actions run `41416052784` на кодовом SHA `372e921c3b4a6c07504754702abd49699efdcf3a` завершился success: Windows **4,424 passed in 146.47s**, Linux **4,424 passed in 29.42s**, Docker build и smoke — PASS. Проверяемый merge ref `3ab500ee038e0d9d1c51d95edf4d86e992bfc558`; artifact `13127109252`, digest `sha256:3dfef7873205c793ca47fcdb7afc8ee54f2663ef843d69a9ae52227958acc2f8`.
 
 # PR #724 — максимальный derived expense scope в сохранённых планах
 

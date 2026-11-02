@@ -2,7 +2,7 @@
 
 - Статусы `EXCLUDED`/`UNKNOWN` из расширенного источника не перекрывают категорию, уже содержащую известную базовую сумму модели. Ранее логистика одновременно оставалась известной и попадала в исключённые/неизвестные; в sales mix сумма вычиталась, но подписывалась как неизвестная.
 - Новые регрессии покрывают `calculate`, `calculate_components_only` и sales mix. Связанный профиль: **165 passed**; полный Windows pytest: **4,424 passed**; `compileall` и `git diff --check` PASS.
-- Пользовательские данные не изменены: SHA-1 `data/tasks.json` совпадает с исходным `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Exact-head CI нового коммита проверяется после публикации.
+- Пользовательские данные не изменены: SHA-1 `data/tasks.json` совпадает с исходным `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Exact-head GitHub Actions run `41416052784` на кодовом SHA `372e921c3b4a6c07504754702abd49699efdcf3a` завершился success: Windows **4,424 passed in 146.47s**, Linux **4,424 passed in 29.42s**, Docker build и smoke — PASS. Проверяемый merge ref `3ab500ee038e0d9d1c51d95edf4d86e992bfc558`; artifact `13127109252`, digest `sha256:3dfef7873205c793ca47fcdb7afc8ee54f2663ef843d69a9ae52227958acc2f8`.
 
 # 2026-11-01 — PR #724: граница сохранённой детализации расходов
 

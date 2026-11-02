@@ -5,7 +5,7 @@
 - Подтверждённый пример: `LOGISTICS` уже имел известную сумму и входил в `included_expense_keys`, но `excluded_component_statuses={"LOGISTICS":"EXCLUDED"}` добавлял ту же категорию в `excluded_expense_keys`. Статус `UNKNOWN` аналогично создавал пересечение включённого и неизвестного. В sales mix сумма логистики оставалась вычтенной, но выводилась как неизвестная.
 - Исправление ограничивает действие статусов дополнительной областью: они не меняют совпадающий ключ из известных базовых расходов модели. Регрессии покрывают `calculate`, `calculate_components_only`, sales mix и оба конфликтующих статуса.
 - До исправления новые сценарии воспроизводимо падали; после него связанный профиль — **165 passed in 4.30s**, полный Windows pytest — **4,424 passed in 47.82s**, `compileall app tests` и `git diff --check` PASS. `data/tasks.json` совпадает с baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
-- Exact-head GitHub Actions для нового коммита будет добавлен после публикации.
+- Exact-head GitHub Actions run `41416052784` на кодовом SHA `372e921c3b4a6c07504754702abd49699efdcf3a` завершился success: Windows **4,424 passed in 146.47s**, Linux **4,424 passed in 29.42s**, Docker build и smoke — PASS. Проверяемый merge ref `3ab500ee038e0d9d1c51d95edf4d86e992bfc558`; artifact `13127109252`, digest `sha256:3dfef7873205c793ca47fcdb7afc8ee54f2663ef843d69a9ae52227958acc2f8`. Документальный follow-up после этого exact-head запускается отдельно.
 
 
 Дата подготовки: 31.10.2026
