@@ -1984,7 +1984,10 @@ class ProductUnitEconomicsQueryService:
         share = self._share(value, price)
         if share is None:
             return money
-        return f"{money} — {share:.1f}%"
+        formatted_share = f"{share:.1f}"
+        if formatted_share == "-0.0":
+            formatted_share = "0.0"
+        return f"{money} — {formatted_share}%"
 
     def _share(self, value, price):
         if value is None or price in (None, 0):

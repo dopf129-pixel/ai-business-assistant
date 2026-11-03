@@ -510,7 +510,9 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     assert "При текущей цене 500,00 ₽" in result["message"]
     assert "Оценка одной успешной продажи FBO" in result["message"]
     assert "FBS не поддержан" in result["message"]
-    assert "Не включены хранение, постоянные расходы и возвраты." in result["message"]
+    assert "Не подтверждены:" in result["message"]
+    assert "Не включены хранение, постоянные расходы и возвраты." not in result["message"]
+    assert "Постоянные расходы магазина не распределяются на SKU." in result["message"]
 
     token = _activate()
     try:

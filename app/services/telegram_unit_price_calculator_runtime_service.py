@@ -31,6 +31,19 @@ class TelegramUnitPriceCalculatorRuntimeService:
         "last_mile_per_unit": ("Последняя миля", "₽/шт.", False),
         "acquiring_per_unit": ("Эквайринг", "₽/шт.", False),
     }
+    PRE_AD_EXPENSE_LABELS = {
+        "STORAGE": "хранение",
+        "PLACEMENT": "размещение",
+        "RETURNS_AND_CANCELLATIONS": "возвраты и отмены",
+        "RETURN_LOSS_STRICT_COHORT": "потери строгой когорты возвратов",
+        "CONFIRMED_ADDITIONAL_EXPENSES": "прочие подтверждённые расходы",
+        "UNMAPPED_NON_AD_EXPENSES": "прочие нерекламные расходы",
+        "ROUNDING_ADJUSTMENT": "корректировка округления",
+    }
+    PRE_AD_BASE_EXPENSE_KEYS = frozenset({
+        "COGS", "OZON_COMMISSION", "LOGISTICS", "LAST_MILE",
+        "ACQUIRING", "CROSS_DOCKING",
+    })
 
     def __init__(
         self,
@@ -3600,8 +3613,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.insert(0, notice)
         lines.extend([
             "Оценка одной успешной продажи FBO. FBS не поддержан.",
-            "Не включены хранение, постоянные расходы и возвраты.",
         ])
+        lines.extend(self._pre_ad_scope_disclosure_lines(
+            result,
+            fallback="Не включены хранение, постоянные расходы и возвраты.",
+        ))
         return "\n".join(lines)
 
     def _pre_ad_projection_lines(self, result):
@@ -3623,7 +3639,71 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.append(
                 "Полнота расходов до рекламы: частичная; неизвестные суммы не подменены нулём."
             )
+        lines.extend(self._pre_ad_additional_expense_lines(scope))
         return lines
+
+    def _pre_ad_additional_expense_lines(self, scope):
+        known = scope.get("known_non_ad_expenses_rub")
+        if not isinstance(known, dict):
+            return []
+        additional = []
+        for key, raw_amount in sorted(known.items()):
+            if key in self.PRE_AD_BASE_EXPENSE_KEYS:
+                continue
+            amount = self._decimal(raw_amount)
+            if amount is None or not amount.is_finite():
+                continue
+            label = self.PRE_AD_EXPENSE_LABELS.get(key, "дополнительные расходы")
+            additional.append(
+                f"{label.capitalize()}: {self._money(-amount)}/шт."
+            )
+        if not additional:
+            return []
+        return [
+            "Дополнительно учтено до рекламы (уже входит в маржу):",
+            *additional,
+        ]
+
+    def _pre_ad_scope_disclosure_lines(self, result, *, fallback):
+        projection = result.get("pre_ad_margin") if isinstance(result, dict) else None
+        if not isinstance(projection, dict) or projection.get("status") != "AVAILABLE":
+            return [fallback]
+        scope = projection.get("expense_scope")
+        if not isinstance(scope, dict):
+            return [fallback]
+        unknown = scope.get("unknown_non_ad_expense_keys")
+        if not isinstance(unknown, list):
+            return [fallback]
+
+        labels = {
+            self.PRE_AD_EXPENSE_LABELS.get(key, "прочие расходы")
+            for key in unknown
+            if isinstance(key, str)
+        }
+        lines = []
+        if labels:
+            lines.append(
+                "Не подтверждены: " + ", ".join(sorted(labels))
+                + "; неизвестные суммы не приняты за ноль."
+            )
+        excluded = scope.get("excluded_expense_keys")
+        excluded_labels = set()
+        if isinstance(excluded, list):
+            excluded_labels = {
+                self.PRE_AD_EXPENSE_LABELS.get(key, "прочие расходы")
+                for key in excluded
+                if isinstance(key, str)
+                and key not in {"ADVERTISING", "FIXED_STORE_OVERHEAD"}
+            }
+        excluded_labels.difference_update(labels)
+        if excluded_labels:
+            lines.append(
+                "Явно не включены источником: "
+                + ", ".join(sorted(excluded_labels)) + "."
+            )
+        if isinstance(excluded, list) and "FIXED_STORE_OVERHEAD" in excluded:
+            lines.append("Постоянные расходы магазина не распределяются на SKU.")
+        return lines or ["Полнота состава расходов указана выше."]
 
     def _format_result_details(self, session, result, notice=None):
         snapshot = session["snapshot"]
@@ -3748,8 +3828,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         lines.extend([
             "",
             "Оценка одной успешной продажи FBO. Комиссия применяется только при подтверждении тарифа для указанной цены; FBS не поддержан.",
-            "Хранение, общие расходы магазина и возвраты не включены.",
         ])
+        lines.extend(self._pre_ad_scope_disclosure_lines(
+            result,
+            fallback="Хранение, общие расходы магазина и возвраты не включены.",
+        ))
         return "\n".join(lines)
 
     def _cross_docking_assumption(self, evidence, amount):

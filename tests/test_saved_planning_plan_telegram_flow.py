@@ -457,6 +457,15 @@ def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp
         assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
         assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
         assert reopened["price_scenario"]["calculated"]["additional_unit_expenses"] == 3.5
+        assert "Потери строгой когорты возвратов: -3,50 ₽/шт." in reopened["message"]
+        assert "возвраты и отмены не включены" not in reopened["message"].lower()
+        details = reopened_single.handle_callback(
+            _button(reopened, "Подробности расчёта"), user_id="user-1",
+        )
+        assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        assert "Потери строгой когорты возвратов: -3,50 ₽/шт." in details["message"]
+        assert "возвраты и отмены не включены" not in details["message"].lower()
+        assert "Постоянные расходы магазина не распределяются на SKU." in details["message"]
         reopened_scope = reopened["price_scenario"]["pre_ad_margin"]["expense_scope"]
         assert {
             key: Decimal(str(value))

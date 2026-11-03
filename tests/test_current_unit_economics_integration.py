@@ -259,6 +259,8 @@ def test_current_pre_ad_margin_does_not_show_negative_zero_percent():
     assert result["pre_ad_margin"]["profit_per_unit_rub"] == -0.01
     assert result["pre_ad_margin"]["margin_percent"] == -0.0
     assert "-0.01 ₽ / шт. · 0.00% от цены продавца" in response
+    assert "-0.01 ₽ — 0.0%" in response
+    assert "-0.0%" not in response
 
 
 def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
