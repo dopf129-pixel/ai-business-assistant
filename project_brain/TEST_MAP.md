@@ -1,3 +1,11 @@
+# 2026-11-03 — регрессии review PR #724: сравнение цены и pre-ad расходы
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_saved_plan_no_ad_price_grid_keeps_confirmed_expense_when_applying_candidate` проверяет восстановленный и обновлённый saved plan: безрекламная сетка включает подтверждённое хранение, а выбранная цена проходит свежую проверку и применяется с тем же расходом.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_saved_plan_labels_mixed_expenses_and_keeps_basis_when_advertising_unknown` проверяет безопасную общую подпись для хранения вместе с неописанной категорией и отображение суммы/периода/знаменателя, когда after-ad расчёт недоступен, но pre-ad расход подтверждён.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_locally` теперь фиксирует передачу extended expenses через сравнение цен и повторный расчёт по введённой ДРР.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_scenario_details_show_signed_rounding_delta_for_tax_bridge_mismatch` закрепляет справочное `-0,01 ₽/шт.` только для `ADVERTISING_TAX_BRIDGE_ROUNDING_MISMATCH` и неизменность обеих прибылей.
+- Все перечисленные регрессии входят в полный Windows pytest: **4,440 passed in 45.83s**; `compileall app tests` и `git diff --check` PASS. Тестовые изменения в `data/` восстановлены по снимку.
+
 # 2026-11-03 — повторный review PR #724: база extended расходов и округление
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_comparison` сохраняет `FINANCE_PAID_STORAGE` с `ORDERED_UNITS_WINDOW`, затем проверяет краткую и подробную карточки: «хранение», `500,00 ₽ / 100 заказанных единиц` и исходный период.

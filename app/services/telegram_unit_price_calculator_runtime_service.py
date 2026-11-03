@@ -1479,6 +1479,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     identity=self._scenario_identity(session),
                     provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    **self._extended_scenario_kwargs(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
                     exact_price_rate_cents=self._planning_exact_price_cents(
@@ -1532,6 +1533,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     identity=self._scenario_identity(session),
                     provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    **self._extended_scenario_kwargs(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
                     exact_price_rate_cents=self._planning_exact_price_cents(
@@ -1737,6 +1739,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 identity=self._scenario_identity(session),
                 provenance=comparison_provenance,
                 sources=self._scenario_sources(session),
+                **self._extended_scenario_kwargs(session),
                 frozen_tariff_snapshot=frozen_tariff,
                 tariff_resolution_required=tariff_required,
                 exact_price_rate_cents=self._planning_exact_price_cents(
@@ -2168,7 +2171,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Цена основного сценария не изменена.",
             "Оценка одной успешной продажи FBO. Каждый вариант использует свой подтверждённый тариф; неизвестный тариф не подменяется ставкой соседней цены. FBS не поддержан.",
             self._price_planning_cross_docking_note(session, result),
-            "Постоянные расходы, платное хранение и эффекты возвратов не входят в расчёт.",
+            self._price_planning_expense_scope_note(),
         ])
         keyboard_builder = getattr(
             self.keyboard_service,
@@ -2202,6 +2205,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "read_only": True,
             "executed": False,
         }
+
+    def _price_planning_expense_scope_note(self):
+        return (
+            "Дополнительные расходы учитываются до рекламы только при подтверждённых "
+            "данных и совместимой базе; постоянные расходы магазина не распределяются "
+            "на SKU. Неизвестные суммы не подменяются нулём."
+        )
 
     def _price_planning_cross_docking_note(self, session, result):
         forward_results = []
@@ -3645,7 +3655,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             )
         extended = result.get("extended_calculation")
         lines.extend(self._pre_ad_additional_expense_lines(scope, extended))
-        lines.extend(self._pre_ad_extended_basis_lines(extended))
+        lines.extend(self._pre_ad_extended_basis_lines(extended, scope))
         return lines
 
     def _pre_ad_additional_expense_lines(self, scope, extended_calculation=None):
@@ -3661,17 +3671,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 continue
             label = self.PRE_AD_EXPENSE_LABELS.get(key, "дополнительные расходы")
             if key == "CONFIRMED_ADDITIONAL_EXPENSES":
+                component_keys = (
+                    extended_calculation.get("included_component_keys", [])
+                    if isinstance(extended_calculation, dict) else []
+                )
+                unlabeled_components = any(
+                    not isinstance(component_key, str)
+                    or (
+                        component_key != "CONFIRMED_ADDITIONAL_EXPENSES"
+                        and component_key not in self.PRE_AD_EXPENSE_LABELS
+                    )
+                    for component_key in component_keys
+                )
                 component_labels = sorted({
                     self.PRE_AD_EXPENSE_LABELS[component_key]
-                    for component_key in (
-                        extended_calculation.get("included_component_keys", [])
-                        if isinstance(extended_calculation, dict) else []
-                    )
+                    for component_key in component_keys
                     if isinstance(component_key, str)
                     and component_key in self.PRE_AD_EXPENSE_LABELS
                     and component_key != "CONFIRMED_ADDITIONAL_EXPENSES"
                 })
-                if len(component_labels) == 1:
+                if unlabeled_components:
+                    label = "подтверждённые дополнительные расходы"
+                elif len(component_labels) == 1:
                     label = component_labels[0] + " (подтверждённые расходы)"
                 elif component_labels:
                     label = "подтверждённые расходы: " + ", ".join(component_labels)
@@ -3688,11 +3709,35 @@ class TelegramUnitPriceCalculatorRuntimeService:
             *additional,
         ]
 
-    def _pre_ad_extended_basis_lines(self, extended_calculation):
+    def _pre_ad_extended_basis_lines(self, extended_calculation, expense_scope=None):
         if (
             not isinstance(extended_calculation, dict)
-            or extended_calculation.get("status") != "APPLIED"
+            or extended_calculation.get("status") not in {"APPLIED", "UNAVAILABLE"}
+            or extended_calculation.get("source_completeness") != "COMPLETE"
         ):
+            return []
+        calculation_mode = extended_calculation.get("calculation_mode")
+        included_keys = extended_calculation.get("included_component_keys")
+        known_expenses = (
+            expense_scope.get("known_non_ad_expenses_rub")
+            if isinstance(expense_scope, dict) else None
+        )
+        if not isinstance(included_keys, list) or not isinstance(known_expenses, dict):
+            return []
+        if calculation_mode == "STRICT_RETAINED_COHORT":
+            applied_scope_key = "RETURN_LOSS_STRICT_COHORT"
+            if not any(key in included_keys for key in (
+                "STRICT_RETAINED_COHORT_LOSS", "RETURN_LOSS_STRICT_COHORT",
+            )):
+                return []
+        elif calculation_mode == "WINDOW_COST_ALLOCATION":
+            applied_scope_key = "CONFIRMED_ADDITIONAL_EXPENSES"
+            if not included_keys:
+                return []
+        else:
+            return []
+        applied_amount = self._decimal(known_expenses.get(applied_scope_key))
+        if applied_amount is None or not applied_amount.is_finite() or applied_amount <= 0:
             return []
         denominator_labels = {
             "ORDERED_UNITS_WINDOW": "заказанных единиц",
@@ -3725,7 +3770,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         period = date_from.strftime("%d.%m.%Y") + " — " + date_to.strftime("%d.%m.%Y")
         label = (
             "Основание распределения потерь возвратной когорты"
-            if extended_calculation.get("calculation_mode") == "STRICT_RETAINED_COHORT"
+            if calculation_mode == "STRICT_RETAINED_COHORT"
             else "База распределения дополнительных расходов"
         )
         return [
@@ -3817,6 +3862,18 @@ class TelegramUnitPriceCalculatorRuntimeService:
             tax_lines.append(
                 "Налоговый эффект рекламы (T0 − T1): "
                 + self._money(tax_bridge.get("tax_effect_of_advertising_rub"))
+            )
+        if (
+            tax_bridge.get("reason") == "ADVERTISING_TAX_BRIDGE_ROUNDING_MISMATCH"
+            and tax_bridge.get("reconciliation_delta_rub") is not None
+        ):
+            delta = self._decimal(tax_bridge.get("reconciliation_delta_rub"))
+            delta_label = self._money(delta)
+            if delta is not None and delta > 0:
+                delta_label = "+" + delta_label
+            tax_lines.append(
+                "Расхождение налогового моста из-за округления (справочно): "
+                + delta_label + "/шт."
             )
         sku = session["sku"]
         lines = [

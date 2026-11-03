@@ -383,6 +383,138 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         reset_current_tenant_user_id(tenant)
 
 
+def test_saved_plan_no_ad_price_grid_keeps_confirmed_expense_when_applying_candidate(tmp_path):
+    _saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        extended = _extended_expense_contract("500.00", 100)
+        extended["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+        extended["numerator_and_denominator_basis"]["denominator"] = (
+            "ORDERED_UNITS_WINDOW"
+        )
+        extended["components"] = [{
+            "component_key": "FINANCE_PAID_STORAGE",
+            "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }]
+        single._scenarios[scenario_id]["extended_scenario"] = extended
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        saved = service.save_capture("Grid expense plan", capture)
+        assert saved["error"] is False, saved
+
+        reopened_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = reopened_single.restore_saved_plan(
+            service.get_document(saved["document_id"])["document"]["payload"],
+            user_id="user-1",
+        )
+        refreshed = reopened_single.handle_callback(
+            _button(reopened, "Обновить данные"), user_id="user-1",
+        )
+        prompt = reopened_single.handle_callback(
+            _button(refreshed, "Исследовать диапазон без рекламы"), user_id="user-1",
+        )
+        grid = reopened_single.handle_text("500; 510; 10", user_id="user-1")
+        applied = reopened_single.handle_callback(
+            _button(grid, "Подставить вариант 1"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    row = grid["price_planning_result"]["rows"][0]
+    assert prompt["stage"] == "price_grid_no_ad"
+    assert row["additional_unit_expenses"] == 5.0
+    assert "Дополнительные расходы учитываются до рекламы только при подтверждённых данных" in grid["message"]
+    assert "Платное хранение и эффекты возвратов не входят" not in grid["message"]
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["calculated"]["additional_unit_expenses"] == 5.0
+    assert "цену не подставил" not in applied["message"].lower()
+    assert len(source.calls) == 2
+
+
+def test_saved_plan_labels_mixed_expenses_and_keeps_basis_when_advertising_unknown(tmp_path):
+    _saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        extended = _extended_expense_contract("2000.00", 100)
+        extended["included_component_keys"] = [
+            "FINANCE_PAID_STORAGE", "PACKAGING_FEE",
+        ]
+        extended["numerator_and_denominator_basis"]["denominator"] = (
+            "ORDERED_UNITS_WINDOW"
+        )
+        extended["components"] = [
+            {
+                "component_key": "FINANCE_PAID_STORAGE",
+                "numerator_rub": "500.00",
+                "ownership": "ADDITIONAL",
+            },
+            {
+                "component_key": "PACKAGING_FEE",
+                "numerator_rub": "1500.00",
+                "ownership": "ADDITIONAL",
+            },
+        ]
+        single._scenarios[scenario_id]["extended_scenario"] = extended
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        saved = service.save_capture("Mixed expense plan", capture)
+        assert saved["error"] is False, saved
+        reopened_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = reopened_single.restore_saved_plan(
+            service.get_document(saved["document_id"])["document"]["payload"],
+            user_id="user-1",
+        )
+
+        original_load_snapshot = source.load_snapshot
+
+        def snapshot_without_advertising(sku, user_id, force_refresh=False):
+            snapshot = original_load_snapshot(sku, user_id, force_refresh)
+            if force_refresh:
+                snapshot["suggested_inputs"]["advertising_rate"] = None
+                snapshot["input_provenance"]["advertising_rate"] = "unknown"
+            return snapshot
+
+        source.load_snapshot = snapshot_without_advertising
+        reopened_scenario_id = reopened["price_scenario"]["scenario_id"]
+        reopened_state = reopened_single._scenarios[reopened_scenario_id]
+        reopened_state["overrides"].discard("advertising_rate")
+        reopened_state["provenance"]["advertising_rate"] = "ozon_historical_advertising"
+        refreshed = reopened_single.handle_callback(
+            _button(reopened, "Обновить данные"), user_id="user-1",
+        )
+        details = reopened_single.handle_callback(
+            _button(refreshed, "Подробности расчёта"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
+    for response in (reopened, details):
+        assert "Подтверждённые дополнительные расходы: -20,00 ₽/шт." in response["message"]
+        assert "2 000,00 ₽ / 100 заказанных единиц" in response["message"]
+        assert "01.01.2026 — 25.02.2026" in response["message"]
+        assert "PACKAGING_FEE" not in response["message"]
+        assert "Хранение (подтверждённые расходы)" not in response["message"]
+    assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert details["price_scenario"]["extended_calculation"]["status"] == "UNAVAILABLE"
+    assert details["price_scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert "Маржа до рекламы (после налога)" in details["message"]
+    assert len(source.calls) == 2
+
+
 @pytest.mark.parametrize("component_count", [60, 64])
 def test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts(
     tmp_path, component_count,
