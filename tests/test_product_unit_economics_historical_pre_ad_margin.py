@@ -315,6 +315,47 @@ def test_exact_evidence_is_attached_to_the_matching_historical_query_row(service
     assert "баланс, а не подпись операции Ozon" in breakdown
 
 
+def test_historical_pre_ad_margin_does_not_show_negative_zero_percent(service):
+    evidence = _resolved_evidence(
+        _ad_part("cpc", AD_KEYS[0], "-12.00"),
+    )
+    projection = service.build(
+        _metric(
+            units_sold=1,
+            revenue=1000.0,
+            net_profit=-12.01,
+            profit_per_unit=-12.01,
+            margin_percent=-1.2,
+            product_cost=940.01,
+            tax=60.0,
+        ),
+        evidence,
+        IDENTITY,
+        PERIOD,
+    )
+    query = ProductUnitEconomicsQueryService(None, None, None, None)
+    response = query.format_response({
+        "source": "historical",
+        "sku": "sku-a",
+        "pre_ad_margin": projection,
+        "unit_price": 1000.0,
+        "discount_points": 0.0,
+        "revenue_tax_base": 1000.0,
+        "cost": 940.01,
+        "marketplace_fees": 0.0,
+        "tax": 60.0,
+        "net_profit_per_unit": -12.01,
+        "margin_percent": -1.2,
+        "note": "Проверка отрицательной прибыли.",
+    })
+
+    assert projection["status"] == "AVAILABLE"
+    assert projection["profit_per_unit_rub"] == -0.01
+    assert projection["margin_percent"] == -0.0
+    assert "-0.01 ₽ / шт. · 0.00% от цены продавца" in response
+    assert query._format_percent(-1.25) == "-1.25%"
+
+
 @pytest.mark.parametrize(
     ("identity", "period", "reason"),
     [

@@ -238,6 +238,29 @@ def test_current_response_shows_rubles_and_percentages():
     assert all(len(chunk) <= 3800 for chunk in breakdown_chunks)
 
 
+def test_current_pre_ad_margin_does_not_show_negative_zero_percent():
+    service, _, costs = _service(
+        _facts(
+            seller_price=1000.0,
+            buyer_price=1000.0,
+            discount_points_per_unit=0.0,
+            commission_rate=0.0,
+            commission_amount=0.0,
+            logistics=0.0,
+            last_mile=0.0,
+            acquiring_average=0.0,
+        )
+    )
+    costs.costs["4108512640"] = 940.01
+
+    result = service.query("hook-2")
+    response = service.format_response(result)
+
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] == -0.01
+    assert result["pre_ad_margin"]["margin_percent"] == -0.0
+    assert "-0.01 ₽ / шт. · 0.00% от цены продавца" in response
+
+
 def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
     facts = _facts(
         cross_docking_per_unit=10.0,

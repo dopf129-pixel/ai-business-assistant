@@ -165,16 +165,21 @@ async def _send_result(message, result, progress_message=None):
                 "executed": False,
             }
         response = format_response(result)
-        if progress_message is not None:
-            await finish_progress(message, progress_message, response or "Файл отправлен.", reply_markup=keyboard)
-        elif response:
-            await message.reply_text(response, reply_markup=keyboard)
+        if response or progress_message is not None:
+            await finish_progress(
+                message,
+                progress_message,
+                response or "Файл отправлен.",
+                reply_markup=keyboard,
+            )
         return
     response = format_response(result)
-    if progress_message is not None:
-        await finish_progress(message, progress_message, response, reply_markup=keyboard)
-    else:
-        await message.reply_text(response, reply_markup=keyboard)
+    await finish_progress(
+        message,
+        progress_message,
+        response,
+        reply_markup=keyboard,
+    )
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

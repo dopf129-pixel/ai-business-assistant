@@ -1995,4 +1995,7 @@ class ProductUnitEconomicsQueryService:
         if value is None:
             return "—"
 
-        return f"{value:.2f}%"
+        formatted = f"{value:.2f}"
+        if formatted == "-0.00":
+            formatted = "0.00"
+        return f"{formatted}%"

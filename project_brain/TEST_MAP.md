@@ -1,3 +1,9 @@
+# 2026-11-03 — regressions для доставки результата и форматирования pre-ad маржи
+
+- `tests/test_telegram_loading_feedback_v1451_v1460.py::TestTelegramLoadingFeedbackV1451V1460::test_long_callback_result_is_split_when_initial_progress_send_fails` имитирует отказ первой отправки progress, ограничение Telegram в UTF-16 units, доставку полного длинного ответа несколькими сообщениями и клавиатуру только у последнего chunk.
+- `tests/test_current_unit_economics_integration.py::test_current_pre_ad_margin_does_not_show_negative_zero_percent` и `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_historical_pre_ad_margin_does_not_show_negative_zero_percent` подтверждают `-0.01 ₽` вместе с `0.00%`; historical regression дополнительно сохраняет знак у ненулевого отрицательного процента.
+- Связанный профиль: **12 passed in 1.10s**. Полный Windows pytest: **4,436 passed in 46.73s**; `compileall app tests` и `git diff --check` PASS. Перед CI данные восстановлены к baseline.
+
 # 2026-11-02 — review regressions для sales mix preview
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_large_sales_mix_preview_keeps_summary_and_all_details_accessible` проходит публичное создание/сохранение batch-плана, ввод продаж для 10 SKU и 20 дополнительных расходов. Проверяет, что финансовый итог и warning стоят в первой части, все SKU и расходы доступны в частях до 3 800 UTF-16 units, а результат сохраняет кнопку подтверждения.
