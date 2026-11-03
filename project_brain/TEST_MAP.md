@@ -3,7 +3,7 @@
 - `tests/test_saved_planning_plan_telegram_flow.py::test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss` теперь проходит сохранение и повторное открытие strict-return плана, а также нажатие «Подробности расчёта». Краткий и подробный экраны показывают `-3,50 ₽/шт.` и не называют возвратные потери исключёнными.
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_zero_advertising_completes_scenario_and_reports_comparison` закрепляет динамическое сообщение о неизвестных расходах для обычного сценария вместо общей неподтверждённой фразы.
 - `tests/test_current_unit_economics_integration.py::test_current_pre_ad_margin_does_not_show_negative_zero_percent` проверяет, что повторная доля показывает `0.0%`, тогда как сумма `-0.01 ₽` остаётся отрицательной.
-- Связанный профиль пяти модулей: **123 passed in 3.70s**; полный Windows pytest: **4,436 passed in 46.06s**.
+- Связанный профиль пяти модулей: **123 passed in 3.70s**; полный Windows pytest: **4,436 passed in 46.06s**. Exact-head Verify run `41609310492` на code SHA `e1ac109f79368a9d71945b5c88ccbfa84f49ee9e`: оба job success, full-verification включает Linux suite и Docker build/smoke.
 
 # 2026-11-03 — regressions для доставки результата и форматирования pre-ad маржи
 

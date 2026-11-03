@@ -2,7 +2,7 @@
 
 - Исправлены два новых review замечания: результат плановой цены перечисляет дополнительные расходы, фактически включённые в pre-ad прибыль, и динамически показывает неизвестные/исключённые категории из frozen scope; строгие возвратные потери больше не попадают под общую фразу «возвраты не включены».
 - Дублирующая строка прибыли в карточке SKU не выводит `-0.0%`, если отрицательная сумма округляется до нулевого процента; знак суммы прибыли сохраняется.
-- Регрессии в saved-plan Telegram flow, сценарном runtime и current economics. Полный локальный Windows pytest: **4,436 passed in 46.06s**; `compileall app tests`, `git diff --check` PASS. Exact-head CI ещё ожидается; владелец данных после тестов восстановлен к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
+- Регрессии в saved-plan Telegram flow, сценарном runtime и current economics. Полный локальный Windows pytest: **4,436 passed in 46.06s**; `compileall app tests`, `git diff --check` PASS. Code SHA `e1ac109f79368a9d71945b5c88ccbfa84f49ee9e` прошёл exact-head Verify run `41609310492`: оба job success, Linux/full verification и Docker build/smoke PASS; artifact `13218262009` (`sha256:6f316a6ff1560144cce87df32dd5259f38a6cd6e7e47a6aafa12f6f7a27bef73`). Владелец данных после тестов восстановлен к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
 
 # 2026-11-03 — PR #724: результат callback и проценты маржи
 
