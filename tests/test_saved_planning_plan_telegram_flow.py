@@ -297,13 +297,23 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
     try:
         current = _select_single(single)
         scenario_id = current["price_scenario"]["scenario_id"]
-        single._scenarios[scenario_id]["extended_scenario"] = _extended_expense_contract()
+        extended_contract = _extended_expense_contract()
+        extended_contract["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+        extended_contract["numerator_and_denominator_basis"]["denominator"] = (
+            "ORDERED_UNITS_WINDOW"
+        )
+        extended_contract["components"] = [{
+            "component_key": "FINANCE_PAID_STORAGE",
+            "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }]
+        single._scenarios[scenario_id]["extended_scenario"] = extended_contract
         capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
         assert capture["error"] is False
         assert capture["payload"]["schema_version"] == 4
         saved_item = capture["payload"]["items"][0]
         assert saved_item["projection"]["additional_unit_expenses"] == 5.0
-        assert saved_item["extended_scenario"] == _extended_expense_contract()
+        assert saved_item["extended_scenario"] == extended_contract
 
         saved = service.save_capture("Extended plan", capture)
         assert saved["error"] is False, saved
@@ -327,6 +337,16 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         assert reopened["price_scenario"]["calculated"]["profit"] == pytest.approx(
             baseline["calculated"]["profit"] - 5.0
         )
+        assert "Хранение (подтверждённые расходы): -5,00 ₽/шт." in reopened["message"]
+        assert "500,00 ₽ / 100 заказанных единиц" in reopened["message"]
+        assert "01.01.2026 — 25.02.2026" in reopened["message"]
+        details = reopened_single.handle_callback(
+            _button(reopened, "Подробности расчёта"), user_id="user-1",
+        )
+        assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        assert "Хранение (подтверждённые расходы): -5,00 ₽/шт." in details["message"]
+        assert "500,00 ₽ / 100 заказанных единиц" in details["message"]
+        assert "01.01.2026 — 25.02.2026" in details["message"]
 
         copied = service.copy_document(
             saved["document_id"], title="Extended plan copy", revision=1,
@@ -336,7 +356,7 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         copied_document = service.get_document(copied["document_id"])["document"]
         assert copied_document["revision"] == 1
         assert copied_document["payload"]["items"][0]["extended_scenario"] == (
-            saved_item["extended_scenario"]
+            extended_contract
         )
         reopened_copy = reopened_single.restore_saved_plan(
             copied_document["payload"], user_id="user-1",

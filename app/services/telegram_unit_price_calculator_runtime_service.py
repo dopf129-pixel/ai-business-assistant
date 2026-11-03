@@ -1,6 +1,6 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
 from threading import RLock
 from time import monotonic
@@ -33,9 +33,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
     }
     PRE_AD_EXPENSE_LABELS = {
         "STORAGE": "хранение",
+        "FINANCE_PAID_STORAGE": "хранение",
         "PLACEMENT": "размещение",
+        "FINANCE_PLACEMENT": "размещение",
         "RETURNS_AND_CANCELLATIONS": "возвраты и отмены",
         "RETURN_LOSS_STRICT_COHORT": "потери строгой когорты возвратов",
+        "STRICT_RETAINED_COHORT_LOSS": "потери строгой когорты возвратов",
+        "ADDITIONAL_SERVICE": "дополнительные услуги",
         "CONFIRMED_ADDITIONAL_EXPENSES": "прочие подтверждённые расходы",
         "UNMAPPED_NON_AD_EXPENSES": "прочие нерекламные расходы",
         "ROUNDING_ADJUSTMENT": "корректировка округления",
@@ -3639,10 +3643,12 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.append(
                 "Полнота расходов до рекламы: частичная; неизвестные суммы не подменены нулём."
             )
-        lines.extend(self._pre_ad_additional_expense_lines(scope))
+        extended = result.get("extended_calculation")
+        lines.extend(self._pre_ad_additional_expense_lines(scope, extended))
+        lines.extend(self._pre_ad_extended_basis_lines(extended))
         return lines
 
-    def _pre_ad_additional_expense_lines(self, scope):
+    def _pre_ad_additional_expense_lines(self, scope, extended_calculation=None):
         known = scope.get("known_non_ad_expenses_rub")
         if not isinstance(known, dict):
             return []
@@ -3654,14 +3660,76 @@ class TelegramUnitPriceCalculatorRuntimeService:
             if amount is None or not amount.is_finite():
                 continue
             label = self.PRE_AD_EXPENSE_LABELS.get(key, "дополнительные расходы")
+            if key == "CONFIRMED_ADDITIONAL_EXPENSES":
+                component_labels = sorted({
+                    self.PRE_AD_EXPENSE_LABELS[component_key]
+                    for component_key in (
+                        extended_calculation.get("included_component_keys", [])
+                        if isinstance(extended_calculation, dict) else []
+                    )
+                    if isinstance(component_key, str)
+                    and component_key in self.PRE_AD_EXPENSE_LABELS
+                    and component_key != "CONFIRMED_ADDITIONAL_EXPENSES"
+                })
+                if len(component_labels) == 1:
+                    label = component_labels[0] + " (подтверждённые расходы)"
+                elif component_labels:
+                    label = "подтверждённые расходы: " + ", ".join(component_labels)
+            displayed_amount = self._money(-amount)
+            if key == "ROUNDING_ADJUSTMENT" and amount < 0:
+                displayed_amount = "+" + displayed_amount
             additional.append(
-                f"{label.capitalize()}: {self._money(-amount)}/шт."
+                f"{label.capitalize()}: {displayed_amount}/шт."
             )
         if not additional:
             return []
         return [
             "Дополнительно учтено до рекламы (уже входит в маржу):",
             *additional,
+        ]
+
+    def _pre_ad_extended_basis_lines(self, extended_calculation):
+        if (
+            not isinstance(extended_calculation, dict)
+            or extended_calculation.get("status") != "APPLIED"
+        ):
+            return []
+        denominator_labels = {
+            "ORDERED_UNITS_WINDOW": "заказанных единиц",
+            "SOLD_UNITS_WINDOW": "проданных единиц",
+            "RETAINED_UNITS_EXACT_COHORT": "сохранённых единиц точной когорты",
+        }
+        denominator_label = denominator_labels.get(
+            extended_calculation.get("denominator_kind")
+        )
+        amount = self._decimal(extended_calculation.get("total_numerator_rub"))
+        units = extended_calculation.get("denominator_units")
+        scope = extended_calculation.get("scope")
+        if (
+            denominator_label is None
+            or amount is None
+            or not amount.is_finite()
+            or type(units) is not int
+            or units <= 0
+            or units > 1_000_000_000
+            or not isinstance(scope, dict)
+        ):
+            return []
+        try:
+            date_from = date.fromisoformat(str(scope.get("from_date") or ""))
+            date_to = date.fromisoformat(str(scope.get("to_date") or ""))
+        except (TypeError, ValueError):
+            return []
+        if date_to < date_from:
+            return []
+        period = date_from.strftime("%d.%m.%Y") + " — " + date_to.strftime("%d.%m.%Y")
+        label = (
+            "Основание распределения потерь возвратной когорты"
+            if extended_calculation.get("calculation_mode") == "STRICT_RETAINED_COHORT"
+            else "База распределения дополнительных расходов"
+        )
+        return [
+            f"{label}: {self._money(amount)} / {units} {denominator_label}; период {period}."
         ]
 
     def _pre_ad_scope_disclosure_lines(self, result, *, fallback):
@@ -4213,7 +4281,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             number = Decimal("0")
         try:
             formatted = format(
-                number.quantize(Decimal("0.01")), ",.2f"
+                number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ",.2f"
             ).replace(",", " ").replace(".", ",")
         except (InvalidOperation, ArithmeticError, OverflowError, ValueError):
             return "не задано"

@@ -1,3 +1,9 @@
+# 2026-11-03 — повторный review PR #724: база extended расходов и округление
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_comparison` сохраняет `FINANCE_PAID_STORAGE` с `ORDERED_UNITS_WINDOW`, затем проверяет краткую и подробную карточки: «хранение», `500,00 ₽ / 100 заказанных единиц` и исходный период.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_cost_display_uses_canonical_half_up_rounding_and_reconciles_scope` проходит публичный ввод `120,005`, проверяет `120,01 ₽`, signed `+0,01 ₽` корректировки и исходный `expense_scope`.
+- Linked profile из четырёх модулей: **128 passed in 3.33s**; полный Windows pytest: **4,437 passed in 45.27s**. Компиляция приложения/тестов и `git diff --check` проходят. В финальном прогоне тестовый побочный эффект `data/tasks.json` и `data/tasks.json.lock` восстановлен по заранее сохранённому снимку; байты файла до и после прогона совпали.
+
 # 2026-11-03 — review regressions для frozen pre-ad expenses и округления карточки
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss` теперь проходит сохранение и повторное открытие strict-return плана, а также нажатие «Подробности расчёта». Краткий и подробный экраны показывают `-3,50 ₽/шт.` и не называют возвратные потери исключёнными.

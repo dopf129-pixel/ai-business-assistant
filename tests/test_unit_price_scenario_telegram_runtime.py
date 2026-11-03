@@ -533,6 +533,32 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     assert "Прибыль: 226,00 ₽/шт." in short["message"]
 
 
+def test_cost_display_uses_canonical_half_up_rounding_and_reconciles_scope():
+    runtime, _source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        cost_prompt = runtime.handle_callback(
+            _find_button(scenario, "Себестоимость")["callback"], user_id="user-1",
+        )
+        updated = runtime.handle_text("120,005", user_id="user-1")
+        details = runtime.handle_callback(
+            _find_button(updated, "Подробности расчёта")["callback"], user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    price_scenario = updated["price_scenario"]
+    assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert price_scenario["inputs"]["cost"]["value"] == 120.005
+    assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert "Себестоимость: 120,01 ₽" in details["message"]
+    assert "Корректировка округления: +0,01 ₽/шт." in details["message"]
+    projection = price_scenario["pre_ad_margin"]
+    assert projection["expense_scope"]["known_non_ad_expenses_rub"]["COGS"] == 120.01
+    assert projection["expense_scope"]["known_non_ad_expenses_rub"]["ROUNDING_ADJUSTMENT"] == -0.01
+
+
 def test_scenario_details_show_no_ad_and_after_ad_tax_bridge():
     runtime, source = _runtime()
     original_load_snapshot = source.load_snapshot
