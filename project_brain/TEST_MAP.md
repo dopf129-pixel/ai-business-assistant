@@ -4,7 +4,7 @@
 - `tests/test_saved_planning_plan_telegram_flow.py::test_saved_plan_labels_mixed_expenses_and_keeps_basis_when_advertising_unknown` проверяет безопасную общую подпись для хранения вместе с неописанной категорией и отображение суммы/периода/знаменателя, когда after-ad расчёт недоступен, но pre-ad расход подтверждён.
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_locally` теперь фиксирует передачу extended expenses через сравнение цен и повторный расчёт по введённой ДРР.
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_scenario_details_show_signed_rounding_delta_for_tax_bridge_mismatch` закрепляет справочное `-0,01 ₽/шт.` только для `ADVERTISING_TAX_BRIDGE_ROUNDING_MISMATCH` и неизменность обеих прибылей.
-- Все перечисленные регрессии входят в полный Windows pytest: **4,440 passed in 45.83s**; `compileall app tests` и `git diff --check` PASS. Тестовые изменения в `data/` восстановлены по снимку.
+- Все перечисленные регрессии входят в полный Windows pytest: **4,440 passed in 45.83s**; `compileall app tests` и `git diff --check` PASS. Тестовые изменения в `data/` восстановлены по снимку. GitHub Actions run [41650041563](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41650041563) для кода прошёл Windows/Linux full verification, Docker build и smoke.
 
 # 2026-11-03 — повторный review PR #724: база extended расходов и округление
 
