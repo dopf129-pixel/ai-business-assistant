@@ -2,7 +2,7 @@
 
 - После ошибки отправки начального progress-сообщения callback-результат проходит общий Telegram splitter; длинное подтверждение больше не теряется из-за лимита одного сообщения.
 - Отрицательная прибыль до рекламы меньше 0.005 ₽ по модулю отображается с её денежным знаком, а округлённый до нуля процент показывается как `0.00%`. Ненулевые отрицательные проценты сохраняют знак.
-- Регрессии проверяют Telegram callback без progress handle и current/historical проекции. Полный локальный Windows pytest: **4,436 passed in 46.73s**; компиляция и whitespace-проверка PASS. `data/tasks.json` восстановлен к baseline SHA-1, lock отсутствует. Exact-head CI для нового commit ещё не запускался.
+- Регрессии проверяют Telegram callback без progress handle и current/historical проекции. Полный локальный Windows pytest: **4,436 passed in 46.73s**; компиляция и whitespace-проверка PASS. Кодовый SHA `0d426b9c35e3ef728168ee3b6ca913d6e7a0f239` прошёл exact-head GitHub Actions Verify `41599892104`: Windows **4,436 passed in 131.20s**, Linux **4,436 passed in 27.06s**, Docker build/smoke PASS; artifact `13213338415` (`sha256:0caf20fb6ceea592c56bfbcea9541119c0e742b400170377dd044499bd825575`). `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
 
 # 2026-11-02 — PR #724: устранены два замечания повторного review
 

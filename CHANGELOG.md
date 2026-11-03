@@ -2,7 +2,7 @@
 
 - `_send_result` теперь всегда отправляет обычные текстовые результаты через общий splitter, в том числе когда Telegram не принял первое сообщение прогресса. Длинный результат больше не приводит к ошибке `Message is too long` после сохранения новой ревизии; кнопка остаётся на последней части.
 - Форматтер маржи до рекламы нормализует отрицательный ноль только в процентах (`0.00%`), сохраняя настоящую отрицательную прибыль и ненулевые отрицательные проценты.
-- Добавлены Telegram regression на временный отказ первой отправки и current/historical regressions для прибыли `-0.01 ₽`. Полный Windows pytest: **4,436 passed in 46.73s**; `compileall app tests` и `git diff --check` PASS. Известные тестовые изменения `data/tasks.json` восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, пустой lock удалён.
+- Добавлены Telegram regression на временный отказ первой отправки и current/historical regressions для прибыли `-0.01 ₽`. Полный Windows pytest: **4,436 passed in 46.73s**; `compileall app tests` и `git diff --check` PASS. Exact-head GitHub Actions Verify `41599892104` на кодовом SHA `0d426b9c35e3ef728168ee3b6ca913d6e7a0f239` завершился success: Windows **4,436 passed in 131.20s**, Linux **4,436 passed in 27.06s**, Docker build/smoke PASS; artifact `13213338415`, digest `sha256:0caf20fb6ceea592c56bfbcea9541119c0e742b400170377dd044499bd825575`. Известные тестовые изменения `data/tasks.json` восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, пустой lock удалён.
 
 # 2026-11-02 — PR #724: восстановлена полнота большого предпросмотра sales mix
 
