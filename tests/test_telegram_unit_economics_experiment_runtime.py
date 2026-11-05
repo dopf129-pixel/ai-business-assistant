@@ -723,6 +723,20 @@ def test_experiment_callbacks_stay_within_telegram_limit():
     assert len(callback.encode("utf-8")) <= 64
 
 
+def test_frozen_snapshot_tax_basis_handles_legacy_unknown_and_tax_free_plans():
+    label = TelegramUnitEconomicsExperimentRuntimeService._saved_plan_tax_basis_line
+
+    assert label({"tax_mode": None, "tax_rate": None}) == (
+        "Налоговая политика сохранённого плана: не задана или не подтверждена."
+    )
+    assert label({"tax_mode": "NONE", "tax_rate": None}) == (
+        "Режим налога сохранённого плана: налог не учитывался; источник настройки не сохранён."
+    )
+    assert label({"tax_mode": "USN_INCOME", "tax_rate": None}) == (
+        "Режим налога сохранённого плана: УСН Доходы; ставка и источник настройки не сохранены."
+    )
+
+
 def test_unit_economics_keyboard_exposes_experiment_entry():
     keyboard = AssistantKeyboardService().build_unit_economics_keyboard(
         ["sku-1"], experiment_callback="uex:m",
@@ -768,7 +782,9 @@ def test_experiment_history_reopens_after_runtime_restart_and_links_observation(
             _button_text(detail, "Сохранённые исходные"), user_id="owner-1",
         )
         assert snapshot["status"] == "UNIT_ECONOMICS_EXPERIMENT_FROZEN_SNAPSHOT"
-        assert "данные Ozon не запрашивались" in snapshot["message"]
+        assert "Данные Ozon не запрашивались." in snapshot["message"]
+        assert "Режим налога сохранённого плана: УСН Доходы; ставка 6%; источник настройки не сохранён." in snapshot["message"]
+        assert "маржа до рекламы сюда не пересчитывалась" in snapshot["message"]
         assert all(len(button["callback"].encode("utf-8")) <= 64
                    for button in detail["keyboard"]["buttons"])
     finally:
@@ -928,6 +944,10 @@ def test_late_result_appears_after_refresh_and_reason_is_explained(tmp_path):
         assert result_detail["status"] == "UNIT_ECONOMICS_EXPERIMENT_RESULT_DETAIL"
         assert "число проданных единиц не подтверждено" in result_detail["message"]
         assert "не доказывает причинность" in result_detail["message"]
+        assert "Сохранённый срез источников на: 2026-10-29T12:00:00Z" in result_detail["message"]
+        assert "Связанных снимков источников: 1 (идентификаторы скрыты)." in result_detail["message"]
+        assert "Налоговое основание этой записи отдельно не сохранено" in result_detail["message"]
+        assert "новая маржа до рекламы к результату эксперимента не применялась" in result_detail["message"]
     finally:
         reset_current_tenant_user_id(token)
 

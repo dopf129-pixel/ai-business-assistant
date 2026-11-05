@@ -1,6 +1,6 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
 from threading import RLock
 from time import monotonic
@@ -31,6 +31,23 @@ class TelegramUnitPriceCalculatorRuntimeService:
         "last_mile_per_unit": ("Последняя миля", "₽/шт.", False),
         "acquiring_per_unit": ("Эквайринг", "₽/шт.", False),
     }
+    PRE_AD_EXPENSE_LABELS = {
+        "STORAGE": "хранение",
+        "FINANCE_PAID_STORAGE": "хранение",
+        "PLACEMENT": "размещение",
+        "FINANCE_PLACEMENT": "размещение",
+        "RETURNS_AND_CANCELLATIONS": "возвраты и отмены",
+        "RETURN_LOSS_STRICT_COHORT": "потери строгой когорты возвратов",
+        "STRICT_RETAINED_COHORT_LOSS": "потери строгой когорты возвратов",
+        "ADDITIONAL_SERVICE": "дополнительные услуги",
+        "CONFIRMED_ADDITIONAL_EXPENSES": "прочие подтверждённые расходы",
+        "UNMAPPED_NON_AD_EXPENSES": "прочие нерекламные расходы",
+        "ROUNDING_ADJUSTMENT": "корректировка округления",
+    }
+    PRE_AD_BASE_EXPENSE_KEYS = frozenset({
+        "COGS", "OZON_COMMISSION", "LOGISTICS", "LAST_MILE",
+        "ACQUIRING", "CROSS_DOCKING",
+    })
 
     def __init__(
         self,
@@ -227,6 +244,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
             snapshot.get("cross_docking")
         )
         inputs = deepcopy(session.get("inputs") or {})
+        for field, value in list(inputs.items()):
+            if field in {"tax_mode", "advertising_mode"}:
+                continue
+            if value in (None, ""):
+                inputs[field] = None
+                continue
+            number = self._decimal(value)
+            if number is None:
+                return self._stale_result()
+            inputs[field] = format(number, "f")
         inputs.setdefault("cross_docking_per_unit", None)
         provenance = deepcopy(session.get("provenance") or {})
         provenance.setdefault("cross_docking_per_unit", "unknown")
@@ -276,6 +303,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "invalid_inputs": list(calculated.get("invalid_inputs") or [])[:20],
         }
         projection.update({key: values.get(key) for key in allowed_projection})
+        # These projections are already calculated from the exact saved inputs.
+        # Keep them as an additive, versioned snapshot so opening an old plan
+        # never needs a source read or silently recalculates its history.
+        for field in ("pre_ad_margin", "advertising_tax_bridge"):
+            value = calculated.get(field)
+            if isinstance(value, dict):
+                projection[field] = deepcopy(value)
         projection["cross_docking"] = values.get("cross_docking")
         if extended_scenario is not None:
             projection["additional_unit_expenses"] = values.get("additional_unit_expenses")
@@ -925,7 +959,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "w", "x"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "o", "w", "x"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -959,6 +993,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     scope,
                     expected_version,
                 )
+            if action == "o":
+                return self._begin_price_planning_input(
+                    session, "price_grid_no_ad", user, scope, expected_version,
+                )
             if action in {"d", "h"}:
                 return self._begin_price_comparison_advertising_input(
                     session,
@@ -974,7 +1012,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     return self._stale_result()
                 stored = session.get("price_planning_result") or {}
                 if (str(page) != parts[4] or page < 0
-                        or stored.get("mode") != "price_grid"):
+                        or stored.get("mode") not in {"price_grid", "price_options"}):
                     return self._stale_result()
                 return self._price_planning_result_screen(session, page=page)
             if action == "u" and len(parts) == 5:
@@ -1043,7 +1081,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._handle_price_comparison_advertising_text(
                 text, pending, session, user, scope, key,
             )
-        if pending.get("stage") in {"target_margin", "price_options", "price_grid"}:
+        if pending.get("stage") in {
+            "target_margin", "price_options", "price_grid", "price_grid_no_ad",
+        }:
             return self._handle_price_planning_text(
                 text, pending, session, user, scope, key
             )
@@ -1331,7 +1371,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
         return self._edit_prompt(session, field)
 
     def _begin_price_planning_input(self, session, stage, user, scope, expected_version):
-        if self.target_planning_service is None or stage not in {"target_margin", "price_options", "price_grid"}:
+        if self.target_planning_service is None or stage not in {
+            "target_margin", "price_options", "price_grid", "price_grid_no_ad",
+        }:
             return self._stale_result()
         key = (user, scope)
         refresh_in_progress = None
@@ -1437,6 +1479,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     identity=self._scenario_identity(session),
                     provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    **self._extended_scenario_kwargs(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
                     exact_price_rate_cents=self._planning_exact_price_cents(
@@ -1450,7 +1493,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     notice="Не удалось выполнить локальное сравнение. Сценарий не изменён; исправьте ввод или вернитесь к расчёту.",
                 )
             input_value = list(parsed["normalized"])
-        elif stage == "price_grid":
+        elif stage in {"price_grid", "price_grid_no_ad"}:
             comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
                 session,
                 deepcopy(session.get("inputs") or {}),
@@ -1473,6 +1516,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._price_planning_prompt(session, stage, notice=notice)
             mode = "price_grid"
             target = None
+            advertising_mode = (
+                "NO_AD_SCENARIO" if stage == "price_grid_no_ad" else "SAME_DRR"
+            )
             tariff_required = bool(
                 self.tariff_profile_runtime_service is not None
                 or frozen_tariff is not None
@@ -1487,12 +1533,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     identity=self._scenario_identity(session),
                     provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    **self._extended_scenario_kwargs(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
                     exact_price_rate_cents=self._planning_exact_price_cents(
                         session, comparison_inputs, comparison_provenance,
                         tariff_resolution, frozen_tariff,
                     ),
+                    advertising_mode=advertising_mode,
                     price_grid_metadata=grid["metadata"],
                 )
             except Exception:
@@ -1691,6 +1739,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 identity=self._scenario_identity(session),
                 provenance=comparison_provenance,
                 sources=self._scenario_sources(session),
+                **self._extended_scenario_kwargs(session),
                 frozen_tariff_snapshot=frozen_tariff,
                 tariff_resolution_required=tariff_required,
                 exact_price_rate_cents=self._planning_exact_price_cents(
@@ -1760,6 +1809,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "Введите целевую маржу от 0 до 100% (например, 20 или 19,5). "
                 "Бот покажет ориентир безубыточности и цену для цели."
             )
+        elif stage == "price_grid_no_ad":
+            prompt = (
+                "Введите начало диапазона; конец; шаг цены продавца до копейки для отдельного "
+                "сценария без рекламы. Например: 80; 120; 5. В сетку добавятся тарифные границы "
+                "и соседние копейки; проверяется не более 200 точек. Нулевая реклама здесь — "
+                "допущение сравнения, а не прогноз."
+            )
         elif stage == "price_grid":
             prompt = (
                 "Введите начало диапазона; конец; шаг цены продавца до копейки. "
@@ -1792,12 +1848,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
         result = stored.get("result") or {}
         all_rows = result.get("rows") or []
         is_grid = mode == "price_grid"
-        page_size = 10
-        total_pages = max(1, (len(all_rows) + page_size - 1) // page_size) if is_grid else 1
+        is_comparison = mode in {"price_grid", "price_options"}
+        page_size = 10 if is_grid else 4 if mode == "price_options" else 1
+        total_pages = (
+            max(1, (len(all_rows) + page_size - 1) // page_size)
+            if is_comparison else 1
+        )
         if type(page) is not int or not 0 <= page < total_pages:
             return self._stale_result()
-        first_row = page * page_size if is_grid else 0
-        visible_rows = all_rows[first_row:first_row + page_size] if is_grid else all_rows
+        first_row = page * page_size if is_comparison else 0
+        visible_rows = all_rows[first_row:first_row + page_size] if is_comparison else all_rows
         identity = session.get("snapshot", {}).get("identity") or {}
         product = session.get("snapshot", {}).get("product") or {}
         title = (
@@ -1854,23 +1914,75 @@ class TelegramUnitPriceCalculatorRuntimeService:
             )
             baseline = result.get("baseline") or {}
             if baseline.get("available") is True:
-                lines.append(
-                    "База " + self._money(baseline.get("price")) + ": "
-                    + self._money(baseline.get("profit")) + "/шт."
-                )
+                baseline_pre_ad = baseline.get("pre_ad_margin") or {}
+                baseline_line = "База " + self._money(baseline.get("price")) + ": "
+                if baseline_pre_ad.get("status") == "AVAILABLE":
+                    baseline_line += (
+                        "до рекламы "
+                        + self._money(baseline_pre_ad.get("profit_per_unit_rub"))
+                        + "/шт.; после рекламы "
+                    )
+                    if baseline_pre_ad.get("expense_scope_status") == "PARTIAL":
+                        baseline_line += "(неполные расходы) "
+                else:
+                    baseline_line += "маржа до рекламы недоступна; после рекламы "
+                baseline_line += self._money(baseline.get("profit")) + "/шт."
+                lines.append(baseline_line)
             elif baseline:
-                lines.append(
-                    "База " + self._money(baseline.get("price"))
-                    + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
-                )
+                baseline_pre_ad = baseline.get("pre_ad_margin") or {}
+                if baseline_pre_ad.get("status") == "AVAILABLE":
+                    baseline_line = (
+                        "База " + self._money(baseline.get("price")) + ": до рекламы "
+                        + self._money(baseline_pre_ad.get("profit_per_unit_rub"))
+                        + "/шт. ("
+                        + self._percent(baseline_pre_ad.get("margin_percent"))
+                        + "); прибыль после рекламы не рассчитана"
+                    )
+                    missing = self._price_planning_missing_labels(baseline)
+                    if missing:
+                        baseline_line += "; заполните " + ", ".join(missing)
+                    if baseline.get("commission_rate") is not None:
+                        baseline_line += "; комиссия " + self._percent(
+                            baseline.get("commission_rate")
+                        )
+                    lines.append(baseline_line + ".")
+                else:
+                    baseline_line = (
+                        "База " + self._money(baseline.get("price"))
+                        + ": маржа до рекламы недоступна"
+                    )
+                    missing = self._price_planning_missing_labels(baseline)
+                    commission_unconfirmed = (
+                        baseline.get("commission_status") in {
+                            "UNKNOWN", "CURRENT_PRICE_POINT_ONLY", "CONFLICT",
+                            "EXPIRED", "UNSUPPORTED_SCHEME", "SOURCE_UNAVAILABLE",
+                        }
+                        or baseline.get("status") == "COMMISSION_UNKNOWN"
+                    )
+                    if commission_unconfirmed and "commission_rate" in (
+                        baseline.get("missing_inputs") or []
+                    ):
+                        missing = [
+                            label for label in missing
+                            if label != self.EDITABLE_FIELDS["commission_rate"][0]
+                        ]
+                    if missing:
+                        baseline_line += "; заполните " + ", ".join(missing)
+                    if commission_unconfirmed:
+                        baseline_line += "; комиссия для этой цены не подтверждена"
+                    elif not missing:
+                        baseline_line += "; расчёт недоступен по текущим данным"
+                    lines.append(
+                        baseline_line + "."
+                    )
             advertising_basis = result.get("advertising_basis") or {}
             if is_grid:
                 grid = result.get("price_grid") or {}
                 inserted = grid.get("inserted_tariff_boundary_prices") or []
                 lines.append(
                     "Сетка " + self._money(grid.get("start")) + "–"
-                    + self._money(grid.get("end")) + " ₽, шаг "
-                    + self._money(grid.get("step")) + " ₽; проверено точек: "
+                    + self._money(grid.get("end")) + ", шаг "
+                    + self._money(grid.get("step")) + "; проверено точек: "
                     + str(grid.get("candidate_count") or len(all_rows))
                     + "; тарифных правил: " + str(grid.get("tariff_rule_count", 0))
                     + "; дополнительных граничных точек: " + str(len(inserted)) + "."
@@ -1883,8 +1995,24 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 lines.append(
                     f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number}."
                 )
+            elif mode == "price_options" and total_pages > 1:
+                start_number = first_row + 1
+                end_number = min(len(all_rows), first_row + page_size)
+                lines.append(
+                    f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number} "
+                    f"из {len(all_rows)}."
+                )
             advertising_mode = advertising_basis.get("mode")
-            if advertising_mode == "SAME_DRR" and advertising_basis.get("rate") is not None:
+            lines.append(
+                "Маржа до рекламы: после сценарного налога; процент — от цены продавца "
+                "до баллов. После рекламы: тот же знаменатель, расходы по выбранному режиму."
+            )
+            if advertising_mode == "NO_AD_SCENARIO":
+                lines.append(
+                    "Отдельное сравнение без рекламы: расход принят равным 0 ₽/шт. только для "
+                    "этого сценария; это не прогноз и не меняет рекламу основного сценария."
+                )
+            elif advertising_mode == "SAME_DRR" and advertising_basis.get("rate") is not None:
                 lines.append(
                     "Реклама для вариантов: одинаковая ДРР "
                     + self._percent(advertising_basis.get("rate"))
@@ -1913,8 +2041,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             best_prices = result.get("best_prices") or []
             if best_prices:
                 if is_grid:
+                    best_label = (
+                        "Максимум в отдельном сценарии без рекламы: "
+                        if advertising_mode == "NO_AD_SCENARIO"
+                        else "Максимальная прибыль после рекламы на проверенной сетке: "
+                    )
                     lines.append(
-                        "Максимальная прибыль на проверенной сетке: "
+                        best_label
                         + self._money(result.get("best_profit")) + "/шт.; равных вариантов: "
                         + str(len(best_prices)) + "."
                     )
@@ -1926,7 +2059,20 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         + ", ".join(self._money(price) for price in best_prices) + "."
                     )
             else:
-                lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
+                if result.get("ranking_status") == "INCOMPARABLE_BASES":
+                    lines.append(
+                        "Прибыли отдельных вариантов рассчитаны, но налоговые или расчётные "
+                        "основания различаются; общий максимум не выбран."
+                    )
+                elif any(
+                    (row.get("pre_ad_margin") or {}).get("status") == "AVAILABLE"
+                    for row in visible_rows
+                ):
+                    lines.append(
+                        "Прибыль после рекламы не рассчитана; варианты не ранжированы."
+                    )
+                else:
+                    lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
             for index, row in enumerate(visible_rows, start=first_row + 1):
                 if row.get("available") is not True:
                     if row.get("commission_status") in {
@@ -1941,21 +2087,51 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     missing = self._price_planning_missing_labels(
                         row.get("forward_result") or row
                     )
+                    pre_ad = row.get("pre_ad_margin") or {}
+                    if pre_ad.get("status") == "AVAILABLE":
+                        line = (
+                            f"{index}. {self._money(row.get('price'))}: до рекламы "
+                            f"{self._money(pre_ad.get('profit_per_unit_rub'))}/шт. "
+                            f"({self._percent(pre_ad.get('margin_percent'))})"
+                        )
+                        if pre_ad.get("expense_scope_status") == "PARTIAL":
+                            line += "; учтены не все расходы"
+                        line += "; прибыль после рекламы не рассчитана"
+                        if missing:
+                            line += "; заполните " + ", ".join(missing)
+                        if row.get("commission_rate") is not None:
+                            line += "; комиссия " + self._percent(row.get("commission_rate"))
+                        lines.append(line + ".")
+                        continue
                     detail = "расчёт недоступен"
                     if missing:
                         detail += "; заполните " + ", ".join(missing)
                     lines.append(f"{index}. {self._money(row.get('price'))}: {detail}.")
                     continue
-                line = (
-                    f"{index}. {self._money(row.get('price'))}: прибыль "
-                    f"{self._money(row.get('profit'))}/шт.; маржа "
-                    f"{self._percent(row.get('margin_percent'))}; налог "
-                    f"{self._money(row.get('tax'))}"
-                )
+                pre_ad = row.get("pre_ad_margin") or {}
+                if advertising_mode == "NO_AD_SCENARIO":
+                    line = (
+                        f"{index}. {self._money(row.get('price'))}: без рекламы "
+                        f"{self._money(row.get('profit'))}/шт. "
+                        f"({self._percent(row.get('margin_percent'))}); "
+                        f"до рекламы {self._money(pre_ad.get('profit_per_unit_rub'))}/шт. "
+                        f"({self._percent(pre_ad.get('margin_percent'))})"
+                    )
+                else:
+                    line = (
+                        f"{index}. {self._money(row.get('price'))}: до рекламы "
+                        f"{self._money(pre_ad.get('profit_per_unit_rub'))}/шт. "
+                        f"({self._percent(pre_ad.get('margin_percent'))}); "
+                        f"после рекламы {self._money(row.get('profit'))}/шт. "
+                        f"({self._percent(row.get('margin_percent'))}); налог "
+                        f"{self._money(row.get('tax'))}"
+                    )
+                if pre_ad.get("expense_scope_status") == "PARTIAL":
+                    line += "; до рекламы учтены не все расходы"
                 if row.get("commission_rate") is not None:
                     line += "; комиссия " + self._percent(row.get("commission_rate"))
                 if row.get("advertising_per_unit") is not None:
-                    line += "; реклама " + self._money(row.get("advertising_per_unit")) + " ₽/шт."
+                    line += "; реклама " + self._money(row.get("advertising_per_unit")) + "/шт."
                 if row.get("advertising_rate") is not None:
                     line += "; эквивалент ДРР " + self._percent(row.get("advertising_rate"))
                 if row.get("profit_delta_vs_baseline") is not None:
@@ -1988,16 +2164,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         "Фиксированная реклама сохранена в ₽/успешную продажу для каждой цены; "
                         "порог ДРР не смешивался с фиксированным расходом."
                     )
+                elif advertising_basis.get("mode") == "NO_AD_SCENARIO":
+                    lines.append(
+                        "Безрекламный результат — отдельное допущение; бот не прогнозирует, "
+                        "как цена повлияет на спрос или фактические расходы на рекламу."
+                    )
                 else:
                     lines.append(
+                        "До рекламы: сценарный расчёт без рекламы после налога; % от цены "
+                        "продавца до баллов. После рекламы: прибыль с выбранной моделью рекламы. "
                         "Пороги проверены по округлённой прибыли и налоговой политике магазина; "
                         "шаг ДРР — 0,01 п.п. Это сценарий, не прогноз эффекта цены на спрос или рекламу."
                     )
             if is_grid:
-                lines.append(
-                    "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
-                    "бот проверит его отдельно по тому же снимку."
-                )
+                if advertising_mode == "NO_AD_SCENARIO":
+                    lines.append(
+                        "Порог рекламы не рассчитывался: это сравнение цен без рекламы."
+                    )
+                else:
+                    lines.append(
+                        "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
+                        "бот проверит его отдельно по тому же снимку."
+                    )
         freshness = self._source_freshness(session)
         if freshness.get("status") == "STALE":
             lines.append(
@@ -2007,7 +2195,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Цена основного сценария не изменена.",
             "Оценка одной успешной продажи FBO. Каждый вариант использует свой подтверждённый тариф; неизвестный тариф не подменяется ставкой соседней цены. FBS не поддержан.",
             self._price_planning_cross_docking_note(session, result),
-            "Постоянные расходы, платное хранение и эффекты возвратов не входят в расчёт.",
+            self._price_planning_expense_scope_note(),
         ])
         keyboard_builder = getattr(
             self.keyboard_service,
@@ -2041,6 +2229,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "read_only": True,
             "executed": False,
         }
+
+    def _price_planning_expense_scope_note(self):
+        return (
+            "Дополнительные расходы учитываются до рекламы только при подтверждённых "
+            "данных и совместимой базе; постоянные расходы магазина не распределяются "
+            "на SKU. Неизвестные суммы не подменяются нулём."
+        )
 
     def _price_planning_cross_docking_note(self, session, result):
         forward_results = []
@@ -2186,29 +2381,40 @@ class TelegramUnitPriceCalculatorRuntimeService:
             candidate_inputs["commission_rate"] = outcome.get("commission_rate")
             candidate_provenance["commission_rate"] = outcome.get("commission_origin") or "unknown"
         advertising_basis = result.get("advertising_basis") or {}
-        if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
-            self._apply_advertising_input(
-                candidate_inputs, candidate_provenance,
-                mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
-                value=advertising_basis.get("amount_per_unit"),
-                origin="manual_seller_assumption",
-            )
-        elif outcome.get("advertising_rate") is not None:
-            self._apply_advertising_input(
-                candidate_inputs, candidate_provenance,
-                mode="PERCENT_OF_SELLER_REVENUE",
-                value=outcome.get("advertising_rate"),
-                origin=(
-                    candidate_provenance.get("advertising_rate", "unknown")
-                    if advertising_basis.get("mode") == "SAME_DRR"
-                    else "manual_seller_assumption"
-                ),
-            )
+        validation_inputs = deepcopy(candidate_inputs)
+        validation_provenance = deepcopy(candidate_provenance)
+        if advertising_basis.get("mode") == "NO_AD_SCENARIO":
+            validation_inputs.pop("advertising_cost_per_unit", None)
+            validation_inputs["advertising_mode"] = "PERCENT_OF_SELLER_REVENUE"
+            validation_inputs["advertising_rate"] = "0"
+            validation_provenance["advertising_mode"] = "manual_seller_assumption"
+            validation_provenance["advertising_rate"] = "manual_seller_assumption"
+        else:
+            if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                self._apply_advertising_input(
+                    candidate_inputs, candidate_provenance,
+                    mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
+                    value=advertising_basis.get("amount_per_unit"),
+                    origin="manual_seller_assumption",
+                )
+            elif outcome.get("advertising_rate") is not None:
+                self._apply_advertising_input(
+                    candidate_inputs, candidate_provenance,
+                    mode="PERCENT_OF_SELLER_REVENUE",
+                    value=outcome.get("advertising_rate"),
+                    origin=(
+                        candidate_provenance.get("advertising_rate", "unknown")
+                        if advertising_basis.get("mode") == "SAME_DRR"
+                        else "manual_seller_assumption"
+                    ),
+                )
+            validation_inputs = deepcopy(candidate_inputs)
+            validation_provenance = deepcopy(candidate_provenance)
         try:
             validation = self.scenario_service.calculate(
-                candidate_inputs,
+                validation_inputs,
                 identity=self._scenario_identity(session),
-                provenance=candidate_provenance,
+                provenance=validation_provenance,
                 sources=self._scenario_sources(session),
                 **self._extended_scenario_kwargs(session),
             )
@@ -2238,7 +2444,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if mode == "price_grid":
             baseline = result.get("baseline") or {}
             solver = getattr(self.target_planning_service, "advertising_compensation_service", None)
-            if baseline.get("available") is True and solver is not None:
+            if advertising_basis.get("mode") == "NO_AD_SCENARIO":
+                grid_threshold_notice = " В безрекламном сравнении порог фактической рекламы не рассчитывался."
+            elif baseline.get("available") is True and solver is not None:
                 def forward_for_threshold(candidate):
                     try:
                         return self.scenario_service.calculate(
@@ -2300,7 +2508,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 current["inputs"]["price"] = candidate_price
                 current["provenance"]["price"] = "manual_seller_assumption"
                 current["overrides"].add("price")
-                if advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                if advertising_basis.get("mode") == "NO_AD_SCENARIO":
+                    pass
+                elif advertising_basis.get("mode") == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
                     self._apply_advertising_input(
                         current["inputs"], current["provenance"],
                         mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
@@ -2368,12 +2578,26 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _format_price_planning_outcome(self, label, outcome, target):
         if outcome.get("status") == "FOUND" and outcome.get("goal_reached") is True:
+            forward = outcome.get("forward_result") or {}
+            pre_ad = forward.get("pre_ad_margin") or {}
+            pre_ad_line = (
+                " До рекламы: "
+                + self._money(pre_ad.get("profit_per_unit_rub"))
+                + "/шт. ("
+                + self._percent(pre_ad.get("margin_percent"))
+                + ")."
+                if pre_ad.get("status") == "AVAILABLE"
+                else " Маржа до рекламы недоступна при текущих основаниях."
+            )
+            if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL":
+                pre_ad_line = pre_ad_line.replace("До рекламы:", "До рекламы по неполному составу:")
             return (
                 f"{label}: {self._money(outcome.get('price'))}; прибыль "
                 f"{self._money(outcome.get('profit'))}/шт.; маржа "
                 f"{self._percent(outcome.get('margin_percent'))}; налог "
                 f"{self._money(outcome.get('tax'))} — цель "
                 f"{self._percent(target)} достигнута."
+                + pre_ad_line
             )
         missing = self._price_planning_missing_labels(outcome)
         if outcome.get("status") == "MISSING_INPUTS":
@@ -2409,7 +2633,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return labels.get(status, "не рассчитано")
         return (
             self._percent(outcome.get("advertising_rate")) + " ДРР / "
-            + self._money(outcome.get("advertising_per_unit")) + " ₽/успешную продажу"
+            + self._money(outcome.get("advertising_per_unit")) + "/успешную продажу"
         )
 
     def _price_planning_missing_labels(self, outcome):
@@ -3344,10 +3568,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Цена продавца: " + self._money(inputs.get("price")),
             "Себестоимость: " + self._money(inputs.get("cost")),
         ]
+        lines.extend(self._pre_ad_projection_lines(result))
         if result.get("available") is True:
             lines.extend([
                 "Прибыль: " + self._money(values.get("profit")) + "/шт.",
                 "Маржа: " + self._percent(values.get("margin_percent")),
+                "Маржа после рекламы по сценарию: "
+                + self._percent(values.get("margin_percent"))
+                + " (" + self._money(values.get("profit")) + "/шт.).",
             ])
         else:
             lines.append("Прибыль с единицы пока не рассчитана.")
@@ -3363,6 +3591,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 labels.append("проверьте допустимость расчётных значений и налоговые настройки")
             if labels:
                 lines.append("Нужно проверить: " + ", ".join(dict.fromkeys(labels)) + ".")
+            advertising_unknown = (
+                inputs.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                and inputs.get("advertising_cost_per_unit") is None
+            ) or (
+                inputs.get("advertising_mode") != "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                and inputs.get("advertising_rate") is None
+            )
+            if advertising_unknown:
+                lines.append(
+                    "Реклама неизвестна: прибыль после рекламы не рассчитана и не считается нулевой."
+                )
             cross_docking_line = self._cross_docking_assumption(
                 snapshot.get("cross_docking") or {}, None
             )
@@ -3412,9 +3651,241 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.insert(0, notice)
         lines.extend([
             "Оценка одной успешной продажи FBO. FBS не поддержан.",
-            "Не включены хранение, постоянные расходы и возвраты.",
         ])
+        lines.extend(self._pre_ad_scope_disclosure_lines(
+            result,
+            fallback="Не включены хранение, постоянные расходы и возвраты.",
+        ))
         return "\n".join(lines)
+
+    def _pre_ad_projection_lines(self, result):
+        projection = result.get("pre_ad_margin") if isinstance(result, dict) else None
+        if not isinstance(projection, dict) or projection.get("status") != "AVAILABLE":
+            return []
+        scope = projection.get("expense_scope")
+        scope = scope if isinstance(scope, dict) else {}
+        lines = [
+            "Маржа до рекламы (после налога): "
+            + self._money(projection.get("profit_per_unit_rub"))
+            + "/шт. · "
+            + self._percent(projection.get("margin_percent"))
+            + " от цены продавца."
+        ]
+        if scope.get("status") == "COMPLETE":
+            lines.append("Полнота расходов до рекламы: подтверждена.")
+        else:
+            lines.append(
+                "Полнота расходов до рекламы: частичная; неизвестные суммы не подменены нулём."
+            )
+        extended = result.get("extended_calculation")
+        lines.extend(self._pre_ad_additional_expense_lines(scope, extended))
+        lines.extend(self._pre_ad_extended_basis_lines(extended, scope))
+        return lines
+
+    def _pre_ad_additional_expense_lines(self, scope, extended_calculation=None):
+        known = scope.get("known_non_ad_expenses_rub")
+        if not isinstance(known, dict):
+            return []
+        additional = []
+        for key, raw_amount in sorted(known.items()):
+            if key in self.PRE_AD_BASE_EXPENSE_KEYS:
+                continue
+            amount = self._decimal(raw_amount)
+            if amount is None or not amount.is_finite():
+                continue
+            label = self.PRE_AD_EXPENSE_LABELS.get(key, "дополнительные расходы")
+            if key == "CONFIRMED_ADDITIONAL_EXPENSES":
+                component_keys = (
+                    extended_calculation.get("included_component_keys", [])
+                    if isinstance(extended_calculation, dict) else []
+                )
+                unlabeled_components = any(
+                    not isinstance(component_key, str)
+                    or (
+                        component_key != "CONFIRMED_ADDITIONAL_EXPENSES"
+                        and component_key not in self.PRE_AD_EXPENSE_LABELS
+                    )
+                    for component_key in component_keys
+                )
+                component_labels = sorted({
+                    self.PRE_AD_EXPENSE_LABELS[component_key]
+                    for component_key in component_keys
+                    if isinstance(component_key, str)
+                    and component_key in self.PRE_AD_EXPENSE_LABELS
+                    and component_key != "CONFIRMED_ADDITIONAL_EXPENSES"
+                })
+                if unlabeled_components:
+                    label = "подтверждённые дополнительные расходы"
+                elif len(component_labels) == 1:
+                    label = component_labels[0] + " (подтверждённые расходы)"
+                elif component_labels:
+                    label = "подтверждённые расходы: " + ", ".join(component_labels)
+            displayed_amount = self._money(-amount)
+            if key == "ROUNDING_ADJUSTMENT" and amount < 0:
+                displayed_amount = "+" + displayed_amount
+            additional.append(
+                f"{label.capitalize()}: {displayed_amount}/шт."
+            )
+        if not additional:
+            return []
+        return [
+            "Дополнительно учтено до рекламы (уже входит в маржу):",
+            *additional,
+        ]
+
+    def _pre_ad_extended_basis_lines(self, extended_calculation, expense_scope=None):
+        if (
+            not isinstance(extended_calculation, dict)
+            or extended_calculation.get("status") not in {"APPLIED", "UNAVAILABLE"}
+            or extended_calculation.get("source_completeness") != "COMPLETE"
+        ):
+            return []
+        calculation_mode = extended_calculation.get("calculation_mode")
+        included_keys = extended_calculation.get("included_component_keys")
+        known_expenses = (
+            expense_scope.get("known_non_ad_expenses_rub")
+            if isinstance(expense_scope, dict) else None
+        )
+        if not isinstance(included_keys, list) or not isinstance(known_expenses, dict):
+            return []
+        if calculation_mode == "STRICT_RETAINED_COHORT":
+            applied_scope_key = "RETURN_LOSS_STRICT_COHORT"
+            if not any(key in included_keys for key in (
+                "STRICT_RETAINED_COHORT_LOSS", "RETURN_LOSS_STRICT_COHORT",
+            )):
+                return []
+        elif calculation_mode == "WINDOW_COST_ALLOCATION":
+            applied_scope_key = "CONFIRMED_ADDITIONAL_EXPENSES"
+            if not included_keys:
+                return []
+        else:
+            return []
+        applied_amount = self._decimal(known_expenses.get(applied_scope_key))
+        denominator_labels = {
+            "ORDERED_UNITS_WINDOW": "заказанных единиц",
+            "SOLD_UNITS_WINDOW": "проданных единиц",
+            "RETAINED_UNITS_EXACT_COHORT": "сохранённых единиц точной когорты",
+        }
+        denominator_label = denominator_labels.get(
+            extended_calculation.get("denominator_kind")
+        )
+        amount = self._decimal(extended_calculation.get("total_numerator_rub"))
+        units = extended_calculation.get("denominator_units")
+        scope = extended_calculation.get("scope")
+        if (
+            denominator_label is None
+            or amount is None
+            or not amount.is_finite()
+            or amount <= 0
+            or type(units) is not int
+            or units <= 0
+            or units > 1_000_000_000
+            or not isinstance(scope, dict)
+        ):
+            return []
+        try:
+            date_from = date.fromisoformat(str(scope.get("from_date") or ""))
+            date_to = date.fromisoformat(str(scope.get("to_date") or ""))
+        except (TypeError, ValueError):
+            return []
+        if date_to < date_from:
+            return []
+        included_expense_keys = (
+            expense_scope.get("included_expense_keys")
+            if isinstance(expense_scope, dict) else None
+        )
+        expense_scope_keys = (
+            {key for key in included_expense_keys if isinstance(key, str)}
+            if isinstance(included_expense_keys, list)
+            else set()
+        )
+        if (
+            extended_calculation.get("status") == "UNAVAILABLE"
+            and not (
+                applied_amount is not None
+                and applied_amount.is_finite()
+                and applied_amount > 0
+            )
+        ):
+            component_scope_keys = {
+                "STORAGE": "STORAGE",
+                "FINANCE_PAID_STORAGE": "STORAGE",
+                "PLACEMENT": "PLACEMENT",
+                "FINANCE_PLACEMENT": "PLACEMENT",
+                "RETURNS_AND_CANCELLATIONS": "RETURNS_AND_CANCELLATIONS",
+                "STRICT_RETAINED_COHORT_LOSS": "RETURNS_AND_CANCELLATIONS",
+            }
+            if calculation_mode == "STRICT_RETAINED_COHORT":
+                ledger_confirms_scope = (
+                    "RETURNS_AND_CANCELLATIONS" in expense_scope_keys
+                )
+            else:
+                ledger_confirms_scope = bool(included_keys) and all(
+                    component_scope_keys.get(key) in expense_scope_keys
+                    if key in component_scope_keys
+                    else applied_scope_key in known_expenses
+                    for key in included_keys
+                )
+            if not ledger_confirms_scope:
+                return []
+        period = date_from.strftime("%d.%m.%Y") + " — " + date_to.strftime("%d.%m.%Y")
+        label = (
+            "Основание распределения потерь возвратной когорты"
+            if calculation_mode == "STRICT_RETAINED_COHORT"
+            else "База распределения дополнительных расходов"
+        )
+        lines = [
+            f"{label}: {self._money(amount)} / {units} {denominator_label}; период {period}."
+        ]
+        applied_per_unit = self._decimal(
+            extended_calculation.get("additional_expense_per_unit_rub")
+        )
+        if applied_per_unit is not None and applied_per_unit == 0:
+            lines.append(
+                "Расход на единицу округлён до 0,00 ₽/шт.; исходная сумма распределения указана выше."
+            )
+        return lines
+
+    def _pre_ad_scope_disclosure_lines(self, result, *, fallback):
+        projection = result.get("pre_ad_margin") if isinstance(result, dict) else None
+        if not isinstance(projection, dict) or projection.get("status") != "AVAILABLE":
+            return [fallback]
+        scope = projection.get("expense_scope")
+        if not isinstance(scope, dict):
+            return [fallback]
+        unknown = scope.get("unknown_non_ad_expense_keys")
+        if not isinstance(unknown, list):
+            return [fallback]
+
+        labels = {
+            self.PRE_AD_EXPENSE_LABELS.get(key, "прочие расходы")
+            for key in unknown
+            if isinstance(key, str)
+        }
+        lines = []
+        if labels:
+            lines.append(
+                "Не подтверждены: " + ", ".join(sorted(labels))
+                + "; неизвестные суммы не приняты за ноль."
+            )
+        excluded = scope.get("excluded_expense_keys")
+        excluded_labels = set()
+        if isinstance(excluded, list):
+            excluded_labels = {
+                self.PRE_AD_EXPENSE_LABELS.get(key, "прочие расходы")
+                for key in excluded
+                if isinstance(key, str)
+                and key not in {"ADVERTISING", "FIXED_STORE_OVERHEAD"}
+            }
+        excluded_labels.difference_update(labels)
+        if excluded_labels:
+            lines.append(
+                "Явно не включены источником: "
+                + ", ".join(sorted(excluded_labels)) + "."
+            )
+        if isinstance(excluded, list) and "FIXED_STORE_OVERHEAD" in excluded:
+            lines.append("Постоянные расходы магазина не распределяются на SKU.")
+        return lines or ["Полнота состава расходов указана выше."]
 
     def _format_result_details(self, session, result, notice=None):
         snapshot = session["snapshot"]
@@ -3439,6 +3910,40 @@ class TelegramUnitPriceCalculatorRuntimeService:
             cross_docking,
             values.get("cross_docking"),
         )
+        tax_bridge = result.get("advertising_tax_bridge") or {}
+        tax_before_ad = tax_bridge.get("tax_before_ad_rub")
+        if tax_before_ad is None:
+            tax_before_ad = (result.get("pre_ad_margin") or {}).get("tax_per_unit_rub")
+        tax_after_ad = tax_bridge.get("tax_after_ad_rub")
+        if tax_after_ad is None:
+            tax_after_ad = values.get("tax")
+        if tax_after_ad is None:
+            tax_lines = ["Налог после рекламы (T1): не рассчитан."]
+        else:
+            tax_lines = [
+                "Налог: " + self._money(tax_after_ad) + " ("
+                + self._percent(values.get("effective_tax_rate"))
+                + " цены; T1, после рекламы)"
+            ]
+        if tax_before_ad is not None:
+            tax_lines.append("Налог без рекламы (T0): " + self._money(tax_before_ad))
+        if tax_bridge.get("tax_effect_of_advertising_rub") is not None:
+            tax_lines.append(
+                "Налоговый эффект рекламы (T0 − T1): "
+                + self._money(tax_bridge.get("tax_effect_of_advertising_rub"))
+            )
+        if (
+            tax_bridge.get("reason") == "ADVERTISING_TAX_BRIDGE_ROUNDING_MISMATCH"
+            and tax_bridge.get("reconciliation_delta_rub") is not None
+        ):
+            delta = self._decimal(tax_bridge.get("reconciliation_delta_rub"))
+            delta_label = self._money(delta)
+            if delta is not None and delta > 0:
+                delta_label = "+" + delta_label
+            tax_lines.append(
+                "Расхождение налогового моста из-за округления (справочно): "
+                + delta_label + "/шт."
+            )
         sku = session["sku"]
         lines = [
             "🧮 Плановая юнит-экономика",
@@ -3462,9 +3967,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Баллы, оценка " + self._percent(inputs.get("discount_points_rate")) + ": " + self._money(values.get("discount_points")),
             cross_docking_line,
             "Выручка для налога: " + self._money(values.get("taxable_revenue")),
-            "Налог: " + self._money(values.get("tax")) + " (" + self._percent(values.get("effective_tax_rate")) + " цены)",
+            *tax_lines,
             "",
         ]
+        lines.extend(self._pre_ad_projection_lines(result))
         tariff = result.get("tariff_resolution") or {}
         if tariff:
             if tariff.get("available") is True:
@@ -3481,6 +3987,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.extend([
                 "Плановая прибыль: " + self._money(values.get("profit")) + "/шт.",
                 "Плановая маржа: " + self._percent(values.get("margin_percent")),
+                "Маржа после рекламы по сценарию: "
+                + self._percent(values.get("margin_percent"))
+                + " (" + self._money(values.get("profit")) + "/шт.).",
             ])
             comparison = result.get("comparison") or {}
             if comparison.get("available") is True:
@@ -3513,8 +4022,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         lines.extend([
             "",
             "Оценка одной успешной продажи FBO. Комиссия применяется только при подтверждении тарифа для указанной цены; FBS не поддержан.",
-            "Хранение, общие расходы магазина и возвраты не включены.",
         ])
+        lines.extend(self._pre_ad_scope_disclosure_lines(
+            result,
+            fallback="Хранение, общие расходы магазина и возвраты не включены.",
+        ))
         return "\n".join(lines)
 
     def _cross_docking_assumption(self, evidence, amount):
@@ -3895,7 +4407,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             number = Decimal("0")
         try:
             formatted = format(
-                number.quantize(Decimal("0.01")), ",.2f"
+                number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ",.2f"
             ).replace(",", " ").replace(".", ",")
         except (InvalidOperation, ArithmeticError, OverflowError, ValueError):
             return "не задано"

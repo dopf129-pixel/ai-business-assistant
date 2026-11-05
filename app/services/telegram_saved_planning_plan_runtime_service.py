@@ -25,6 +25,11 @@ class TelegramSavedPlanningPlanRuntimeService:
     MAX_ACTIONS = 512
     PAGE_SIZE = 10
     COMPARISON_PAGE_SIZE = 8
+    COMPARISON_EXPENSE_CATEGORY_LABELS = {
+        "ADVERTISING": "реклама",
+        "OTHER": "прочее",
+        "UNCLASSIFIED": "не указана",
+    }
 
     def __init__(self, planning_service, single_runtime, batch_runtime,
                  keyboard_service, clock=None, sales_mix_planning_service=None,
@@ -761,6 +766,18 @@ class TelegramSavedPlanningPlanRuntimeService:
                 lines.append("   Черновик; не заполнено: " + ", ".join(projection["missing_inputs"][:8]))
             else:
                 lines.append("   Расчёт сохранён как историческая проекция.")
+            pre_ad = projection.get("pre_ad_margin")
+            if isinstance(pre_ad, dict) and pre_ad.get("status") == "AVAILABLE":
+                pre_ad_scope = pre_ad.get("expense_scope")
+                scope_text = (
+                    "по неполному составу расходов"
+                    if isinstance(pre_ad_scope, dict) and pre_ad_scope.get("status") == "PARTIAL"
+                    else "по сохранённому составу расходов"
+                )
+                lines.append(
+                    f"   До рекламы после налога: {pre_ad.get('profit_per_unit_rub')} ₽/шт. · "
+                    f"{pre_ad.get('margin_percent')}% от цены продавца ({scope_text})."
+                )
             if PlanningCrossDockingAdapter.is_current(payload):
                 evidence = ((item.get("sources") or {}).get("cross_docking") or {})
                 if evidence.get("rate_available") is True:
@@ -800,7 +817,16 @@ class TelegramSavedPlanningPlanRuntimeService:
                     if projection.get("coverage_complete") is True:
                         lines.append(f"Выручка {projection['components']['revenue']} ₽; прибыль {projection.get('profit') or 'не рассчитана'} ₽; маржа {projection.get('margin_percent') or 'не определена'}%.")
                     else:
-                        lines.append("Показан подтверждённый subtotal; итоговая прибыль и маржа набора недоступны.")
+                        if projection.get("after_ad_status") == "INCOMPLETE_ADVERTISING":
+                            lines.append(
+                                "Итог после рекламы не рассчитан: рекламные расходы неизвестны. "
+                                "Количество, выручка и доступная маржа до рекламы показаны отдельно."
+                            )
+                        else:
+                            lines.append("Показан подтверждённый subtotal; итоговая прибыль и маржа набора недоступны.")
+                    self._append_sales_mix_pre_ad_summary(
+                        lines, projection.get("pre_ad_margin") or {},
+                    )
                     cross_docking_total = (projection.get("components") or {}).get("cross_docking")
                     if projection.get("cross_docking_status"):
                         if cross_docking_total is None:
@@ -1033,12 +1059,45 @@ class TelegramSavedPlanningPlanRuntimeService:
                 return self._save_sales_mix_preview(scope, pending, updated)
             updated["stage"] = "expense_entry"
             updated["expense_index"] = 0
-            return self._save_sales_mix_pending_and_prompt(scope, pending, updated, f"Расход 1/{count}: введите название и сумму через точку с запятой, например Упаковка; 250.00")
+            return self._save_sales_mix_pending_and_prompt(
+                scope, pending, updated,
+                f"Расход 1/{count}: тип; название; сумма. Например: "
+                "Реклама; CPC; 1250.00 или Прочее; Упаковка; 250.00",
+            )
         if stage == "expense_entry":
-            parts = value.split(";", 1)
-            if len(parts) != 2 or not parts[0].strip() or len(parts[0].strip()) > 80:
-                return self._sales_mix_prompt(scope, pending, "Не понял расход. Введите название; сумма, например Реклама; 1250.00")
-            amount = self.sales_mix_planning_service._decimal(parts[1].strip().replace(",", "."))
+            parts = [part.strip() for part in value.split(";", 2)]
+            category_aliases = {
+                "реклама": "ADVERTISING",
+                "advertising": "ADVERTISING",
+                "ad": "ADVERTISING",
+                "прочее": "OTHER",
+                "прочие расходы": "OTHER",
+                "прочий": "OTHER",
+                "other": "OTHER",
+            }
+            if len(parts) == 3:
+                category = category_aliases.get(parts[0].casefold())
+                name, raw_amount = parts[1], parts[2]
+                if category is None:
+                    return self._sales_mix_prompt(
+                        scope, pending,
+                        "Укажите тип «Реклама» или «Прочее», затем название и сумму: "
+                        "Реклама; CPC; 1250.00 или Прочее; Упаковка; 250.00",
+                    )
+            elif len(parts) == 2:
+                # Keep legacy two-part entries after advertising classification was
+                # introduced, but never guess their category from the free-form name.
+                category = "UNCLASSIFIED"
+                name, raw_amount = parts
+            else:
+                return self._sales_mix_prompt(
+                    scope, pending,
+                    "Не понял расход. Введите тип; название; сумма: "
+                    "Реклама; CPC; 1250.00 или Прочее; Упаковка; 250.00",
+                )
+            if not name or len(name) > 80:
+                return self._sales_mix_prompt(scope, pending, "Название расхода должно содержать от 1 до 80 символов.")
+            amount = self.sales_mix_planning_service._decimal(raw_amount.replace(",", "."))
             if amount is None or amount < 0 or amount > self.sales_mix_planning_service.MAX_AMOUNT:
                 return self._sales_mix_prompt(scope, pending, "Сумма расхода не принята. Укажите неотрицательную сумму до 1 000 000 000 ₽.")
             current_expense_total = sum(
@@ -1047,13 +1106,21 @@ class TelegramSavedPlanningPlanRuntimeService:
             )
             if current_expense_total + amount > self.sales_mix_planning_service.MAX_FIXED_EXPENSE_TOTAL:
                 return self._sales_mix_prompt(scope, pending, "Сумма дополнительных расходов за период не должна превышать 1 000 000 000 ₽.")
-            updated["expenses"].append({"name": parts[0].strip(), "amount": format(amount.quantize(Decimal('0.01')), '.2f')})
+            updated["expenses"].append({
+                "name": name,
+                "amount": format(amount.quantize(Decimal('0.01')), '.2f'),
+                "category": category,
+            })
             updated["expense_index"] += 1
             if updated["expense_index"] >= updated["expense_count"]:
                 updated["stage"] = "preview"
                 updated["expenses_confirmed"] = True
                 return self._save_sales_mix_preview(scope, pending, updated)
-            return self._save_sales_mix_pending_and_prompt(scope, pending, updated, f"Расход {updated['expense_index'] + 1}/{updated['expense_count']}: название; сумма")
+            return self._save_sales_mix_pending_and_prompt(
+                scope, pending, updated,
+                f"Расход {updated['expense_index'] + 1}/{updated['expense_count']}: "
+                "тип; название; сумма (Реклама или Прочее)",
+            )
         return self._stale()
 
     def _save_sales_mix_pending_and_prompt(self, scope, previous, updated, message):
@@ -1094,26 +1161,46 @@ class TelegramSavedPlanningPlanRuntimeService:
                 else "Строка: Q × цена → выручка · себестоимость · комиссия · реклама · fees · вклад до налога (₽)."
             ),
         ]
+        detail_lines = ["Детализация по SKU:"]
         for row in result.get("rows", []):
             components = row.get("components") or {}
+            advertising = components.get("advertising")
+            advertising_text = (
+                f"{advertising} ₽" if advertising is not None else "неизвестна"
+            )
             row_line = (
                 f"• {row.get('label')}: {row.get('quantity')} × "
                 f"{row.get('price_per_unit')} → выручка {components.get('revenue')} ₽; "
                 f"себест. {components.get('cost_of_goods')} ₽; "
                 f"комиссия {components.get('commission')} ₽; "
-                f"реклама {components.get('advertising')} ₽; "
+                f"реклама {advertising_text}; "
                 f"fees {components.get('fees')} ₽; "
             )
             if "cross_docking" in components:
                 row_line += f"кросс-докинг {components.get('cross_docking')} ₽; "
-            row_line += f"вклад {row.get('profit_before_tax_contribution')} ₽."
-            lines.append(row_line)
+            contribution = row.get("profit_before_tax_contribution")
+            row_line += (
+                f"вклад {contribution} ₽."
+                if contribution is not None
+                else "вклад после рекламы не рассчитан."
+            )
+            detail_lines.append(row_line)
         components = result.get("components") or {}
         lines.extend([
             f"Выручка: {components.get('revenue')} ₽; баллы: {components.get('discount_points')} ₽.",
-            f"Прибыль до дополнительных расходов и налога: {components.get('profit_before_tax')} ₽.",
+            "Прибыль до дополнительных расходов и налога: "
+            + (
+                f"{components.get('profit_before_tax')} ₽."
+                if components.get("profit_before_tax") is not None
+                else "не рассчитана."
+            ),
             f"Дополнительные расходы за период: {result.get('fixed_expense_total')} ₽; подтверждение: {'да' if updated.get('expenses_confirmed') else 'нет'}.",
-            f"Прибыль до налога после расходов: {result.get('profit_before_tax_after_fixed_expenses')} ₽.",
+            "Прибыль до налога после расходов: "
+            + (
+                f"{result.get('profit_before_tax_after_fixed_expenses')} ₽."
+                if result.get("profit_before_tax_after_fixed_expenses") is not None
+                else "не рассчитана."
+            ),
         ])
         if result.get("cross_docking_status"):
             cross_docking_total = components.get("cross_docking")
@@ -1124,22 +1211,80 @@ class TelegramSavedPlanningPlanRuntimeService:
                     f"Кросс-докинг для плановых продаж: {cross_docking_total} ₽; "
                     "ставка рассчитана по физическим поставкам за сохранённый период."
                 )
+        expense_details = []
         for expense in result.get("fixed_expenses", []):
-            lines.append(f"Расход за период · {expense.get('name')}: {expense.get('amount')} ₽.")
+            category_label = {
+                "ADVERTISING": "реклама",
+                "OTHER": "прочее",
+                "UNCLASSIFIED": "тип не указан; состав маржи до рекламы неполон",
+            }.get(expense.get("category"), "тип не указан")
+            expense_details.append(
+                f"Расход за период · {expense.get('name')}: "
+                f"{expense.get('amount')} ₽ ({category_label})."
+            )
         if result.get("coverage_complete") is True:
             lines.append(f"Налог: {result.get('tax') if result.get('tax') is not None else 'не рассчитан (' + str(result.get('tax_status')) + ')'} ₽; итоговая прибыль: {result.get('profit') if result.get('profit') is not None else 'не определена'} ₽; маржа: {result.get('margin_percent') if result.get('margin_percent') is not None else 'не определена'}%.")
         else:
-            lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
+            if result.get("after_ad_status") == "INCOMPLETE_ADVERTISING":
+                lines.append(
+                    "Итог после рекламы не рассчитан: рекламные расходы неизвестны. "
+                    "Количество, выручка и доступная маржа до рекламы показаны отдельно."
+                )
+            else:
+                lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
             for excluded in result.get("excluded_rows", [])[:10]:
-                lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
+                detail_lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
+        self._append_sales_mix_pre_ad_summary(lines, result.get("pre_ad_margin") or {})
         if result.get("coverage_complete") is True:
             self._append_sales_mix_advertising_cap(lines, payload, result)
+        if expense_details:
+            detail_lines.append("Дополнительные расходы:")
+            detail_lines.extend(expense_details)
+        lines.extend(["", *detail_lines])
         buttons = [
             {"text": "Подтвердить и сохранить ревизию", "callback": f"upp:a:{token}"},
             {"text": "Отмена", "callback": "upp:c"},
         ]
-        return self._result("SALES_MIX_PREVIEW", "\n".join(lines)[:3800], self._keyboard(buttons),
+        return self._result("SALES_MIX_PREVIEW", "\n".join(lines), self._keyboard(buttons),
                             sales_mix_result=result, read_only=True, executed=False)
+
+    @staticmethod
+    def _append_sales_mix_pre_ad_summary(lines, pre_ad):
+        if pre_ad.get("status") != "AVAILABLE":
+            lines.append(
+                "Маржа набора до рекламы недоступна: "
+                + str(pre_ad.get("reason") or pre_ad.get("status") or "нет полного tax результата")
+                + "."
+            )
+            return
+        scope = pre_ad.get("expense_scope")
+        if not isinstance(scope, dict):
+            scope_label = "состав расходов не зафиксирован в снимке"
+        elif scope.get("status") == "PARTIAL":
+            scope_label = "по неполному составу расходов"
+        else:
+            scope_label = "по подтверждённому составу расходов"
+        lines.append(
+            f"Прибыль до рекламы после налога: {pre_ad.get('profit_rub')} ₽; "
+            f"маржа до рекламы: {pre_ad.get('margin_percent')}% от общей выручки. "
+            f"Доля взвешена по общей выручке набора, а не усреднена по SKU ({scope_label})."
+        )
+        unknown = (scope or {}).get("unknown_non_ad_expense_keys") or []
+        if unknown:
+            labels = {
+                "COGS": "себестоимость",
+                "OZON_COMMISSION": "комиссия Ozon",
+                "LOGISTICS": "логистика",
+                "LAST_MILE": "последняя миля",
+                "ACQUIRING": "эквайринг",
+                "CROSS_DOCKING": "кросс-докинг",
+                "STORAGE": "хранение",
+                "PLACEMENT": "размещение",
+                "RETURNS_AND_CANCELLATIONS": "возвраты и отмены",
+                "UNMAPPED_NON_AD_EXPENSES": "прочие расходы",
+            }
+            shown = [labels.get(str(key), "прочие расходы") for key in unknown[:6]]
+            lines.append("Не учтены неизвестные суммы: " + ", ".join(shown) + ".")
 
     def _append_sales_mix_advertising_cap(self, lines, payload, result):
         """Show summed standalone caps without claiming a group optimization."""
@@ -1560,7 +1705,8 @@ class TelegramSavedPlanningPlanRuntimeService:
                     f"{source_summary(source_before)} → {source_summary(source_after)}"
                 )
         expense_changes = [
-            f"• Расход «{str(change.get('name') or 'Без названия')[:60]}»: "
+            f"• Расход «{str(change.get('name') or 'Без названия')[:60]}» · "
+            f"категория «{self.COMPARISON_EXPENSE_CATEGORY_LABELS.get(change.get('category'), 'не указана')}»: "
             f"{change.get('before', '0.00')} → {change.get('after', '0.00')} ₽ "
             f"(изменение {change.get('delta', '—')} ₽)."
             for change in comparison.get("expense_changes") or []

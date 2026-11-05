@@ -1,10 +1,12 @@
 from copy import deepcopy
 from decimal import Decimal
+import json
 import pytest
 
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.planning_workspace_repository import PlanningWorkspaceRepository
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -21,6 +23,7 @@ from services.period_profit_query_service import PeriodProfitQueryService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 from services.period_profit_summary_service import PeriodProfitSummaryService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 
 
 class _Products:
@@ -294,13 +297,23 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
     try:
         current = _select_single(single)
         scenario_id = current["price_scenario"]["scenario_id"]
-        single._scenarios[scenario_id]["extended_scenario"] = _extended_expense_contract()
+        extended_contract = _extended_expense_contract()
+        extended_contract["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+        extended_contract["numerator_and_denominator_basis"]["denominator"] = (
+            "ORDERED_UNITS_WINDOW"
+        )
+        extended_contract["components"] = [{
+            "component_key": "FINANCE_PAID_STORAGE",
+            "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }]
+        single._scenarios[scenario_id]["extended_scenario"] = extended_contract
         capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
         assert capture["error"] is False
         assert capture["payload"]["schema_version"] == 4
         saved_item = capture["payload"]["items"][0]
         assert saved_item["projection"]["additional_unit_expenses"] == 5.0
-        assert saved_item["extended_scenario"] == _extended_expense_contract()
+        assert saved_item["extended_scenario"] == extended_contract
 
         saved = service.save_capture("Extended plan", capture)
         assert saved["error"] is False, saved
@@ -324,6 +337,16 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         assert reopened["price_scenario"]["calculated"]["profit"] == pytest.approx(
             baseline["calculated"]["profit"] - 5.0
         )
+        assert "Хранение (подтверждённые расходы): -5,00 ₽/шт." in reopened["message"]
+        assert "500,00 ₽ / 100 заказанных единиц" in reopened["message"]
+        assert "01.01.2026 — 25.02.2026" in reopened["message"]
+        details = reopened_single.handle_callback(
+            _button(reopened, "Подробности расчёта"), user_id="user-1",
+        )
+        assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        assert "Хранение (подтверждённые расходы): -5,00 ₽/шт." in details["message"]
+        assert "500,00 ₽ / 100 заказанных единиц" in details["message"]
+        assert "01.01.2026 — 25.02.2026" in details["message"]
 
         copied = service.copy_document(
             saved["document_id"], title="Extended plan copy", revision=1,
@@ -333,7 +356,7 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         copied_document = service.get_document(copied["document_id"])["document"]
         assert copied_document["revision"] == 1
         assert copied_document["payload"]["items"][0]["extended_scenario"] == (
-            saved_item["extended_scenario"]
+            extended_contract
         )
         reopened_copy = reopened_single.restore_saved_plan(
             copied_document["payload"], user_id="user-1",
@@ -360,13 +383,203 @@ def test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_co
         reset_current_tenant_user_id(tenant)
 
 
+def test_saved_plan_no_ad_price_grid_keeps_confirmed_expense_when_applying_candidate(tmp_path):
+    _saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        extended = _extended_expense_contract("500.00", 100)
+        extended["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+        extended["numerator_and_denominator_basis"]["denominator"] = (
+            "ORDERED_UNITS_WINDOW"
+        )
+        extended["components"] = [{
+            "component_key": "FINANCE_PAID_STORAGE",
+            "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }]
+        single._scenarios[scenario_id]["extended_scenario"] = extended
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        saved = service.save_capture("Grid expense plan", capture)
+        assert saved["error"] is False, saved
+
+        reopened_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = reopened_single.restore_saved_plan(
+            service.get_document(saved["document_id"])["document"]["payload"],
+            user_id="user-1",
+        )
+        refreshed = reopened_single.handle_callback(
+            _button(reopened, "Обновить данные"), user_id="user-1",
+        )
+        prompt = reopened_single.handle_callback(
+            _button(refreshed, "Исследовать диапазон без рекламы"), user_id="user-1",
+        )
+        grid = reopened_single.handle_text("500; 510; 10", user_id="user-1")
+        applied = reopened_single.handle_callback(
+            _button(grid, "Подставить вариант 1"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    row = grid["price_planning_result"]["rows"][0]
+    assert prompt["stage"] == "price_grid_no_ad"
+    assert row["additional_unit_expenses"] == 5.0
+    assert "Дополнительные расходы учитываются до рекламы только при подтверждённых данных" in grid["message"]
+    assert "Платное хранение и эффекты возвратов не входят" not in grid["message"]
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["calculated"]["additional_unit_expenses"] == 5.0
+    assert "цену не подставил" not in applied["message"].lower()
+    assert len(source.calls) == 2
+
+
+def test_saved_plan_labels_mixed_expenses_and_keeps_basis_when_advertising_unknown(tmp_path):
+    _saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        extended = _extended_expense_contract("2000.00", 100)
+        extended["included_component_keys"] = [
+            "FINANCE_PAID_STORAGE", "PACKAGING_FEE",
+        ]
+        extended["numerator_and_denominator_basis"]["denominator"] = (
+            "ORDERED_UNITS_WINDOW"
+        )
+        extended["components"] = [
+            {
+                "component_key": "FINANCE_PAID_STORAGE",
+                "numerator_rub": "500.00",
+                "ownership": "ADDITIONAL",
+            },
+            {
+                "component_key": "PACKAGING_FEE",
+                "numerator_rub": "1500.00",
+                "ownership": "ADDITIONAL",
+            },
+        ]
+        single._scenarios[scenario_id]["extended_scenario"] = extended
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        saved = service.save_capture("Mixed expense plan", capture)
+        assert saved["error"] is False, saved
+        reopened_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = reopened_single.restore_saved_plan(
+            service.get_document(saved["document_id"])["document"]["payload"],
+            user_id="user-1",
+        )
+
+        original_load_snapshot = source.load_snapshot
+
+        def snapshot_without_advertising(sku, user_id, force_refresh=False):
+            snapshot = original_load_snapshot(sku, user_id, force_refresh)
+            if force_refresh:
+                snapshot["suggested_inputs"]["advertising_rate"] = None
+                snapshot["input_provenance"]["advertising_rate"] = "unknown"
+            return snapshot
+
+        source.load_snapshot = snapshot_without_advertising
+        reopened_scenario_id = reopened["price_scenario"]["scenario_id"]
+        reopened_state = reopened_single._scenarios[reopened_scenario_id]
+        reopened_state["overrides"].discard("advertising_rate")
+        reopened_state["provenance"]["advertising_rate"] = "ozon_historical_advertising"
+        refreshed = reopened_single.handle_callback(
+            _button(reopened, "Обновить данные"), user_id="user-1",
+        )
+        details = reopened_single.handle_callback(
+            _button(refreshed, "Подробности расчёта"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
+    for response in (reopened, details):
+        assert "Подтверждённые дополнительные расходы: -20,00 ₽/шт." in response["message"]
+        assert "2 000,00 ₽ / 100 заказанных единиц" in response["message"]
+        assert "01.01.2026 — 25.02.2026" in response["message"]
+        assert "PACKAGING_FEE" not in response["message"]
+        assert "Хранение (подтверждённые расходы)" not in response["message"]
+    assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert details["price_scenario"]["extended_calculation"]["status"] == "UNAVAILABLE"
+    assert details["price_scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert "Маржа до рекламы (после налога)" in details["message"]
+    assert len(source.calls) == 2
+
+
+@pytest.mark.parametrize("component_count", [60, 64])
+def test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts(
+    tmp_path, component_count,
+):
+    _saved_runtime, single, _source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        scenario_id = current["price_scenario"]["scenario_id"]
+        component_keys = [f"EXTRA_{index:02d}" for index in range(component_count)]
+        excluded_keys = [f"EXCLUDED_{index:02d}" for index in range(64)]
+        extended = _extended_expense_contract("1.00", 100)
+        extended["included_component_keys"] = component_keys
+        extended["components"] = [{
+            "component_key": key,
+            "numerator_rub": "1.00",
+            "ownership": "ADDITIONAL",
+        } for key in component_keys]
+        extended["excluded_component_statuses"] = {
+            key: "EXCLUDED" for key in excluded_keys
+        }
+        single._scenarios[scenario_id]["extended_scenario"] = extended
+
+        capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
+        assert capture["error"] is False
+        pre_ad = capture["payload"]["items"][0]["projection"]["pre_ad_margin"]
+        scope = pre_ad["expense_scope"]
+        assert len(scope["included_expense_keys"]) == 5 + component_count
+        assert len(scope["excluded_expense_keys"]) == 66
+        assert len(scope["excluded_expense_reasons"]) == 66
+        oversized_pre_ad = deepcopy(pre_ad)
+        oversized_keys = oversized_pre_ad["expense_scope"]["included_expense_keys"]
+        for index in range(72 - len(oversized_keys)):
+            oversized_keys.append(f"OVER_LIMIT_{index:02d}")
+        assert len(oversized_keys) == 72
+        oversized_keys.append("OVER_LIMIT_72")
+        assert PlanningWorkspaceRepository._clean_saved_pre_ad_projection(
+            oversized_pre_ad,
+        ) is None
+
+        saved = service.save_capture(
+            f"Large expense scope {component_count}", capture,
+        )
+        assert saved["error"] is False, saved
+        stored = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
+        stored_scope = stored["projection"]["pre_ad_margin"]["expense_scope"]
+        assert stored_scope["included_expense_keys"] == scope["included_expense_keys"]
+        assert stored_scope["excluded_expense_keys"] == scope["excluded_expense_keys"]
+        assert stored_scope["excluded_expense_reasons"] == scope["excluded_expense_reasons"]
+        assert stored["extended_scenario"] == extended
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
     tenant = _activate()
     try:
         current = _select_single(single)
         scenario_id = current["price_scenario"]["scenario_id"]
-        single._scenarios[scenario_id]["extended_scenario"] = _strict_extended_contract()
+        strict_contract = _strict_extended_contract()
+        strict_contract["excluded_component_statuses"] = {
+            "RETURNS_AND_CANCELLATIONS": "EXCLUDED",
+        }
+        single._scenarios[scenario_id]["extended_scenario"] = strict_contract
         single._scenarios[scenario_id]["strict_return_evidence"] = _strict_return_evidence()
         capture = single.get_saved_plan_capture(scenario_id, 1, user_id="user-1")
         assert capture["error"] is False
@@ -374,6 +587,11 @@ def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp
         assert saved["error"] is False
         stored = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
         assert stored["strict_return_evidence"]["strict_retained_cohort_loss"]["loss_per_retained_unit_rub"] == "3.50"
+        stored_scope = stored["projection"]["pre_ad_margin"]["expense_scope"]
+        assert float(stored_scope["known_non_ad_expenses_rub"]["RETURN_LOSS_STRICT_COHORT"]) == 3.5
+        assert "RETURNS_AND_CANCELLATIONS" in stored_scope["included_expense_keys"]
+        assert "RETURNS_AND_CANCELLATIONS" not in stored_scope["excluded_expense_keys"]
+        assert "RETURNS_AND_CANCELLATIONS" not in stored_scope["unknown_non_ad_expense_keys"]
         assert "private-return-id" not in repr(stored)
         assert "private-supply-id" not in repr(stored)
         assert "raw_response" not in repr(stored)
@@ -391,6 +609,29 @@ def test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss(tmp
         assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
         assert reopened["price_scenario"]["extended_calculation"]["status"] == "APPLIED"
         assert reopened["price_scenario"]["calculated"]["additional_unit_expenses"] == 3.5
+        assert "Потери строгой когорты возвратов: -3,50 ₽/шт." in reopened["message"]
+        assert "возвраты и отмены не включены" not in reopened["message"].lower()
+        details = reopened_single.handle_callback(
+            _button(reopened, "Подробности расчёта"), user_id="user-1",
+        )
+        assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        assert "Потери строгой когорты возвратов: -3,50 ₽/шт." in details["message"]
+        assert "возвраты и отмены не включены" not in details["message"].lower()
+        assert "Постоянные расходы магазина не распределяются на SKU." in details["message"]
+        reopened_scope = reopened["price_scenario"]["pre_ad_margin"]["expense_scope"]
+        assert {
+            key: Decimal(str(value))
+            for key, value in reopened_scope["known_non_ad_expenses_rub"].items()
+        } == {
+            key: Decimal(str(value))
+            for key, value in stored_scope["known_non_ad_expenses_rub"].items()
+        }
+        for field in (
+            "included_expense_keys", "confirmed_zero_expense_keys",
+            "unknown_non_ad_expense_keys", "excluded_expense_keys",
+            "excluded_expense_reasons", "status",
+        ):
+            assert reopened_scope[field] == stored_scope[field]
         assert len(source.calls) == 1
     finally:
         reset_current_tenant_user_id(tenant)
@@ -453,6 +694,26 @@ def test_sales_mix_public_flow_confirms_zero_expenses_and_saves_revision_without
     assert len(source.calls) == 1
 
 
+def test_sales_mix_pre_ad_summary_labels_partial_expense_scope():
+    lines = []
+    TelegramSavedPlanningPlanRuntimeService._append_sales_mix_pre_ad_summary(
+        lines,
+        {
+            "status": "AVAILABLE",
+            "profit_rub": "382.00",
+            "margin_percent": "38.20",
+            "expense_scope": {
+                "status": "PARTIAL",
+                "unknown_non_ad_expense_keys": ["CROSS_DOCKING", "STORAGE"],
+            },
+        },
+    )
+
+    assert "Прибыль до рекламы после налога: 382.00 ₽" in lines[0]
+    assert "по неполному составу расходов" in lines[0]
+    assert "кросс-докинг, хранение" in lines[1]
+
+
 def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
     source.cross_docking = _confirmed_cross_docking_source("12.00", 100)
@@ -495,6 +756,8 @@ def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_
         assert "вклад 2180.00 ₽" in preview["message"]
         assert "Расход за период · Подготовка: 300.00 ₽" in preview["message"]
         assert "Прибыль до налога после расходов: 1880.00 ₽" in preview["message"]
+        assert "Прибыль до рекламы после налога:" in preview["message"]
+        assert "Доля взвешена по общей выручке набора" in preview["message"]
         assert "итоговая прибыль: 1640.00 ₽" in preview["message"]
         assert "Сумма индивидуальных рекламных пределов при цели 25%" in preview["message"]
         assert "не гарантирует маржу группы" in preview["message"]
@@ -1222,6 +1485,7 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
         assert saved_rates == {"sku-1": "12.00", "sku-2": "20.00"}
         listing = handler.handle("upp:m", user_id="user-1")
         detail = handler.handle(_button(listing, "План партии · v1"), user_id="user-1")
+        assert "До рекламы после налога:" in detail["message"]
         reopened = handler.handle(_button(detail, "Продолжить по сохранённым допущениям"), user_id="user-1")
         assert reopened["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
         assert len(reopened["batch_plan"]["rows"]) == 2
@@ -1239,6 +1503,8 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
             user_id="user-1",
         )
         assert recaptured["error"] is False
+        for item in recaptured["payload"]["items"]:
+            assert item["projection"]["pre_ad_margin"]["status"] == "AVAILABLE"
         scope = plan_service.repository._scope("user-1", "store-a")
         assert plan_service.repository._payload(recaptured["payload"], scope) is not None
     finally:
@@ -2163,3 +2429,452 @@ def test_saved_context_rejects_changed_identity_without_sales_mix():
 
     assert result["error"] is True
     assert result["code"] == "PLANNING_PLAN_IDENTITY_CHANGED"
+
+
+def test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["advertising_rate"] = None
+        snapshot["input_provenance"]["advertising_rate"] = "unknown"
+        snapshot["input_provenance"]["commission_rate"] = "ozon_current_fbo_rate"
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+
+    class CurrentEconomicsQuery:
+        product_service = source.product_service
+        cost_service = None
+
+        def __init__(self):
+            self.calls = []
+
+        def query(self, sku):
+            self.calls.append(sku)
+            return {
+                "error": False, "available": True, "source": "current", "sku": sku,
+                "missing_fields": ["advertising"],
+                "pre_ad_margin": {
+                    "status": "AVAILABLE", "profit_per_unit_rub": 246.0,
+                    "margin_percent": 49.2, "advertising_status": "UNKNOWN",
+                },
+            }
+
+        def format_response(self, result):
+            return "CURRENT_BEFORE_AD=246.00 RUB/unit; CURRENT_AFTER_AD=unknown."
+
+        def format_expense_breakdown(self, result):
+            return "CURRENT_BREAKDOWN_BEFORE_AD=246.00 RUB/unit."
+
+    def callback(result, prefix):
+        return next(
+            button["callback"]
+            for button in result["keyboard"]["buttons"]
+            if button["callback"].startswith(prefix)
+        )
+
+    def edit_callback(result, field):
+        return next(
+            button["callback"]
+            for button in result["keyboard"]["buttons"]
+            if button["callback"].startswith("upc:e:")
+            and button["callback"].endswith(":" + field)
+        )
+
+    query = CurrentEconomicsQuery()
+    handler = AssistantButtonHandlerService(
+        assistant=None, keyboard_service=single.keyboard_service,
+        unit_economics_query=query,
+        unit_price_calculator_runtime_service=single,
+        saved_planning_plan_runtime_service=saved_runtime,
+    )
+    tenant = _activate()
+    try:
+        current = handler.handle("unit_economics:sku-1", user_id="user-1")
+        assert "CURRENT_BEFORE_AD=246.00 RUB/unit" in current["message"]
+        assert "CURRENT_AFTER_AD=unknown" in current["message"]
+        assert current["unit_economics"]["pre_ad_margin"]["advertising_status"] == "UNKNOWN"
+
+        current_detail = handler.handle(
+            callback(current, "unit_economics_details:"), user_id="user-1",
+        )
+        assert current_detail["message"] == "CURRENT_BREAKDOWN_BEFORE_AD=246.00 RUB/unit."
+        assert query.calls == ["sku-1"]
+
+        selected = handler.handle(callback(current, "upc:p:"), user_id="user-1")
+        assert selected["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+        assert selected["price_scenario"]["pre_ad_margin"]["profit_per_unit_rub"] == 246.0
+        assert "advertising_rate" in selected["price_scenario"]["missing_inputs"]
+        assert "\u041c\u0430\u0440\u0436\u0430 \u0434\u043e \u0440\u0435\u043a\u043b\u0430\u043c\u044b (\u043f\u043e\u0441\u043b\u0435 \u043d\u0430\u043b\u043e\u0433\u0430)" in selected["message"]
+        assert "246,00 \u20bd/\u0448\u0442." in selected["message"]
+        assert "\u043d\u0435 \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044f \u043d\u0443\u043b\u0435\u0432\u043e\u0439." in selected["message"]
+
+        scenario_detail = handler.handle(callback(selected, "upc:x:"), user_id="user-1")
+        assert scenario_detail["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        assert "246,00 \u20bd/\u0448\u0442." in scenario_detail["message"]
+
+        for field, value in (("cost", "25"), ("price", "100,01")):
+            prompt = handler.handle(edit_callback(selected, field), user_id="user-1")
+            assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+            selected = handler.handle_text(value, user_id="user-1")
+        assert selected["price_scenario"]["inputs"]["commission_rate"]["value"] is None
+
+        commission_prompt = handler.handle(
+            edit_callback(selected, "commission_rate"), user_id="user-1",
+        )
+        assert commission_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        selected = handler.handle_text("22", user_id="user-1")
+        assert selected["price_scenario"]["inputs"]["commission_rate"]["provenance"] == "manual_seller_assumption"
+
+        ad_prompt = handler.handle(
+            edit_callback(selected, "advertising_rate"), user_id="user-1",
+        )
+        assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        selected = handler.handle_text("8", user_id="user-1")
+
+        projection = selected["price_scenario"]["pre_ad_margin"]
+        assert projection["profit_per_unit_rub"] == -6.79
+        assert projection["margin_percent"] == -6.79
+        assert selected["price_scenario"]["calculated"]["profit"] == -14.79
+        assert "\u041c\u0430\u0440\u0436\u0430 \u0434\u043e \u0440\u0435\u043a\u043b\u0430\u043c\u044b (\u043f\u043e\u0441\u043b\u0435 \u043d\u0430\u043b\u043e\u0433\u0430)" in selected["message"]
+        assert "6,79 \u20bd/\u0448\u0442." in selected["message"]
+        assert "\u041c\u0430\u0440\u0436\u0430 \u043f\u043e\u0441\u043b\u0435 \u0440\u0435\u043a\u043b\u0430\u043c\u044b" in selected["message"]
+        assert "14,79 \u20bd/\u0448\u0442." in selected["message"]
+
+        save_callback = callback(selected, "upp:s:")
+        save_parts = save_callback.split(":")
+        capture = single.get_saved_plan_capture(
+            save_parts[2], save_parts[3], user_id="user-1",
+        )
+        assert capture["error"] is False
+        assert capture["payload"]["items"][0]["inputs"]["price"] == "100.01"
+        saved_projection = capture["payload"]["items"][0]["projection"]
+        assert saved_projection["pre_ad_margin"] == selected["price_scenario"]["pre_ad_margin"]
+        assert saved_projection["advertising_tax_bridge"] == selected["price_scenario"]["advertising_tax_bridge"]
+        assert service.repository._payload(
+            capture["payload"], service.repository._scope("user-1", "store-a"),
+        ) is not None
+
+        save_prompt = handler.handle(save_callback, user_id="user-1")
+        assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        saved = handler.handle_text("MA19 price plan", user_id="user-1")
+        assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+        saved_document = service.get_document(saved["document_id"])["document"]
+        saved_item = saved_document["payload"]["items"][0]
+        listing = handler.handle("upp:m", user_id="user-1")
+        reopened = handler.handle(
+            _button(listing, "MA19 price plan · v1"), user_id="user-1",
+        )
+        assert "До рекламы после налога:" in reopened["message"]
+        exported = AnalyticsExportService().export_saved_plan(saved_document, "json")
+        assert exported["error"] is False
+        exported_document = json.loads(exported["file_content"].decode("utf-8"))
+        assert "source_periods" not in saved_item["projection"]["pre_ad_margin"]
+        assert exported_document["rows"][0]["projection"]["pre_ad_margin"] == saved_item["projection"]["pre_ad_margin"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert saved_item["inputs"]["price"] == "100.01"
+    assert saved_item["inputs"]["cost"] == "25"
+    assert saved_item["inputs"]["commission_rate"] == "22"
+    assert saved_item["inputs"]["advertising_rate"] == "8"
+    assert saved_item["provenance"]["commission_rate"] == "manual_seller_assumption"
+    assert len(source.calls) == 1
+
+
+def test_adapter_preserves_calculator_selection_from_unit_economics_details_to_price_plan(tmp_path):
+    _saved_runtime, single, source, _service_obj = _setup(tmp_path)
+
+    class CurrentEconomicsQuery:
+        product_service = source.product_service
+        cost_service = None
+
+        def query(self, sku):
+            return {
+                "error": False, "available": True, "source": "historical", "sku": sku,
+                "unit_price": 500.0, "cost": 100.0, "marketplace_fees": 140.0,
+                "tax": 30.0, "net_profit_per_unit": 230.0, "margin_percent": 46.0,
+                "missing_fields": ["advertising", "storage", "returns"],
+                "pre_ad_margin": {
+                    "status": "AVAILABLE", "profit_per_unit_rub": 246.0,
+                    "margin_percent": 49.2, "advertising_status": "UNKNOWN",
+                },
+            }
+
+        @staticmethod
+        def format_response(_result):
+            return "Текущая маржа до рекламы: 246.00 ₽/шт."
+
+        @staticmethod
+        def format_expense_breakdown(_result):
+            return "Расходы по SKU."
+
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=single.keyboard_service,
+        unit_economics_query=CurrentEconomicsQuery(),
+        unit_price_calculator_runtime_service=single,
+    )
+    adapter = SellerCostTelegramAdapter(
+        assistant=None, keyboard_service=single.keyboard_service,
+        button_handler=handler,
+    )
+    tenant = _activate()
+    try:
+        current = adapter.handle_button("unit_economics:sku-1", user_id="user-1")
+        details = adapter.handle_button(
+            _button(current, "Из чего складывается"), user_id="user-1",
+        )
+        calculator = adapter.handle_button(
+            _button(details, "🧮 Планировать цену"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert calculator["status"] in {
+        "UNIT_PRICE_SCENARIO_READY", "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+    }
+    assert calculator["status"] != "UNIT_PRICE_SCENARIO_STALE"
+    assert calculator["price_scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+
+
+def test_saved_sales_mix_with_unknown_advertising_keeps_quantity_revenue_and_pre_ad_result(tmp_path):
+    saved_runtime, single, source, _service_obj = _setup(tmp_path)
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["advertising_rate"] = None
+        snapshot["input_provenance"]["advertising_rate"] = "unknown"
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        save_prompt = saved_runtime.handle_callback(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("Неизвестная реклама", user_id="user-1")
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Неизвестная реклама · v1"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        date_prompt = saved_runtime.handle_text("01.08.2026 - 31.08.2026", user_id="user-1")
+        quantity_prompt = saved_runtime.handle_text("10", user_id="user-1")
+        preview = saved_runtime.handle_text("0", user_id="user-1")
+        saved_mix = saved_runtime.handle_callback(
+            _button(preview, "Подтвердить и сохранить ревизию"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    result = preview["sales_mix_result"]
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert date_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert quantity_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert result["total_quantity"] == 10
+    assert result["included_rows"] == 1
+    assert result["components"]["revenue"] == "5000.00"
+    assert result["components"]["advertising"] is None
+    assert result["components"]["profit_before_tax"] is None
+    assert result["profit_before_tax_after_fixed_expenses"] is None
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert "Успешные продажи: 10 шт.; состав: 1/1 строк." in preview["message"]
+    assert "Выручка: 5000.00 ₽" in preview["message"]
+    assert "реклама неизвестна" in preview["message"]
+    assert "Итог после рекламы не рассчитан" in preview["message"]
+    assert "Прибыль до рекламы после налога:" in saved_mix["message"]
+    assert len(source.calls) == 1
+
+
+def test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("0.00", 100)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        save_prompt = saved_runtime.handle_callback(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("Review typed expenses", user_id="user-1")
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Review typed expenses · v1"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        date_prompt = saved_runtime.handle_text(
+            "01.08.2026 - 31.08.2026", user_id="user-1",
+        )
+        quantity_prompt = saved_runtime.handle_text("10", user_id="user-1")
+        expense_prompt = saved_runtime.handle_text("1", user_id="user-1")
+        preview = saved_runtime.handle_text("Реклама; CPC; 100", user_id="user-1")
+        confirmed = saved_runtime.handle_callback(
+            _button(preview, "Подтвердить и сохранить ревизию"), user_id="user-1",
+        )
+        reopened = service.get_document(saved["document_id"])
+        reopened_payload = reopened["document"]["payload"]
+        reopened_mix = reopened_payload["sales_mix"]
+        reopened_result = saved_runtime.sales_mix_planning_service.calculate(
+            PlanningCrossDockingAdapter.items_for_sales_mix(reopened_payload),
+            quantities=reopened_mix["quantities"],
+            period_label=reopened_mix["period_label"],
+            expenses=reopened_mix["expenses"],
+            expenses_confirmed=reopened_mix["confirmed"],
+            include_cross_docking=PlanningCrossDockingAdapter.is_current(reopened_payload),
+        )
+        exported = AnalyticsExportService().export_sales_mix(
+            reopened["document"], reopened_result, "json",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    result = preview["sales_mix_result"]
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert date_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert quantity_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert expense_prompt["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert confirmed["status"] == "PLANNING_DOCUMENT_DETAILS"
+    assert reopened["document"]["current_revision"] == 2
+    assert reopened_mix["expenses"] == [{
+        "name": "CPC", "amount": "100.00", "category": "ADVERTISING",
+    }]
+    assert reopened_result["error"] is not True
+    assert reopened_result["fixed_expenses"] == result["fixed_expenses"]
+    assert reopened_result["pre_ad_margin"]["profit_rub"] == "2460.00"
+    assert reopened_result["profit"] == "1960.00"
+    assert exported["error"] is False
+    exported_json = json.loads(exported["file_content"].decode("utf-8"))
+    assert exported_json["metadata"]["fixed_expenses"] == result["fixed_expenses"]
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["profit_rub"] == "2460.00"
+    assert result["profit"] == "1960.00"
+    assert result["fixed_expenses"] == [{
+        "name": "CPC", "amount": "100.00", "category": "ADVERTISING",
+    }]
+    assert result["pre_ad_margin"]["expense_scope"][
+        "fixed_planning_advertising_expenses_rub"
+    ] == "100.00"
+    assert "Расход за период · CPC: 100.00 ₽ (реклама)." in preview["message"]
+    assert len(source.calls) == 1
+
+
+def test_large_sales_mix_preview_keeps_summary_and_all_details_accessible(tmp_path):
+    keyboard = AssistantKeyboardService()
+    scenario = UnitPriceScenarioService(TaxService())
+    overview_items = [{
+        "identity": {
+            "product_id": f"product-{index}",
+            "offer_id": f"offer-{index}",
+            "catalog_sku": f"sku-{index}",
+        },
+    } for index in range(1, 11)]
+
+    class TenProductOverview:
+        def get_price_plan_selection(self):
+            return {"error": False, "items": deepcopy(overview_items)}
+
+    class LongNameBatchBuilder(_BatchBuilder):
+        def build(self, *args, **kwargs):
+            result = super().build(*args, **kwargs)
+            for index, row in enumerate(result["rows"], start=1):
+                row["snapshot"]["product"]["name"] = (
+                    f"Крючки самоклеящиеся усиленные универсальные для кухни и ванной "
+                    f"с комплектом креплений номер {index:02d}"
+                )
+            return result
+
+    batch_builder = LongNameBatchBuilder(scenario)
+    batch_builder.cross_docking_by_sku = {
+        f"sku-{index}": _confirmed_cross_docking_source("0.00")
+        for index in range(1, 11)
+    }
+    batch = TelegramUnitPriceBatchPlanRuntimeService(
+        batch_plan_service=batch_builder,
+        product_overview_service=TenProductOverview(),
+        keyboard_service=keyboard,
+    )
+    source = _Source()
+    single = TelegramUnitPriceCalculatorRuntimeService(
+        source=source, scenario_service=scenario, keyboard_service=keyboard,
+        target_planning_service=UnitPriceTargetPlanningService(scenario),
+    )
+    plan_service = SavedPlanningPlanService(
+        PlanningWorkspaceRepository(db_path=tmp_path / "plans.sqlite"), scenario,
+    )
+    saved_runtime = TelegramSavedPlanningPlanRuntimeService(
+        plan_service, single, batch, keyboard,
+        sales_mix_planning_service=SalesMixPlanningService(scenario, scenario.tax_service),
+    )
+    tenant = _activate()
+    try:
+        batch.begin_from_overview_selection("user-1")
+        batch_result = batch.handle_text("25", user_id="user-1")
+        title_prompt = saved_runtime.handle_callback(
+            _button(batch_result, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("Длинный план десяти SKU", user_id="user-1")
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Длинный план десяти SKU · v1"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        current = saved_runtime.handle_text("01.08.2026 - 31.08.2026", user_id="user-1")
+        for _ in range(10):
+            current = saved_runtime.handle_text("10", user_id="user-1")
+        current = saved_runtime.handle_text("20", user_id="user-1")
+        for index in range(1, 21):
+            expense_name = (
+                f"Услуга маркетплейса с подробным описанием вида "
+                f"{index:02d} за расчётный период"
+            )
+            current = saved_runtime.handle_text(
+                f"Прочее; {expense_name}; 10", user_id="user-1",
+            )
+        preview = current
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    from telegram_app_layer.telegram_progress_feedback import split_telegram_text
+
+    message = preview["message"]
+    chunks = split_telegram_text(message)
+    assert title_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+    assert preview["status"] == "SALES_MIX_PREVIEW"
+    assert len(message) > 3800
+    assert len(chunks) > 1
+    assert "Прибыль до рекламы после налога:" in chunks[0]
+    assert "Не учтены неизвестные суммы:" in chunks[0]
+    assert "итоговая прибыль:" in chunks[0]
+    assert "Не учтены неизвестные суммы:" in message
+    assert "итоговая прибыль:" in message
+    assert any(
+        button["text"] == "Подтвердить и сохранить ревизию"
+        for button in preview["keyboard"]["buttons"]
+    )
+    assert "Услуга маркетплейса с подробным описанием вида 01 за расчётный период" in message
+    assert "Услуга маркетплейса с подробным описанием вида 20 за расчётный период" in message
+    assert "Крючки самоклеящиеся усиленные универсальные" in message
+    assert "расчётный период: 10.00 ₽ (прочее)." in chunks[-1]
+    assert all(
+        sum(2 if ord(character) > 0xFFFF else 1 for character in chunk) <= 3800
+        for chunk in chunks
+    )
+    assert "".join(chunks) == message

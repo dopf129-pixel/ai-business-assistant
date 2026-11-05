@@ -1363,6 +1363,17 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             lines.append(
                 f"Окно данных: {window['from_date']} — {window['to_date']} ({window['timezone']})"
             )
+        source_as_of = payload.get("source_as_of")
+        if isinstance(source_as_of, str) and source_as_of:
+            lines.append("Сохранённый срез источников на: " + source_as_of)
+        snapshot_refs = payload.get("snapshot_refs")
+        if isinstance(snapshot_refs, list):
+            lines.append(
+                "Связанных снимков источников: " + str(len(snapshot_refs))
+                + " (идентификаторы скрыты)."
+            )
+        else:
+            lines.append("Привязка результата к снимкам источников не сохранена.")
         if payload.get("baseline_profit_per_unit_rub") is not None:
             lines.append(f"База: {payload['baseline_profit_per_unit_rub']} ₽/шт.")
         if payload.get("candidate_profit_per_unit_rub") is not None:
@@ -1389,6 +1400,10 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         lines.append(
             "Результат отражает модель по сохранённым данным, не доказывает причинность "
             "и не меняет цену в Ozon."
+        )
+        lines.append(
+            "Налоговое основание этой записи отдельно не сохранено; новая маржа до рекламы "
+            "к результату эксперимента не применялась."
         )
         buttons = []
         loaded_experiment = self.repository.get_price_experiment(
@@ -1436,6 +1451,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         revisions = view["revisions"]
         economics = view["economics"]
         stored_projection = economics.get("projection") or {}
+        saved_inputs = economics.get("inputs") or {}
         lines = [
             "🔎 Сохранённые исходные данные · без обновления источников",
             f"Режим расчёта: {view['calculation_mode']}",
@@ -1444,6 +1460,7 @@ class TelegramUnitEconomicsExperimentRuntimeService:
             f"Снимок расходов: {revisions['expense_snapshot_fingerprint'][:16]}",
             f"Покрытие расходов: {'полное' if view['expense_coverage']['coverage_complete'] else 'неполное'}",
         ]
+        lines.append(self._saved_plan_tax_basis_line(saved_inputs))
         if stored_projection.get("available") is True:
             for key, label in (("revenue", "Выручка"), ("profit_before_tax", "Прибыль до налога"),
                                ("tax", "Налог"), ("profit", "Прибыль модели")):
@@ -1460,11 +1477,41 @@ class TelegramUnitEconomicsExperimentRuntimeService:
         ))
         if view.get("model_limits"):
             lines.append("Ограничения: " + ", ".join(view["model_limits"][:5]))
-        lines.append("Показан зафиксированный снимок; данные Ozon не запрашивались и не пересчитаны.")
+        lines.append(
+            "Это отдельный сохранённый сценарий; маржа до рекламы сюда не пересчитывалась. "
+            "Данные Ozon не запрашивались."
+        )
         buttons = []
         self._append_experiment_back_button(scope, experiment_id, buttons)
         return self._result(
             "UNIT_ECONOMICS_EXPERIMENT_FROZEN_SNAPSHOT", "\n".join(lines), self._keyboard(buttons),
+        )
+
+    @staticmethod
+    def _saved_plan_tax_basis_line(inputs):
+        mode_labels = {
+            "USN_INCOME": "УСН Доходы",
+            "USN_INCOME_MINUS_EXPENSES": "УСН Доходы минус расходы",
+            "NONE": "налог не учитывался",
+        }
+        mode = inputs.get("tax_mode") if isinstance(inputs, dict) else None
+        label = mode_labels.get(mode)
+        if label is None:
+            return "Налоговая политика сохранённого плана: не задана или не подтверждена."
+        if mode == "NONE":
+            return (
+                "Режим налога сохранённого плана: " + label
+                + "; источник настройки не сохранён."
+            )
+        rate = inputs.get("tax_rate")
+        if rate is None:
+            return (
+                "Режим налога сохранённого плана: " + label
+                + "; ставка и источник настройки не сохранены."
+            )
+        return (
+            "Режим налога сохранённого плана: " + label + "; ставка "
+            + str(rate) + "%; источник настройки не сохранён."
         )
 
     def _show_export_menu(self, scope, action):

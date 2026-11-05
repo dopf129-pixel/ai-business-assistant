@@ -114,6 +114,18 @@ class UnitEconomicsAdvertisingEvidenceService:
             source_complete and kinds_complete and no_unattributed
             and no_window_allocation and unmapped_advertising_count == 0
         )
+        exact_sku_attribution_complete = (
+            complete_for_sku
+            and all(
+                component.get("status") == "CONFIRMED_ZERO"
+                or (
+                    component.get("status") == "PRESENT"
+                    and component.get("attribution") == "EXACT_SKU"
+                )
+                for components in groups.values()
+                for component in components
+            )
+        )
         status = "COMPLETE" if complete_for_sku else (
             "CONFLICT" if snapshot["completeness"] == "CONFLICT"
             or any(item["status"] == "CONFLICT" for item in component_summaries.values())
@@ -125,6 +137,7 @@ class UnitEconomicsAdvertisingEvidenceService:
             "status": status,
             "source_complete": source_complete,
             "complete_for_sku": complete_for_sku,
+            "exact_sku_attribution_complete": exact_sku_attribution_complete,
             "component_status": component_summaries,
             "sku_primary_expense_rub": cls._money(additional_sku_amount) if complete_for_sku else None,
             "known_sku_scoped_expense_rub": cls._money(known_sku_amount),

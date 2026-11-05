@@ -137,11 +137,23 @@ def test_query_finds_sku_and_returns_unit_economics():
     assert result["tax"] == 89.4
     assert result["net_profit_per_unit"] == 510.6
     assert result["margin_percent"] == 34.27
+    assert result["pre_ad_margin"]["status"] == "UNAVAILABLE"
+    assert result["pre_ad_margin"]["reason"] == "HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED"
     assert result["missing_fields"] == [
         "advertising",
         "storage",
         "returns"
     ]
+    response = service.format_response(result)
+    assert "Маржа до рекламы (после налога):\nне рассчитана" in response
+    assert "После рекламы: не рассчитана — расход рекламы неизвестен" in response
+    assert "Причина: точные расходы на рекламу не подключены" in response
+    assert "HISTORICAL_ADVERTISING_EVIDENCE_NOT_CONNECTED" not in response
+    assert "0.00 ₽ / шт." not in response
+    breakdown = service.format_expense_breakdown(result)
+    assert "Маржа до рекламы не рассчитана: точные расходы на рекламу не подключены." in breakdown
+    assert "Реклама: сумма неизвестна, не считается нулём." in breakdown
+    assert "0.00 ₽" not in breakdown
     assert period_profit_service.calls[0][
         "products"
     ][0]["sku"] == "hook-2"
@@ -236,10 +248,81 @@ def test_query_returns_safe_empty_result_when_finance_data_missing():
     assert result["available"] is False
     assert result["unit_price"] is None
     assert result["net_profit_per_unit"] is None
+    assert result["pre_ad_margin"]["status"] == "UNAVAILABLE"
+    assert result["pre_ad_margin"]["reason"] == "HISTORICAL_PERIOD_RESULT_UNAVAILABLE"
+    assert result["pre_ad_margin"]["profit_per_unit_rub"] is None
+    assert result["pre_ad_margin"]["margin_percent"] is None
     assert "cost" in result["missing_fields"]
     assert "advertising" in result[
         "missing_fields"
     ]
+
+
+def test_pre_ad_breakdown_explains_unsupported_sources_and_existing_manual_paths():
+    service, _ = make_query_service(products=[], profits=[])
+    result = {
+        "error": False,
+        "sku": "hook-2",
+        "pre_ad_margin": {
+            "schema_version": 1,
+            "status": "UNAVAILABLE",
+            "reason": "CURRENT_PRE_AD_INPUTS_MISSING",
+            "expense_scope": {
+                "unknown_non_ad_expense_keys": [
+                    "COGS", "OZON_COMMISSION", "STORAGE", "UNMAPPED_NON_AD_EXPENSES",
+                ],
+            },
+            "advertising_status": "UNKNOWN",
+        },
+    }
+
+    detail = service.format_expense_breakdown(result)
+
+    assert "не хватает обязательных данных для текущего расчёта" in detail
+    assert "Комиссия Ozon" in detail
+    assert "можно указать ставку вручную" in detail
+    assert "Расходы на рекламу по SKU не подтверждены" in detail
+    assert "В плановой экономике" in detail
+    assert "нет подтверждённого источника или поддерживаемого ввода" in detail
+    assert "хранение, прочие расходы" in detail
+    assert "не заменены нулём" in detail
+    assert "0.00 ₽" not in detail
+
+
+def test_pre_ad_breakdown_labels_rounding_adjustment_and_reconciles_to_card():
+    service, _ = make_query_service(products=[], profits=[])
+    result = {
+        "error": False,
+        "sku": "hook-2",
+        "price": 500.0,
+        "pre_ad_margin": {
+            "status": "AVAILABLE",
+            "basis": "CURRENT_MODEL",
+            "tax_mode": "NONE",
+            "price_per_unit_rub": "500.00",
+            "tax_per_unit_rub": "0.00",
+            "profit_per_unit_rub": "215.00",
+            "advertising_status": "EXCLUDED_BY_DEFINITION",
+            "expense_scope": {
+                "status": "PARTIAL",
+                "known_non_ad_expenses_rub": {
+                    "ACQUIRING": "5.00",
+                    "COGS": "150.01",
+                    "LAST_MILE": "5.00",
+                    "LOGISTICS": "25.00",
+                    "OZON_COMMISSION": "100.00",
+                    "ROUNDING_ADJUSTMENT": "-0.01",
+                },
+                "unknown_non_ad_expense_keys": [],
+                "excluded_expense_keys": [],
+            },
+        },
+    }
+
+    detail = service.format_expense_breakdown(result)
+
+    assert "Корректировка округления: +0.01 ₽" in detail
+    assert "Сверка с карточкой: 0.00 ₽ расхождения." in detail
 
 
 def test_query_selects_only_requested_sku():

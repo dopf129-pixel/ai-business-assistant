@@ -1,4 +1,6 @@
 from copy import deepcopy
+import csv
+import io
 import json
 
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -140,10 +142,55 @@ def test_single_sensitivity_runs_locally_pages_and_applies_only_explicit_fresh_c
     assert report["status"] == "UNIT_PRICE_SENSITIVITY_READY"
     assert report["sensitivity_result"]["cell_count"] == 3
     assert "среди проверенных" in report["message"]
+    assert "до рекламы" in report["message"]
+    assert "после рекламы" in report["message"]
+    assert all(
+        cell["scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+        for cell in report["sensitivity_result"]["cells"]
+    )
     assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert applied["price_scenario"]["inputs"]["price"]["value"] == 550
     assert before["price"]["value"] == 500
     assert source.calls == 1
+
+
+def test_sensitivity_displays_pre_ad_margin_when_advertising_is_unknown():
+    single, sensitivity, source = _runtime()
+    load_snapshot = source.load_snapshot
+
+    def without_advertising(*args, **kwargs):
+        snapshot = load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["advertising_rate"] = None
+        return snapshot
+
+    source.load_snapshot = without_advertising
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        entry = single.build_product_entry_button("user-1", "sku-1")
+        opened = single.handle_callback(entry["callback"], user_id="user-1")
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1",
+        )
+        values = sensitivity.handle_callback(
+            _find(prompt, "Ось · Цена продавца"), user_id="user-1",
+        )
+        report = sensitivity.handle_text("500;550;600", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert opened["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+    assert values["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+    assert report["status"] == "UNIT_PRICE_SENSITIVITY_READY"
+    cells = report["sensitivity_result"]["cells"]
+    assert len(cells) == 3
+    assert all(cell["status"] != "AVAILABLE" for cell in cells)
+    assert all(
+        cell["scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+        for cell in cells
+    )
+    assert "до рекламы по неполному составу расходов" in report["message"]
+    assert "после рекламы" not in report["message"]
 
 
 def test_sensitivity_result_discloses_fixed_cross_docking_input_for_each_scenario():
@@ -210,8 +257,10 @@ def test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_pri
             _find(prompt, "Ось · Цена продавца"), user_id="user-1",
         )
         report = sensitivity.handle_text("500;500.01;600.01", user_id="user-1")
-        export_callback = _find(report, "⬇️ JSON")
-        exported = sensitivity.handle_callback(export_callback, user_id="user-1")
+        json_callback = _find(report, "⬇️ JSON")
+        csv_callback = _find(report, "⬇️ CSV")
+        exported = sensitivity.handle_callback(json_callback, user_id="user-1")
+        exported_csv = sensitivity.handle_callback(csv_callback, user_id="user-1")
         applied = sensitivity.handle_callback(
             _find(report, "Перенести сценарий 2"), user_id="user-1",
         )
@@ -219,6 +268,30 @@ def test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_pri
         reset_current_tenant_user_id(tenant)
 
     document = json.loads(exported["file_content"].decode("utf-8"))
+    cells = report["sensitivity_result"]["cells"]
+    for row, cell in zip(document["rows"], cells):
+        assert row["pre_ad_margin"] == (cell.get("scenario") or {}).get("pre_ad_margin")
+    projection = document["rows"][0]["pre_ad_margin"]
+    assert projection["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
+    assert projection["unit_basis"] == "ONE_SUCCESSFUL_UNIT"
+    assert projection["tax_basis"] == "NO_ADVERTISING_SCENARIO"
+    assert "expense_scope" in projection
+    assert "source_periods" in projection
+    assert document["rows"][0]["calc_advertising"] is not None
+    assert document["rows"][0]["calc_tax"] is not None
+    assert document["metadata"]["sale_basis"] == "one_successful_sale"
+    assert document["metadata"]["source_as_of"] == report["sensitivity_result"]["source_as_of"]
+    csv_rows = list(csv.reader(
+        io.StringIO(exported_csv["file_content"].decode("utf-8-sig"), newline=""),
+        delimiter=";",
+    ))
+    header_index = next(
+        index for index, row in enumerate(csv_rows)
+        if "Маржа до рекламы" in row
+    )
+    projection_column = csv_rows[header_index].index("Маржа до рекламы")
+    csv_projection = json.loads(csv_rows[header_index + 1][projection_column])
+    assert csv_projection == projection
     assert report["sensitivity_result"]["available_cell_count"] == 2
     assert "комиссия 11% (ручной тариф)" in report["message"]
     assert "комиссия 22% (ручной тариф)" in report["message"]

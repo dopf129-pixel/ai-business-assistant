@@ -68,6 +68,20 @@ class _ButtonHandler:
         raise AssertionError("seller-cost callback must be handled by the cost flow")
 
 
+class _ResumeButtonHandler:
+    def __init__(self):
+        self.callbacks = []
+
+    def consume_seller_cost_return_callback(self, user_id, token):
+        if user_id == "user" and token == "entry-token":
+            return {"error": False, "sku": "sku-1"}
+        return {"error": True, "code": "SELLER_COST_ENTRY_STALE"}
+
+    def handle(self, callback, user_id=None):
+        self.callbacks.append((callback, user_id))
+        return {"error": False, "message": callback, "read_only_ozon": True}
+
+
 def _store_name():
     from services.tenant_context import get_current_tenant_user_id
 
@@ -75,6 +89,80 @@ def _store_name():
 
 
 class SellerCostConfirmationFlowTests(unittest.TestCase):
+    def test_unit_economics_cost_action_returns_once_to_same_sku_and_store(self):
+        costs = Costs()
+        flow = TelegramSellerCostUpdateService(
+            Products(),
+            costs,
+            date_provider=lambda: date(2026, 9, 15),
+            store_name_provider=_store_name,
+        )
+        button_handler = _ResumeButtonHandler()
+        adapter = SellerCostTelegramAdapter(
+            assistant=object(),
+            keyboard_service=object(),
+            button_handler=button_handler,
+            seller_cost_service=flow,
+        )
+        token = set_current_tenant_user_id("user::ozon::store-a")
+        try:
+            selected = adapter.handle_button("seller_cost_return:entry-token", user_id="user")
+            self.assertTrue(selected["seller_cost_input_pending"])
+            preview = adapter.handle_text("430", user_id="user")
+            saved = adapter.handle_button(
+                preview["keyboard"]["buttons"][0]["callback"], user_id="user"
+            )
+            self.assertFalse(saved["error"])
+            self.assertIn("Расчёт обновится только после нажатия", saved["message"])
+            return_button = next(
+                item for item in saved["keyboard"]["buttons"]
+                if item["callback"].startswith("seller_cost_resume_unit:")
+            )
+            self.assertLessEqual(len(return_button["callback"].encode("utf-8")), 64)
+            returned = adapter.handle_button(return_button["callback"], user_id="user")
+            self.assertFalse(returned["error"])
+            self.assertEqual(button_handler.callbacks, [("unit_economics:sku-1", "user")])
+
+            replay = adapter.handle_button(return_button["callback"], user_id="user")
+            self.assertTrue(replay["error"])
+            self.assertEqual(len(button_handler.callbacks), 1)
+        finally:
+            reset_current_tenant_user_id(token)
+
+    def test_unit_economics_cost_return_is_rejected_after_store_switch(self):
+        flow = TelegramSellerCostUpdateService(
+            Products(), Costs(),
+            date_provider=lambda: date(2026, 9, 15),
+            store_name_provider=_store_name,
+        )
+        button_handler = _ResumeButtonHandler()
+        adapter = SellerCostTelegramAdapter(
+            assistant=object(), keyboard_service=object(),
+            button_handler=button_handler, seller_cost_service=flow,
+        )
+        token_a = set_current_tenant_user_id("user::ozon::store-a")
+        try:
+            adapter.handle_button("seller_cost_return:entry-token", user_id="user")
+            preview = adapter.handle_text("430", user_id="user")
+            saved = adapter.handle_button(
+                preview["keyboard"]["buttons"][0]["callback"], user_id="user"
+            )
+            return_callback = next(
+                item["callback"] for item in saved["keyboard"]["buttons"]
+                if item["callback"].startswith("seller_cost_resume_unit:")
+            )
+        finally:
+            reset_current_tenant_user_id(token_a)
+
+        token_b = set_current_tenant_user_id("user::ozon::store-b")
+        try:
+            result = adapter.handle_button(return_callback, user_id="user")
+        finally:
+            reset_current_tenant_user_id(token_b)
+        self.assertTrue(result["error"])
+        self.assertEqual(result["code"], "SELLER_COST_RETURN_STORE_STALE")
+        self.assertEqual(button_handler.callbacks, [])
+
     def test_text_during_whole_history_confirmation_keeps_valid_draft_buttons(self):
         for table in (False, True):
             for cancel in (False, True):

@@ -1,9 +1,14 @@
+from collections import OrderedDict
+from threading import Event, Thread
+
 from services.assistant_button_handler_service import (
     AssistantButtonHandlerService
 )
+import services.assistant_button_handler_service as assistant_button_handler_module
 from services.assistant_keyboard_service import (
     AssistantKeyboardService
 )
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 
 
 class FakeAssistant:
@@ -31,6 +36,7 @@ class FakeUnitEconomicsQuery:
             products=products
         )
         self.queries = []
+        self.breakdown_calls = []
 
     def query(self, sku):
         self.queries.append(sku)
@@ -78,6 +84,10 @@ class FakeUnitEconomicsQuery:
             "Расчётная прибыль с 1 шт:\n510.00 ₽\n\n"
             "Маржа:\n34.00%"
         )
+
+    def format_expense_breakdown(self, result):
+        self.breakdown_calls.append(result["sku"])
+        return "🧾 Проверенная локальная расшифровка — " + result["sku"]
 
 
 def _build_handler(products=None):
@@ -160,7 +170,8 @@ def test_select_sku_calls_existing_query_and_displays_result():
     )
 
     result = handler.handle(
-        "unit_economics:hook-2"
+        "unit_economics:hook-2",
+        user_id=42,
     )
 
     assert query.queries == ["hook-2"]
@@ -169,6 +180,173 @@ def test_select_sku_calls_existing_query_and_displays_result():
     assert "Unit Economics — hook-2" in result["message"]
     assert "Расчётная прибыль с 1 шт:" in result["message"]
     assert "Чистая прибыль" not in result["message"]
+    detail_button = result["keyboard"]["buttons"][0]
+    assert detail_button["text"] == "Из чего складывается"
+    detail_result = handler.handle(
+        detail_button["callback"],
+        user_id=42,
+    )
+    assert query.queries == ["hook-2"]
+    assert query.breakdown_calls == ["hook-2"]
+    assert detail_result["message"] == "🧾 Проверенная локальная расшифровка — hook-2"
+
+
+def test_unit_economics_breakdown_snapshot_is_user_scoped_and_expires():
+    handler, query = _build_handler()
+    result = handler.handle("unit_economics:hook-2", user_id=42)
+    callback = result["keyboard"]["buttons"][0]["callback"]
+
+    other_user = handler.handle(callback, user_id=99)
+    assert other_user["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
+    assert query.queries == ["hook-2"]
+
+    key = ("42", callback.split(":", 1)[1])
+    handler._unit_economics_detail_snapshots[key]["expires_at"] = 0
+    expired = handler.handle(callback, user_id=42)
+    assert expired["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
+    assert query.queries == ["hook-2"]
+
+
+def test_unit_economics_detail_callbacks_keep_their_own_sku_snapshot():
+    handler, query = _build_handler()
+    first = handler.handle("unit_economics:sku-one", user_id=42)
+    second = handler.handle("unit_economics:sku-two", user_id=42)
+
+    first_detail = handler.handle(
+        first["keyboard"]["buttons"][0]["callback"],
+        user_id=42,
+    )
+    second_detail = handler.handle(
+        second["keyboard"]["buttons"][0]["callback"],
+        user_id=42,
+    )
+
+    assert first_detail["message"].endswith("sku-one")
+    assert second_detail["message"].endswith("sku-two")
+    assert query.queries == ["sku-one", "sku-two"]
+
+
+def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(monkeypatch):
+    class IncompleteQuery(FakeUnitEconomicsQuery):
+        cost_service = object()
+
+        def query(self, sku):
+            result = super().query(sku)
+            if not result.get("error"):
+                result["pre_ad_margin"] = {
+                    "status": "AVAILABLE",
+                    "basis": "CURRENT_MODEL",
+                    "expense_scope": {
+                        "unknown_non_ad_expense_keys": ["COGS", "OZON_COMMISSION"],
+                        "known_non_ad_expenses_rub": {"LOGISTICS": "20.00"},
+                    },
+                    "advertising_status": "UNKNOWN",
+                }
+            return result
+
+        def refresh(self, sku):
+            self.refresh_calls = getattr(self, "refresh_calls", 0) + 1
+            return self.query(sku)
+
+        def format_expense_breakdown(self, result):
+            return "Расшифровка " + result["sku"]
+
+    class Calculator:
+        def build_product_entry_button(self, user_id, sku):
+            return {"text": "Планировать цену", "callback": "upc:p:scenario-" + str(sku)}
+
+    tenant = {"value": "owner::ozon::store-a"}
+    monkeypatch.setattr(
+        assistant_button_handler_module,
+        "get_current_tenant_user_id",
+        lambda: tenant["value"],
+    )
+    query = IncompleteQuery()
+    handler = AssistantButtonHandlerService(
+        assistant=FakeAssistant(),
+        keyboard_service=AssistantKeyboardService(),
+        unit_economics_query=query,
+        unit_price_calculator_runtime_service=Calculator(),
+    )
+
+    result = handler.handle("unit_economics:sku-1", user_id=42)
+    callbacks = [button["callback"] for button in result["keyboard"]["buttons"]]
+    cost_callback = next(item for item in callbacks if item.startswith("seller_cost_return:"))
+    assert cost_callback != "seller_cost_return:sku-1"
+    assert len(cost_callback.encode("utf-8")) <= 64
+    assert "upc:p:scenario-sku-1" in callbacks
+    refresh = next(item for item in callbacks if item.startswith("unit_economics_refresh:"))
+    assert query.queries == ["sku-1"]
+
+    detail = handler.handle(
+        next(item for item in callbacks if item.startswith("unit_economics_details:")),
+        user_id=42,
+    )
+    assert "OZON_COMMISSION" not in detail["message"]
+    assert any(item.startswith("seller_cost_return:") for item in [
+        button["callback"] for button in detail["keyboard"]["buttons"]
+    ])
+    assert query.queries == ["sku-1"]
+
+    refreshed = handler.handle(refresh, user_id=42)
+    assert refreshed["error"] is False
+    assert query.queries == ["sku-1", "sku-1"]
+    assert query.refresh_calls == 1
+
+    tenant["value"] = "owner::ozon::store-b"
+    stale = handler.handle(refresh, user_id=42)
+    assert stale["code"] == "UNIT_ECONOMICS_REFRESH_CONTEXT_STALE"
+    stale_detail = handler.handle(
+        next(item for item in callbacks if item.startswith("unit_economics_details:")),
+        user_id=42,
+    )
+    assert stale_detail["code"] == "UNIT_ECONOMICS_BREAKDOWN_EXPIRED"
+    assert query.queries == ["sku-1", "sku-1"]
+
+
+def test_old_seller_cost_entry_button_is_bound_to_user_and_store(monkeypatch):
+    tenant = {"value": "owner::ozon::store-a"}
+    monkeypatch.setattr(
+        assistant_button_handler_module,
+        "get_current_tenant_user_id",
+        lambda: tenant["value"],
+    )
+    handler = AssistantButtonHandlerService(assistant=FakeAssistant())
+
+    class CostFlow:
+        def __init__(self):
+            self.selected = []
+
+        def select_sku(self, user_id, sku, return_to_unit_economics=False):
+            self.selected.append((user_id, sku, return_to_unit_economics))
+            return {"error": False, "seller_cost_input_pending": True}
+
+    cost_flow = CostFlow()
+    adapter = SellerCostTelegramAdapter(
+        assistant=FakeAssistant(),
+        keyboard_service=AssistantKeyboardService(),
+        button_handler=handler,
+        seller_cost_service=cost_flow,
+    )
+    callback = handler.create_seller_cost_return_callback(42, "sku-1")
+    assert callback and "sku-1" not in callback
+
+    tenant["value"] = "owner::ozon::store-b"
+    stale = adapter.handle_button(callback, user_id=42)
+    assert stale["error"] is True
+    assert stale["code"] == "SELLER_COST_ENTRY_STALE"
+    assert cost_flow.selected == []
+
+    tenant["value"] = "owner::ozon::store-a"
+    replay = adapter.handle_button(callback, user_id=42)
+    assert replay["error"] is True
+    assert replay["code"] == "SELLER_COST_ENTRY_STALE"
+    assert cost_flow.selected == []
+
+    fresh = handler.create_seller_cost_return_callback(42, "sku-1")
+    accepted = adapter.handle_button(fresh, user_id=42)
+    assert accepted["seller_cost_input_pending"] is True
+    assert cost_flow.selected == [(42, "sku-1", True)]
 
 
 def test_unknown_expenses_are_displayed_as_dashes():
@@ -225,3 +403,79 @@ def test_existing_memory_handler_is_preserved():
         "error": False,
         "memory": {"user_id": 10}
     }
+
+
+def test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe(monkeypatch):
+    handler = AssistantButtonHandlerService(
+        assistant=FakeAssistant(), keyboard_service=AssistantKeyboardService(),
+    )
+    tenant = {"value": "owner::ozon::store-a"}
+    monkeypatch.setattr(
+        assistant_button_handler_module,
+        "get_current_tenant_user_id",
+        lambda: tenant["value"],
+    )
+    iteration_paused = Event()
+    release_iteration = Event()
+    second_started = Event()
+    second_finished = Event()
+    errors = []
+
+    class PausingOrderedDict(OrderedDict):
+        pause_next_iteration = True
+
+        def items(self):
+            entries = super().items()
+            if not self.pause_next_iteration:
+                return entries
+            self.pause_next_iteration = False
+
+            def paused_entries():
+                for index, entry in enumerate(entries):
+                    yield entry
+                    if index == 0:
+                        iteration_paused.set()
+                        if not release_iteration.wait(5):
+                            raise AssertionError("test did not release snapshot iteration")
+
+            return paused_entries()
+
+    handler._unit_economics_detail_snapshots = PausingOrderedDict({
+        ("old-user-a", "old-a"): {"expires_at": 9999999999},
+        ("old-user-b", "old-b"): {"expires_at": 9999999999},
+    })
+
+    def store_first():
+        try:
+            handler._store_unit_economics_detail_snapshot(
+                "first-user", "first snapshot", sku="sku-1",
+            )
+        except Exception as exc:  # surfaced in the assertion thread below
+            errors.append(exc)
+
+    def store_second():
+        second_started.set()
+        try:
+            handler._store_unit_economics_detail_snapshot(
+                "second-user", "second snapshot", sku="sku-2",
+            )
+        except Exception as exc:  # surfaced in the assertion thread below
+            errors.append(exc)
+        finally:
+            second_finished.set()
+
+    first = Thread(target=store_first)
+    first.start()
+    assert iteration_paused.wait(2)
+    second = Thread(target=store_second)
+    second.start()
+    assert second_started.wait(2)
+    second_was_blocked_by_snapshot_lock = not second_finished.wait(0.05)
+    release_iteration.set()
+    first.join(2)
+    second.join(2)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert second_was_blocked_by_snapshot_lock is True
+    assert errors == []
+    assert len(handler._unit_economics_detail_snapshots) == 4

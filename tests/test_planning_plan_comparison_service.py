@@ -196,16 +196,16 @@ def test_expense_add_remove_rename_and_amount_changes_export_to_csv_and_json():
     variants = [
         ([{"name": "Packaging", "amount": "100.00"}],
          [{"name": "Packaging", "amount": "150.00"}],
-         [{"name": "Packaging", "before": "100.00", "after": "150.00", "delta": "50.00"}]),
+         [{"name": "Packaging", "category": "UNCLASSIFIED", "before": "100.00", "after": "150.00", "delta": "50.00"}]),
         ([{"name": "Packaging", "amount": "100.00"}], [],
-         [{"name": "Packaging", "before": "100.00", "after": "0.00", "delta": "-100.00"}]),
+         [{"name": "Packaging", "category": "UNCLASSIFIED", "before": "100.00", "after": "0.00", "delta": "-100.00"}]),
         ([], [{"name": "New expense", "amount": "10.00"}],
-         [{"name": "New expense", "before": "0.00", "after": "10.00", "delta": "10.00"}]),
+         [{"name": "New expense", "category": "UNCLASSIFIED", "before": "0.00", "after": "10.00", "delta": "10.00"}]),
         ([{"name": "Packaging", "amount": "100.00"}],
          [{"name": "Packing", "amount": "100.00"}],
          [
-             {"name": "Packaging", "before": "100.00", "after": "0.00", "delta": "-100.00"},
-             {"name": "Packing", "before": "0.00", "after": "100.00", "delta": "100.00"},
+             {"name": "Packaging", "category": "UNCLASSIFIED", "before": "100.00", "after": "0.00", "delta": "-100.00"},
+             {"name": "Packing", "category": "UNCLASSIFIED", "before": "0.00", "after": "100.00", "delta": "100.00"},
          ]),
     ]
 
@@ -266,8 +266,78 @@ def test_plan_comparison_screen_shows_expense_changes_instead_of_false_empty_sta
     finally:
         reset_current_tenant_user_id(tenant)
 
-    assert "Расход «New expense»: 0.00 → 10.00 ₽" in screen["message"]
+    assert "Расход «New expense» · категория «не указана»: 0.00 → 10.00 ₽" in screen["message"]
     assert "Введённые параметры не изменились." not in screen["message"]
+
+
+def test_expense_category_change_is_visible_in_comparison_screen_and_exports(tmp_path):
+    scenario = UnitPriceScenarioService(TaxService())
+    sales_mix = SalesMixPlanningService(scenario, scenario.tax_service)
+    service = PlanningPlanComparisonService(sales_mix)
+    exporter = AnalyticsExportService()
+    first, second = _document(1), _document(2)
+    first["document"]["payload"]["sales_mix"]["expenses"] = [
+        {"name": "CPC", "amount": "100.00", "category": "OTHER"},
+    ]
+    second["document"]["payload"]["sales_mix"]["expenses"] = [
+        {"name": "CPC", "amount": "100.00", "category": "ADVERTISING"},
+    ]
+
+    comparison = service.compare(first, second)
+
+    expected = [
+        {"name": "CPC", "category": "ADVERTISING", "before": "0.00", "after": "100.00", "delta": "100.00"},
+        {"name": "CPC", "category": "OTHER", "before": "100.00", "after": "0.00", "delta": "-100.00"},
+    ]
+    assert comparison["expense_changes"] == expected
+    assert "fixed_expenses" in comparison["changed_dimensions"]
+
+    for file_format in ("csv", "json"):
+        exported = exporter.export_plan_comparison({"comparison": comparison}, file_format)
+        assert exported["error"] is False
+        content = exported["file_content"].decode("utf-8")
+        assert "ADVERTISING" in content and "OTHER" in content
+        if file_format == "json":
+            document = json.loads(content)
+            assert document["metadata"]["expense_changes"] == expected
+
+    runtime = TelegramSavedPlanningPlanRuntimeService(
+        SavedPlanningPlanService(
+            PlanningWorkspaceRepository(db_path=tmp_path / "category-change.sqlite"), scenario,
+        ), None, None, AssistantKeyboardService(), sales_mix_planning_service=sales_mix,
+        plan_comparison_service=service,
+    )
+    tenant = set_current_tenant_user_id("owner-1::ozon::store-a")
+    try:
+        scope = runtime._scope("owner-1")
+        generation = runtime.comparison_snapshot_store.begin_generation(
+            "owner-1", "store-a", "plan_comparison",
+        )["generation"]
+        stored = runtime.comparison_snapshot_store.put_snapshot(
+            "owner-1", "store-a", "plan_comparison", generation, 2,
+            {"status": "HISTORICAL_ASSUMPTIONS"}, comparison["scope"],
+            [{"row_id": "comparison", "comparison": comparison}],
+        )
+        screen = runtime._render_plan_comparison_snapshot(scope, stored["snapshot"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert "категория «реклама»" in screen["message"]
+    assert "категория «прочее»" in screen["message"]
+    assert "Введённые параметры не изменились." not in screen["message"]
+
+    # A legacy expense without a category has the same meaning as UNCLASSIFIED.
+    first["document"]["payload"]["sales_mix"]["expenses"] = [
+        {"name": "CPC", "amount": "100.00"},
+    ]
+    second["document"]["payload"]["sales_mix"]["expenses"] = [
+        {"name": "CPC", "amount": "100.00", "category": "UNCLASSIFIED"},
+    ]
+    assert service.compare(first, second)["expense_changes"] == []
+    assert service._expense_changes(
+        {"expenses": [{"name": "CPC", "amount": "100.00", "category": ["OTHER"]}]},
+        {"expenses": [{"name": "CPC", "amount": "100.00"}]},
+    ) == []
 
 
 def test_plan_comparison_detail_pages_expose_every_change_and_added_sku_without_external_reads(tmp_path):

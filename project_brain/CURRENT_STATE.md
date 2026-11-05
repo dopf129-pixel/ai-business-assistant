@@ -1,8 +1,132 @@
-# 2026-10-31 — ТЗ: маржа товара до рекламы
+# 2026-11-05 — исправлены замечания повторного review PR #724
 
-- Владелец подтвердил основной показатель после налога и прочих расходов, от выручки продавца до вычета баллов. Подготовлены `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`, аудит и журнал: 30 этапов MA00–MA29, все NOT_STARTED.
-- Предусмотрены canonical no-ad ветка при неизвестной рекламе, отдельные налоговые основания current/model/historical, прозрачный expense scope и before/after в карточке/сценариях/экспорте. Старые результаты и guards сохраняются.
-- Подготовка документационная на базе проверенного PR #722 `aad70b57`; реализация, live API, merge и deploy не начинались.
+- Ценовая сетка сообщает фактические отсутствующие входы для базового сценария и указывает на неподтверждённую комиссию только при соответствующем статусе.
+- Подтверждённые дополнительные расходы с нулевым округлённым значением на единицу сохраняют прозрачную расшифровку источника, периода и количества. Неизвестные или неподтверждённые данные по-прежнему не выдаются за учтённые расходы.
+- Связанный профиль: **50 passed**; полный Windows pytest: **4,442 passed in 48.14s**; `compileall app tests` и `git diff --check` — PASS. Состояние файлов `data/` после проверки совпало с контрольными SHA-256.
+
+# 2026-11-03 — исправления review PR #724
+
+- Исправлено наследование frozen дополнительных расходов во всех трёх путях сравнения цены. Проверка при применении и строки сравнения теперь используют одни и те же расходы; подтверждённый saved-plan regression проходит сетку без рекламы и применение кандидата.
+- Расшифровка смешанных известных/неизвестных расходов использует безопасный общий ярлык. Подтверждённая pre-ad база/период остаётся видимой при `extended_calculation=UNAVAILABLE`, если pre-ad ledger доказывает включение суммы.
+- Предупреждение сетки больше не обозначает хранение и эффекты возвратов как безусловно исключённые. Подробности показывают подписанное диагностическое расхождение налогового моста при копеечном округлении.
+- Проверки локально: полный Windows pytest **4,440 passed in 45.83s**; `compileall app tests` и `git diff --check` PASS. Все файлы `data/` после полного pytest восстановлены к байтам снимка до запуска. GitHub Actions run [41650041563](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41650041563) для SHA `336c890cca98e547d869d0a52869b65ba21a90c7` прошёл: Windows/Linux full verification, production Docker build и smoke — success.
+
+# 2026-11-03 — PR #724: уточнены категории распределённых расходов и округление
+
+- Краткий и подробный сценарии теперь раскрывают тип подтверждённых дополнительных расходов, числитель, период и основание распределения (`заказанные`, `проданные` или `сохранённые единицы когорты`). Для сохранённого источника хранения выводится категория хранения вместо общих «прочих расходов».
+- Форматтер денег планового калькулятора приведён к каноническому `ROUND_HALF_UP`; копеечная корректировка имеет явный знак, поэтому введённая себестоимость и сумма строк расходов читаются согласованно.
+- Связанный профиль: **128 passed in 3.33s**; полный локальный Windows pytest: **4,437 passed in 45.27s**; `compileall app tests`, `git diff --check` PASS. В финальном тестовом прогоне содержимое `data/tasks.json` и исходное состояние lock восстановлены байт-в-байт к снимку непосредственно перед этим прогоном. Code SHA `a5f34dec102b4d3894138fc223f6cda92a7841b7` прошёл exact-head Verify run `41636324358`: Windows/Linux full verification, Docker build и smoke — success; artifact `13230647048` (`sha256:b12f3f804260e83e1c8339ba6f5280bffbc918e885c40edbe6c0a11a98af8b31`).
+
+# 2026-11-03 — PR #724: согласованы детализация расходов и проценты
+
+- Исправлены два новых review замечания: результат плановой цены перечисляет дополнительные расходы, фактически включённые в pre-ad прибыль, и динамически показывает неизвестные/исключённые категории из frozen scope; строгие возвратные потери больше не попадают под общую фразу «возвраты не включены».
+- Дублирующая строка прибыли в карточке SKU не выводит `-0.0%`, если отрицательная сумма округляется до нулевого процента; знак суммы прибыли сохраняется.
+- Регрессии в saved-plan Telegram flow, сценарном runtime и current economics. Полный локальный Windows pytest: **4,436 passed in 46.06s**; `compileall app tests`, `git diff --check` PASS. Code SHA `e1ac109f79368a9d71945b5c88ccbfa84f49ee9e` прошёл exact-head Verify run `41609310492`: оба job success, Linux/full verification и Docker build/smoke PASS; artifact `13218262009` (`sha256:6f316a6ff1560144cce87df32dd5259f38a6cd6e7e47a6aafa12f6f7a27bef73`). Владелец данных после тестов восстановлен к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
+
+# 2026-11-03 — PR #724: результат callback и проценты маржи
+
+- После ошибки отправки начального progress-сообщения callback-результат проходит общий Telegram splitter; длинное подтверждение больше не теряется из-за лимита одного сообщения.
+- Отрицательная прибыль до рекламы меньше 0.005 ₽ по модулю отображается с её денежным знаком, а округлённый до нуля процент показывается как `0.00%`. Ненулевые отрицательные проценты сохраняют знак.
+- Регрессии проверяют Telegram callback без progress handle и current/historical проекции. Полный локальный Windows pytest: **4,436 passed in 46.73s**; компиляция и whitespace-проверка PASS. Кодовый SHA `0d426b9c35e3ef728168ee3b6ca913d6e7a0f239` прошёл exact-head GitHub Actions Verify `41599892104`: Windows **4,436 passed in 131.20s**, Linux **4,436 passed in 27.06s**, Docker build/smoke PASS; artifact `13213338415` (`sha256:0caf20fb6ceea592c56bfbcea9541119c0e742b400170377dd044499bd825575`). `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
+
+# 2026-11-02 — PR #724: устранены два замечания повторного review
+
+- Большой предпросмотр sales mix больше не теряет финансовую сводку из-за лимита 3 800 символов: сводка и scope-предупреждения выводятся раньше детализации, полное сообщение разбивается общим Telegram-механизмом.
+- В процентах маржи округлённый отрицательный ноль отображается как `0.00%`; фактическая прибыль `-0.01 ₽` остаётся отрицательной.
+- Полный локальный Windows pytest: **4,433 passed in 46.77s**; компиляция и `git diff --check` проходят. Тестовые изменения `data/tasks.json` восстановлены: SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock удалён. Кодовый SHA `2557d68a5a9160d6f6c51d330b35d231cd7dc2b6` прошёл exact-head Verify `41455445557`: Windows **4,433 passed in 139.83s**, full-verification и Docker build/smoke PASS; artifact `13145429548`, digest `sha256:fffbf5ecd5441d75d796b209991c623ea45b3ea7cb51e478473421f15de9eb01`.
+
+# 2026-11-02 — PR #724: категории фиксированных расходов видны в сравнении планов
+
+- Сравнение сохранённых планов агрегирует расходы по паре «название + категория». Перенос одинаковой суммы между `OTHER` и `ADVERTISING` отражается двумя направленными строками; Telegram показывает русское название категории, JSON/CSV сохраняют её в `expense_changes`.
+- Расходы старых планов без категории трактуются как `UNCLASSIFIED`, чтобы прежние frozen-снимки сохраняли прежний смысл.
+- Связанный профиль из пяти модулей: **98 passed in 3.42s**; полный локальный Windows pytest: **4,431 passed in 45.75s**. Exact-head Verify run `41448897286` на code SHA `cc7c6e7cbf6c36bc025a2f400e6c65bc10c523d3` прошёл: Windows/Linux по **4,431 passed**, Docker build/smoke PASS; artifact `13143113848`, digest `sha256:16956bbb86da648049eacefd4c718bc72382cb27dd4e9dd8bd71dfd69807922b`. Тестовые побочные изменения восстановлены: `data/tasks.json` SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Новый документальный commit требует exact-head CI.
+
+# 2026-11-02 — PR #724: исправлено сохранение категорий периодных расходов
+
+- Репозиторий планов принимает типизированные расходы `ADVERTISING`, `OTHER`, `UNCLASSIFIED`, сохраняя строгий allowlist. Старые расходы без категории сохраняют прежний формат.
+- Новый Telegram regression проходит preview, подтверждение, revision 2, повторное чтение, перерасчёт и JSON export; отдельный repository test проверяет round-trip и отклонение неразрешённых значений.
+- Связанные тесты: **97 passed in 3.38s**; полный Windows pytest: **4,430 passed in 46.42s**. После теста `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Code SHA `f7a0207129746278365365a8f28a9dcf909e1fd6` прошёл exact-head run `41442747525`: Windows/Linux по **4,430 passed**, Docker build/smoke PASS; artifact `13139189114`, digest `sha256:d27d89f22acb2a56df735541e7662a4656c466e9a903cae95ebe24e5c6a864a5`.
+
+# 2026-11-02 — PR #724: два новых P2 review замечания исправлены локально
+
+- В sales mix введена явная категория дополнительных расходов. Категория «Реклама» вычитается из after-ad итога, но не из pre-ad; «Прочее» учитывается и в pre-ad; старые вводы без категории сохраняют after-ad поведение и делают pre-ad расходную полноту частичной.
+- Результат сравнения цен разбит на страницы по 4 варианта; кнопки выбора ограничены видимыми строками. Для сетки цен оставлено прежнее отображение 10 точек на страницу.
+- Добавлены service-level и Telegram end-to-end регрессии. Связанные модули: **349 passed in 8.53s**; полный локальный Windows suite: **4,429 passed in 44.13s**; `compileall` и `git diff --check` PASS. Тестовые побочные изменения `data/tasks.json` восстановлены к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует. Кодовый SHA `b393c1765b26294293c9c22a87b1657260027ce5` прошёл run `41437642412`: Windows/Linux по **4,429 passed**, Docker build и smoke PASS; artifact `13137521134`, digest `sha256:f7903c823ac8861d4452e96646ec291ebdb75f2ac6600a3bfc59d3ae8ae0340d`.
+
+# 2026-11-02 — PR #724: исправлены два P2 замечания review
+
+- В сравнении вариантов цены и строке базовой цены сохраняются прибыль и маржа до рекламы, когда неизвестна реклама. After-ad остаётся недоступной, варианты не ранжируются, реклама не подменяется нулём; известная комиссия не объявляется неподтверждённой.
+- Строгая подтверждённая потеря возвратной когорты не отражается одновременно включённой и исключённой. Неизвестный статус и конфликт mapped-алиасов сохраняют частичную полноту.
+- Связанный профиль: **304 passed in 6.29s**; полный Windows pytest: **4,426 passed in 46.21s**. `compileall app tests` и `git diff --check` PASS. Контрольная сумма пользовательских данных совпадает с baseline `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Exact-head run `41431891843` на SHA `f248237f646a39f141b993d4dc498d3eec039278` прошёл: Windows/Linux по **4,426 passed**, Docker build/smoke PASS; artifact `13133939194` (`sha256:66889d7a950792c334004978dae7380f8b1db7246159a9e13fa2311e15b755a4`).
+
+# 2026-11-02 — PR #724: устранено противоречие статусов базовых расходов
+
+- Статусы `EXCLUDED`/`UNKNOWN` из расширенного источника не перекрывают категорию, уже содержащую известную базовую сумму модели. Ранее логистика одновременно оставалась известной и попадала в исключённые/неизвестные; в sales mix сумма вычиталась, но подписывалась как неизвестная.
+- Новые регрессии покрывают `calculate`, `calculate_components_only` и sales mix. Связанный профиль: **165 passed**; полный Windows pytest: **4,424 passed**; `compileall` и `git diff --check` PASS.
+- Пользовательские данные не изменены: SHA-1 `data/tasks.json` совпадает с исходным `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Exact-head GitHub Actions run `41416052784` на кодовом SHA `372e921c3b4a6c07504754702abd49699efdcf3a` завершился success: Windows **4,424 passed in 146.47s**, Linux **4,424 passed in 29.42s**, Docker build и smoke — PASS. Проверяемый merge ref `3ab500ee038e0d9d1c51d95edf4d86e992bfc558`; artifact `13127109252`, digest `sha256:3dfef7873205c793ca47fcdb7afc8ee54f2663ef843d69a9ae52227958acc2f8`.
+
+# 2026-11-01 — PR #724: граница сохранённой детализации расходов
+
+- Валидатор frozen `pre_ad_margin.expense_scope` учитывает, что проекция дополняет до 64 source components базовыми и производными ключами. Производные списки и причины ограничены 72 элементами; проверки структуры, идентификаторов и дубликатов сохранены.
+- Новый end-to-end тест сохраняет и повторно читает планы с 60/64 включёнными компонентами и 64 исключёнными типами; проверено отклонение 73-го ключа.
+- Linked profile: **163 passed in 4.43s**. Full Windows pytest: **4,422 passed in 47.55s**. `compileall app tests` и `git diff --check` PASS. `data/tasks.json` вернулся к SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
+- Кодовый SHA `7de3598cdc0d07fd41bfce738fc3e7ef3edf466d` прошёл exact-head run `41343413057`: Windows и Linux по **4,422 passed**, Docker build/smoke — PASS; artifact `13098127220` (`sha256:ba829ba86632fcf8fe644ab7068e9e4f467ca88b4fd0f0f2f67e99b288ff05f9`).
+
+# 2026-11-01 — PR #724: устранены три повторные review-находки
+
+- Сверена детализация `pre_ad_margin`: округлённые строки расходов с отдельной подписанной корректировкой теперь точно сходятся с канонической прибылью, в том числе при умножении на объём продаж. Основная формула прибыли не менялась.
+- Ноль STORAGE/PLACEMENT подтверждается только суммой всей категории после свёртки алиасов; смесь положительного и нулевого алиаса не маркируется как нулевая.
+- В sales mix категория, явно исключённая для одного SKU и включённая для другого, обозначается как частично покрытая, без глобального статуса «исключена».
+- Добавлены регрессии на scenario/component paths, микс и пользовательскую расшифровку. Linked profile на финальном коде: **158 passed in 4.21s**; full Windows pytest: **4,420 passed in 46.19s**; `compileall app tests` и `git diff --check` PASS. `data/tasks.json` SHA-1 восстановлен к `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock отсутствует.
+- Коммит `18ba381b663370aa6a78264bba012c24c8c073ad` опубликован в PR #724 и прошёл exact-head run `41338557148`: Windows/Linux full suites и Docker build/smoke — success. Artifact `13096362251`, digest `sha256:1a82c63bb909d4bfe71151142526811db5037b1eaf6c6ce2bcf0468511a942f5`. Независимый повторный review ещё предстоит; слияние, развёртывание и запуск бота не выполнялись.
+
+# 2026-11-01 — PR #724: следующий проход review
+
+- Исправлены дополнительные review-находки: SKU/состояние калькулятора переживают переход из деталей; frozen before-ad/tax projections остаются в сохранённых single/batch планах и JSON-экспорте; sales mix сохраняет известный subtotal при UNKNOWN рекламе и не поднимает локальный confirmed-zero в общий ноль.
+- OrderedDict-кэши деталей и одноразовых действий защищены общей блокировкой от конкурентной очистки, вставки и вытеснения.
+- Связанный профиль: **290 passed**; полный Windows pytest: **4,416 passed in 46.01s**; `compileall app tests` и `git diff --check` PASS. Тестовый побочный эффект в `data/tasks.json` восстановлен, SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
+- Коммит опубликован в PR #724. SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head GitHub Actions run `41332959642`: Windows и Linux/Docker — success; artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`. Нужен повторный независимый review. Слияние/развёртывание/запуск бота не выполнялись.
+
+# 2026-11-01 — PR #724: исправления review R1–R5
+
+- Исправлены пять замечаний review: одноразовая кнопка себестоимости связана с теми же пользователем/магазином/SKU; возврат после записи себестоимости принудительно перечитывает юнит-экономику; явный refresh обходит кэш запроса.
+- Чувствительность, пакетный расчёт и sales mix показывают доступную маржу до рекламы при неизвестной рекламе. При неизвестных прочих расходах результат обозначен как частичный, суммы не считаются нулевыми; агрегат и выгрузка сохраняют scope расходов.
+- Детали ценового сценария показывают налог без рекламы T0, налог после рекламы T1 и разницу, если оба расчёта доступны. Неизвестный T1 подписан как «не рассчитан».
+- Связанный профиль **208 passed**; локальный полный Windows pytest **4,411 passed in 45.99s**; `compileall app tests` и `git diff --check` прошли. После локальной проверки `data/tasks.json` восстановлен к исходному SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock удалён.
+- PR #724 code head `2e82355d1b0353be0ea3eeb4ed722bba0ac9e498` прошёл GitHub Actions run `41328828173`: Windows **4,411 passed**, Linux **4,411 passed**, Docker build и runtime smoke — PASS. Проверенный merge ref: `142e97a80ce08caf047a1b52701bf1c5333ea1d9`; SHA-bound artifact ID `13092810821`, digest `sha256:e9d661a1f64b050fef668e91e7eb61d821c46adc1d64cc4b7e610a17a68df184`. Слияние, развёртывание и запуск бота не выполнялись.
+
+# 2026-10-31 — Реализация: маржа товара до рекламы (MA00–MA29; review remediation complete)
+
+- Реализация этапов MA00–MA28 завершена локально. Основной показатель: после налога и подтверждённых расходов, ₽/успешную единицу и %, denominator — цена продавца до баллов. Добавлены before/after для сценариев, current projection и строгая historical reconciliation; неподтверждённые расходы остаются неизвестными, старые результаты не меняются.
+- MA27 полный Windows pytest: **4,404 passed in 46.19s**; `compileall app tests` и `git diff --check` PASS на `eb14db29`. MA28 обновил инструкцию с точными меню, налоговыми основаниями и N01 числовым примером. Проверка владельцем на live-данных помечена `USER_VALIDATION_PENDING`.
+- MA29: открыт stacked PR #724 на ветку ТЗ PR #723; independent review packet приложен. Run `41240191495` прошёл обе проверки Windows и full-verification (Linux + Docker) на SHA `fd4d79ed`; создан SHA-bound отчёт. Любой последующий head нуждается в своей exact-head проверке. Merge/deploy/live Ozon/Telegram запросы и запуск бота не выполняются.
+
+- Владелец подтвердил основной показатель после налога и прочих учитываемых расходов, от выручки продавца до вычета баллов. ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md` включает 30 этапов MA00–MA29; MA00–MA06 завершены, MA07 VERIFIED_EXISTING, MA08–MA10 DONE, MA11 VERIFIED_EXISTING.
+- Добавлены canonical no-ad ветка и T0/T1 bridge; current provider/query предоставляют аддитивную `pre_ad_margin` v1, используя существующие текущие сумму прибыли и налога без повторного вызова налогового расчёта. Состав неполных расходов, неизвестная реклама и разные периоды указаны явно; legacy поля и guards сохранены.
+- MA11 подтверждён в существующем плановом сценарии: точный кандидат получает свой тариф, тариф прежней цены не переносится за границу неизвестного диапазона; ручная ставка явно остаётся допущением. Новые регрессии проверяют проекцию и сохранение цены/себестоимости/рекламы после ручной комиссии. Связанный Windows профиль MA11: **61 passed in 1.53s**.
+- MA19 прошёл публичную offline-приёмку: текущая карточка → подробности → сценарий новой цены → ручная комиссия → реклама → before/after → сохранение плана. Исправлены потеря токена при открытии локальных подробностей и сериализация decimal-comma. Linked Windows profile: **121 passed in 3.60s**; implementation commit `d8532f9a`.
+- MA20 подтверждён на существующем frozen-plan/schema поведении: старые планы открываются без source reload, тарифные изменения после явного refresh сохраняются новой revision, future/corrupt схемы fail-closed. Новая регрессия подтверждает отсутствие изменений документа/revision/payload при чтении. Linked Windows profile: **51 passed in 2.35s**; test commit `2423742b`.
+- MA21 verified existing CSV/JSON export path: the exported sensitivity row carries the same before-ad projection, revenue/tax basis, expense completeness, source periods, advertising/tax fields and one-successful-unit basis as the displayed snapshot. Export remains source-read-free. Linked Windows profile: **48 passed in 1.54s**; regression commit `7c4f6595`.
+- MA22 verified existing owner/store/revision guards: equal SKU values across stores do not share callbacks; stale price/apply callbacks fail closed after store/SKU/source changes; saved tariff revisions remain frozen until explicit refresh; simultaneous revision-CAS writes have one winner. Linked Windows profile: **130 passed in 4.05s**; no production change.
+- MA23 verified local-only details/export, tenant-scoped query cache and in-flight dedup, shared time/HTTP attempt budgets with cooperative cancellation, and honest unavailable/partial results. Linked Windows profile: **141 passed in 4.50s**; no production change.
+- MA24 extended isolated backup/restore acceptance: old/new saved-plan revisions, observation history and exports survive archive verification, dry-run and restore to a fresh root/repository; another store stays isolated and rejected raw payload is absent. Linked Windows profile: **26 passed in 3.36s**; test commit `6b06eb43`.
+- MA25 added fixed numeric regressions for absolute advertising, no-tax mode, exact TaxService invocation bases and corrected SKU cross-docking (560 ₽ / 280 accepted = 2 ₽/unit). Existing tests map all N01–N20 accounting, ownership, completeness, tariff, history, persistence and tenant cases. Linked Windows profile: **388 passed in 6.73s across 14 modules** at test commit `fcec0254`; no production/schema changes.
+- MA26 linked offline profile spans the current/historical card, price planning, tariffs, saved plans, returns/expenses/cross-docking, observations/experiments, exports and restore: **981 passed in 28.81s across 70 modules** at test commit `8cdb62c1`. Corrected one obsolete formatting assertion to match the current provenance contract; no production change.
+- MA12 добавил отдельный historical projection service с add-back только exact-SKU финансовой рекламы, уже учтённой в net, при точном совпадении владельца, магазина, SKU и периода. Налог берётся из результата существующего исторического запроса без повторного пересчёта; provenance отмечен отдельно. CPC Performance, cohort attribution, account/window allocation, неполные категории и net credit не подставляются.
+- В текущем production historical source такого полного evidence пока нет: новая historical проекция возвращает `UNAVAILABLE` с конкретной причиной. Это не меняет существующие поля или current/model path. Resolver дополнен exact-SKU coverage flag.
+- Связанный MA12 Windows профиль: **156 passed in 2.83s** на 9 модулях; `data/tasks.json` SHA-1 совпадает до/после. `py_compile`/полный pytest и exact-head CI ещё предстоят; merge, deploy, live API и запуск бота не выполнялись.
+- MA13 расширил существующие price options/grid аддитивными `pre_ad_margin` и `after_ad` per candidate. Стандартный ranking остаётся по after-ad прибыли ₽/успешную единицу; для сетки добавлен отдельный no-ad режим с отдельным basis, который при выборе цены сохраняет существующий ad override. Tax/revenue/denominator bases фиксируются для сравнения; неполные non-ad расходы остаются помеченными.
+- Linked Windows profile MA13: **255 passed in 5.89s** на 9 модулях. `data/tasks.json` SHA-1 до/после: `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. Полный pytest и exact-head CI остаются MA27; no merge/deploy/live calls/bot launch.
+- MA14 exposes the same candidate `pre_ad_margin` in target, sensitivity, batch, and their exports without extra source reads or solver evaluations. Sales mix now computes the exact no-ad tax at aggregate level in the same single public TaxService call, keeps the existing after-ad mix unchanged, and uses total pre-ad after-tax profit divided by total seller revenue. Unknown/incomplete mixes fail closed; zero revenue has no percentage.
+- Linked Windows MA14 profile: **261 passed in 5.34s** on 9 modules; `py_compile`/`git diff --check` pass; `data/tasks.json` hash remains `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock absent. Full pytest and exact-head CI remain MA27. No merge/deploy/live calls/bot launch.
+- MA15 обновил основной current/historical formatter: маржа до рекламы после налога стоит перед прежней детализацией; рядом выводятся налоговое основание, completeness, статус рекламы и безопасные source periods. После-рекламная прибыль выводится только для exact-SKU рекламы, доказанной как уже включённая в тот же historical net. При unknown ad значение остаётся недоступным; legacy after-ad fields не заменены и не пересчитаны.
+- Linked Windows MA15 profile: **42 passed in 1.07s** на 4 модулях; `py_compile`/`git diff --check` PASS; `data/tasks.json` hash сохранён, lock отсутствует. Exact-head CI и полный pytest предусмотрены MA27; merge/deploy/live API и запуск бота не выполнялись.
+- MA16 добавил кнопку «Из чего складывается» к основной карточке. Она открывает ограниченный по времени user-scoped снимок точного результата, не повторяя Ozon query. Ledger показывает текущие расходы на одну успешную единицу или исторические totals и denominator, источник/период, налог и полноту; кросс-докинг помечен как вложенная детализация. Current bridge проверяется до копейки; historical other-expense balance явно остаётся расчётным, ad bridge independently сверяется с after-ad result.
+- Linked Windows MA16 profile: **44 passed in 1.12s** на 4 модулях; `py_compile`/`git diff --check` PASS; `data/tasks.json` SHA-1 совпадает, lock absent. Профиль включал исправление тестом найденного string-to-money formatting дефекта crossdock breakdown. Exact-head CI и полный pytest остаются MA27; merge/deploy/live calls/bot launch не выполнялись.
+- MA17 добавил отдельные действия только там, где есть поддерживаемый путь: заполнение себестоимости конкретного SKU, плановая цена для ручного тарифа/рекламного допущения и явный повтор расчёта. После себестоимости возврат к тому же SKU одноразовый, привязан к пользователю и магазину; повторный query происходит лишь после нажатия. Неподдерживаемые расходы названы по категориям и остаются unknown, не нулём.
+- Linked Windows MA17 profile: **98 passed in 1.95s** на 6 связанных модулях. `py_compile` и `git diff --check` PASS; `data/tasks.json` SHA-1 остаётся `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Полный pytest и exact-head CI остаются MA27; merge/deploy/live requests/bot launch не выполнялись.
+
+# MA18: сохранённые результаты экспериментов явно помечают окно/срез и число связанных snapshot-ссылок, скрывая их ID; если tax basis результата не сохранён, он остаётся unknown. Frozen-план показывает сохранённый режим/ставку и отсутствие сохранённого происхождения настройки. Новая маржа до рекламы не подменяет старые оценки; ranking, схема хранения и W42–W44 guards не менялись. Связанный профиль: 113 passed in 4.23s; `py_compile`/`git diff --check` PASS; owner data unchanged.
 
 # 2026-10-31 — W44: исключение устаревших цен из рейтинга
 
@@ -5126,3 +5250,9 @@ Completed:
 # 2026-10-27 — unit-price observation Q18
 
 - Q18 добавил pure normalizer для денег, окон/дат, DRR bases, взвешенных знаменателей и conflict-safe dedup. Без полной скидочной базы, price history, successful-sale units и дедуп-подтверждения результат остаётся incomparable; финансы и CPC не вычитаются повторно. Связанный профиль: 184 passed. Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`.
+# 2026-10-31 — Реализация маржи до рекламы: MA05
+
+- Плановый canonical scenario теперь возвращает отдельный versioned `pre_ad_margin` до рекламы; no-ad сценарий вызывает существующий `TaxService` отдельно. При неизвестной рекламе before-ad может быть доступен, legacy after-ad `profit`/`margin_percent` остаются без изменений.
+- Проекция подписывает неполный expense scope и не считает неизвестные расходы нулём. Существующий cross-docking denominator guard и цель after-ad оптимизации сохранены.
+- Новый `advertising_tax_bridge` v1 разделяет T0/T1, рекламный расход и налоговый эффект; формула `after = before − ad + (T0−T1)` сверяется. TaxService unchanged, SalesMix по-прежнему считает налог один раз на группу.
+- Linked scenario/current-card/Telegram profile: **315 passed in 4.97s**. Полный suite/current-head CI pending; live Ozon/Telegram и запуск бота не выполнялись.

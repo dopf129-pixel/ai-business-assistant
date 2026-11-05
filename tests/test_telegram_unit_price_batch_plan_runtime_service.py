@@ -91,10 +91,22 @@ def _row(index, status="READY"):
             "source_periods": {"seller_price_as_of": "2026-10-17"},
             "source_completeness": {"scheme": "FBO", "commission": {"complete": True}},
         },
-        "scenario": {"calculated": {"profit": 100, "margin_percent": 20}},
+        "scenario": {
+            "calculated": {"profit": 100, "margin_percent": 20},
+            "pre_ad_margin": {
+                "status": "AVAILABLE", "profit_per_unit_rub": 150,
+                "margin_percent": 30, "expense_scope": {"status": "PARTIAL"},
+            },
+        },
         "planning": {
             "break_even": {"status": "FOUND", "price": "300"},
-            "target": {"status": "FOUND", "price": "600", "profit": "120", "margin_percent": "20"},
+            "target": {
+                "status": "FOUND", "price": "600", "profit": "120", "margin_percent": "20",
+                "forward_result": {"pre_ad_margin": {
+                    "status": "AVAILABLE", "profit_per_unit_rub": 160,
+                    "margin_percent": 26.67, "expense_scope": {"status": "PARTIAL"},
+                }},
+            },
         },
     }
 
@@ -245,8 +257,42 @@ def test_batch_prompt_and_render_are_bounded_and_read_only():
     assert prompt["status"] == "UNIT_PRICE_BATCH_TARGET_INPUT_REQUIRED"
     assert result["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
     assert result["read_only"] is True and result["executed"] is False
+    assert "маржа до рекламы" in result["message"].lower()
+    assert "маржа до рекламы по неполному составу" in result["message"].lower()
+    assert "после рекламы" in result["message"].lower()
     assert len(result["message"].encode("utf-16-le")) // 2 <= runtime.TEXT_LIMIT_UTF16
     assert all(len(button["callback"].encode("utf-8")) <= 64 for button in result["keyboard"]["buttons"])
+
+
+def test_batch_renders_pre_ad_margin_when_after_ad_scenario_is_incomplete():
+    class UnknownAdBatchService(_BatchService):
+        def build(self, items, user_id, target_margin_percent, parent_trace=None):
+            result = super().build(items, user_id, target_margin_percent, parent_trace)
+            row = result["rows"][0]
+            row["status"] = "INCOMPLETE_INPUTS"
+            row["missing_inputs"] = ["advertising_rate"]
+            row["scenario"] = {
+                "calculated": {"profit": None, "margin_percent": None},
+                "pre_ad_margin": {
+                    "status": "AVAILABLE",
+                    "profit_per_unit_rub": 146.0,
+                    "margin_percent": 29.2,
+                    "expense_scope": {"status": "PARTIAL"},
+                },
+            }
+            return result
+
+    runtime = _runtime(service=UnknownAdBatchService())
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        result = runtime.handle_text("20", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+    assert "Маржа до рекламы по неполному составу расходов: 146.00 ₽/шт. (29.20%)" in result["message"]
+    assert "расчёт после рекламы недоступен" in result["message"]
 
 
 def test_batch_advertising_cap_is_row_bound_and_applies_only_to_local_plan():

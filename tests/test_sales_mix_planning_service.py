@@ -103,7 +103,42 @@ def test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once():
     assert result["margin_percent"] == "19.60"
     assert result["rows"][0]["price_per_unit"] == "500.00"
     assert result["rows"][0]["components"]["cost_of_goods"] == "1500.00"
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["revenue_basis"] == "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS"
     assert len(tax.calls) == 1
+
+
+def test_typed_period_advertising_is_excluded_from_pre_ad_profit_and_legacy_expense_is_unknown():
+    service, _tax = _service()
+    item = _item("SKU-A", _sample_inputs(
+        price="500", cost="100", commission_rate="15", advertising_rate="8",
+        discount_points_rate="20", logistics_per_unit="40", last_mile_per_unit="10",
+        acquiring_per_unit="5", tax_mode="USN_INCOME", tax_rate="6",
+        minimum_tax_rate="1",
+    ))
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 10}, period_label="2026-08-01 — 2026-08-31",
+        expenses=[
+            {"category": "ADVERTISING", "name": "CPC", "amount": "100.00"},
+            {"category": "OTHER", "name": "Упаковка", "amount": "200.00"},
+            # The pre-category contract remains accepted but cannot be assumed non-ad.
+            {"name": "Реклама", "amount": "50.00"},
+        ],
+        expenses_confirmed=True,
+    )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert result["fixed_expense_total"] == "350.00"
+    assert result["profit_before_tax_after_fixed_expenses"] == "1950.00"
+    assert result["profit"] == "1710.00"
+    assert result["pre_ad_margin"]["profit_before_tax_rub"] == "2500.00"
+    assert result["pre_ad_margin"]["profit_rub"] == "2260.00"
+    assert scope["status"] == "PARTIAL"
+    assert scope["known_non_ad_expenses_rub"]["FIXED_PLANNING_EXPENSES"] == "200.00"
+    assert scope["fixed_planning_expenses_rub"] == "200.00"
+    assert scope["fixed_planning_advertising_expenses_rub"] == "100.00"
+    assert "UNCLASSIFIED_FIXED_PLANNING_EXPENSES" in scope["unknown_non_ad_expense_keys"]
 
 
 def test_extended_expenses_are_applied_per_sku_once_and_tax_is_aggregated_once():
@@ -138,6 +173,295 @@ def test_extended_expenses_are_applied_per_sku_once_and_tax_is_aggregated_once()
     assert tax.calls[0]["gross_profit"] == float(
         Decimal(baseline["profit_before_tax_after_fixed_expenses"]) - Decimal("60.00")
     )
+
+
+def test_mix_pre_ad_tax_bridge_uses_one_aggregate_tax_call_and_preserves_after_ad_result():
+    service, tax = _service()
+    item = _item("SKU-A", _sample_inputs(
+        price="100", cost="30", commission_rate="14", logistics_per_unit="10",
+        last_mile_per_unit="3", acquiring_per_unit="2", fees="3",
+        advertising_rate="12", discount_points_rate="0",
+        tax_mode="USN_INCOME_MINUS_EXPENSES", tax_rate="15", minimum_tax_rate="1",
+    ))
+    item["extended_scenario"] = _extended_expense_contract("a", "300.00")
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 1}, period_label="2026-08-01 — 2026-08-01",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["profit_before_tax_after_fixed_expenses"] == "26.00"
+    assert result["tax"] == "3.90"
+    assert result["profit"] == "22.10"
+    assert result["margin_percent"] == "22.10"
+    assert {
+        key: value for key, value in result["pre_ad_margin"].items()
+        if key != "expense_scope"
+    } == {
+        "schema_version": 1,
+        "status": "AVAILABLE",
+        "basis": "WEIGHTED_AGGREGATE_NO_AD_AFTER_TAX",
+        "tax_basis": "AGGREGATE_NO_AD_SCENARIO",
+        "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+        "unit_basis": "AGGREGATE_REVENUE_WEIGHTED",
+        "revenue_rub": "100.00",
+        "profit_before_tax_rub": "38.00",
+        "tax_rub": "5.70",
+        "profit_rub": "32.30",
+        "margin_percent": "32.30",
+        "reason": None,
+    }
+    expense_scope = result["pre_ad_margin"]["expense_scope"]
+    assert expense_scope["status"] == "PARTIAL"
+    assert expense_scope["known_non_ad_expenses_rub"] == {
+        "ACQUIRING": "2.00",
+        "COGS": "30.00",
+        "CONFIRMED_ADDITIONAL_EXPENSES": "3.00",
+        "LAST_MILE": "3.00",
+        "LOGISTICS": "10.00",
+        "OZON_COMMISSION": "14.00",
+    }
+    assert "EXTRA_SERVICE" in expense_scope["included_expense_keys"]
+    assert {"CROSS_DOCKING", "PLACEMENT", "STORAGE"}.issubset(
+        expense_scope["unknown_non_ad_expense_keys"]
+    )
+    assert expense_scope["excluded_expense_keys"] == ["ADVERTISING", "FIXED_STORE_OVERHEAD"]
+    assert expense_scope["fixed_planning_expenses_rub"] == "0.00"
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 26.0
+    assert tax.calls[0]["comparison_gross_profit"] == 38.0
+
+
+def test_mix_pre_ad_margin_uses_revenue_weighting_not_mean_of_sku_percentages():
+    service, tax = _service()
+    item_a = _item("SKU-A", _sample_inputs(
+        price="100", cost="80", commission_rate="0", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    ))
+    item_b = _item("SKU-B", _sample_inputs(
+        price="300", cost="210", commission_rate="0", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    ))
+
+    result = service.calculate(
+        [item_a, item_b], quantities={"SKU-A": 1, "SKU-B": 1},
+        period_label="2026-08-01 — 2026-08-01", expenses=[], expenses_confirmed=True,
+    )
+
+    assert [row["components"]["pre_ad_profit_before_tax"] for row in result["rows"]] == ["20.00", "90.00"]
+    assert result["pre_ad_margin"]["profit_rub"] == "110.00"
+    assert result["pre_ad_margin"]["margin_percent"] == "27.50"
+    assert result["pre_ad_margin"]["margin_percent"] != "25.00"
+    assert len(tax.calls) == 1
+
+
+def test_mix_margin_percentages_do_not_render_negative_zero():
+    service, _tax = _service()
+    item = _item("SKU-NEAR-ZERO", _sample_inputs(
+        price="1000", cost="940.01", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0", tax_mode="USN_INCOME", tax_rate="6",
+        minimum_tax_rate="1",
+    ))
+
+    result = service.calculate(
+        [item], quantities={"SKU-NEAR-ZERO": 1},
+        period_label="01.08.2026 - 31.08.2026", expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["profit"] == "-0.01"
+    assert result["pre_ad_margin"]["profit_rub"] == "-0.01"
+    assert result["margin_percent"] == "0.00"
+    assert result["pre_ad_margin"]["margin_percent"] == "0.00"
+
+
+def test_mix_keeps_pre_ad_tax_margin_available_with_unknown_advertising_and_exposes_scope():
+    service, tax = _service()
+    item = _item("SKU-A", _sample_inputs(advertising_rate=None))
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 2},
+        period_label="2026-08-01 — 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["coverage_complete"] is False
+    assert result["after_ad_status"] == "INCOMPLETE_ADVERTISING"
+    assert result["total_quantity"] == 2
+    assert result["included_rows"] == 1
+    assert result["components"]["revenue"] == "1000.00"
+    assert result["components"]["advertising"] is None
+    assert result["components"]["profit_before_tax"] is None
+    assert result["profit_before_tax_after_fixed_expenses"] is None
+    assert result["tax"] is None and result["profit"] is None
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["revenue_rub"] == "1000.00"
+    assert result["pre_ad_margin"]["profit_before_tax_rub"] == "430.00"
+    assert result["pre_ad_margin"]["tax_rub"] == "48.00"
+    assert result["pre_ad_margin"]["profit_rub"] == "382.00"
+    assert result["pre_ad_margin"]["margin_percent"] == "38.20"
+    assert result["rows"][0]["components"]["advertising"] is None
+    assert result["rows"][0]["profit_before_tax_contribution"] is None
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert scope["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in scope["unknown_non_ad_expense_keys"]
+    assert "STORAGE" in scope["unknown_non_ad_expense_keys"]
+    assert scope["known_non_ad_expenses_rub"]["COGS"] == "300.00"
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 430.0
+
+
+def test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix():
+    service, _tax = _service()
+    item = _item("SKU-A", _sample_inputs(
+        advertising_rate=None, cross_docking_per_unit="12.00",
+    ))
+    item["sources"] = {"cross_docking": {
+        "evidence_complete": True,
+        "rate_available": True,
+        "applicable_to_sku": True,
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "amount_per_unit": "12.00",
+    }}
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 2},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True, include_cross_docking=True,
+    )
+
+    assert result["after_ad_status"] == "INCOMPLETE_ADVERTISING"
+    assert result["components"]["cross_docking"] == "24.00"
+    assert result["cross_docking_status"] == "CONFIRMED"
+
+
+def test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero():
+    service, _tax = _service()
+    item_zero = _item("SKU-ZERO", _sample_inputs())
+    item_positive = _item("SKU-PAID", _sample_inputs())
+    item_zero["extended_scenario"] = _extended_expense_contract("a", "0.00")
+    item_zero["extended_scenario"]["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    item_zero["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "0.00",
+        "ownership": "ADDITIONAL",
+    }]
+    item_positive["extended_scenario"] = _extended_expense_contract("b", "100.00")
+    item_positive["extended_scenario"]["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    item_positive["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "100.00",
+        "ownership": "ADDITIONAL",
+    }]
+
+    mixed = service.calculate(
+        [item_zero, item_positive],
+        quantities={"SKU-ZERO": 10, "SKU-PAID": 10},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+    item_zero_second = _item("SKU-ZERO-2", _sample_inputs())
+    item_zero_second["extended_scenario"] = _extended_expense_contract("c", "0.00")
+    item_zero_second["extended_scenario"]["included_component_keys"] = ["FINANCE_PAID_STORAGE"]
+    item_zero_second["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "0.00",
+        "ownership": "ADDITIONAL",
+    }]
+    all_zero = service.calculate(
+        [item_zero, item_zero_second],
+        quantities={"SKU-ZERO": 10, "SKU-ZERO-2": 10},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    mixed_scope = mixed["pre_ad_margin"]["expense_scope"]
+    assert mixed["error"] is False
+    assert "STORAGE" not in mixed_scope["confirmed_zero_expense_keys"]
+    assert "STORAGE" not in mixed_scope["known_non_ad_expenses_rub"]
+    assert mixed_scope["known_non_ad_expenses_rub"]["CONFIRMED_ADDITIONAL_EXPENSES"] == "10.00"
+    zero_scope = all_zero["pre_ad_margin"]["expense_scope"]
+    assert "STORAGE" in zero_scope["confirmed_zero_expense_keys"]
+    assert zero_scope["known_non_ad_expenses_rub"]["STORAGE"] == "0.00"
+
+
+def test_pre_ad_expense_ledger_reconciles_canonical_unit_rounding_across_quantity():
+    service, _tax = _service()
+    item = _item("SKU-HALF-CENT", _sample_inputs(cost="150.005"))
+
+    result = service.calculate(
+        [item], quantities={"SKU-HALF-CENT": 100},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    projection = result["pre_ad_margin"]
+    known = projection["expense_scope"]["known_non_ad_expenses_rub"]
+    known_total = sum((Decimal(value) for value in known.values()), Decimal("0.00"))
+    assert projection["revenue_rub"] == "50000.00"
+    assert projection["profit_before_tax_rub"] == "21500.00"
+    assert known["COGS"] == "15001.00"
+    assert known["ROUNDING_ADJUSTMENT"] == "-1.00"
+    assert Decimal(projection["revenue_rub"]) - known_total == Decimal(
+        projection["profit_before_tax_rub"]
+    )
+
+
+def test_mixed_storage_inclusion_and_exclusion_is_partial_not_globally_excluded():
+    service, _tax = _service()
+    excluded_item = _item("SKU-EXCLUDED", _sample_inputs())
+    excluded_item["extended_scenario"] = _extended_expense_contract("a", "0.00")
+    excluded_item["extended_scenario"]["excluded_component_statuses"] = {
+        "STORAGE": "EXCLUDED",
+    }
+    included_item = _item("SKU-INCLUDED", _sample_inputs())
+    included_item["extended_scenario"] = _extended_expense_contract("b", "100.00")
+    included_item["extended_scenario"]["included_component_keys"] = [
+        "FINANCE_PAID_STORAGE",
+    ]
+    included_item["extended_scenario"]["components"] = [{
+        "component_key": "FINANCE_PAID_STORAGE",
+        "numerator_rub": "100.00",
+        "ownership": "ADDITIONAL",
+    }]
+
+    result = service.calculate(
+        [excluded_item, included_item], quantities={"SKU-EXCLUDED": 1, "SKU-INCLUDED": 1},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert scope["status"] == "PARTIAL"
+    assert "STORAGE" in scope["included_expense_keys"]
+    assert "STORAGE" in scope["unknown_non_ad_expense_keys"]
+    assert "STORAGE" not in scope["excluded_expense_keys"]
+    assert "STORAGE" not in scope["excluded_expense_reasons"]
+
+
+def test_sales_mix_keeps_known_base_logistics_when_extended_source_excludes_it():
+    service, _tax = _service()
+    item = _item("SKU-LOGISTICS", _sample_inputs())
+    item["extended_scenario"] = _extended_expense_contract("a", "0.00")
+    item["extended_scenario"]["excluded_component_statuses"] = {
+        "LOGISTICS": "EXCLUDED",
+    }
+
+    result = service.calculate(
+        [item], quantities={"SKU-LOGISTICS": 10},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["error"] is False
+    scope = result["pre_ad_margin"]["expense_scope"]
+    assert scope["known_non_ad_expenses_rub"]["LOGISTICS"] == "250.00"
+    assert "LOGISTICS" in scope["included_expense_keys"]
+    assert "LOGISTICS" not in scope["unknown_non_ad_expense_keys"]
+    assert "LOGISTICS" not in scope["excluded_expense_keys"]
 
 
 def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():
@@ -187,7 +511,11 @@ def test_v2_sales_mix_marks_unconfirmed_cross_docking_partial_instead_of_zero():
     assert result["status"] == "PARTIAL"
     assert result["components"]["cross_docking"] is None
     assert result["profit"] is None
-    assert tax.calls == []
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["expense_scope"]["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 2150.0
 
 
 def test_v2_complete_window_without_sku_rate_does_not_become_zero_expense():
@@ -212,7 +540,11 @@ def test_v2_complete_window_without_sku_rate_does_not_become_zero_expense():
     assert result["cross_docking_status"] == "PARTIAL_OR_UNAVAILABLE"
     assert result["components"]["cross_docking"] is None
     assert result["profit"] is None
-    assert tax.calls == []
+    assert result["pre_ad_margin"]["status"] == "AVAILABLE"
+    assert result["pre_ad_margin"]["expense_scope"]["status"] == "PARTIAL"
+    assert "CROSS_DOCKING" in result["pre_ad_margin"]["expense_scope"]["unknown_non_ad_expense_keys"]
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 2150.0
 
 
 def test_aggregate_minimum_tax_does_not_sum_standalone_taxes():

@@ -1,7 +1,161 @@
-# План MA00–MA29 — маржа до рекламы (спецификация, не выполненные проверки)
+# 2026-11-05 — регрессии повторного review PR #724
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_grid_reports_missing_cost_without_claiming_confirmed_commission_is_unknown` проверяет, что отсутствие себестоимости не маскируется сообщением о неподтверждённой комиссии при подтверждённой тарифной ставке.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_small_confirmed_expense_keeps_allocation_basis_when_unit_amount_rounds_to_zero` проверяет отображение суммы, периода и знаменателя подтверждённого расхода 1,74 ₽ / 1000 единиц при округлении удельного значения до 0,00 ₽/шт.
+- Профиль `tests/test_unit_price_scenario_telegram_runtime.py`: **50 passed in 0.84s**. Полный Windows pytest: **4,442 passed in 48.14s**. `python -m compileall app tests` и `git diff --check` — PASS. Все файлы `data/` после прогона сверены с исходным снимком и восстановлены.
+
+# 2026-11-03 — регрессии review PR #724: сравнение цены и pre-ad расходы
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_saved_plan_no_ad_price_grid_keeps_confirmed_expense_when_applying_candidate` проверяет восстановленный и обновлённый saved plan: безрекламная сетка включает подтверждённое хранение, а выбранная цена проходит свежую проверку и применяется с тем же расходом.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_saved_plan_labels_mixed_expenses_and_keeps_basis_when_advertising_unknown` проверяет безопасную общую подпись для хранения вместе с неописанной категорией и отображение суммы/периода/знаменателя, когда after-ad расчёт недоступен, но pre-ad расход подтверждён.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_locally` теперь фиксирует передачу extended expenses через сравнение цен и повторный расчёт по введённой ДРР.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_scenario_details_show_signed_rounding_delta_for_tax_bridge_mismatch` закрепляет справочное `-0,01 ₽/шт.` только для `ADVERTISING_TAX_BRIDGE_ROUNDING_MISMATCH` и неизменность обеих прибылей.
+- Все перечисленные регрессии входят в полный Windows pytest: **4,440 passed in 45.83s**; `compileall app tests` и `git diff --check` PASS. Тестовые изменения в `data/` восстановлены по снимку. GitHub Actions run [41650041563](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/41650041563) для кода прошёл Windows/Linux full verification, Docker build и smoke.
+
+# 2026-11-03 — повторный review PR #724: база extended расходов и округление
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_comparison` сохраняет `FINANCE_PAID_STORAGE` с `ORDERED_UNITS_WINDOW`, затем проверяет краткую и подробную карточки: «хранение», `500,00 ₽ / 100 заказанных единиц` и исходный период.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_cost_display_uses_canonical_half_up_rounding_and_reconciles_scope` проходит публичный ввод `120,005`, проверяет `120,01 ₽`, signed `+0,01 ₽` корректировки и исходный `expense_scope`.
+- Linked profile из четырёх модулей: **128 passed in 3.33s**; полный Windows pytest: **4,437 passed in 45.27s**. Компиляция приложения/тестов и `git diff --check` проходят. В финальном прогоне тестовый побочный эффект `data/tasks.json` и `data/tasks.json.lock` восстановлен по заранее сохранённому снимку; байты файла до и после прогона совпали. Exact-head Verify `41636324358` для `a5f34dec102b4d3894138fc223f6cda92a7841b7`: Windows/Linux verification и Docker build/smoke successful; artifact `13230647048`, digest `sha256:b12f3f804260e83e1c8339ba6f5280bffbc918e885c40edbe6c0a11a98af8b31`.
+
+# 2026-11-03 — review regressions для frozen pre-ad expenses и округления карточки
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss` теперь проходит сохранение и повторное открытие strict-return плана, а также нажатие «Подробности расчёта». Краткий и подробный экраны показывают `-3,50 ₽/шт.` и не называют возвратные потери исключёнными.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_zero_advertising_completes_scenario_and_reports_comparison` закрепляет динамическое сообщение о неизвестных расходах для обычного сценария вместо общей неподтверждённой фразы.
+- `tests/test_current_unit_economics_integration.py::test_current_pre_ad_margin_does_not_show_negative_zero_percent` проверяет, что повторная доля показывает `0.0%`, тогда как сумма `-0.01 ₽` остаётся отрицательной.
+- Связанный профиль пяти модулей: **123 passed in 3.70s**; полный Windows pytest: **4,436 passed in 46.06s**. Exact-head Verify run `41609310492` на code SHA `e1ac109f79368a9d71945b5c88ccbfa84f49ee9e`: оба job success, full-verification включает Linux suite и Docker build/smoke.
+
+# 2026-11-03 — regressions для доставки результата и форматирования pre-ad маржи
+
+- `tests/test_telegram_loading_feedback_v1451_v1460.py::TestTelegramLoadingFeedbackV1451V1460::test_long_callback_result_is_split_when_initial_progress_send_fails` имитирует отказ первой отправки progress, ограничение Telegram в UTF-16 units, доставку полного длинного ответа несколькими сообщениями и клавиатуру только у последнего chunk.
+- `tests/test_current_unit_economics_integration.py::test_current_pre_ad_margin_does_not_show_negative_zero_percent` и `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_historical_pre_ad_margin_does_not_show_negative_zero_percent` подтверждают `-0.01 ₽` вместе с `0.00%`; historical regression дополнительно сохраняет знак у ненулевого отрицательного процента.
+- Связанный профиль: **12 passed in 1.10s**. Полный Windows pytest: **4,436 passed in 46.73s**; `compileall app tests` и `git diff --check` PASS. Перед CI данные восстановлены к baseline.
+
+# 2026-11-02 — review regressions для sales mix preview
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_large_sales_mix_preview_keeps_summary_and_all_details_accessible` проходит публичное создание/сохранение batch-плана, ввод продаж для 10 SKU и 20 дополнительных расходов. Проверяет, что финансовый итог и warning стоят в первой части, все SKU и расходы доступны в частях до 3 800 UTF-16 units, а результат сохраняет кнопку подтверждения.
+- `tests/test_sales_mix_planning_service.py::test_mix_margin_percentages_do_not_render_negative_zero` фиксирует случай прибыли `-0.01 ₽`: прибыль остаётся отрицательной, а before-ad и after-ad проценты показывают `0.00%` без минуса.
+- Полный Windows pytest: **4,433 passed in 46.77s**; `python -m compileall -q app tests` и `git diff --check` PASS. Exact-head Verify `41455445557` для code SHA `2557d68a5a9160d6f6c51d330b35d231cd7dc2b6`: Windows full suite passed (**4,433**), Linux full-verification и Docker build/smoke passed; artifact `13145429548`, digest `sha256:fffbf5ecd5441d75d796b209991c623ea45b3ea7cb51e478473421f15de9eb01`.
+
+# 2026-11-02 — новые регрессии PR #724
+
+- `tests/test_sales_mix_planning_service.py::test_typed_period_advertising_is_excluded_from_pre_ad_profit_and_legacy_expense_is_unknown` подтверждает, что явная периодная реклама входит в общий after-ad расход, но остаётся вне pre-ad прибыли; нерозмеченный старый расход не угадывается и помечает scope как partial.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit` проверяет ввод «Реклама; CPC; 100» через публичный Telegram flow: на 10 шт. прибыль до рекламы остаётся 2 460 ₽, after-ad результат уменьшается на 100 ₽.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_option_comparison_pages_complete_rows_with_matching_apply_buttons` проверяет 10 цен на трёх страницах, полные строки и соответствие кнопок только текущим вариантам; последний вариант остаётся применимым.
+- Профиль 15 связанных модулей: **349 passed in 8.53s**. Полный Windows suite: **4,429 passed in 44.13s**. `compileall app tests` и `git diff --check` PASS; пользовательские данные восстановлены к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует. Code SHA `b393c1765b26294293c9c22a87b1657260027ce5` прошёл run `41437642412`: Windows **4,429 passed in 167.40s**, Linux **4,429 passed in 24.93s**, Docker build/smoke PASS; artifact `13137521134` (`sha256:f7903c823ac8861d4452e96646ec291ebdb75f2ac6600a3bfc59d3ae8ae0340d`).
+
+# PR #724 — независимая before-ad проекция и строгая потеря возвратов (2026-11-02)
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_comparison_keeps_pre_ad_projection_when_advertising_is_unknown` проходит публичный путь Telegram при подтверждённой комиссии и неизвестной рекламе: baseline и обе цены показывают маржу до рекламы, after-ad остаётся недоступной, лучший вариант не выбирается, комиссия отображается подтверждённой.
+- `tests/test_pre_ad_margin_projection.py::test_strict_return_loss_is_not_simultaneously_included_and_excluded` проверяет обычный и components-only расчёты; отдельный mapped-включённый компонент сохраняет partial/unknown при строгой когорте.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_strict_return_evidence_is_sanitized_and_reopens_with_same_unit_loss` проверяет scope после frozen save/reopen и отсутствие противоречивых included/excluded меток.
+- Связанный профиль 12 модулей: **304 passed in 6.29s**; полный Windows pytest: **4,426 passed in 46.21s**. `compileall app tests` и `git diff --check` PASS. Exact-head run `41431891843` на SHA `f248237f646a39f141b993d4dc498d3eec039278`: Windows **4,426 passed in 108.57s**, Linux **4,426 passed in 26.14s**, Docker build/smoke PASS. Test artifact `13133939194`, digest `sha256:66889d7a950792c334004978dae7380f8b1db7246159a9e13fa2311e15b755a4`. `data/tasks.json` восстановлен к baseline SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; `data/tasks.json.lock` отсутствует.
+
+# PR #724 — конфликт статусов дополнительного и базового расходов (2026-11-02)
+
+- `tests/test_pre_ad_margin_projection.py::test_extended_base_expense_status_does_not_override_known_base_expense` проверяет `EXCLUDED` и `UNKNOWN` для LOGISTICS одновременно в `calculate` и `calculate_components_only`: известная сумма остаётся включённой и не получает вторую противоречивую метку.
+- `tests/test_sales_mix_planning_service.py::test_sales_mix_keeps_known_base_logistics_when_extended_source_excludes_it` проверяет сохранение известной логистики после умножения на количество SKU.
+- Новые регрессии до изменения воспроизводили ошибку; после исправления проходят. Связанный профиль девяти модулей: **165 passed in 4.30s**; полный Windows pytest: **4,424 passed in 47.82s**. Exact-head GitHub Actions run `41416052784` на кодовом SHA `372e921c3b4a6c07504754702abd49699efdcf3a` завершился success: Windows **4,424 passed in 146.47s**, Linux **4,424 passed in 29.42s**, Docker build и smoke — PASS. Проверяемый merge ref `3ab500ee038e0d9d1c51d95edf4d86e992bfc558`; artifact `13127109252`, digest `sha256:3dfef7873205c793ca47fcdb7afc8ee54f2663ef843d69a9ae52227958acc2f8`.
+
+# PR #724 — максимальный derived expense scope в сохранённых планах
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_saved_pre_ad_scope_accepts_maximum_extended_component_and_exclusion_counts` проверяет публичную генерацию frozen capture, сохранение в изолированную SQLite-репозиторию и повторное чтение при 60/64 дополнительных компонентах и 64 исключённых типах. Также закреплён предел 72 derived keys.
+- Связанный Windows профиль (saved plans, repository, extended-scenario adapter, pre-ad projection, scenario contract, sales mix, current economics и query/UI): **163 passed in 4.43s**. Полный Windows pytest: **4,422 passed in 47.55s**; `compileall app tests` и `git diff --check` PASS.
+- `data/tasks.json` восстановлен после известного побочного эффекта полного pytest: SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`, lock отсутствует.
+- Exact-head GitHub Actions на кодовом SHA `7de3598cdc0d07fd41bfce738fc3e7ef3edf466d`: run `41343413057` success, Windows/Linux по **4,422 passed**, Docker build/smoke PASS; artifact `13098127220` (`sha256:ba829ba86632fcf8fe644ab7068e9e4f467ca88b4fd0f0f2f67e99b288ff05f9`).
+
+# PR #724 — исправления review R1–R5 (2026-11-01)
+
+- `tests/test_product_unit_economics_telegram_ui.py` и `app/tests/test_seller_cost_confirmation_flow.py`: одноразовый callback себестоимости привязан к пользователю/магазину и не переиспользуется; явный post-save возврат вызывает refresh.
+- `tests/test_current_unit_economics_integration.py` и `tests/test_product_unit_economics_query_cache.py`: refresh обходит кэш юнит-экономики.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_sales_mix_planning_service.py`: before-ad остаётся доступен при неизвестной рекламе; partial expenses не становятся нулём и scope переносится в результат.
+- `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_analytics_export_service.py`: сводка/экспорт показывают неполный состав расходов.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: детализация показывает T0, T1 и налоговый эффект, а при неизвестной рекламе показывает T0 и честно обозначает T1 как нерассчитанный.
+- Проверки 2026-11-01: связанный профиль **208 passed**, локальный полный Windows pytest **4,411 passed**. PR #724 code head `2e82355d1b0353be0ea3eeb4ed722bba0ac9e498` прошёл run `41328828173`: Windows и Linux — по **4,411 passed**, Docker build/smoke PASS. CI тестировал PR merge ref `142e97a80ce08caf047a1b52701bf1c5333ea1d9`; artifact ID `13092810821` (`sha256:e9d661a1f64b050fef668e91e7eb61d821c46adc1d64cc4b7e610a17a68df184`).
+
+# MA26 — linked margin before-ad acceptance flows
+
+- Linked offline regression covers the current/historical card, pre-ad/after-ad scenario and tax bridge, target/grid/sensitivity/batch/mix, frozen commission profiles, saved-plan flows and repository revisions, return/expense/cross-docking evidence, observation lifecycle, price experiments, exports, and isolated archive restore.
+- `tests/test_current_unit_economics_polish.py::test_current_unit_economics_output_is_user_friendly` now asserts that the validated finance sample note appears exactly once; this aligns the old formatting test with the current-card provenance and existing integration contract. No production behavior changed.
+- Exact linked Windows profile on test commit `8cdb62c1`: 70 modules, **981 passed in 28.81s**, no deselects. User-data SHA-1 unchanged and no lock left behind. Full repository pytest and CI are MA27.
+
+# MA27–MA28 — full verification and owner guide
+
+- Full Windows suite on implementation test HEAD `eb14db29`: **4,404 passed in 46.19s**. One legacy test double initially omitted the production detail-keyboard method; adding that method to the fake restored the pre-existing test contract, and its focused module passed **10 tests** before the full rerun.
+- `python -m compileall -q app tests` and `git diff --check` passed on `eb14db29`. Full pytest side effects were inspected and cleaned only for known test-owned `data/tasks.json` mutation and zero-byte lock; owner file hash restored to baseline `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent; worktree clean.
+- `project_brain/UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md` now explains the exact SKU menu/actions, denominator, partial scope, current/planned/historical tax bases, and an N01 before/after example. Owner live-source validation remains `USER_VALIDATION_PENDING`.
+- PR #724 run `41240191495` passed Windows and full-verification (Linux full pytest, Docker build/smoke) on exact SHA `fd4d79ed76fb1c2b77382e0f02a14fc22e3edd00`; a SHA-bound verification artifact was uploaded. Later branch heads require their own exact-head run.
+
+# MA25 — independent numeric acceptance coverage for margin before ads
+
+- `tests/test_pre_ad_margin_projection.py` fixes the canonical before/after/tax oracle for N01–N05, including N03 absolute ad, N04 separate profit-tax bases, and N05 no-tax. Tax spy assertions verify the actual after-ad then no-ad service calls rather than duplicating the tax formula in test code.
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py` covers N09–N12 and exact ownership/credit cases; `tests/test_sales_mix_planning_service.py` covers N14's revenue-weighted 27.50% aggregate; `tests/test_unit_price_scenario_telegram_runtime.py` covers N06/N15/N20.
+- `tests/test_cross_docking_financial_evidence_service.py::test_n17_560_rubles_with_a_40_ruble_correction_over_280_accepted_sku_units_is_two_rubles` proves signed SKU corrections total 560 ₽ and accepted supply quantity, not sold quantity, gives 2 ₽/unit. `tests/test_unit_economics_return_evidence_service.py` covers N18's return-loss/fee reconciliation and one-time canonical application.
+- `tests/test_saved_planning_plan_telegram_flow.py` and MA24's `tests/test_unit_price_backup_restore.py` regress N19/N20 frozen revisions, isolation and restore. Full N01–N20 crosswalk: `project_brain/PRE_AD_MARGIN_AUDIT_2026-10-31.md` §MA25.
+- Linked Windows profile at test SHA `fcec0254`: 14 modules, **388 passed in 6.73s**. No production changes; no live API or bot.
+
+# MA24 — unit-price backup/restore into a new root
+
+- `tests/test_unit_price_backup_restore.py::test_unit_price_records_survive_backup_verify_dry_run_and_new_root_restore` now saves frozen plan revisions 1 and 2, exports both, archives isolated storage, verifies and dry-runs restore, then opens a fresh repository and compares both restored revisions and export columns/rows/metadata exactly with pre-backup snapshots.
+- The same test restores two historical observation-result revisions, verifies history ordering and tenant/store isolation, and confirms a rejected synthetic raw response is absent from restored SQLite bytes. Linked profile across unit-price backup, daily-use end-to-end restore and archive-safety modules: **26 passed in 3.36s**.
+
+# MA23 — source budgets, local reads and incomplete evidence
+
+- `tests/test_product_unit_economics_telegram_ui.py` and saved-plan/detail flows prove details read the captured projection without another source query; `tests/test_telegram_unit_price_sensitivity_runtime_service.py` proves export uses its snapshot. Query cache is tenant-scoped; in-flight identical calculations are deduplicated, while different stores/users remain separate.
+- `tests/test_period_profit_operation_diagnostics.py` covers shared child deadline/request budgets, concurrent reservation caps and cancellation propagation. Cross-docking finance/supply/unit-rate tests cover bounded attempts and resumable totals. Current unit-economics UI/query and historical advertising tests retain PARTIAL/UNKNOWN/unavailable states without false zero/full claims.
+- Linked Windows profile across 12 modules: **141 passed in 4.50s**. No production change was needed.
+
+# MA22 — owner/store/revision isolation and concurrency
+
+- `tests/test_unit_price_scenario_telegram_runtime.py` covers old callbacks after store switch, same-SKU store isolation, source refresh and SKU replacement. Batch/sensitivity callbacks remain owner/store-bound and expire; saved-plan reopen preserves a frozen tariff until explicit refresh.
+- `tests/test_saved_planning_plan_telegram_flow.py` verifies stale plan actions and revision CAS; `tests/test_planning_workspace_repository.py::test_concurrent_compare_and_swap_has_one_winner` proves exactly one of two simultaneous revision-1 writes succeeds and the other conflicts.
+- Linked Windows profile across repository, saved-plan flow, single-price runtime, batch runtime and sensitivity runtime: **130 passed in 4.05s**. No production code change was needed.
+
+# MA21 — before-ad projection в CSV/JSON из одного snapshot
+
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py::test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_price` now exports both formats and asserts JSON and CSV carry the exact `pre_ad_margin` from the displayed sensitivity cells, including tax/revenue/unit basis, expense-scope completeness and source periods. It also checks ad/tax scenario values, source-as-of metadata, and exactly one initial source read.
+- Linked export/security profile: `tests/test_analytics_export_service.py`, `tests/test_analytics_export_serializer.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py` — **48 passed in 1.54s**. Existing serializer regressions cover CSV formula-injection handling, unknown versus zero/null and row/document byte limits.
+
+# MA20 — frozen plans, совместимость схем и read-only чтение
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh` проверяет legacy v2 plan без tariff/ad basis, его открытие без source read и смену тарифа только в новой revision после явного refresh; старый revision остаётся прежним. `test_single_save_list_open_and_continue_uses_historical_snapshot_without_source_calls` проверяет открытие сохранённого плана после restart без нового Ozon query.
+- `tests/test_planning_workspace_repository.py::test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_rows` сравнивает document/revision rows и JSON до и после чтения corrupt/future payload. Совместно с repository CRUD/idempotency/revision tests: 2 модуля — **51 passed in 2.35s** на Windows.
+
+# MA19 — публичная offline-приёмка маржи до рекламы
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario` проходит полный local-handler путь current SKU → детали → калькулятор → новая цена с ручной комиссией и DRR → сохранение frozen plan; проверяет decimal-comma, точную before/after математику, provenance ручной комиссии и отсутствие повторного factual source query.
+- Связанный профиль: `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_product_unit_economics_telegram_ui.py`, `tests/test_current_unit_economics_integration.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py` — **121 passed in 3.60s** на Windows/Python 3.14.
+
+# MA11 — плановая цена и тариф комиссии
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads` проверяет 99,99/100,00/100,01 ₽ на соседних frozen bands: ставки 11/11/22%, без дополнительных загрузок; выбранная цена публикует собственный `pre_ad_margin` с собственной комиссией, сохраняет себестоимость и рекламный override.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` подтверждает отказ от ставки текущей цены при переходе на кандидат без тарифа, недоступность маржи до комиссии, затем ручную ставку как `manual_seller_assumption` с сохранением цены, ручной себестоимости и рекламы.
+- Вместе с `tests/test_unit_price_tariff_snapshot_adapter.py` и `tests/test_telegram_unit_price_tariff_profile_runtime.py`: **61 passed in 1.53s** на Windows. Производственный код не менялся. Полный pytest и exact-head CI остаются MA27.
+
+# MA12 — historical margin add-back
+
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py` verifies N09 historical add-back (3000 ₽ revenue, 1680 ₽ net accrual, 900 ₽ COGS, 135 ₽ recorded tax, 30 units, 360 ₽ already-included financial ads), preserves tax, excludes CPC reconciliation, and validates N10 incomplete CPC/CPO/OTHER coverage, N11 historic-vs-scenario tax basis, N12 zero/unknown denominator, N16 duplicate ownership, corrections, net credit, exact SKU/store identity and date window. Includes a historical query integration using synthetic evidence only.
+- `tests/test_unit_economics_advertising_evidence_service.py` contract now includes `financial.exact_sku_attribution_complete`; exact cohorts remain distinguishable from one-SKU evidence.
+- Linked Windows profile: **156 passed in 2.83s** across the new historical tests, historical query, ad evidence resolver, current query/projection and canonical scenario/Telegram calculator tests. `data/tasks.json` SHA-1 unchanged. No live API was called.
+
+# MA13 — before/after advertising in price comparisons
+
+- `tests/test_unit_price_target_planning_service.py`: verifies candidate-specific pre-ad and after-ad outputs, the default after-ad profit ranking, explicit no-ad scenario ranking, ranking basis and unchanged inputs.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: verifies the separate no-ad grid entry point, user-visible assumption/disclaimer, numeric output bounds, and applying a candidate without overwriting the active advertising override.
+- Linked Windows profile across `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_unit_price_profit_per_unit_end_to_end.py`, `tests/test_unit_price_sensitivity_service.py`, `tests/test_unit_price_batch_plan_service.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_sales_mix_planning_service.py`, and `tests/test_saved_planning_plan_telegram_flow.py`: **255 passed in 5.89s**. `data/tasks.json` SHA-1 unchanged; no live API calls.
+
+# MA14 — before-ad margin in target/sensitivity/batch/mix
+
+- `tests/test_unit_price_target_planning_service.py` proves target search consumes the existing canonical forward result and its `pre_ad_margin` without increasing `evaluation_count`; existing target remains after-ad.
+- `tests/test_unit_price_sensitivity_service.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`, and `tests/test_analytics_export_service.py` cover per-cell projection, user-visible before/after text, and full-snapshot export fields.
+- `tests/test_unit_price_batch_plan_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, and `tests/test_analytics_export_service.py` cover the candidate's existing projection, visible partial-scope qualification, and batch export of current/target pre-ad values.
+- `tests/test_sales_mix_planning_service.py` covers one aggregate tax call with separate after-ad and no-ad tax bases, legacy after-ad result parity, N14 revenue-weighted aggregate `27.50%` (not the `25.00%` mean), and the finite aggregate contribution. `tests/test_saved_planning_plan_telegram_flow.py` checks user-visible result; `tests/test_analytics_export_service.py` checks export metadata.
+- Linked Windows profile across those 9 modules: **261 passed in 5.34s**. `py_compile` and `git diff --check` pass; owner `data/tasks.json` SHA-1 unchanged; no live API calls.
+
+# План MA00–MA29 — маржа до рекламы (спецификация и реализационные проверки)
 
 - ТЗ `LUNA_PRE_AD_MARGIN_TASK_2026-10-31.md`, journal `LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`: 20 групп numerical/behavioral acceptance; ключевые случаи — independent no-ad без известной рекламы, T0/T1 при profit-tax, historical add-back только уже учтённой финансовой рекламы, неполные расходы, знаменатели, старые plans и tenant/revision guards.
-- Опорные существующие тесты: `tests/test_product_unit_economics.py`, `tests/test_product_unit_economics_query.py`, `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_extended_contract.py`, `tests/test_unit_economics_advertising_evidence_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`. Новые implementation tests пока не добавлены; результат подготовки спецификации фиксируется в её журнале.
+- Опорные тесты: `tests/test_product_unit_economics.py`, `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_extended_contract.py`, `tests/test_unit_economics_advertising_evidence_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`. Stage-by-stage результаты находятся в `project_brain/LUNA_PRE_AD_MARGIN_PROGRESS_2026-10-31.md`.
 
 # W44 — свежесть каждого кандидата в общем рейтинге
 
@@ -5759,6 +5913,8 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_sales_mix_planning_service.py`: mandatory two-SKU aggregate, one aggregate tax call, minimum tax instead of summing row taxes, missing-vs-zero quantities, partial subtotal, mixed tax policy, quantity/identity/period/expense validation.
 - `tests/test_unit_price_scenario_service.py`: canonical one-sale scenario remains unchanged; aggregate-only projection adds the rounded input cost for SKU contribution display without invoking TaxService.
 - `tests/test_planning_workspace_repository.py::test_sales_mix_persists_explicit_unknown_quantity_and_rejects_bad_scope`: persisted quantity scope, explicit unknown, rejects invalid scope and negative additional expenses.
+- `tests/test_planning_workspace_repository.py::test_sales_mix_persists_allowlisted_expense_categories_and_rejects_unknown_category`: round-trips the three typed expense categories and an old untyped expense, while rejecting unsupported category values/types.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_public_sales_mix_period_advertising_does_not_reduce_pre_ad_profit`: enters a period advertising expense, confirms it, reloads revision 2, recalculates pre/after-ad results, and verifies the category survives JSON export.
 - `tests/test_saved_planning_plan_telegram_flow.py`: public saved-plan input, explicit no-expenses choice, append-by-revision, no source reads, detailed per-SKU components, fixed expense applied once, individual ad-cap sum clearly not described as a group guarantee, and concurrent ticket replacement rejected before CAS write.
 - Connected K profile: **27 passed** with the documented Windows temp-root workaround. Exact command and infrastructure constraints are in `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`; full-suite rerun is suspended after the recorded local-data incident. Exact-head Windows/Linux CI remains required.
 
@@ -5784,6 +5940,8 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_planning_workspace_repository.py`: payload/state-revision CAS, stale delete after rename, atomic schema singleton migration/concurrent initialization, current sales-mix limits, and read/write preservation of existing legacy sales-mix data.
 - `tests/test_saved_planning_plan_telegram_flow.py`: public single/batch save-update preserves exact-scope mix, stale metadata callbacks, refresh ticket and batch lifetime, readiness status, plan/fact response invalidated by reset, and two-field editor continuation under CAS.
 - `tests/test_planning_plan_comparison_service.py`: add/remove/rename/change expense values with CSV/JSON, plus exact added/common/removed SKU identity visibility in screen and full-scope exports.
+- `tests/test_planning_plan_comparison_service.py::test_expense_category_change_is_visible_in_comparison_screen_and_exports` проверяет одинаковые имя и сумму при переходе `OTHER` → `ADVERTISING`, отдельные category-delta строки, Telegram-экран, CSV/JSON metadata и эквивалентность старого расхода без категории `UNCLASSIFIED`.
+- Финальная локальная проверка: пять связанных модулей **98 passed**, полный Windows suite **4,431 passed**. Exact-head Verify run `41448897286` на `cc7c6e7cbf6c36bc025a2f400e6c65bc10c523d3`: Windows/Linux по **4,431 passed**, Docker build/smoke PASS; artifact `13143113848` (`sha256:16956bbb86da648049eacefd4c718bc72382cb27dd4e9dd8bd71dfd69807922b`). Следующий docs-only head проверяется отдельно.
 - `tests/test_sales_mix_planning_service.py`: common UI/service/persistence limits, period/quantity/expense boundaries, aggregate money guard before float-based tax calculation.
 - H–O linked regression profile after R1–R10: **259 passed**; documentation drift/manager tests: **3 passed**. Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Windows/Linux exact-head Verify `39221770481` and repeat `39221764654`, including compile and production Docker build/runtime smoke. A subsequent docs-only commit requires its own current-head Verify.
 # Cross-docking bounded production collection and wiring (X03)
@@ -6046,3 +6204,66 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_unit_economics_experiment_candidate_price_service.py` проверяет 2–10 bounded candidates, копеечные tariff boundaries, non-truncated overflow, unknown tariff gaps, exact tie preservation, invalid bounds/count, ручной rate assumption, существующие advertising compensation thresholds и отсутствие demand/global-optimum claims.
 - `tests/test_unit_price_target_planning_service.py` остаётся canonical regression suite для grid/target/ad thresholds. Связанный W23 профиль на изолированном Windows/Python 3.12 окружении: **87 passed in 1.59s**.
 - Результат read-only, `MAX_RUB_PER_UNIT`; candidate fees проходят через существующий calculator. `INCOMPLETE` не содержит лучшую цену, а ручная ставка не становится подтверждённым тарифом. Evidence: `project_brain/UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
+# MA05 — маржа до рекламы в canonical scenario
+
+- `tests/test_pre_ad_margin_projection.py`: no-ad при неизвестной рекламе и неизменности входов; независимые налоговые основания; абсолютная реклама выше цены; режим без налога; блокер при отсутствующей себестоимости; компонент before-ad для aggregate flow.
+- `tests/test_unit_price_scenario_extended_contract.py`: legacy results остаются прежними; при неполном extended evidence виден только явно partial subtotal; смешение supplied-unit crossdock и sold-unit additional expenses не включается и остаётся заблокированным.
+- Tax bridge regressions cover USN Income, USN Income-minus-Expenses, minimum tax, `NONE`, unknown advertising, and equality of before/after formula. `calculate_components_only` TaxSpy remains empty; existing SalesMix aggregate-tax-once test passes.
+- MA05–MA06 Windows linked profile: **315 passed in 4.97s** across projection, canonical scenario, target planning, sensitivity, batch, ad cap, sales mix, observation, current/historical query, Telegram UI and calculator runtime. `data/tasks.json` SHA-1 unchanged at `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`; lock absent. Full pytest/current-head CI pending.
+- MA07: `tests/test_pre_ad_margin_projection.py` verifies the seller-price denominator before discount points, points' effect on the USN tax base without changing that denominator, zero/negative/out-of-range price handling, confirmed zero expenses, negative-margin sign preservation and canonical half-cent rounding. Together with `tests/test_unit_price_scenario_extended_contract.py` and `tests/test_unit_price_scenario_service.py`: **56 passed in 0.81s** on Windows. Production logic already met the contract; no runtime change.
+- MA08: `tests/test_pre_ad_margin_projection.py` covers source-confirmed zero storage and explicit exclusion vs unknown; `tests/test_unit_price_scenario_extended_contract.py` covers base-owned, advertising and window-return duplicate rejection plus the existing cross-docking denominator guard; `tests/test_unit_economics_return_evidence_service.py` checks strict return loss enters pre-ad scope once. Linked Windows profile: **359 passed in 5.12s** across 17 scenario, expense/return evidence, pricing, batch/mix, observation, current economics and Telegram modules. Full pytest/current-head CI pending.
+
+# MA09 — advertising modes and fail-closed incomplete inputs
+
+- `tests/test_pre_ad_margin_projection.py::test_pre_ad_projection_is_invariant_across_ad_modes_zero_unknown_and_invalid_credit` checks before-ad profit, percentage and tax across percent zero/nonzero, absolute zero/above-price, unknown ads and invalid negative absolute cost; `calculate_components_only` retains the before-ad subtotal while rejecting the invalid after-ad input.
+- `tests/test_unit_price_scenario_extended_contract.py::test_advertising_modes_reject_implicit_conversion_and_conflicting_inputs` checks mixed-mode rejection while preserving independent pre-ad availability. `tests/test_unit_economics_advertising_evidence_service.py` retains CPC reconciliation-only and signed advertising credit review semantics.
+- Linked Windows profile (18 modules): **378 passed in 5.34s** on the final MA09 diff. Includes the projection, scenario/extended contract, evidence, target/grid, batch/mix, observation, current-economics and Telegram runtime suites. `py_compile` and `git diff --check` passed.
+
+# MA10 — current SKU `pre_ad_margin`
+
+- `tests/test_current_unit_economics_integration.py` checks that `pre_ad_margin` v1 exactly reuses current profit/margin/tax values without changing legacy outputs; records current tax and seller-revenue bases; explicitly marks advertising unknown and non-ad scope partial; preserves cross-dock supplied-unit evidence; and returns UNAVAILABLE if current seller price is missing.
+- The same module verifies requested finance date bounds and observed sales days separately from the 56-day cross-docking period, visible current-note period/incompleteness explanation, buyer-price tax policy with seller-price denominator, and bounded allowlisted source-period metadata.
+- Linked Windows profile MA05–MA10 (21 modules): **401 passed in 6.09s**. Provider/query/current-source/production wiring, Telegram UI/runtime, projection/scenario, return/additional expense evidence, target/grid/sensitivity/batch/mix/ad-cap/observation suites included. `py_compile` and `git diff --check` passed.
+
+# MA15 — основной экран маржи до рекламы
+
+- `tests/test_current_unit_economics_integration.py` verifies the current screen leads with post-tax before-ad RUB/unit and seller-price margin %, shows whitelisted tax mode, partial expense scope and source windows, and states that after-ad is not calculated while advertising is unknown. It exercises the existing `split_telegram_text` output path and ensures no fabricated zero.
+- `tests/test_product_unit_economics_query.py` verifies historical ad evidence unavailable is rendered as a user-readable reason and never as a zero result.
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_exact_evidence_is_attached_to_the_matching_historical_query_row` verifies before-ad and after-ad values appear together only when exact advertising is proven included in the matching historical net, with stored tax provenance and period.
+- Linked Windows profile across current integration, historical query, historical pre-ad service and primary Telegram UI: **42 passed in 1.07s**. `py_compile` and `git diff --check` pass; owner data unchanged.
+
+# MA16 — breakdown ledger and snapshot callback
+
+- `tests/test_current_unit_economics_integration.py` proves a current ledger from the same pre-ad projection: seller revenue − known non-ad expenses − store-policy tax = displayed before-ad profit, exact to kopeck. It verifies expense provenance, current finance sales/day window, unknown expense/advertising not filled with zero, and the cross-dock 400 ₽ / 40 delivered-unit subline is explicitly non-additive. Both summary and detail outputs pass through `split_telegram_text` limits.
+- `tests/test_product_unit_economics_historical_pre_ad_margin.py::test_exact_evidence_is_attached_to_the_matching_historical_query_row` verifies historical revenue, known COGS, calculated unclassified non-ad balance, preserved tax, exact-SKU included advertising and after-ad profit; the after-ad bridge must reconcile to 0.00 ₽ and unknown types are not presented as explicit Ozon operations.
+- `tests/test_product_unit_economics_query.py` checks UNAVAILABLE details state the precise user-readable block, show unknown advertising/expense scope, and do not render fabricated zero amounts.
+- `tests/test_product_unit_economics_telegram_ui.py` exercises the button callback from a successful SKU view, proves the callback makes no second query, prevents cross-user access, rejects expired tokens and retains independent snapshots for two SKUs for the same user.
+- Final focused Windows profile: **44 passed in 1.12s** across current integration, historical query/pre-ad service and Telegram UI. `py_compile` and `git diff --check` PASS; owner-data hash remains unchanged and lock is absent.
+
+# MA17 — неполнота, корректирующие действия и возврат к SKU
+
+- `tests/test_product_unit_economics_query.py::test_pre_ad_breakdown_explains_unsupported_sources_and_existing_manual_paths` проверяет причины отсутствия комиссии/рекламы, доступные ручные сценарные допущения и неподдерживаемые категории без подстановки 0 ₽.
+- `tests/test_product_unit_economics_telegram_ui.py::test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh` подтверждает действия по себестоимости/плановой экономике, локальность открытия деталей, один повтор query только по явному refresh и fail-closed при смене магазина.
+- `app/tests/test_seller_cost_confirmation_flow.py` проверяет возврат после подтверждённой себестоимости к тому же SKU, одноразовость callback и отказ после переключения магазина. `tests/test_unit_price_scenario_telegram_runtime.py::test_current_unit_economics_detail_has_entry_to_same_calculator_runtime` сохраняет SKU при входе в сценарий, а `test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` — цену, себестоимость и рекламу после ручного тарифа.
+- Final linked Windows profile across query, Telegram UI, current integration, historical pre-ad, seller-cost flow and calculator runtime: **98 passed in 1.95s**. Production `py_compile`, `git diff --check` PASS; owner data hash unchanged and lock absent. No live request or bot.
+
+# MA18 — налоговое основание и provenance в current/history/experiment views
+
+- `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, and `tests/test_current_unit_economics_integration.py` retain the current tax-policy and historical recorded-tax basis, source periods, and legacy outputs.
+- `tests/test_telegram_unit_economics_experiment_runtime.py` checks saved experiment results show their source date/window and only a count of linked snapshots, that unpersisted tax basis stays explicitly unknown, and that frozen legacy snapshots show only the saved tax mode/rate while saying its origin is not stored. Old plans without tax mode and tax-free plans remain readable.
+- `tests/test_unit_economics_experiment_snapshot_view_service.py` confirms frozen view/export remains read-only and unrecalculated; phase collection/comparison, recommendation ranking, and state-machine guards remain covered by their existing modules.
+- Final linked Windows profile across 8 modules: **113 passed in 4.23s**. No schema, stored result, source read, ranking objective or W42–W44 guard changed.
+# 2026-11-01 — PR #724: округление и покрытие expense scope
+
+- `tests/test_sales_mix_planning_service.py::test_pre_ad_expense_ledger_reconciles_canonical_unit_rounding_across_quantity` проверяет копеечную себестоимость на 100 единиц и точное совпадение суммы детализации с канонической прибылью.
+- `tests/test_product_unit_economics_query.py::test_pre_ad_breakdown_labels_rounding_adjustment_and_reconciles_to_card` фиксирует пользовательскую подпись корректировки и нулевое расхождение в итоговой сверке.
+- `tests/test_pre_ad_margin_projection.py::test_storage_aliases_confirm_zero_only_when_the_entire_category_total_is_zero` проверяет STORAGE aliases в `calculate` и `calculate_components_only`: положительный компонент отменяет локальное подтверждение нуля.
+- `tests/test_sales_mix_planning_service.py::test_mixed_storage_inclusion_and_exclusion_is_partial_not_globally_excluded` проверяет смешанный охват нескольких SKU.
+- Результаты на кодовом SHA `18ba381b663370aa6a78264bba012c24c8c073ad`: linked profile **158 passed in 4.21s**; полный Windows `pytest -q -p no:cacheprovider` **4,420 passed in 46.19s**; `compileall app tests` и `git diff --check` PASS. Exact-head run `41338557148` passed Windows/Linux full suites и Docker build/smoke; artifact `13096362251` (`sha256:1a82c63bb909d4bfe71151142526811db5037b1eaf6c6ce2bcf0468511a942f5`).
+
+# 2026-11-01 — дополнительные regressions review PR #724
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_adapter_preserves_calculator_selection_from_unit_economics_details_to_price_plan` проверяет реальный adapter→handler переход по кнопкам с сохранением SKU; `test_public_current_to_price_plan_shows_before_after_and_saves_manual_scenario` проверяет frozen projection через capture, repository save/reopen и JSON export; пакетный saved-plan acceptance проверяет те же поля после reopening.
+- `tests/test_sales_mix_planning_service.py::test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero` проверяет смесь одного SKU с подтверждённым нулём и другого с положительным STORAGE; `test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix` сохраняет подтверждённый кросс-докинг при неизвестной рекламе. Неизвестная реклама оставляет количество/выручку и маржу до рекламы, но не выдаёт after-ad totals.
+- `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
+- Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.

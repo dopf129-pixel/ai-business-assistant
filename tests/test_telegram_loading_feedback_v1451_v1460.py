@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "app"))
@@ -13,6 +14,7 @@ from telegram_app_layer.telegram_progress_feedback import (
     should_show_progress,
     split_telegram_text,
 )
+from telegram_app_layer.telegram_api_bot import _send_result
 
 
 class FakeProgressMessage:
@@ -50,6 +52,21 @@ class FakeBot:
         if self.fail:
             raise RuntimeError("typing unavailable")
         self.actions.append((chat_id, action))
+
+
+class MessageWithTransientProgressFailure:
+    def __init__(self):
+        self.reply_attempts = 0
+        self.replies = []
+
+    async def reply_text(self, text, reply_markup=None):
+        self.reply_attempts += 1
+        if self.reply_attempts == 1:
+            raise RuntimeError("temporary progress-message failure")
+        if len(text.encode("utf-16-le")) // 2 > MAX_TELEGRAM_TEXT_UNITS:
+            raise RuntimeError("Message is too long")
+        self.replies.append((text, reply_markup))
+        return FakeProgressMessage()
 
 
 class TestTelegramLoadingFeedbackV1451V1460(unittest.IsolatedAsyncioTestCase):
@@ -175,6 +192,32 @@ class TestTelegramLoadingFeedbackV1451V1460(unittest.IsolatedAsyncioTestCase):
             all(
                 len(chunk.encode("utf-16-le")) // 2
                 <= MAX_TELEGRAM_TEXT_UNITS
+                for chunk in chunks
+            )
+        )
+        self.assertTrue(all(mark is None for mark in marks[:-1]))
+        self.assertIs(marks[-1], keyboard)
+
+    async def test_long_callback_result_is_split_when_initial_progress_send_fails(self):
+        message = MessageWithTransientProgressFailure()
+        progress = await begin_progress(message, text="callback", force=True)
+        keyboard = object()
+        response = "🧪 Результат расчёта\n" + "Подробная строка отчёта.\n" * 220
+
+        self.assertIsNone(progress)
+        with (
+            patch("telegram_app_layer.telegram_api_bot.build_keyboard", return_value=keyboard),
+            patch("telegram_app_layer.telegram_api_bot.format_response", return_value=response),
+        ):
+            await _send_result(message, {"keyboard": {"buttons": []}}, progress)
+
+        chunks = [item[0] for item in message.replies]
+        marks = [item[1] for item in message.replies]
+        self.assertEqual("".join(chunks), response)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(
+            all(
+                len(chunk.encode("utf-16-le")) // 2 <= MAX_TELEGRAM_TEXT_UNITS
                 for chunk in chunks
             )
         )

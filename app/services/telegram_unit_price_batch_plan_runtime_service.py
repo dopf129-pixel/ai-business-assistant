@@ -672,6 +672,10 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "effective_tax_rate", "profit", "margin_percent", "cross_docking",
             ):
                 projection[field] = calculated.get(field)
+            for field in ("pre_ad_margin", "advertising_tax_bridge"):
+                value = projection_result.get(field)
+                if isinstance(value, dict):
+                    projection[field] = deepcopy(value)
             if extended_scenario is not None:
                 projection["additional_unit_expenses"] = calculated.get(
                     "additional_unit_expenses"
@@ -1069,14 +1073,60 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 f"{index}. {self._label(row)} — {self.STATUS_LABELS.get(row.get('status'), row.get('status', 'неизвестно'))}",
             ])
             if current.get("profit") is not None and current.get("margin_percent") is not None:
-                lines.append(
-                    f"Цена {self._number(inputs.get('price'), ' ₽')}; прибыль {self._number(current.get('profit'), ' ₽/шт.')} ({self._number(current.get('margin_percent'), '%')})."
-                )
+                pre_ad = (row.get("scenario") or {}).get("pre_ad_margin") or {}
+                if pre_ad.get("status") == "AVAILABLE":
+                    before_label = (
+                        "маржа до рекламы по неполному составу"
+                        if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL"
+                        else "маржа до рекламы"
+                    )
+                    lines.append(
+                        f"Цена {self._number(inputs.get('price'), ' ₽')}; {before_label} "
+                        f"{self._number(pre_ad.get('profit_per_unit_rub'), ' ₽/шт.')} "
+                        f"({self._number(pre_ad.get('margin_percent'), '%')}); после рекламы "
+                        f"{self._number(current.get('profit'), ' ₽/шт.')} "
+                        f"({self._number(current.get('margin_percent'), '%')})."
+                    )
+                else:
+                    lines.append(
+                        f"Цена {self._number(inputs.get('price'), ' ₽')}; прибыль после рекламы "
+                        f"{self._number(current.get('profit'), ' ₽/шт.')} "
+                        f"({self._number(current.get('margin_percent'), '%')}); маржа до рекламы недоступна."
+                    )
+            else:
+                pre_ad = (row.get("scenario") or {}).get("pre_ad_margin") or {}
+                if pre_ad.get("status") == "AVAILABLE":
+                    before_label = (
+                        "Маржа до рекламы по неполному составу расходов"
+                        if (pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL"
+                        else "Маржа до рекламы"
+                    )
+                    lines.append(
+                        f"Цена {self._number(inputs.get('price'), ' ₽')}; {before_label}: "
+                        f"{self._number(pre_ad.get('profit_per_unit_rub'), ' ₽/шт.')} "
+                        f"({self._number(pre_ad.get('margin_percent'), '%')}); "
+                        "расчёт после рекламы недоступен."
+                    )
             if break_even.get("status") == "FOUND":
                 lines.append(f"Безубыточность: {self._number(break_even.get('price'), ' ₽')}.")
             if target.get("status") == "FOUND" and row.get("status") == "READY":
+                target_pre_ad = (target.get("forward_result") or {}).get("pre_ad_margin") or {}
+                if target_pre_ad.get("status") == "AVAILABLE":
+                    target_before_label = (
+                        "До рекламы по неполному составу"
+                        if (target_pre_ad.get("expense_scope") or {}).get("status") == "PARTIAL"
+                        else "До рекламы"
+                    )
+                    target_ad_line = (
+                        f" {target_before_label}: "
+                        f"{self._number(target_pre_ad.get('profit_per_unit_rub'), ' ₽/шт.')} "
+                        f"({self._number(target_pre_ad.get('margin_percent'), '%')})."
+                    )
+                else:
+                    target_ad_line = " Маржа до рекламы недоступна."
                 lines.append(
                     f"Для цели: {self._number(target.get('price'), ' ₽')}; прибыль {self._number(target.get('profit'), ' ₽/шт.')}; маржа {self._number(target.get('margin_percent'), '%')}."
+                    + target_ad_line
                 )
             if row.get("missing_inputs"):
                 lines.append("Нужно указать: " + ", ".join(self.FIELD_LABELS.get(item, item) for item in row["missing_inputs"][:8]) + ".")

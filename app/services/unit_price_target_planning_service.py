@@ -530,6 +530,9 @@ class UnitPriceTargetPlanningService:
         if normalized_advertising_mode == "SAME_DRR":
             if advertising_rates is not None or advertising_cost_basis is not None:
                 return self._error_result("INVALID_ADVERTISING_BASIS", identity)
+        elif normalized_advertising_mode == "NO_AD_SCENARIO":
+            if advertising_rates is not None or advertising_cost_basis is not None:
+                return self._error_result("INVALID_ADVERTISING_BASIS", identity)
         elif normalized_advertising_mode == "PER_PRICE_DRR":
             if advertising_cost_basis is not None:
                 return self._error_result("INVALID_ADVERTISING_BASIS", identity)
@@ -604,6 +607,8 @@ class UnitPriceTargetPlanningService:
             "origin": (
                 common["provenance"].get("advertising_rate", "unknown")
                 if normalized_advertising_mode == "SAME_DRR"
+                else "EXPLICIT_NO_AD_COMPARISON"
+                if normalized_advertising_mode == "NO_AD_SCENARIO"
                 else "MANUAL_SCENARIO_ASSUMPTION"
             ),
         }
@@ -618,8 +623,13 @@ class UnitPriceTargetPlanningService:
                 "rates": [format(rate, "f") for rate in normalized_rates],
                 "price_order": [format(price, ".2f") for price in normalized_prices],
             })
-        else:
+        elif normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
             advertising_basis.update(normalized_cost_basis)
+        if normalized_advertising_mode == "NO_AD_SCENARIO":
+            advertising_basis.update({
+                "revenue_basis": "SELLER_REVENUE",
+                "cost_per_unit": "0.00",
+            })
 
         def run_forward(candidate_inputs, candidate_provenance):
             nonlocal evaluation_count
@@ -645,7 +655,12 @@ class UnitPriceTargetPlanningService:
             candidate_inputs = dict(inputs)
             candidate_inputs["price"] = format(price, ".2f")
             candidate_provenance = dict(common["provenance"])
-            if normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+            if normalized_advertising_mode == "NO_AD_SCENARIO":
+                candidate_inputs.pop("advertising_cost_per_unit", None)
+                candidate_inputs["advertising_mode"] = "PERCENT_OF_SELLER_REVENUE"
+                candidate_ad_rate = Decimal("0")
+                candidate_provenance["advertising_mode"] = "manual_seller_assumption"
+            elif normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
                 candidate_inputs.pop("advertising_rate", None)
                 candidate_inputs["advertising_mode"] = "ABSOLUTE_PER_SUCCESSFUL_UNIT"
                 candidate_inputs["advertising_cost_per_unit"] = normalized_cost_basis["amount_per_unit"]
@@ -750,6 +765,34 @@ class UnitPriceTargetPlanningService:
             status = self._forward_status(forward)
             available = status == "CALCULATED"
             calculated = (forward or {}).get("calculated") or {}
+            # The canonical forward result keeps an independent no-ad
+            # projection even when after-ad profit is unavailable, for example
+            # because the advertising assumption is missing.
+            pre_ad_margin = self._compact_pre_ad_margin(
+                (forward or {}).get("pre_ad_margin")
+            )
+            row_ranking_basis = self._comparison_ranking_basis(
+                candidate_inputs, normalized_advertising_mode,
+            )
+            after_ad_projection = {
+                "status": "AVAILABLE" if available else "UNAVAILABLE",
+                "basis": (
+                    "PRICE_SCENARIO_NO_AD"
+                    if normalized_advertising_mode == "NO_AD_SCENARIO"
+                    else "PRICE_SCENARIO_AFTER_AD"
+                ),
+                "tax_basis": "SCENARIO_TAX_POLICY",
+                "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+                "unit_basis": "ONE_SUCCESSFUL_UNIT",
+                "profit_per_unit_rub": calculated.get("profit") if available else None,
+                "margin_percent": calculated.get("margin_percent") if available else None,
+                "tax_per_unit_rub": calculated.get("tax") if available else None,
+                "advertising_status": (
+                    "EXPLICIT_NO_AD_COMPARISON"
+                    if normalized_advertising_mode == "NO_AD_SCENARIO"
+                    else "MODELLED_ADVERTISING_ASSUMPTION"
+                ),
+            }
             return {
                 "status": "CALCULATED" if available else status,
                 "available": available,
@@ -769,6 +812,9 @@ class UnitPriceTargetPlanningService:
                 "advertising_rate": candidate_inputs.get("advertising_rate"),
                 "advertising_per_unit": calculated.get("advertising") if available else None,
                 "advertising_basis": deepcopy(advertising_basis),
+                "pre_ad_margin": pre_ad_margin,
+                "after_ad": after_ad_projection,
+                "ranking_basis": row_ranking_basis,
                 "cross_docking_included": (
                     forward.get("cross_docking_included") if isinstance(forward, dict) else None
                 ),
@@ -816,16 +862,26 @@ class UnitPriceTargetPlanningService:
                 "commission_status": baseline_row.get("commission_status"),
                 "advertising_rate": baseline_row.get("advertising_rate"),
                 "advertising_per_unit": baseline_row.get("advertising_per_unit"),
+                "missing_inputs": list(baseline_row.get("missing_inputs") or []),
+                "pre_ad_margin": deepcopy(baseline_row.get("pre_ad_margin")),
+                "after_ad": deepcopy(baseline_row.get("after_ad")),
+                "ranking_basis": deepcopy(baseline_row.get("ranking_basis")),
                 "evidence_basis": "SCENARIO_ASSUMPTIONS",
             }
 
+        available_rows = [row for row in rows if row.get("available") is True]
+        basis_signatures = {
+            self._ranking_basis_signature(row.get("ranking_basis"))
+            for row in available_rows
+        }
+        ranking_comparable = bool(available_rows) and len(basis_signatures) == 1
         best_profit = max(
-            (Decimal(str(row["profit"])) for row in rows if row.get("available") is True),
+            (Decimal(str(row["profit"])) for row in available_rows),
             default=None,
-        )
+        ) if ranking_comparable else None
         for row in rows:
             row["is_best"] = (
-                row.get("available") is True
+                ranking_comparable and row.get("available") is True
                 and Decimal(str(row["profit"])) == best_profit
             )
             row["evidence_basis"] = "SCENARIO_ASSUMPTIONS"
@@ -898,6 +954,15 @@ class UnitPriceTargetPlanningService:
             "baseline": baseline,
             "best_profit": format(best_profit, ".2f") if best_profit is not None else None,
             "best_prices": [row["price"] for row in rows if row.get("is_best") is True],
+            "ranking_status": (
+                "COMPARABLE" if ranking_comparable
+                else "INCOMPARABLE_BASES" if available_rows
+                else "NO_AVAILABLE_CANDIDATES"
+            ),
+            "ranking_basis": (
+                deepcopy(available_rows[0].get("ranking_basis"))
+                if ranking_comparable else None
+            ),
             "evidence_basis": "SCENARIO_ASSUMPTIONS",
             "advertising_basis": {
                 **advertising_basis,
@@ -916,6 +981,66 @@ class UnitPriceTargetPlanningService:
             "read_only": True,
             "executed": False,
         }
+
+    @staticmethod
+    def _compact_pre_ad_margin(projection):
+        if not isinstance(projection, dict):
+            return None
+        expense_scope = projection.get("expense_scope")
+        if not isinstance(expense_scope, dict):
+            expense_scope = {}
+        return {
+            "status": projection.get("status"),
+            "basis": projection.get("basis"),
+            "tax_basis": projection.get("tax_basis"),
+            "revenue_basis": projection.get("revenue_basis"),
+            "unit_basis": projection.get("unit_basis"),
+            "profit_per_unit_rub": projection.get("profit_per_unit_rub"),
+            "margin_percent": projection.get("margin_percent"),
+            "tax_per_unit_rub": projection.get("tax_per_unit_rub"),
+            "expense_scope_status": expense_scope.get("status"),
+            "reason": projection.get("reason"),
+        }
+
+    @staticmethod
+    def _comparison_ranking_basis(inputs, advertising_mode):
+        def normalized_value(field):
+            value = inputs.get(field)
+            if isinstance(value, Decimal):
+                return format(value.normalize(), "f")
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return value
+            try:
+                amount = Decimal(str(value).replace(",", "."))
+                if amount.is_finite():
+                    return format(amount.normalize(), "f")
+            except (InvalidOperation, TypeError, ValueError):
+                pass
+            return str(value).strip().upper()
+
+        no_ad = advertising_mode == "NO_AD_SCENARIO"
+        return {
+            "metric": (
+                "NO_AD_PROFIT_PER_SUCCESSFUL_UNIT"
+                if no_ad else "AFTER_AD_PROFIT_PER_SUCCESSFUL_UNIT"
+            ),
+            "tax_mode": normalized_value("tax_mode"),
+            "tax_rate": normalized_value("tax_rate"),
+            "minimum_tax_rate": normalized_value("minimum_tax_rate"),
+            "discount_points_rate": normalized_value("discount_points_rate"),
+            "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+            "profit_denominator": "ONE_SUCCESSFUL_UNIT",
+            "margin_denominator": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+            "advertising_mode": advertising_mode,
+        }
+
+    @staticmethod
+    def _ranking_basis_signature(basis):
+        if not isinstance(basis, dict):
+            return None
+        return tuple(sorted(basis.items()))
 
     def _tariff_search_segments(self, snapshot, identity):
         if snapshot is None:

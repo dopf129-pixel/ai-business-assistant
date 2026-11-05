@@ -328,6 +328,7 @@ class AnalyticsExportService:
             self._column("tariff_reason", "Причина недоступности тарифа", "status"),
             *[self._column("calc_" + key, label, kind, unit)
               for key, label, kind, unit in self._calculation_columns()],
+            self._column("pre_ad_margin", "Маржа до рекламы", "json"),
             self._column("target_reached", "Цель достигнута", "boolean"),
         ]
         rows = []
@@ -360,6 +361,7 @@ class AnalyticsExportService:
                 "tariff_status": tariff.get("status"),
                 "tariff_reason": tariff.get("reason"),
                 **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
+                "pre_ad_margin": deepcopy(scenario.get("pre_ad_margin")),
                 "target_reached": cell.get("target_reached"),
             })
         metadata = {
@@ -649,6 +651,7 @@ class AnalyticsExportService:
             "fixed_expense_total": projection.get("fixed_expense_total"),
             "tax": projection.get("tax"), "tax_status": projection.get("tax_status"),
             "profit": projection.get("profit"), "margin_percent": projection.get("margin_percent"),
+            "pre_ad_margin": deepcopy(projection.get("pre_ad_margin")),
             "coverage_complete": projection.get("coverage_complete"),
             "source_freshness": "HISTORICAL_ASSUMPTIONS", "recalculated_on_export": True,
             "exported_scope": "all_rows_in_exact_saved_revision",
@@ -1238,6 +1241,7 @@ class AnalyticsExportService:
             self._column("calc_" + key, label, kind, unit)
             for key, label, kind, unit in self._calculation_columns()
         ])
+        columns.append(self._column("pre_ad_margin", "Маржа до рекламы", "json"))
         for group in ("break_even", "target"):
             columns.extend([
                 self._column(group + "_status", group + " статус", "status"),
@@ -1245,6 +1249,7 @@ class AnalyticsExportService:
                 self._column(group + "_profit", group + " прибыль", "money", "RUB/шт."),
                 self._column(group + "_margin", group + " маржа", "decimal", "%"),
                 self._column(group + "_tax", group + " налог", "money", "RUB/шт."),
+                self._column(group + "_pre_ad_margin", group + " · до рекламы", "json"),
                 self._column(group + "_goal_reached", group + " цель достигнута", "boolean"),
             ])
         rows = []
@@ -1282,6 +1287,7 @@ class AnalyticsExportService:
                     "sources": {"tariff_resolution": row.get("frozen_tariff_resolution")},
                 }),
                 **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
+                "pre_ad_margin": deepcopy(scenario.get("pre_ad_margin")),
             }
             for group in ("break_even", "target"):
                 outcome = planning.get(group) or {}
@@ -1291,6 +1297,9 @@ class AnalyticsExportService:
                     group + "_profit": outcome.get("profit"),
                     group + "_margin": outcome.get("margin_percent"),
                     group + "_tax": outcome.get("tax"),
+                    group + "_pre_ad_margin": deepcopy(
+                        (outcome.get("forward_result") or {}).get("pre_ad_margin")
+                    ),
                     group + "_goal_reached": outcome.get("goal_reached"),
                 })
             rows.append(projected)

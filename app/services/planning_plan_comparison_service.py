@@ -7,6 +7,7 @@ from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 
 
 class PlanningPlanComparisonService:
+    EXPENSE_CATEGORIES = frozenset({"ADVERTISING", "OTHER", "UNCLASSIFIED"})
     INPUT_FIELDS = (
         ("price", "Цена продавца"),
         ("cost", "Себестоимость"),
@@ -263,18 +264,25 @@ class PlanningPlanComparisonService:
                 if isinstance(expense, dict):
                     key = " ".join(str(expense.get("name") or "").split())
                     value = cls._decimal(expense.get("amount"))
+                    category = expense.get("category")
+                    if not isinstance(category, str) or category not in cls.EXPENSE_CATEGORIES:
+                        # Older frozen plans have no category. Keep their
+                        # historical meaning explicit and comparable.
+                        category = "UNCLASSIFIED"
+                    expense_key = (key, category)
                     if key and value is not None:
-                        output[key] = output.get(key, Decimal("0")) + value
+                        output[expense_key] = output.get(expense_key, Decimal("0")) + value
             return output
         left, right = totals(first), totals(second)
         changes = []
-        for name in sorted(set(left) | set(right)):
-            before = left.get(name, Decimal("0"))
-            after = right.get(name, Decimal("0"))
+        for name, category in sorted(set(left) | set(right)):
+            before = left.get((name, category), Decimal("0"))
+            after = right.get((name, category), Decimal("0"))
             if before == after:
                 continue
             changes.append({
                 "name": name,
+                "category": category,
                 "before": cls._money(before),
                 "after": cls._money(after),
                 "delta": cls._money(after - before),

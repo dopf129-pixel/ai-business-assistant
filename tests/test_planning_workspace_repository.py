@@ -470,6 +470,17 @@ def test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_r
             (json.dumps({"schema_version": 99}), second["document_id"]),
         )
         connection.commit()
+        before_read = (
+            tuple(connection.execute(
+                "SELECT document_id, revision, state_revision, schema_version, "
+                "calculation_version, updated_at FROM planning_documents "
+                "ORDER BY document_id",
+            ).fetchall()),
+            tuple(connection.execute(
+                "SELECT document_id, revision, payload_json, created_at "
+                "FROM planning_revisions ORDER BY document_id, revision",
+            ).fetchall()),
+        )
         connection.close()
 
         assert repo.get_document(first["document_id"])["code"] == "PLANNING_DOCUMENT_CORRUPT"
@@ -479,6 +490,22 @@ def test_corrupt_and_future_document_versions_fail_closed_without_hiding_other_r
         assert {item["document_id"] for item in listed["items"]} == {
             first["document_id"], second["document_id"],
         }
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            after_read = (
+                tuple(connection.execute(
+                    "SELECT document_id, revision, state_revision, schema_version, "
+                    "calculation_version, updated_at FROM planning_documents "
+                    "ORDER BY document_id",
+                ).fetchall()),
+                tuple(connection.execute(
+                    "SELECT document_id, revision, payload_json, created_at "
+                    "FROM planning_revisions ORDER BY document_id, revision",
+                ).fetchall()),
+            )
+        finally:
+            connection.close()
+        assert after_read == before_read
     finally:
         reset_current_tenant_user_id(token)
 
@@ -525,6 +552,41 @@ def test_sales_mix_persists_explicit_unknown_quantity_and_rejects_bad_scope(tmp_
             "expenses": [{"name": "Скидка", "amount": "-1"}],
         }
         assert _save(repo, "sales-mix-invalid-02", payload=negative)["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_sales_mix_persists_allowlisted_expense_categories_and_rejects_unknown_category(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "sales-mix-expense-categories.sqlite")
+    token = _context()
+    try:
+        payload = _payload()
+        payload["sales_mix"] = {
+            "period_label": "2026-08-01 - 2026-08-31",
+            "quantities": {"sku-1": 10},
+            "expenses": [
+                {"name": "CPC", "amount": "100.00", "category": "ADVERTISING"},
+                {"name": "Packaging", "amount": "20.00", "category": "OTHER"},
+                {"name": "Legacy", "amount": "10.00", "category": "UNCLASSIFIED"},
+                {"name": "Old saved expense", "amount": "5.00"},
+            ],
+            "confirmed": True,
+        }
+        saved = _save(repo, "sales-mix-category-save01", payload=payload)
+        assert saved["error"] is False
+        reopened = repo.get_document(saved["document_id"])
+        assert reopened["error"] is False
+        assert reopened["document"]["payload"]["sales_mix"]["expenses"] == payload["sales_mix"]["expenses"]
+
+        for index, category in enumerate(("GUESS", None, 1)):
+            invalid = _payload()
+            invalid["sales_mix"] = {
+                **payload["sales_mix"],
+                "expenses": [{"name": "CPC", "amount": "1.00", "category": category}],
+            }
+            rejected = _save(repo, f"sales-mix-category-bad{index:02d}", payload=invalid)
+            assert rejected["error"] is True
+            assert rejected["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
     finally:
         reset_current_tenant_user_id(token)
 

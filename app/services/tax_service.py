@@ -19,6 +19,47 @@ class TaxService:
         tax_rate=None,
         minimum_tax_rate=1.0,
         discount_points=0.0,
+        comparison_gross_profit=None,
+    ):
+
+        result = self._calculate_single(
+            mode, revenue, gross_profit, tax_rate, minimum_tax_rate,
+            discount_points,
+        )
+        if comparison_gross_profit is None:
+            return result
+
+        comparison = self._calculate_single(
+            mode, revenue, comparison_gross_profit, tax_rate,
+            minimum_tax_rate, discount_points,
+        )
+        result = dict(result)
+        if (comparison.get("error") is True
+                or comparison.get("configured") is not True):
+            result["comparison"] = {
+                "status": "UNAVAILABLE",
+                "reason": "COMPARISON_TAX_UNAVAILABLE",
+                "tax_amount": None,
+            }
+        else:
+            result["comparison"] = {
+                "status": "AVAILABLE",
+                "gross_profit": comparison_gross_profit,
+                "tax_amount": comparison.get("tax_amount"),
+                "tax_base": comparison.get("tax_base"),
+                "regular_tax": comparison.get("regular_tax"),
+                "minimum_tax": comparison.get("minimum_tax"),
+            }
+        return result
+
+    def _calculate_single(
+        self,
+        mode,
+        revenue,
+        gross_profit,
+        tax_rate=None,
+        minimum_tax_rate=1.0,
+        discount_points=0.0,
     ):
 
         if mode is None or str(mode).strip() == "":

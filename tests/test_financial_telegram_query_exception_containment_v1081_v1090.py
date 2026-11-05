@@ -34,6 +34,7 @@ class _ProductService:
 class _Keyboard:
     def __init__(self):
         self.unit_calls = 0
+        self.unit_detail_calls = 0
         self.returns_calls = 0
 
     def build_unit_economics_keyboard(
@@ -49,6 +50,23 @@ class _Keyboard:
                 }
                 for sku in skus
             ],
+        }
+
+    def build_unit_economics_detail_keyboard(
+        self, calculator_button=None, breakdown_callback=None,
+        cost_callback=None, refresh_callback=None,
+    ):
+        self.unit_detail_calls += 1
+        buttons = [
+            button for button in (
+                breakdown_callback, cost_callback, calculator_button,
+                refresh_callback,
+            ) if button
+        ]
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
         }
 
     def build_returns_finance_impact_keyboard(self, skus):
@@ -322,6 +340,8 @@ def test_v1089_valid_unit_menu_and_detail_remain_compatible():
     assert detail["error"] is False
     assert detail["unit_economics"] is unit.result
     assert detail["message"] == "Unit Economics — hook-2"
+    assert detail["keyboard"]["type"] == "inline_keyboard"
+    assert keyboard.unit_detail_calls == 1
     assert unit.query_calls == ["hook-2"]
     assert unit.format_calls == 1
 

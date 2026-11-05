@@ -1,3 +1,4 @@
+from datetime import datetime
 from math import isfinite
 
 
@@ -328,7 +329,6 @@ class ProductUnitEconomicsProvider:
                 "finance_sample_days"
             )
         }
-
         if "cross_docking" in facts:
             cross_docking_source = facts.get("cross_docking")
             cross_docking_source = (
@@ -365,6 +365,12 @@ class ProductUnitEconomicsProvider:
                 },
             })
 
+        result["pre_ad_margin"] = self._build_current_pre_ad_margin(
+            result,
+            facts,
+            tax_mode=tax_policy.get("mode"),
+        )
+
         for field in (
             "unit_economics_source_recorded_at",
             "unit_economics_observed_at",
@@ -373,6 +379,159 @@ class ProductUnitEconomicsProvider:
                 result[field] = facts.get(field)
 
         return result
+
+    def _build_current_pre_ad_margin(self, result, facts, tax_mode=None):
+        known_expenses = {
+            key: result.get(field)
+            for key, field in (
+                ("COGS", "cost"),
+                ("OZON_COMMISSION", "commission"),
+                ("LOGISTICS", "logistics"),
+                ("LAST_MILE", "last_mile"),
+                ("ACQUIRING", "acquiring"),
+            )
+            if result.get(field) is not None
+        }
+        unknown_expenses = {
+            "STORAGE",
+            "PLACEMENT",
+            "RETURNS_AND_CANCELLATIONS",
+            "UNMAPPED_NON_AD_EXPENSES",
+        }
+        cross_docking = result.get("cross_docking_per_unit")
+        if result.get("cross_docking_included") is True and cross_docking is not None:
+            known_expenses["CROSS_DOCKING"] = cross_docking
+        else:
+            unknown_expenses.add("CROSS_DOCKING")
+
+        for field, key in (
+            ("cost", "COGS"),
+            ("commission", "OZON_COMMISSION"),
+            ("logistics", "LOGISTICS"),
+            ("last_mile", "LAST_MILE"),
+            ("acquiring", "ACQUIRING"),
+        ):
+            if result.get(field) is None:
+                unknown_expenses.add(key)
+
+        included = sorted(known_expenses)
+        confirmed_zero = sorted(
+            key for key, amount in known_expenses.items()
+            if amount == 0
+        )
+        missing_inputs = list(result.get("missing_fields") or [])
+        price = result.get("unit_price")
+        profit = result.get("net_profit_per_unit")
+        tax = result.get("tax")
+        margin = result.get("margin_percent")
+        available = all(value is not None for value in (price, profit, tax, margin))
+        source_periods = facts.get("pre_ad_source_periods")
+        if not isinstance(source_periods, dict):
+            source_periods = {}
+        safe_periods = {}
+
+        def is_iso_date(value):
+            return (
+                isinstance(value, str)
+                and len(value) == 10
+                and value[4] == "-"
+                and value[7] == "-"
+                and value[:4].isdigit()
+                and value[5:7].isdigit()
+                and value[8:10].isdigit()
+            )
+
+        seller_price_period = source_periods.get("seller_price")
+        if isinstance(seller_price_period, dict):
+            as_of = seller_price_period.get("as_of")
+            if isinstance(as_of, str) and len(as_of) <= 64:
+                try:
+                    datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+                else:
+                    safe_periods["seller_price"] = {"as_of": as_of}
+        finance_period = source_periods.get("current_finance_averages")
+        if isinstance(finance_period, dict):
+            safe_finance_period = {}
+            for key in ("date_from", "date_to"):
+                value = finance_period.get(key)
+                if is_iso_date(value):
+                    safe_finance_period[key] = value
+            for key in ("requested_days", "observed_sales_days"):
+                value = finance_period.get(key)
+                if type(value) is int and 0 <= value <= 366:
+                    safe_finance_period[key] = value
+            if safe_finance_period:
+                safe_periods["current_finance_averages"] = safe_finance_period
+        cross_docking_period = result.get("cross_docking")
+        if isinstance(cross_docking_period, dict):
+            safe_cross_docking_period = {}
+            for key in ("date_from", "date_to"):
+                value = cross_docking_period.get(key)
+                if is_iso_date(value):
+                    safe_cross_docking_period[key] = value
+            for key in ("days_complete", "days_expected"):
+                value = cross_docking_period.get(key)
+                if type(value) is int and 0 <= value <= 366:
+                    safe_cross_docking_period[key] = value
+            if cross_docking_period.get("denominator_kind") == "DELIVERED_CROSSDOCK_UNITS":
+                safe_cross_docking_period["denominator_kind"] = "DELIVERED_CROSSDOCK_UNITS"
+            if safe_cross_docking_period:
+                safe_periods["cross_docking"] = safe_cross_docking_period
+
+        return {
+            "schema_version": 1,
+            "basis": "CURRENT_MODEL",
+            "tax_basis": "CURRENT_TAX_POLICY",
+            "tax_mode": (
+                tax_mode
+                if isinstance(tax_mode, str) and tax_mode in {
+                    "USN_INCOME",
+                    "USN_INCOME_MINUS_EXPENSES",
+                    "NONE",
+                }
+                else None
+            ),
+            "revenue_basis": "SELLER_REVENUE_BEFORE_DISCOUNT_POINTS",
+            "currency": "RUB",
+            "unit_basis": "ONE_SUCCESSFUL_UNIT",
+            "status": "AVAILABLE" if available else "UNAVAILABLE",
+            "price_per_unit_rub": price,
+            "profit_per_unit_rub": profit,
+            "margin_percent": margin,
+            "tax_per_unit_rub": tax,
+            "advertising_status": "UNKNOWN",
+            "advertising_per_unit_rub": None,
+            "expense_scope": {
+                "status": "PARTIAL" if unknown_expenses else "COMPLETE",
+                "known_non_ad_expenses_rub": {
+                    key: known_expenses[key]
+                    for key in sorted(known_expenses)
+                },
+                "included_expense_keys": included,
+                "confirmed_zero_expense_keys": confirmed_zero,
+                "unknown_non_ad_expense_keys": sorted(unknown_expenses),
+                "excluded_expense_keys": [
+                    "ADVERTISING",
+                    "FIXED_STORE_OVERHEAD",
+                ],
+                "excluded_expense_reasons": {
+                    "ADVERTISING": "EXCLUDED_BY_DEFINITION",
+                    "FIXED_STORE_OVERHEAD": "OUTSIDE_SKU_CONTRIBUTION_SCOPE",
+                },
+            },
+            "missing_inputs": missing_inputs,
+            "reason": (
+                "CURRENT_PRE_AD_INPUTS_MISSING"
+                if missing_inputs
+                else None if available else "SELLER_REVENUE_DENOMINATOR_UNAVAILABLE"
+            ),
+            "source_periods": safe_periods,
+            "as_of": safe_periods.get("seller_price", {}).get("as_of"),
+            "read_only": True,
+            "executed": False,
+        }
 
     def _calculate_tax(
         self,

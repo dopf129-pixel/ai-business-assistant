@@ -1,12 +1,16 @@
 """Synthetic integration coverage for unit-price data backup and restore."""
 
 from datetime import datetime, timezone
+import json
 import sqlite3
 
+from services.analytics_export_service import AnalyticsExportService
 from services.bot_backup_service import BotBackupService
 from services.ozon_account_repository import make_store_tenant_scope
 from services.planning_workspace_repository import PlanningWorkspaceRepository
+from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.unit_price_scenario_service import UnitPriceScenarioService
 
 
 OWNER = "synthetic-price-owner"
@@ -96,6 +100,56 @@ def test_unit_price_records_survive_backup_verify_dry_run_and_new_root_restore(
             saved_plan["document_id"],
         )["document"]["payload"]
 
+        new_payload = _plan_payload()
+        new_payload["items"][0]["inputs"]["price"] = "110.00"
+        scenario_service = UnitPriceScenarioService(TaxService())
+        new_scenario = scenario_service.calculate(
+            new_payload["items"][0]["inputs"],
+            identity={
+                "user_id": OWNER, "store_id": STORE,
+                "sku": IDENTITY["sku"],
+            },
+        )
+        assert new_scenario["available"] is True
+        new_projection = new_payload["items"][0]["projection"]
+        new_projection.update({
+            "available": True,
+            "missing_inputs": [],
+            "invalid_inputs": [],
+            **{
+                key: new_scenario["calculated"].get(key)
+                for key in (
+                    "revenue", "discount_points", "taxable_revenue", "commission",
+                    "advertising", "fees", "profit_before_tax", "tax",
+                    "effective_tax_rate", "profit", "margin_percent",
+                )
+            },
+        })
+        new_revision = repo.save_document(
+            title="Synthetic unit-price plan v2", payload=new_payload,
+            document_id=saved_plan["document_id"], expected_revision=1,
+            expected_state_revision=1, idempotency_key="unit-price-backup-plan-02",
+        )
+        assert new_revision["error"] is False
+        assert new_revision["revision"] == 2
+        expected_revisions = {
+            revision: repo.get_document(
+                saved_plan["document_id"], revision=revision,
+            )["document"]["payload"]
+            for revision in (1, 2)
+        }
+        exporter = AnalyticsExportService()
+        expected_exports = {}
+        for revision in (1, 2):
+            saved_document = repo.get_document(
+                saved_plan["document_id"], revision=revision,
+            )["document"]
+            exported = exporter.export_saved_plan(saved_document, "json")
+            assert exported["error"] is False
+            expected_exports[revision] = json.loads(
+                exported["file_content"].decode("utf-8")
+            )
+
         tariff_payload = {
             "identity": {key: IDENTITY[key] for key in ("product_id", "offer_id", "sku")},
             "sale_schema": "FBO", "effective_from": "2026-10-01",
@@ -184,7 +238,24 @@ def test_unit_price_records_survive_backup_verify_dry_run_and_new_root_restore(
         )
         restored_plan = reopened.get_document(saved_plan["document_id"])
         assert restored_plan["error"] is False
-        assert restored_plan["document"]["payload"] == expected_plan_payload
+        assert restored_plan["document"]["revision"] == 2
+        assert restored_plan["document"]["payload"] == expected_revisions[2]
+        assert expected_revisions[1] == expected_plan_payload
+        restored_revisions = reopened.list_revisions(saved_plan["document_id"])
+        assert [row["revision"] for row in restored_revisions["items"]] == [2, 1]
+        for revision in (1, 2):
+            old_plan = reopened.get_document(
+                saved_plan["document_id"], revision=revision,
+            )
+            assert old_plan["error"] is False
+            assert old_plan["document"]["payload"] == expected_revisions[revision]
+            exported = exporter.export_saved_plan(old_plan["document"], "json")
+            assert exported["error"] is False
+            restored_export = json.loads(exported["file_content"].decode("utf-8"))
+            assert restored_export["columns"] == expected_exports[revision]["columns"]
+            assert restored_export["rows"] == expected_exports[revision]["rows"]
+            assert restored_export["metadata"] == expected_exports[revision]["metadata"]
+            assert restored_export["metadata"]["recalculated_on_export"] is False
         restored_tariff = reopened.get_tariff_profile(tariff["profile_id"])
         assert restored_tariff["error"] is False
         assert restored_tariff["revision"] == 1

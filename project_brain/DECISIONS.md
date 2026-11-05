@@ -2827,3 +2827,143 @@ existing float-based tax service without changing its contract.
 Status:
 
 Implemented with R1–R10 regressions. Targeted H–O profile passed (**259**), documentation checks passed (**3**), and exact code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Verify `39221770481` plus repeat `39221764654` on Windows/Linux, compile and production Docker smoke. An additional docs-only update requires its own exact-head Verify; independent second review remains pending. No merge/deploy was performed.
+
+---
+
+## Decision 051
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Versioned SKU margin-before-advertising projection
+
+Decision:
+
+- Add an additive `pre_ad_margin` v1 projection to the existing current and planning result contracts. It reports profit in RUB per unit and margin percent after configured tax and included non-ad expenses; the percentage denominator is seller revenue before discount points.
+- Separate numeric availability from expense-scope completeness. Unknown expenses remain named and nullable; a numeric subtotal with unknown applicable expenses is explicitly partial and cannot be described as final store/SKU profit.
+- Use existing `UnitPriceScenarioService` component arithmetic and `TaxService` for no-ad model scenarios. Internal exclusion of advertising must not mutate caller inputs, persist a zero ad assumption, or alter the existing after-ad `profit`/`margin_percent` fields or optimization objectives.
+- Keep `CURRENT_MODEL`, `PRICE_SCENARIO_NO_AD`, and `HISTORICAL_RECONCILIATION` distinct. Scenario tax is recalculated by the canonical tax service for zero advertising; a historical projection may only retain the tax already recorded in the matching period result.
+- Historical advertising add-back requires complete exact-SKU evidence that financial ads were already included in the source net result and that identity, period, COGS, quantity, and tax scope match. Performance CPC is reconciliation-only. Unsupported historical projections remain unavailable with a specific reason.
+- Keep the projection additive and versioned; old result fields, saved plan/history/export payloads remain readable and are not implicitly recalculated. No data migration or source refresh occurs on read.
+
+Reason:
+
+The owner needs a stable margin after tax and included expenses while keeping
+advertising out of the before-ad numerator and using seller revenue before
+discount points as the denominator. Explicit source/tax bases prevent a
+scenario from being confused with historical fact, and the additive contract
+preserves existing optimization and historical behavior.
+
+Status:
+
+Contract accepted for implementation in the dependent pre-ad margin PR. MA12 adds a dedicated historical projection service and a strict exact-SKU attribution signal to the existing advertising resolver. The projection preserves tax from the existing historical query result without a second calculation; provenance is explicit. The ordinary production historical source does not provide complete, matching ad evidence and therefore remains UNAVAILABLE; current/model calculation and the existing historical result are preserved. MA01–MA04 audit profile: 89 passed; MA12 linked profile: 156 passed; see `PRE_AD_MARGIN_AUDIT_2026-10-31.md` and the progress journal. Full CI remains pending.
+
+---
+
+## Decision 052
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Price-grid before/after advertising comparison
+
+Decision:
+
+- Add `pre_ad_margin`, `after_ad`, and an explicit ranking basis to each calculated price-comparison row. Both margin percentages use seller revenue before discount points; per-unit profit uses one successful unit.
+- Preserve the default price-grid objective: rank by existing scenario profit after advertising and tax, in RUB per successful unit. Do not change target/sensitivity/mix solver objectives.
+- Add `NO_AD_SCENARIO` only as a separate, explicit comparison mode. Its zero advertising value is a local scenario assumption, not an observed advertising fact or price-response forecast. Applying a price from this view validates against the no-ad scenario but preserves the user's current advertising inputs.
+- Rank a candidate set only when tax policy/rates, discount-point policy, revenue basis, unit denominator, and advertising comparison mode match. Different bases produce separate comparisons rather than a shared maximum.
+
+Reason:
+
+The owner needs to see the effect of price on per-unit pre-ad margin without losing the existing after-ad optimization. Making the two outputs and their denominators explicit prevents their ranking from being conflated; a no-ad comparison must not silently rewrite the active advertising assumption.
+
+Status:
+
+Implemented additively in `UnitPriceTargetPlanningService` and the existing Telegram calculator. Linked MA13 profile: 255 passed across price planning/grid, Telegram, sensitivity, batch, sales-mix, and saved-plan consumers. Full CI remains pending.
+
+---
+
+## Decision 053
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Pre-ad margin in target, sensitivity, batch, and sales mix
+
+Decision:
+
+- Target, sensitivity and batch consumers reuse the exact canonical candidate `forward_result.pre_ad_margin`. They must not repeat the candidate calculation, source reads, or bounded solver search to display the new fields. Existing targets and rankings remain after-ad profit objectives.
+- Expose the same before-ad basis in sensitivity and batch exports; export reads the immutable/current consumer snapshot and does not recalculate it.
+- Sales mix sums the canonical per-SKU pre-ad gross-profit contribution at its planned quantity, subtracts the same confirmed fixed expenses, and calculates the before-ad tax at aggregate level. `TaxService.calculate` accepts an optional comparison gross-profit basis so one public aggregate call can return the existing after-ad tax and the no-ad comparison using the same tax rules. It does not calculate tax per SKU. Existing after-ad tax/profit/margin remain unchanged.
+- Aggregate pre-ad margin is total pre-ad after-tax profit divided by total seller revenue before discount points. Never average the SKU percentages. Incomplete coverage/policy remains unavailable; zero revenue has no defined percentage.
+
+Reason:
+
+USN income-minus-expenses can produce different taxes before and after advertising. Reusing the after-ad tax for both would be inaccurate; calculating tax per item would misstate aggregate/minimum-tax behavior. The comparative tax basis keeps the established aggregate flow and exact tax policy while exposing a correctly weighted pre-ad result.
+
+Status:
+
+Implemented additively in the existing scenario, tax, sales-mix, Telegram and export services. MA14 linked profile: 261 passed across 9 modules; no live requests. Full pytest and exact-head CI remain pending.
+
+---
+
+## Decision 054
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Read-only unit-economics expense breakdown snapshot
+
+Decision:
+
+- The “Из чего складывается” callback renders a preformatted breakdown from the exact result that produced the SKU card. Clicking it must not call the Ozon source or recalculate economics.
+- Keep only the bounded detail text in process memory, keyed by Telegram user and opaque callback token, with a 15-minute expiry and a 512-entry cap. The token from another user or an expired/replaced snapshot fails closed with a reopen instruction.
+- Do not persist the breakdown or raw source evidence. Label nested cross-dock details as already included; historical unclassified values are calculation residuals, never an Ozon operation name.
+
+Reason:
+
+An explanation must reconcile to the exact values the user saw, without fetching a newer result on callback and silently changing the displayed basis. A short-lived read-only snapshot avoids source traffic and persistent schema changes while bounding memory use and cross-user access.
+
+Status:
+
+Implemented in the existing assistant handler, keyboard and unit-economics formatter. MA16 focused profile: 44 passed; full pytest and exact-head CI remain pending.
+
+---
+
+## Decision 055
+
+Date:
+
+2026-10-31
+
+Topic:
+
+Explicit next actions for incomplete pre-ad SKU margin
+
+Decision:
+
+- Only offer an edit/navigation action when an existing path can address the identified gap: seller-cost input for the selected SKU; the calculator for explicit manual tariff/ad assumptions; or a user-clicked repeat calculation.
+- A cost update retains only a short-lived, one-time user-scoped return target. The target is bound to the selected SKU, tenant and active store; after save, a separate click reopens the SKU and performs the new calculation. A store change, other user, expired/replayed token or missing SKU fails closed.
+- A refresh is never automatic and never loops. Opening the detail ledger is local-only. Manual commission and advertising remain scenario assumptions and cannot be relabeled as factual current expense data.
+- Unsupported per-SKU categories remain unknown and are named as unsupported; never offer a manual/global expense action that would misallocate them to one SKU.
+
+Reason:
+
+The user should be able to fix supported gaps without silently switching products, stores, model bases or revisions. Explicit actions keep source traffic predictable and preserve the distinction between observed values and scenario assumptions.
+
+Status:
+
+Implemented in the existing query formatter, assistant/keyboard routing, seller-cost flow and adapter. MA17 linked profile: 98 passed; full pytest and exact-head CI remain pending.
