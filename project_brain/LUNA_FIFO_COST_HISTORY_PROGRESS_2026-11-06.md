@@ -7,10 +7,10 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: FC02 stock/supply/cutoff source proof.
-- Last completed phase: FC01 source and cost-path audit.
-- Current code SHA: `b971eedc475f6c6ed5e53ac78c250e56521885f3` plus the FC01 documentation commit being prepared (documentation only; no runtime implementation yet).
-- Next action: verify official Ozon method contracts and existing sanitized fixtures for stock scope, reserve/transit overlap, partial acceptance and delayed finance accrual cutoff. Do not make live seller calls.
+- Current phase: FC03 cost contracts and architecture decision.
+- Last completed phase: FC02 stock/supply/cutoff source proof (completed with explicit source gaps).
+- Current code/source-audit SHA before the FC02 documentation/fixture commit: `5a70ccbbf2053920fe4c5efdf7dd7c48d25c1a1b`; runtime implementation remains unchanged.
+- Next action: define a dedicated factual FIFO repository in the existing tenant-local SQLite database, with allowlisted immutable events/projections, an explicit unreconciled cutoff state, and no reuse of Planning Workspace as cost authority. Do not make live seller calls.
 - Last full test result: Windows Python 3.12.10 / pytest 8.4.2, `python -m pytest`: **4,442 passed in 45.02s** at the spec head. This is baseline evidence, not FIFO implementation verification.
 - Baseline data snapshot: 59 files / 283,840 bytes across `data/`, `.runtime-data/`, and root `ozon_assistant.db`; exact per-file SHA-256 manifest is retained locally under `%TEMP%\fifo-cost-fc00-baseline-20261106\manifest.json` (not committed). Before/after checks matched after restoring only the test-mutated `data/tasks.json` and removing a newly created lock and CPC diagnostic CSV. No user data was intentionally changed.
 - The repository was clean before and after baseline restoration. Do not reset/clean unrelated paths.
@@ -21,8 +21,8 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 |---|---|---|
 | FC00 | DONE | Branch/base verified; required docs read; 4,442-test baseline passed; local data hashes restored and matched. |
 | FC01 | DONE | Source map and three confirmed temporal projection defects are recorded in `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`; isolated SQLite reproductions are captured. |
-| FC02 | IN_PROGRESS | Prove source schemas, cutoff, stock/transit overlap, physical-sale and late-accrual bridge. |
-| FC03 | NOT_STARTED | Cost contracts, schema owner, ADR, architecture review. |
+| FC02 | DONE_WITH_GAP | Official source matrix and synthetic delayed-accrual counterexample added. FBO present/reserved semantics, disjoint transit, physical exit time, and stock/finance watermark remain unproven; factual Period Profit FIFO must fail closed until owner validation establishes them. |
+| FC03 | IN_PROGRESS | Define versioned contracts and additive repository/ADR without weakening the FC02 cutoff gate. |
 | FC04 | NOT_STARTED | Pure deterministic FIFO allocation core and numeric invariants. |
 | FC05 | NOT_STARTED | Unified effective-date resolver and legacy compatibility fix. |
 | FC06 | NOT_STARTED | Additive tenant-local schema and migration/isolation. |
@@ -65,7 +65,8 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Source gaps
 
-- FC01 confirmed the reader/writer paths and their semantic limitations. FC02 is still open for exact official response fields, FBO scope, reserve/aggregate semantics, transit overlap, and an inventory-to-finance cutoff bridge.
+- FC01 confirmed the reader/writer paths and their semantic limitations. FC02 confirmed current official endpoint/version direction and documents exact gaps: current v4 stock response semantics/as-of watermark need owner validation; `/v1/analytics/stocks` has transit-status fields but overlap is unproven; crossdock `arrival_date` is officially null; the current sale evidence retains finance recognition date, not physical exit time; no shared inventory/finance watermark exists in the current adapter.
+- This source gap is an implementation gate, not permission to substitute an assumption. `INVENTORY_CUTOFF_UNRECONCILED` must keep factual Period Profit COGS unavailable. A model view must be separately labeled and cannot be persisted as factual results.
 
 ## Check history
 
@@ -73,6 +74,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 |---|---|---|---|
 | `b842e4a812334938e5178de8f4ae158d2b36735c` | Windows Python 3.12.10, pytest 8.4.2, `python -m pytest` | 4,442 passed, 0 failed, 45.02s | All 59 pre-test files matched exact SHA-256 snapshot after restoration of test-created changes. |
 | `b971eedc475f6c6ed5e53ac78c250e56521885f3` | Isolated Python harness: three temporary SQLite scenarios for future single, late-old single, and future batch | All three confirmed the current-projection mismatch; no repository test file changed. | Temporary databases only; no live or owner data used. |
+| FC02 source audit | Official Ozon notices + local source adapters + JSON parse/structure check for synthetic negative fixture | Completed with explicit source gaps; no unsupported FBO/current v4 semantics or sale cutoff claimed. | Synthetic fixture only; runtime code and owner data unchanged; no live calls. |
 
 ## PR and CI
 

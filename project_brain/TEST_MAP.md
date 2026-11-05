@@ -10,6 +10,12 @@
 - These are audit reproductions, not passing regression tests. Runtime behavior is unchanged; FC05 must add permanent assertions for the corrected contract.
 - Full writer/reader and cache map: `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`.
 
+# 2026-11-06 — FIFO FC02 аудит источников cutoff
+
+- Добавлен `tests/fixtures_fifo_cutoff_gap_v1.json`, синтетический отрицательный пример для сценария: продажа уже уменьшила остаток до local capture-time, а финансовое начисление появилось позже. Fixture требует fail-closed `INVENTORY_CUTOFF_UNRECONCILED`, если физическое время выбытия и общий watermark не подтверждены.
+- Это контрактный fixture, не ответ API и не данные владельца. Runtime-код и живые Seller API-запросы не менялись.
+- Матрица official docs и ограничений текущих адаптеров: `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`.
+
 # 2026-11-06 — план проверок FIFO себестоимости
 
 - В LUNA_FIFO_COST_HISTORY_TASK_2026-11-06.md заданы N01–N24: суммы FIFO, несколько старых слоёв, reserve/transit overlap, delayed accrual cutoff, однократность физической продажи, late correction, возвраты, current/future dated cost, scoped callbacks/CAS, планирование Q, frozen revisions и backup/restore.

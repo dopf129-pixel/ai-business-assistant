@@ -1,0 +1,55 @@
+{
+  "schema_version": "fifo.inventory_cutoff_fixture.v1",
+  "fixture_kind": "synthetic_negative_source_gap",
+  "owner_data": false,
+  "api_response": false,
+  "purpose": "Prevent a finance accrual arriving after an inventory anchor from consuming a unit already absent from that anchor.",
+  "anchor": {
+    "capture_started_at": "2026-11-06T10:00:00Z",
+    "capture_completed_at": "2026-11-06T10:00:03Z",
+    "observed_fbo_present_units": 98,
+    "observed_fbo_reserved_units": 3,
+    "server_as_of": null,
+    "inventory_watermark": null,
+    "status": "SOURCE_CUTOFF_UNRECONCILED"
+  },
+  "events": [
+    {
+      "event_key": "synthetic-sale-before-anchor",
+      "sku": "synthetic-sku-a",
+      "quantity": 2,
+      "physical_inventory_exit_at": "2026-11-06T09:59:00Z",
+      "finance_accrual_available_at": "2026-11-06T10:20:00Z",
+      "finance_accrual_date": "2026-11-06",
+      "represented_in_anchor": true,
+      "expected_fifo_queue_consumption_after_anchor": 0
+    },
+    {
+      "event_key": "synthetic-sale-after-anchor",
+      "sku": "synthetic-sku-a",
+      "quantity": 1,
+      "physical_inventory_exit_at": "2026-11-06T10:10:00Z",
+      "finance_accrual_available_at": "2026-11-06T10:20:00Z",
+      "finance_accrual_date": "2026-11-06",
+      "represented_in_anchor": false,
+      "expected_fifo_queue_consumption_after_anchor": 1
+    }
+  ],
+  "current_source_capabilities": {
+    "finance_quantity_identity": "posting_number_plus_sku",
+    "finance_quantity": "available after finance accrual appears",
+    "finance_physical_inventory_exit_at": "not established by the current FIFO integration path",
+    "stock_server_as_of": "not established by the current stock adapter",
+    "shared_stock_finance_watermark": "not established"
+  },
+  "expected_behavior": {
+    "if_physical_exit_timestamp_and_cutoff_bridge_are_proven": "apply only events after the anchor exactly once",
+    "if_only_finance_accrual_date_is_available": "return INVENTORY_CUTOFF_UNRECONCILED and do not publish factual FIFO COGS",
+    "never": [
+      "subtract a pre-anchor sale again when its accrual becomes available later",
+      "infer a server snapshot time from local response receipt time",
+      "treat reserved units as a separate second stock pool",
+      "publish a partial timeline as complete"
+    ]
+  }
+}
