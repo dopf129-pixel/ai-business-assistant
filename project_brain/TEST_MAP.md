@@ -9,6 +9,12 @@
 - `tests/test_fifo_cost_allocation_service.py` covers N01/N02/N03/N08/N21, finite-layer FIFO order, rate-only unknown purchase quantity, explicit confirmed-zero versus unknown anchor, exact return allocation basis, cutoff/source/order gates, decimal rounding, invalid values, and bounded/failing iterators. The kernel has no storage, Ozon, Telegram, or planning dependencies.
 - Focused Windows result: **27 passed**. Module compile and `git diff --check` PASS. Synthetic-only inputs; no owner data or live calls.
 
+# 2026-11-06 — FC05 effective-date resolver and current cost caches
+
+- `app/tests/test_period_profit_effective_cost_current_projection.py` isolates single/batch/future/late switch timelines in temporary SQLite, including an old database row whose timestamp/value can be a shadowed future projection. It proves current `get_cost` and `get_all_costs` advance on an injected date boundary without restart.
+- `tests/test_current_unit_economics_integration.py` and `tests/test_unit_price_scenario_source.py` verify that cached current-card and price-scenario results use a fresh cache scope after the effective date changes.
+- Linked Windows profile covering the new tests, legacy current timestamp, dated cost timeline/identity fallback, cost confirmation, Telegram switch, CSV import, card, and price scenario: **93 passed**. No live Ozon/Telegram calls or persistent owner data.
+
 # 2026-11-06 — FIFO FC01 isolated source audit
 
 - A temporary isolated SQLite harness ran three scenarios against `PeriodProfitEffectiveCostService`: future single switch, late older switch after a future switch, and a batch spanning today/tomorrow. It observed current projection **25 vs dated 20** for future single/batch, and current projection **18 vs dated 20** after late insertion of an older cost. The future single write also surfaced through `SELLER_CONFIRMED_LEGACY_CURRENT_TIMESTAMP` for today.

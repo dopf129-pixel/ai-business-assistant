@@ -107,6 +107,18 @@ class UnitPriceScenarioSource:
                 str(normalized_catalog_product.get("product_id")),
                 str(normalized_catalog_product.get("offer_id")),
             )
+        cost_date_getter = getattr(
+            self.cost_service,
+            "get_current_cost_date",
+            None,
+        )
+        if callable(cost_date_getter):
+            try:
+                cost_date = cost_date_getter()
+            except Exception:
+                cost_date = None
+            if cost_date:
+                key += (str(cost_date),)
         waited_for_refresh = False
 
         while True:

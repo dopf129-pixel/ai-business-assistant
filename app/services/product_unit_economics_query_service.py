@@ -192,6 +192,9 @@ class ProductUnitEconomicsQueryService:
             str(get_current_tenant_user_id() or "").strip() or None,
             cache_key,
         )
+        cost_date = self._current_cost_date_scope()
+        if cost_date is not None:
+            cache_key += (cost_date,)
         cached = self._query_cache.get(cache_key)
         now = self.cache_clock()
 
@@ -1793,6 +1796,16 @@ class ProductUnitEconomicsQueryService:
                 return row[3]
 
         return None
+
+    def _current_cost_date_scope(self):
+        getter = getattr(self.cost_service, "get_current_cost_date", None)
+        if not callable(getter):
+            return None
+        try:
+            value = getter()
+        except Exception:
+            return None
+        return str(value) if value else None
 
     def _recent_complete_dates(self):
         today = datetime.now(timezone.utc).date()

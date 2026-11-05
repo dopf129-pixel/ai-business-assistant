@@ -3,7 +3,9 @@ from product_returns_finance_impact_factory import (
     create_product_returns_finance_impact_query
 )
 
-from services.cost_service import ProductCostService
+from services.period_profit_effective_cost_service import (
+    PeriodProfitEffectiveCostService,
+)
 from services.cross_docking_unit_rate_source import CrossDockingUnitRateSource
 from services.current_product_economics_source import (
     CurrentProductEconomicsSource
@@ -56,7 +58,7 @@ def create_current_unit_economics_query(
             historical_query.unit_economics_provider
         ),
         current_economics_source=current_source,
-        cost_service=ProductCostService(),
+        cost_service=PeriodProfitEffectiveCostService(),
         current_finance_days=2,
         returns_finance_impact_query=(
             returns_finance_impact_query

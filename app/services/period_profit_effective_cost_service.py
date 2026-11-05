@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from services.cost_service import ProductCostService
 
 
@@ -12,9 +14,87 @@ class PeriodProfitEffectiveCostService(ProductCostService):
     Mutable ``product_costs`` rows are never historical Period Profit authority.
     """
 
-    def __init__(self):
+    def __init__(self, today_provider=None):
+        self.today_provider = today_provider or date.today
         super().__init__()
         self._create_switch_table()
+
+    def get_current_cost_date(self):
+        """Return the date used by current-cost readers without caching it."""
+        try:
+            value = self.today_provider()
+        except Exception:
+            return None
+        if isinstance(value, datetime):
+            value = value.date()
+        if isinstance(value, date):
+            return value.isoformat()
+        parsed = self._date(value)
+        return parsed.isoformat() if parsed is not None else None
+
+    def get_cost(self, product_id):
+        """Preserve the legacy row shape while resolving the value as of today."""
+        product_key = self._text(product_id)
+        current_date = self.get_current_cost_date()
+        if not product_key or current_date is None:
+            return None
+        evidence = self.get_effective_cost_evidence(
+            current_date,
+            product_id=product_key,
+        )
+        if (
+            not isinstance(evidence, dict)
+            or evidence.get("error") is True
+            or evidence.get("effective_cost_confirmed") is not True
+        ):
+            return None
+        amount = self._cost_number(evidence.get("cost_price"))
+        currency = self._text(evidence.get("currency"))
+        if amount is None or not currency:
+            return None
+        return (
+            product_key,
+            evidence.get("sku"),
+            evidence.get("offer_id"),
+            amount,
+            currency,
+            evidence.get("effective_from"),
+        )
+
+    def get_all_costs(self):
+        """Return current effective values for menu/export compatibility."""
+        current_date = self.get_current_cost_date()
+        if current_date is None:
+            return []
+        try:
+            rows = super().get_all_costs()
+            product_ids = {
+                self._text(row[0])
+                for row in rows
+                if isinstance(row, (tuple, list)) and len(row) >= 1
+            }
+            conn = self.get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT DISTINCT product_id FROM product_cost_switch_history"
+                )
+                product_ids.update(
+                    self._text(row[0])
+                    for row in cursor.fetchall()
+                    if isinstance(row, (tuple, list)) and row
+                )
+            finally:
+                conn.close()
+        except Exception:
+            return []
+
+        effective_rows = []
+        for product_key in sorted(value for value in product_ids if value):
+            row = self.get_cost(product_key)
+            if row is not None:
+                effective_rows.append(row)
+        return effective_rows
 
     def _create_switch_table(self):
         conn = self.get_connection()
@@ -67,6 +147,7 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         effective_date = self._date(effective_from)
         currency_key = self._text(currency)
         source_key = self._text(source)
+        current_date = self.get_current_cost_date()
         if (
             not product_key
             or (not sku_key and not offer_key)
@@ -74,9 +155,12 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             or effective_date is None
             or not currency_key
             or not source_key
+            or current_date is None
         ):
             return self._switch_record_unavailable(
                 "PRODUCT_COST_SWITCH_INPUT_INVALID"
+                if current_date is not None
+                else "PRODUCT_COST_CURRENT_DATE_UNAVAILABLE"
             )
 
         conn = self.get_connection()
@@ -105,26 +189,12 @@ class PeriodProfitEffectiveCostService(ProductCostService):
                 ),
             )
             switch_id = cursor.lastrowid
-            cursor.execute(
-                """
-                INSERT INTO product_costs (
-                    product_id, sku, offer_id, cost_price, currency
-                ) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(product_id) DO UPDATE SET
-                    sku = excluded.sku,
-                    offer_id = excluded.offer_id,
-                    cost_price = excluded.cost_price,
-                    currency = excluded.currency,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    product_key,
-                    sku_key or None,
-                    offer_key or None,
-                    cost,
-                    currency_key,
-                ),
-            )
+            if not self._sync_current_projection(cursor, product_key, current_date):
+                conn.rollback()
+                conn.close()
+                return self._switch_record_unavailable(
+                    "PRODUCT_COST_CURRENT_PROJECTION_UNAVAILABLE"
+                )
         except Exception as exc:
             conn.rollback()
             conn.close()
@@ -163,6 +233,11 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         if not isinstance(switches, (list, tuple)) or not switches:
             return self._switch_record_unavailable(
                 "PRODUCT_COST_SWITCH_INPUT_INVALID"
+            )
+        current_date = self.get_current_cost_date()
+        if current_date is None:
+            return self._switch_record_unavailable(
+                "PRODUCT_COST_CURRENT_DATE_UNAVAILABLE"
             )
 
         normalized = []
@@ -269,33 +344,15 @@ class PeriodProfitEffectiveCostService(ProductCostService):
 
             touched_products = sorted({item["product_id"] for item in normalized})
             for product_key in touched_products:
-                cursor.execute(
-                    """
-                    SELECT sku, offer_id, cost_price, currency
-                    FROM product_cost_switch_history
-                    WHERE product_id = ?
-                    ORDER BY effective_from DESC, id DESC
-                    LIMIT 1
-                    """,
-                    (product_key,),
-                )
-                latest = cursor.fetchone()
-                if latest is None:
-                    continue
-                cursor.execute(
-                    """
-                    INSERT INTO product_costs (
-                        product_id, sku, offer_id, cost_price, currency
-                    ) VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(product_id) DO UPDATE SET
-                        sku = excluded.sku,
-                        offer_id = excluded.offer_id,
-                        cost_price = excluded.cost_price,
-                        currency = excluded.currency,
-                        updated_at = CURRENT_TIMESTAMP
-                    """,
-                    (product_key, latest[0], latest[1], latest[2], latest[3]),
-                )
+                if not self._sync_current_projection(
+                    cursor,
+                    product_key,
+                    current_date,
+                ):
+                    conn.rollback()
+                    return self._switch_record_unavailable(
+                        "PRODUCT_COST_CURRENT_PROJECTION_UNAVAILABLE"
+                    )
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -426,6 +483,61 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             "PERIOD_PROFIT_COST_HISTORY_MISSING"
         )
 
+    @staticmethod
+    def _sync_current_projection(cursor, product_id, current_date):
+        """Keep the mutable compatibility row at the latest switch effective today.
+
+        A future-only timeline intentionally does not create or replace the
+        mutable row. Reads use the date resolver, so the effective value still
+        advances at the boundary without a writer or process restart.
+        """
+        cursor.execute(
+            """
+            SELECT sku, offer_id, cost_price, currency
+            FROM product_cost_switch_history
+            WHERE product_id = ? AND effective_from <= ?
+            ORDER BY effective_from DESC, id DESC
+            LIMIT 1
+            """,
+            (product_id, current_date),
+        )
+        latest = cursor.fetchone()
+        if latest is None:
+            return True
+
+        cursor.execute(
+            """
+            SELECT sku, offer_id, cost_price, currency
+            FROM product_costs
+            WHERE product_id = ?
+            """,
+            (product_id,),
+        )
+        current = cursor.fetchone()
+        if current is not None and (
+            (current[0] or None) == (latest[0] or None)
+            and (current[1] or None) == (latest[1] or None)
+            and abs(float(current[2]) - float(latest[2])) < 0.000001
+            and str(current[3]) == str(latest[3])
+        ):
+            return True
+
+        cursor.execute(
+            """
+            INSERT INTO product_costs (
+                product_id, sku, offer_id, cost_price, currency
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(product_id) DO UPDATE SET
+                sku = excluded.sku,
+                offer_id = excluded.offer_id,
+                cost_price = excluded.cost_price,
+                currency = excluded.currency,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (product_id, latest[0], latest[1], latest[2], latest[3]),
+        )
+        return True
+
     def _get_effective_cost_evidence_for_identity(
         self,
         at_date,
@@ -494,6 +606,15 @@ class PeriodProfitEffectiveCostService(ProductCostService):
                 return self._effective_unavailable(
                     "PERIOD_PROFIT_COST_HISTORY_NOT_EFFECTIVE"
                 )
+            if historical.get("legacy_current_cost_evidence") is True and (
+                self._legacy_current_cost_may_be_future_projection(
+                    historical,
+                    target,
+                )
+            ):
+                return self._effective_unavailable(
+                    "PERIOD_PROFIT_COST_LEGACY_PROVENANCE_AMBIGUOUS"
+                )
 
             result = dict(historical)
             result["effective_cost_confirmed"] = True
@@ -516,6 +637,51 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         return self._effective_unavailable(
             "PERIOD_PROFIT_COST_HISTORY_MISSING"
         )
+
+    def _legacy_current_cost_may_be_future_projection(self, evidence, target):
+        product_key = self._text(evidence.get("product_id"))
+        evidence_cost = self._cost_number(evidence.get("cost_price"))
+        evidence_currency = self._text(evidence.get("currency"))
+        evidence_timestamp = str(evidence.get("recorded_at") or "")
+        if (
+            not product_key
+            or evidence_cost is None
+            or not evidence_currency
+            or not evidence_timestamp
+        ):
+            return False
+
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT cost_price, currency, recorded_at
+                FROM product_cost_switch_history
+                WHERE product_id = ? AND effective_from > ?
+                ORDER BY effective_from ASC, id ASC
+                """,
+                (product_key, target.isoformat()),
+            )
+            future_rows = cursor.fetchall()
+        except Exception:
+            # If provenance cannot be checked, do not claim that it is safe.
+            return True
+        finally:
+            conn.close()
+
+        for row in future_rows:
+            if not isinstance(row, (tuple, list)) or len(row) < 3:
+                return True
+            future_cost = self._cost_number(row[0])
+            if (
+                future_cost is not None
+                and abs(future_cost - evidence_cost) < 0.000001
+                and str(row[1]) == evidence_currency
+                and str(row[2] or "") == evidence_timestamp
+            ):
+                return True
+        return False
 
     @classmethod
     def _identity_candidates(cls, product_id=None, offer_id=None, sku=None):

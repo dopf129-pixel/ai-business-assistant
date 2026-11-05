@@ -59,8 +59,15 @@ class _CurrentSource:
 
 
 class _CostService:
+    def __init__(self):
+        self.current_date = None
+        self.cost = 120.0
+
+    def get_current_cost_date(self):
+        return self.current_date
+
     def get_cost(self, product_id):
-        return (product_id, "hook", "sku-1", 120.0, "RUB", "2026-10-01")
+        return (product_id, "hook", "sku-1", self.cost, "RUB", "2026-10-01")
 
 
 class _TaxConfiguration:
@@ -391,6 +398,32 @@ def test_batch_exact_identity_cache_preserves_age_and_separates_identity_aliases
     assert alias["identity"]["product_id"] == "p2"
     assert alias["identity"]["offer_id"] == "hook-alias"
     assert current.calls and len(current.calls) == 2
+
+
+def test_price_scenario_cache_uses_new_cost_after_effective_date_without_restart():
+    current_day = [datetime(2026, 10, 14, 12)]
+    cost = _CostService()
+    cost.current_date = "2026-10-14"
+    source = _source(_SnapshotFinance({}), cost=cost)
+    source.clock = lambda: current_day[0]
+    product = {"product_id": "p1", "offer_id": "hook", "sku": "sku-1"}
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        initial = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=product
+        )
+        cost.cost = 135.0
+        current_day[0] = datetime(2026, 10, 15, 12)
+        cost.current_date = "2026-10-15"
+        effective = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=product
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert initial["cache"]["status"] == "miss"
+    assert effective["cache"]["status"] == "miss"
+    assert effective["suggested_inputs"]["cost"] == 135.0
 
 
 def test_inflight_wait_is_clamped_to_parent_remaining_time():

@@ -166,8 +166,8 @@ from services.metrics_service import (
     MetricsService
 )
 
-from services.cost_service import (
-    ProductCostService
+from services.period_profit_effective_cost_service import (
+    PeriodProfitEffectiveCostService,
 )
 
 from services.profit_service import (
@@ -600,7 +600,7 @@ def create_telegram_core(
                 FinanceService()
             ),
             cost_service=(
-                ProductCostService()
+                PeriodProfitEffectiveCostService()
             ),
             profit_service=(
                 ProfitService()
