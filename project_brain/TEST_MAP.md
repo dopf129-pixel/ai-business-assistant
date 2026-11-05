@@ -1,3 +1,9 @@
+# 2026-11-05 — регрессии повторного review PR #724
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_grid_reports_missing_cost_without_claiming_confirmed_commission_is_unknown` проверяет, что отсутствие себестоимости не маскируется сообщением о неподтверждённой комиссии при подтверждённой тарифной ставке.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_small_confirmed_expense_keeps_allocation_basis_when_unit_amount_rounds_to_zero` проверяет отображение суммы, периода и знаменателя подтверждённого расхода 1,74 ₽ / 1000 единиц при округлении удельного значения до 0,00 ₽/шт.
+- Профиль `tests/test_unit_price_scenario_telegram_runtime.py`: **50 passed in 0.84s**. Полный Windows pytest: **4,442 passed in 48.14s**. `python -m compileall app tests` и `git diff --check` — PASS. Все файлы `data/` после прогона сверены с исходным снимком и восстановлены.
+
 # 2026-11-03 — регрессии review PR #724: сравнение цены и pre-ad расходы
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_saved_plan_no_ad_price_grid_keeps_confirmed_expense_when_applying_candidate` проверяет восстановленный и обновлённый saved plan: безрекламная сетка включает подтверждённое хранение, а выбранная цена проходит свежую проверку и применяется с тем же расходом.

@@ -1,5 +1,6 @@
 from copy import deepcopy
 from threading import Event, Thread
+from unittest.mock import patch
 
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.tax_service import TaxService
@@ -557,6 +558,62 @@ def test_cost_display_uses_canonical_half_up_rounding_and_reconciles_scope():
     projection = price_scenario["pre_ad_margin"]
     assert projection["expense_scope"]["known_non_ad_expenses_rub"]["COGS"] == 120.01
     assert projection["expense_scope"]["known_non_ad_expenses_rub"]["ROUNDING_ADJUSTMENT"] == -0.01
+
+
+def test_small_confirmed_expense_keeps_allocation_basis_when_unit_amount_rounds_to_zero():
+    runtime, _source = _runtime()
+    extended = {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": "a" * 64,
+        "quantity_evidence_ref": "b" * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["FINANCE_PAID_STORAGE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB",
+            "denominator": "ORDERED_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01",
+            "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY",
+            "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 1000,
+        "components": [{
+            "component_key": "FINANCE_PAID_STORAGE",
+            "numerator_rub": "1.74",
+            "ownership": "ADDITIONAL",
+        }],
+    }
+    inputs = {
+        "price": "500", "cost": "120", "commission_rate": "15",
+        "logistics_per_unit": "40", "last_mile_per_unit": "10",
+        "acquiring_per_unit": "5", "advertising_rate": "10",
+        "discount_points_rate": "20", "tax_mode": "NONE",
+    }
+
+    with patch(
+        "services.unit_price_scenario_service.ZoneInfo", return_value=object(),
+    ):
+        result = runtime.scenario_service.calculate(
+            inputs, extended_scenario=extended,
+        )
+
+    scope = result["pre_ad_margin"]["expense_scope"]
+    lines = runtime._pre_ad_extended_basis_lines(
+        result["extended_calculation"], scope,
+    )
+    assert result["extended_calculation"]["status"] == "APPLIED"
+    assert result["calculated"]["additional_unit_expenses"] == 0.0
+    assert "STORAGE" in scope["included_expense_keys"]
+    assert "1,74 ₽ / 1000 заказанных единиц" in lines[0]
+    assert "период 01.01.2026 — 25.02.2026" in lines[0]
+    assert "округлён до 0,00 ₽/шт." in lines[1]
 
 
 def test_scenario_details_show_no_ad_and_after_ad_tax_bridge():
@@ -1183,6 +1240,37 @@ def test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_
     assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == 8
     assert applied["price_scenario"]["calculated"]["additional_unit_expenses"] == 5.0
     assert len(source.calls) == 1
+
+
+def test_price_grid_reports_missing_cost_without_claiming_confirmed_commission_is_unknown():
+    runtime, source = _runtime(
+        tariff_profile_runtime_service=_FrozenRangeTariffRuntime(),
+    )
+    original_load_snapshot = source.load_snapshot
+
+    def snapshot_without_cost(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["cost"] = None
+        return snapshot
+
+    source.load_snapshot = snapshot_without_cost
+    tenant = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон без рекламы")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("450; 500; 50", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    baseline = result["price_planning_result"]["baseline"]
+    assert prompt["stage"] == "price_grid_no_ad"
+    assert baseline["commission_status"] == "MANUAL_RANGE"
+    assert baseline["missing_inputs"] == ["cost"]
+    assert "База 500,00 ₽: маржа до рекламы недоступна; заполните Себестоимость." in result["message"]
+    assert "комиссия для этой цены не подтверждена" not in result["message"]
 
 
 def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominator():

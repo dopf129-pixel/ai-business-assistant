@@ -1947,9 +1947,33 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         )
                     lines.append(baseline_line + ".")
                 else:
-                    lines.append(
+                    baseline_line = (
                         "База " + self._money(baseline.get("price"))
-                        + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
+                        + ": маржа до рекламы недоступна"
+                    )
+                    missing = self._price_planning_missing_labels(baseline)
+                    commission_unconfirmed = (
+                        baseline.get("commission_status") in {
+                            "UNKNOWN", "CURRENT_PRICE_POINT_ONLY", "CONFLICT",
+                            "EXPIRED", "UNSUPPORTED_SCHEME", "SOURCE_UNAVAILABLE",
+                        }
+                        or baseline.get("status") == "COMMISSION_UNKNOWN"
+                    )
+                    if commission_unconfirmed and "commission_rate" in (
+                        baseline.get("missing_inputs") or []
+                    ):
+                        missing = [
+                            label for label in missing
+                            if label != self.EDITABLE_FIELDS["commission_rate"][0]
+                        ]
+                    if missing:
+                        baseline_line += "; заполните " + ", ".join(missing)
+                    if commission_unconfirmed:
+                        baseline_line += "; комиссия для этой цены не подтверждена"
+                    elif not missing:
+                        baseline_line += "; расчёт недоступен по текущим данным"
+                    lines.append(
+                        baseline_line + "."
                     )
             advertising_basis = result.get("advertising_basis") or {}
             if is_grid:
@@ -3737,8 +3761,6 @@ class TelegramUnitPriceCalculatorRuntimeService:
         else:
             return []
         applied_amount = self._decimal(known_expenses.get(applied_scope_key))
-        if applied_amount is None or not applied_amount.is_finite() or applied_amount <= 0:
-            return []
         denominator_labels = {
             "ORDERED_UNITS_WINDOW": "заказанных единиц",
             "SOLD_UNITS_WINDOW": "проданных единиц",
@@ -3754,6 +3776,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             denominator_label is None
             or amount is None
             or not amount.is_finite()
+            or amount <= 0
             or type(units) is not int
             or units <= 0
             or units > 1_000_000_000
@@ -3767,15 +3790,61 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return []
         if date_to < date_from:
             return []
+        included_expense_keys = (
+            expense_scope.get("included_expense_keys")
+            if isinstance(expense_scope, dict) else None
+        )
+        expense_scope_keys = (
+            {key for key in included_expense_keys if isinstance(key, str)}
+            if isinstance(included_expense_keys, list)
+            else set()
+        )
+        if (
+            extended_calculation.get("status") == "UNAVAILABLE"
+            and not (
+                applied_amount is not None
+                and applied_amount.is_finite()
+                and applied_amount > 0
+            )
+        ):
+            component_scope_keys = {
+                "STORAGE": "STORAGE",
+                "FINANCE_PAID_STORAGE": "STORAGE",
+                "PLACEMENT": "PLACEMENT",
+                "FINANCE_PLACEMENT": "PLACEMENT",
+                "RETURNS_AND_CANCELLATIONS": "RETURNS_AND_CANCELLATIONS",
+                "STRICT_RETAINED_COHORT_LOSS": "RETURNS_AND_CANCELLATIONS",
+            }
+            if calculation_mode == "STRICT_RETAINED_COHORT":
+                ledger_confirms_scope = (
+                    "RETURNS_AND_CANCELLATIONS" in expense_scope_keys
+                )
+            else:
+                ledger_confirms_scope = bool(included_keys) and all(
+                    component_scope_keys.get(key) in expense_scope_keys
+                    if key in component_scope_keys
+                    else applied_scope_key in known_expenses
+                    for key in included_keys
+                )
+            if not ledger_confirms_scope:
+                return []
         period = date_from.strftime("%d.%m.%Y") + " — " + date_to.strftime("%d.%m.%Y")
         label = (
             "Основание распределения потерь возвратной когорты"
             if calculation_mode == "STRICT_RETAINED_COHORT"
             else "База распределения дополнительных расходов"
         )
-        return [
+        lines = [
             f"{label}: {self._money(amount)} / {units} {denominator_label}; период {period}."
         ]
+        applied_per_unit = self._decimal(
+            extended_calculation.get("additional_expense_per_unit_rub")
+        )
+        if applied_per_unit is not None and applied_per_unit == 0:
+            lines.append(
+                "Расход на единицу округлён до 0,00 ₽/шт.; исходная сумма распределения указана выше."
+            )
+        return lines
 
     def _pre_ad_scope_disclosure_lines(self, result, *, fallback):
         projection = result.get("pre_ad_margin") if isinstance(result, dict) else None
