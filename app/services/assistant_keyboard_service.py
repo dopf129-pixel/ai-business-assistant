@@ -532,12 +532,18 @@ class AssistantKeyboardService:
         skus,
         calculator_callback=None,
         product_callbacks=None,
+        experiment_callback=None,
     ):
         buttons = []
         if calculator_callback:
             buttons.append({
-                "text": "🧮 Калькулятор цены",
+                "text": "🧮 Плановая экономика",
                 "callback": str(calculator_callback),
+            })
+        if experiment_callback:
+            buttons.append({
+                "text": "🧪 Эксперименты цен",
+                "callback": str(experiment_callback),
             })
         callbacks = list(product_callbacks or [])
         buttons.extend([
@@ -579,7 +585,8 @@ class AssistantKeyboardService:
             ("Цена", "price"),
             ("Себестоимость", "cost"),
             ("Комиссия %", "commission_rate"),
-            ("Реклама %", "advertising_rate"),
+            ("Реклама, %", "advertising_rate"),
+            ("Реклама, ₽/успешную продажу", "advertising_cost_per_unit"),
             ("Баллы %", "discount_points_rate"),
         )
         buttons = [

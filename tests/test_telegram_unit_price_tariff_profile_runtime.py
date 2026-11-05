@@ -118,6 +118,9 @@ def test_public_telegram_flow_previews_and_persists_manual_ranges_idempotently(t
 
     assert result["error"] is False
     assert "Тариф сохранён" in result["message"]
+    assert result["price_scenario"]["scenario_id"] == scenario["price_scenario"]["scenario_id"]
+    assert result["price_scenario"]["inputs"]["price"]["value"] == 100.0
+    assert result["price_scenario"]["inputs"]["cost"]["value"] == 20.0
     assert result["price_scenario"]["tariff_resolution"]["available"] is True
     assert result["price_scenario"]["tariff_resolution"]["commission_rate"] == "14"
     assert replay["error"] is True

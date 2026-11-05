@@ -92,6 +92,8 @@ class UnitPriceSensitivityService:
             "identity": source["identity"],
             "version": source["source_version"],
             "inputs": base_inputs,
+            "extended_scenario": source["extended_scenario"],
+            "strict_return_evidence": source["strict_return_evidence"],
             "provenance": source["provenance"],
             "sources": source["sources"],
             "as_of": source["source_as_of"],
@@ -184,6 +186,8 @@ class UnitPriceSensitivityService:
                     identity=cell_identity,
                     provenance=candidate_provenance,
                     sources=source["sources"],
+                    extended_scenario=source["extended_scenario"],
+                    strict_return_evidence=source["strict_return_evidence"],
                 )
                 cell["scenario"] = scenario
                 if scenario.get("available") is True:
@@ -247,6 +251,8 @@ class UnitPriceSensitivityService:
             "identity": source["identity"],
             "version": source["source_version"],
             "inputs": source["inputs"],
+            "extended_scenario": source["extended_scenario"],
+            "strict_return_evidence": source["strict_return_evidence"],
             "provenance": source["provenance"],
             "sources": source["sources"],
             "as_of": source["source_as_of"],
@@ -287,7 +293,15 @@ class UnitPriceSensitivityService:
         inputs = context.get("inputs")
         provenance = context.get("provenance")
         sources = context.get("sources")
+        extended_scenario = context.get("extended_scenario")
+        strict_return_evidence = context.get("strict_return_evidence")
         if not all(isinstance(value, dict) for value in (snapshot, identity, inputs, provenance, sources)):
+            return self._error("SENSITIVITY_CONTEXT_INVALID")
+        if extended_scenario is not None and not isinstance(extended_scenario, dict):
+            return self._error("SENSITIVITY_CONTEXT_INVALID")
+        if strict_return_evidence is not None and (
+            not isinstance(strict_return_evidence, dict) or extended_scenario is None
+        ):
             return self._error("SENSITIVITY_CONTEXT_INVALID")
         snapshot_identity = snapshot.get("identity") or {}
         required = ("product_id", "offer_id", "sku", "tenant_scope")
@@ -342,6 +356,8 @@ class UnitPriceSensitivityService:
             "snapshot": deepcopy(snapshot),
             "identity": deepcopy(identity),
             "inputs": deepcopy(inputs),
+            "extended_scenario": deepcopy(extended_scenario),
+            "strict_return_evidence": deepcopy(strict_return_evidence),
             "provenance": deepcopy(provenance),
             "sources": deepcopy(sources),
             "source_age_seconds": float(age),

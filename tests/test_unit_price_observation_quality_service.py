@@ -2,6 +2,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 
 from services.unit_price_observation_quality_service import UnitPriceObservationQualityService
+from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
+from services.unit_price_observation_ranking_service import UnitPriceObservationRankingService
 
 
 NOW = datetime(2026, 10, 27, 10, 0, tzinfo=timezone.utc)
@@ -77,6 +79,20 @@ def _assess(candidates, **kwargs):
     return UnitPriceObservationQualityService().assess(candidates, now=NOW, **kwargs)
 
 
+def _with_extended_cost(candidate, *, signature, origin="CONFIRMED", mode="WINDOW_COST_ALLOCATION", amount="0.70"):
+    candidate["result"]["metrics"].update({
+        "extended_cost_mode": mode, "extended_cost_origin": origin,
+        "extended_cost_signature": signature,
+        "extended_cost_per_unit": amount,
+    })
+    candidate.update({
+        "plan_extended_cost_mode": mode,
+        "plan_extended_cost_origin": origin,
+        "plan_extended_cost_signature": signature,
+    })
+    return candidate
+
+
 def test_same_assumptions_nonoverlapping_windows_are_model_comparable_not_verified():
     result = _assess([
         _model_candidate(100, "2026-10-01", "2026-10-07"),
@@ -128,6 +144,136 @@ def test_overlap_and_different_price_basis_block_comparison():
         _model_candidate(95, "2026-10-08", "2026-10-14", signature="plan-b"),
     ])
     assert "MODEL_ASSUMPTIONS_MISMATCH" in different_assumptions["reasons"]
+
+
+def test_extended_cost_scope_mode_and_origin_must_match_for_comparison():
+    first = _with_extended_cost(
+        _model_candidate(100, "2026-10-01", "2026-10-07"), signature="a" * 64,
+    )
+    second = _with_extended_cost(
+        _model_candidate(95, "2026-10-08", "2026-10-14"), signature="a" * 64,
+    )
+    same_basis = _assess([first, second])
+    assert same_basis["status"] == "COMPARABLE"
+    assert same_basis["candidates"][0]["extended_cost_per_unit"] == "0.70"
+
+    different_scope = deepcopy(second)
+    different_scope["result"]["metrics"]["extended_cost_signature"] = "b" * 64
+    different_scope["plan_extended_cost_signature"] = "b" * 64
+    scope_result = _assess([first, different_scope])
+    assert scope_result["status"] == "INCOMPARABLE"
+    assert "MODEL_COST_BASIS_SCOPE_OR_AMOUNT_MISMATCH" in scope_result["reasons"]
+
+    manual = deepcopy(second)
+    manual["result"]["metrics"]["extended_cost_origin"] = "MANUAL_ASSUMPTION"
+    manual["plan_extended_cost_origin"] = "MANUAL_ASSUMPTION"
+    origin_result = _assess([first, manual])
+    assert origin_result["status"] == "INCOMPARABLE"
+    assert "MODEL_COST_BASIS_ORIGIN_MISMATCH" in origin_result["reasons"]
+
+    mismatched_plan = deepcopy(second)
+    mismatched_plan["plan_extended_cost_signature"] = "c" * 64
+    plan_result = _assess([first, mismatched_plan])
+    assert plan_result["status"] == "INCOMPARABLE"
+    assert "MODEL_COST_BASIS_PLAN_RESULT_MISMATCH" in plan_result["reasons"]
+
+
+def test_unconfirmed_extended_cost_origin_blocks_candidate_ranking_quality():
+    first = _with_extended_cost(
+        _model_candidate(100, "2026-10-01", "2026-10-07"), signature="d" * 64,
+        origin="UNCONFIRMED",
+    )
+    second = _with_extended_cost(
+        _model_candidate(95, "2026-10-08", "2026-10-14"), signature="d" * 64,
+        origin="UNCONFIRMED",
+    )
+    result = _assess([first, second])
+    assert result["status"] == "INCOMPARABLE"
+    assert "MODEL_COST_BASIS_UNCONFIRMED" in result["reasons"]
+
+
+def test_ranking_assumption_signature_binds_saved_extended_cost_and_provenance():
+    class _Planning:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def get_document(self, document_id, *, revision):
+            return {"error": False, "document": {
+                "document_id": document_id, "revision": revision,
+                "owner_id": "owner-a", "store_id": "store-a",
+                "payload": self.payload,
+            }}
+
+    contract = {
+        "schema_version": 1, "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": "e" * 64, "quantity_evidence_ref": None,
+        "expense_policy_revision": "policy-v1",
+        "included_component_keys": ["CROSS_DOCKING"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE", "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-08-01", "to_date": "2026-09-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 10,
+        "components": [{
+            "component_key": "CROSS_DOCKING", "numerator_rub": "7.00",
+            "ownership": "ADDITIONAL",
+        }],
+    }
+    item = {
+        "identity": {
+            "store_id": "store-a", "product_id": "product-1",
+            "offer_id": "offer-1", "sku": "sku-1", "scheme": "FBO",
+        },
+        "inputs": {
+            "price": "100.00", "cost": "20.00", "commission_rate": "10",
+            "logistics_per_unit": "2", "last_mile_per_unit": "3",
+            "acquiring_per_unit": "1", "advertising_rate": "0",
+            "discount_points_rate": "0", "tax_mode": "NONE",
+            "cross_docking_per_unit": "12.00",
+        },
+        "provenance": {"cost": "manual_owner_input"},
+        "sources": {
+            "cross_docking": {
+                "status": "COMPLETE", "reason": None,
+                "evidence_complete": True, "rate_available": True,
+                "amount_per_unit": "12.00", "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+                "applicable_to_sku": True,
+            },
+        },
+        "projection": {}, "extended_scenario": contract,
+    }
+    payload = {"schema_version": 4, "calculation_version": 2, "items": [item]}
+    observation = {
+        "identity": {
+            "product_id": "product-1", "offer_id": "offer-1",
+            "sku": "sku-1", "sale_schema": "FBO",
+        },
+        "source_plan": {"document_id": "plan-1", "revision": 1},
+    }
+    service = UnitPriceObservationRankingService(
+        repository=None, planning_service=_Planning(payload), ranking_service=None,
+    )
+    signature = service._assumption_signature(
+        observation, owner_id="owner-a", store_id="store-a",
+    )
+    expected = PlanningExtendedScenarioAdapter.observation_cost_basis(contract)
+    assert signature["extended_cost_signature"] == expected["signature"]
+    assert signature["extended_cost_origin"] == "CONFIRMED"
+
+    changed_payload = deepcopy(payload)
+    changed_payload["items"][0]["extended_scenario"]["expense_snapshot_ref"] = "f" * 64
+    service.planning_service = _Planning(changed_payload)
+    changed = service._assumption_signature(
+        observation, owner_id="owner-a", store_id="store-a",
+    )
+    assert changed["assumption_signature"] != signature["assumption_signature"]
+    assert changed["extended_cost_signature"] != signature["extended_cost_signature"]
 
 
 def test_identity_source_basis_and_successful_unit_denominator_are_required():

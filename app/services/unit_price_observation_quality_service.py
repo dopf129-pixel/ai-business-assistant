@@ -2,6 +2,7 @@
 
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import re
 
 
 class UnitPriceObservationQualityService:
@@ -76,6 +77,17 @@ class UnitPriceObservationQualityService:
         if len(signatures) > 1:
             reasons.append("MODEL_ASSUMPTIONS_MISMATCH")
 
+        cost_basis_signatures = [item["cost_basis_signature"] for item in assessed]
+        if len(set(cost_basis_signatures)) > 1:
+            first_basis = cost_basis_signatures[0]
+            for basis in cost_basis_signatures[1:]:
+                if basis[0] != first_basis[0]:
+                    reasons.append("MODEL_COST_BASIS_MODE_MISMATCH")
+                if basis[1] != first_basis[1]:
+                    reasons.append("MODEL_COST_BASIS_ORIGIN_MISMATCH")
+                if basis[2:] != first_basis[2:]:
+                    reasons.append("MODEL_COST_BASIS_SCOPE_OR_AMOUNT_MISMATCH")
+
         if assessed and all(item.get("window") for item in assessed):
             first = assessed[0]
             for item in assessed[1:]:
@@ -116,6 +128,9 @@ class UnitPriceObservationQualityService:
                 "window_days": item["window"]["days"] if item.get("window") else None,
                 "successful_units": item["successful_units"],
                 "price_cents": item["price_cents"],
+                "extended_cost_mode": item["extended_cost_mode"],
+                "extended_cost_origin": item["extended_cost_origin"],
+                "extended_cost_per_unit": item["extended_cost_per_unit"],
                 "evidence_age_days": item["evidence_age_days"],
                 "reasons": item["reasons"], "warnings": item["warnings"],
             } for item in assessed],
@@ -272,15 +287,67 @@ class UnitPriceObservationQualityService:
         if basis == "MODELLED_FROM_OBSERVED_INPUTS":
             warnings.extend(self._known_model_confounders(result))
 
+        cost_basis_signatures_for_candidate = self._cost_basis_signature(candidate, reasons)
         return {
             "index": index, "result_revision": revision, "identity": identity,
             "scope": scope,
             "price_cents": price_cents, "evidence_basis": basis,
             "window": window, "successful_units": units,
+            "extended_cost_mode": cost_basis_signatures_for_candidate[0],
+            "extended_cost_origin": cost_basis_signatures_for_candidate[1],
+            "extended_cost_per_unit": cost_basis_signatures_for_candidate[3],
+            "cost_basis_signature": cost_basis_signatures_for_candidate,
             "source_date_bases": self._source_basis_signature(sources, source_basis_names),
             "evidence_age_days": age_days,
             "reasons": self._unique(reasons), "warnings": self._unique(warnings),
         }
+
+    @staticmethod
+    def _cost_basis_signature(candidate, reasons):
+        result = candidate.get("result") if isinstance(candidate, dict) else None
+        metrics = result.get("metrics") if isinstance(result, dict) else None
+        metrics = metrics if isinstance(metrics, dict) else {}
+        fields = (
+            "extended_cost_mode", "extended_cost_origin",
+            "extended_cost_signature", "extended_cost_per_unit",
+        )
+        present = [field in metrics for field in fields]
+        plan_signature = candidate.get("plan_extended_cost_signature") if isinstance(candidate, dict) else None
+        plan_mode = candidate.get("plan_extended_cost_mode") if isinstance(candidate, dict) else None
+        plan_origin = candidate.get("plan_extended_cost_origin") if isinstance(candidate, dict) else None
+        if not any(present):
+            if plan_signature is not None:
+                reasons.append("MODEL_COST_BASIS_RESULT_MISSING")
+                return ("UNCONFIRMED", "UNCONFIRMED", plan_signature, None)
+            return ("NOT_APPLIED", "NOT_APPLIED", None, None)
+        if not all(present):
+            reasons.append("MODEL_COST_BASIS_RESULT_INCOMPLETE")
+            return ("UNCONFIRMED", "UNCONFIRMED", None, None)
+
+        mode, origin, signature, raw_amount = (metrics.get(field) for field in fields)
+        amount = UnitPriceObservationQualityService._decimal(raw_amount)
+        if mode == "NOT_APPLIED":
+            if origin != "NOT_APPLIED" or signature is not None or raw_amount is not None:
+                reasons.append("MODEL_COST_BASIS_RESULT_INVALID")
+                return ("UNCONFIRMED", "UNCONFIRMED", None, None)
+        elif (
+            mode not in {"WINDOW_COST_ALLOCATION", "STRICT_RETAINED_COHORT"}
+            or origin not in {"CONFIRMED", "MANUAL_ASSUMPTION", "UNCONFIRMED"}
+            or not isinstance(signature, str)
+            or re.fullmatch(r"[a-f0-9]{64}", signature) is None
+            or amount is None or amount < 0
+        ):
+            reasons.append("MODEL_COST_BASIS_RESULT_INVALID")
+            return ("UNCONFIRMED", "UNCONFIRMED", None, None)
+        if origin == "UNCONFIRMED":
+            reasons.append("MODEL_COST_BASIS_UNCONFIRMED")
+        if plan_signature is not None and (
+            signature != plan_signature or mode != plan_mode or origin != plan_origin
+        ):
+            reasons.append("MODEL_COST_BASIS_PLAN_RESULT_MISMATCH")
+        elif plan_signature is None and plan_mode not in (None, "NOT_APPLIED"):
+            reasons.append("MODEL_COST_BASIS_PLAN_RESULT_MISMATCH")
+        return (mode, origin, signature, format(amount, ".2f") if amount is not None else None)
 
     def _check_sources(self, sources, raw_window, reasons, *, required, require_complete=(), basis_names=()):
         if not isinstance(raw_window, dict):
@@ -452,7 +519,10 @@ class UnitPriceObservationQualityService:
         return {
             "index": index, "result_revision": revision, "identity": None, "scope": None,
             "price_cents": None, "evidence_basis": None, "window": None,
-            "successful_units": None, "source_date_bases": None, "evidence_age_days": None,
+            "successful_units": None, "extended_cost_mode": None,
+            "extended_cost_origin": None, "extended_cost_per_unit": None,
+            "cost_basis_signature": ("UNCONFIRMED", "UNCONFIRMED", None, None),
+            "source_date_bases": None, "evidence_age_days": None,
             "reasons": reasons, "warnings": [],
         }
 

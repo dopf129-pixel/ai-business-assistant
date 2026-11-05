@@ -170,6 +170,33 @@ def _selection(*items):
     } for item in items]
 
 
+def _extended_expense_contract(reference, amount, units=100):
+    return {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": reference * 64,
+        "quantity_evidence_ref": ("f" if reference != "f" else "e") * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["EXTRA_SERVICE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE",
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01", "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "UTC",
+        },
+        "denominator_units": units,
+        "components": [{
+            "component_key": "EXTRA_SERVICE", "numerator_rub": amount,
+            "ownership": "ADDITIONAL",
+        }],
+    }
+
+
 def _service(products, failures=None, clock=None, complete=False, planner=None,
              tariff_profile_runtime_service=None):
     source = _Source(products, failures, complete=complete)
@@ -686,4 +713,52 @@ def test_batch_selection_rejects_unknown_identity_shapes(bad_items):
     service, source = _service([])
     result = service.build(bad_items, "user-1", "20")
     assert result["error"] is True
+    assert source.product_service.calls == 0
+
+
+def test_batch_keeps_extended_expense_contract_per_exact_sku_and_matches_canonical_forward():
+    products = [_catalog_item(1), _catalog_item(2)]
+    source = _Source(products, complete=True)
+    scenario = UnitPriceScenarioService(TaxService())
+    service = UnitPriceBatchPlanService(
+        source, scenario, UnitPriceTargetPlanningService(scenario),
+        tenant_scope_provider=lambda: "user-1::ozon::store-a",
+    )
+    extensions = {
+        "sku-1": _extended_expense_contract("a", "500.00"),
+        "sku-2": _extended_expense_contract("b", "100.00"),
+    }
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(
+            _selection(*products), "user-1", "20",
+            extended_scenarios_by_sku=extensions,
+        )
+        rows = {row["identity"]["catalog_sku"]: row for row in batch["rows"]}
+        assert rows["sku-1"]["scenario"]["calculated"]["additional_unit_expenses"] == 5.0
+        assert rows["sku-2"]["scenario"]["calculated"]["additional_unit_expenses"] == 1.0
+        for sku, row in rows.items():
+            direct = scenario.calculate(
+                row["inputs"], identity=service._scenario_identity(batch, row),
+                provenance=row["provenance"],
+                sources=service._scenario_sources(row["snapshot"]),
+                extended_scenario=extensions[sku],
+            )
+            assert direct["calculated"] == row["scenario"]["calculated"]
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_batch_rejects_extended_evidence_outside_selected_sku_scope_before_source_reads():
+    products = [_catalog_item(1), _catalog_item(2)]
+    service, source = _service(products, complete=True)
+
+    result = service.build(
+        _selection(*products), "user-1", "20",
+        extended_scenarios_by_sku={
+            "sku-not-selected": _extended_expense_contract("a", "100.00"),
+        },
+    )
+
+    assert result["code"] == "BATCH_PLAN_EXTENDED_EVIDENCE_SCOPE_INVALID"
     assert source.product_service.calls == 0

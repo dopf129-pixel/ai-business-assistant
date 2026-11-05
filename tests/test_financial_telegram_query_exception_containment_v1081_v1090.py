@@ -36,7 +36,10 @@ class _Keyboard:
         self.unit_calls = 0
         self.returns_calls = 0
 
-    def build_unit_economics_keyboard(self, skus):
+    def build_unit_economics_keyboard(
+        self, skus, *, calculator_callback=None, product_callbacks=None,
+        experiment_callback=None,
+    ):
         self.unit_calls += 1
         return {
             "buttons": [
@@ -314,7 +317,7 @@ def test_v1089_valid_unit_menu_and_detail_remain_compatible():
     detail = handler.handle("unit_economics:hook-2")
 
     assert menu["error"] is False
-    assert menu["message"] == "Выберите товар:"
+    assert "Базовая юнит-экономика" in menu["message"]
     assert keyboard.unit_calls == 1
     assert detail["error"] is False
     assert detail["unit_economics"] is unit.result

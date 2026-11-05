@@ -3,6 +3,8 @@
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 
+from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
+
 
 class UnitPriceObservationResultService:
     """Keep canonical fact, observed-input model and incomplete evidence distinct.
@@ -25,7 +27,7 @@ class UnitPriceObservationResultService:
 
     def evaluate(
         self, evidence, *, scenario_inputs, identity, provenance=None,
-        planning_sources=None,
+        planning_sources=None, extended_scenario=None, strict_return_evidence=None,
     ):
         """Evaluate normalized Q18 evidence with frozen scenario assumptions.
 
@@ -81,20 +83,43 @@ class UnitPriceObservationResultService:
         price = Decimal(base["seller_price_cents"]) / Decimal("100")
         cpc_per_unit = Decimal(cost_basis["amount_per_unit"])
         inputs["price"] = format(price, ".2f")
-        inputs["advertising_rate"] = format(cpc_per_unit * Decimal("100") / price, "f")
+        advertising_mode = str(inputs.get("advertising_mode") or "PERCENT_OF_SELLER_REVENUE")
+        if advertising_mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            inputs.pop("advertising_rate", None)
+            inputs["advertising_cost_per_unit"] = format(cpc_per_unit, ".2f")
+            advertising_provenance_key = "advertising_cost_per_unit"
+        else:
+            inputs.pop("advertising_cost_per_unit", None)
+            inputs["advertising_mode"] = "PERCENT_OF_SELLER_REVENUE"
+            inputs["advertising_rate"] = format(cpc_per_unit * Decimal("100") / price, "f")
+            advertising_provenance_key = "advertising_rate"
         planner_provenance = deepcopy(provenance or {})
         if not isinstance(planner_provenance, dict):
             planner_provenance = {}
         planner_provenance.update({
             "price": "OWNER_DECLARED_OBSERVATION_PRICE",
-            "advertising_rate": "OBSERVED_CPC_PER_SUCCESSFUL_UNIT",
+            advertising_provenance_key: "OBSERVED_CPC_PER_SUCCESSFUL_UNIT",
         })
+        scenario_identity = deepcopy(identity) if isinstance(identity, dict) else {}
+        if (
+            isinstance(extended_scenario, dict)
+            and extended_scenario.get("calculation_mode") == "STRICT_RETAINED_COHORT"
+            and scenario_identity.get("sale_schema") not in {"FBO", "FBS"}
+            and scenario_identity.get("scheme") in {"FBO", "FBS"}
+        ):
+            # Observation callers use the established `scheme` identity key;
+            # the strict-cohort canonical contract names this same value
+            # `sale_schema`. Normalize at this additive boundary so the
+            # exact owner/store/SKU binding remains enforced by the calculator.
+            scenario_identity["sale_schema"] = scenario_identity["scheme"]
         try:
             forward_result = self.scenario_service.calculate(
                 inputs,
-                identity=identity,
+                identity=scenario_identity,
                 provenance=planner_provenance,
                 sources=planning_sources if isinstance(planning_sources, dict) else {},
+                extended_scenario=extended_scenario,
+                strict_return_evidence=strict_return_evidence,
             )
         except (ArithmeticError, InvalidOperation, TypeError, ValueError):
             forward_result = None
@@ -128,6 +153,41 @@ class UnitPriceObservationResultService:
                 base, status="INSUFFICIENT_DATA",
                 evidence_basis="SCENARIO_ASSUMPTIONS",
                 reasons=["CANONICAL_FORWARD_RESULT_INCOMPLETE"],
+            )
+
+        cost_identity = {
+            "owner_id": identity.get("owner_id") if isinstance(identity, dict) else None,
+            "store_id": identity.get("store_id") if isinstance(identity, dict) else None,
+            "product_id": identity.get("product_id") if isinstance(identity, dict) else None,
+            "offer_id": identity.get("offer_id") if isinstance(identity, dict) else None,
+            "sku": identity.get("sku") if isinstance(identity, dict) else None,
+            "sale_schema": (
+                identity.get("sale_schema", identity.get("scheme"))
+                if isinstance(identity, dict) else None
+            ),
+        }
+        cost_basis = PlanningExtendedScenarioAdapter.observation_cost_basis(
+            extended_scenario, strict_return_evidence,
+            expected_identity=cost_identity,
+        )
+        extended_calculation = forward_result.get("extended_calculation")
+        if extended_scenario is not None and (
+            cost_basis is None or not isinstance(extended_calculation, dict)
+            or extended_calculation.get("status") != "APPLIED"
+        ):
+            return self._result(
+                base, status="INSUFFICIENT_DATA",
+                evidence_basis="SCENARIO_ASSUMPTIONS",
+                reasons=["EXTENDED_COST_BASIS_UNCONFIRMED"],
+            )
+        if extended_scenario is not None and (
+            self._money(extended_calculation.get("additional_expense_per_unit_rub"))
+            != cost_basis["per_unit_rub"]
+        ):
+            return self._result(
+                base, status="INSUFFICIENT_DATA",
+                evidence_basis="SCENARIO_ASSUMPTIONS",
+                reasons=["EXTENDED_COST_BASIS_CALCULATION_MISMATCH"],
             )
 
         model_warnings = [
@@ -176,6 +236,13 @@ class UnitPriceObservationResultService:
             "revenue_basis": "MODELLED_SELLER_REVENUE; OBSERVED_CPC_PER_SUCCESSFUL_UNIT",
             "tariff_status": tariff_completeness,
         })
+        if cost_basis is not None:
+            result_metrics.update({
+                "extended_cost_mode": cost_basis["mode"],
+                "extended_cost_origin": cost_basis["origin"],
+                "extended_cost_signature": cost_basis["signature"],
+                "extended_cost_per_unit": cost_basis["per_unit_rub"],
+            })
         result["completeness"].update({
             "successful_units": "CONFIRMED",
             "advertising": "PARTIAL",

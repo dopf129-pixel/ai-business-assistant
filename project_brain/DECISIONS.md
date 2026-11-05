@@ -1,5 +1,13 @@
 # Architecture Decisions
 
+## Decision 065 — owner decisions are immutable experiment evidence
+
+Keep recommendations as deterministic projections of validated immutable phase results. Rank only each candidate's latest assessed result when the exact baseline and frozen economics are shared. Persist owner decisions in an additive tenant-scoped append-only Planning Workspace ledger bound to the exact current result revision; use CAS, idempotency, a finite quota and immutable triggers. A decision based on a comparison must also match the latest phase-state, control-event and collection revisions atomically. Completion requires a current terminal owner choice, while continuing leaves the experiment in review. Choices never call Ozon or change a seller price. Details: `DECISIONS_065.md` and `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.
+
+## Decision 064 — versioned unit-economics evidence and experiment ownership
+
+Keep the canonical unit-price calculator and active-store tax service as the only forward model. Add versioned exact-SKU expense/quantity snapshots with missing-versus-zero, coverage, attribution, denominator and ownership semantics; keep window allocation separate from a strict retained cohort. Persist through the existing tenant `PlanningWorkspaceRepository`; phases/results are immutable revisions with CAS/idempotency. Owner confirmations drive the experiment state machine, and one shared finite operation budget governs live collection. Design accepted on W03; implementation is pending W04–W37. See `DECISIONS_064.md` and `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`.
+
 ## Decision 063 — bounded rounding-aware minimum-price search
 
 For tariff-aware target planning, never claim a minimum seller price by assuming rounded profit is monotonic at each cent. Within a frozen fixed-commission segment, use a conservative continuous profit-gap bound to prune only intervals proven below the target, then check remaining candidates with the canonical forward calculator from lowest price upward. Verify that the bound matches representative forward outputs and fail closed for unsupported formulae or exhausted evaluation budgets. Batch planning passes its remaining shared evaluation limit before each solver invocation.
