@@ -7,10 +7,10 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: FC01 source and cost-path audit.
-- Last completed phase: FC00 baseline.
-- Current code SHA: `6eecd733d8d33bd67e0ef4c5fea2fa11fd07b178` (FC00 documentation commit only; no runtime implementation yet).
-- Next action: reproduce dated/current cost discrepancies in isolated SQLite tests, audit all readers/writers, and publish the source map before changing behavior.
+- Current phase: FC02 stock/supply/cutoff source proof.
+- Last completed phase: FC01 source and cost-path audit.
+- Current code SHA: `b971eedc475f6c6ed5e53ac78c250e56521885f3` plus the FC01 documentation commit being prepared (documentation only; no runtime implementation yet).
+- Next action: verify official Ozon method contracts and existing sanitized fixtures for stock scope, reserve/transit overlap, partial acceptance and delayed finance accrual cutoff. Do not make live seller calls.
 - Last full test result: Windows Python 3.12.10 / pytest 8.4.2, `python -m pytest`: **4,442 passed in 45.02s** at the spec head. This is baseline evidence, not FIFO implementation verification.
 - Baseline data snapshot: 59 files / 283,840 bytes across `data/`, `.runtime-data/`, and root `ozon_assistant.db`; exact per-file SHA-256 manifest is retained locally under `%TEMP%\fifo-cost-fc00-baseline-20261106\manifest.json` (not committed). Before/after checks matched after restoring only the test-mutated `data/tasks.json` and removing a newly created lock and CPC diagnostic CSV. No user data was intentionally changed.
 - The repository was clean before and after baseline restoration. Do not reset/clean unrelated paths.
@@ -20,8 +20,8 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | Stage | Status | Evidence / remaining work |
 |---|---|---|
 | FC00 | DONE | Branch/base verified; required docs read; 4,442-test baseline passed; local data hashes restored and matched. |
-| FC01 | IN_PROGRESS | Audit all cost writers, current/historical readers, returns, price/planning consumers, and isolated reproduction. |
-| FC02 | NOT_STARTED | Prove source schemas, cutoff, stock/transit overlap, physical-sale and late-accrual bridge. |
+| FC01 | DONE | Source map and three confirmed temporal projection defects are recorded in `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`; isolated SQLite reproductions are captured. |
+| FC02 | IN_PROGRESS | Prove source schemas, cutoff, stock/transit overlap, physical-sale and late-accrual bridge. |
 | FC03 | NOT_STARTED | Cost contracts, schema owner, ADR, architecture review. |
 | FC04 | NOT_STARTED | Pure deterministic FIFO allocation core and numeric invariants. |
 | FC05 | NOT_STARTED | Unified effective-date resolver and legacy compatibility fix. |
@@ -65,18 +65,19 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Source gaps
 
-- Not yet audited. FC01/FC02 will record method, exact field/scheme, quantity meaning, timestamp/cutoff, pagination completeness, proof, and limitation for every candidate source. No live account call will be made.
+- FC01 confirmed the reader/writer paths and their semantic limitations. FC02 is still open for exact official response fields, FBO scope, reserve/aggregate semantics, transit overlap, and an inventory-to-finance cutoff bridge.
 
 ## Check history
 
 | SHA | Command/profile | Result | Data integrity |
 |---|---|---|---|
 | `b842e4a812334938e5178de8f4ae158d2b36735c` | Windows Python 3.12.10, pytest 8.4.2, `python -m pytest` | 4,442 passed, 0 failed, 45.02s | All 59 pre-test files matched exact SHA-256 snapshot after restoration of test-created changes. |
+| `b971eedc475f6c6ed5e53ac78c250e56521885f3` | Isolated Python harness: three temporary SQLite scenarios for future single, late-old single, and future batch | All three confirmed the current-projection mismatch; no repository test file changed. | Temporary databases only; no live or owner data used. |
 
 ## PR and CI
 
 - Source specification: [PR #725](https://github.com/dopf129-pixel/ai-business-assistant/pull/725), open, exact head `b842e4a812334938e5178de8f4ae158d2b36735c`.
 - Implementation PR: not created yet.
-- Current implementation branch SHA: `6eecd733d8d33bd67e0ef4c5fea2fa11fd07b178`.
+- Current implementation branch SHA: `b971eedc475f6c6ed5e53ac78c250e56521885f3` plus the FC01 audit commit being prepared.
 - Exact-head CI for implementation: pending; baseline spec PR CI is not implementation verification.
 

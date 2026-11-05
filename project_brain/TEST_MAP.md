@@ -4,6 +4,12 @@
 - The run is baseline evidence only; no FIFO behavior or tests have been implemented yet. FC01 will add isolated SQLite regressions for the dated/current projection defects. FC04 onward will register the pure FIFO core and lifecycle coverage as each responsibility is added.
 - Local `data/`, `.runtime-data/`, and root database hashes were captured before the run and matched after restoring only test-created changes.
 
+# 2026-11-06 — FIFO FC01 isolated source audit
+
+- A temporary isolated SQLite harness ran three scenarios against `PeriodProfitEffectiveCostService`: future single switch, late older switch after a future switch, and a batch spanning today/tomorrow. It observed current projection **25 vs dated 20** for future single/batch, and current projection **18 vs dated 20** after late insertion of an older cost. The future single write also surfaced through `SELLER_CONFIRMED_LEGACY_CURRENT_TIMESTAMP` for today.
+- These are audit reproductions, not passing regression tests. Runtime behavior is unchanged; FC05 must add permanent assertions for the corrected contract.
+- Full writer/reader and cache map: `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`.
+
 # 2026-11-06 — план проверок FIFO себестоимости
 
 - В LUNA_FIFO_COST_HISTORY_TASK_2026-11-06.md заданы N01–N24: суммы FIFO, несколько старых слоёв, reserve/transit overlap, delayed accrual cutoff, однократность физической продажи, late correction, возвраты, current/future dated cost, scoped callbacks/CAS, планирование Q, frozen revisions и backup/restore.
