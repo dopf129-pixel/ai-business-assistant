@@ -7,10 +7,11 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: FC04 pure deterministic FIFO allocation core.
-- Last completed phase: FC03 cost contracts and architecture decision.
-- Current code baseline for FC03 documentation validation: `c9924b4cbf2da58af7a9496cfb6c94b5b9e8b50c`; runtime implementation remains unchanged.
-- Next action: implement a pure Decimal FIFO allocator and numeric invariants, independent of SQLite, Telegram, Planning Workspace, and Ozon. Start with synthetic layer/sale events only; do not make live seller calls.
+- Current phase: FC05 unified effective-date resolver and legacy compatibility correction.
+- Last completed phase: FC04 pure deterministic FIFO allocation core.
+- Last completed implementation SHA: recorded in the commit following this FC04 journal update.
+- FC04 result: added `FifoCostAllocationService`, a pure Decimal replay core with explicit anchor/cutoff/order/completeness gates; finite old layers, rate-only unknown purchase quantity, split sales, exact restock basis, and bounded iterable inputs. It has no database, Ozon, Telegram, or Planning Workspace dependencies.
+- Next action: add isolated regressions for future-dated and late-entered legacy costs, then make current projection resolve only the applicable effective date without changing legacy history semantics.
 - Last full test result: Windows Python 3.12.10 / pytest 8.4.2, `python -m pytest`: **4,442 passed in 45.02s** at the spec head. This is baseline evidence, not FIFO implementation verification.
 - Baseline data snapshot: 59 files / 283,840 bytes across `data/`, `.runtime-data/`, and root `ozon_assistant.db`; exact per-file SHA-256 manifest is retained locally under `%TEMP%\fifo-cost-fc00-baseline-20261106\manifest.json` (not committed). Before/after checks matched after restoring only the test-mutated `data/tasks.json` and removing a newly created lock and CPC diagnostic CSV. No user data was intentionally changed.
 - The repository was clean before and after baseline restoration. Do not reset/clean unrelated paths.
@@ -23,7 +24,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | FC01 | DONE | Source map and three confirmed temporal projection defects are recorded in `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`; isolated SQLite reproductions are captured. |
 | FC02 | DONE_WITH_GAP | Official source matrix and synthetic delayed-accrual counterexample added. FBO present/reserved semantics, disjoint transit, physical exit time, and stock/finance watermark remain unproven; factual Period Profit FIFO must fail closed until owner validation establishes them. |
 | FC03 | DONE | `FIFO_COST_CONTRACTS_2026-11-06.md`, Decision 066 and architecture map specify tenant SQLite ownership, immutable revisions, compatibility, bounded inputs and mandatory cutoff gate. Structure/cross-link and `git diff --check` passed; no code changed. |
-| FC04 | IN_PROGRESS | Implement the isolated Decimal FIFO kernel and test numeric invariants using synthetic events. |
+| FC04 | DONE | Pure Decimal kernel in `app/services/fifo_cost_allocation_service.py`; `tests/test_fifo_cost_allocation_service.py`: 27 passing tests covering N01/N02/N03/N08/N21, fail-closed defaults, money/quantity invariants, bounded collections and a 250,000-line replay work cap; compileall and diff checks pass. |
 | FC05 | NOT_STARTED | Unified effective-date resolver and legacy compatibility fix. |
 | FC06 | NOT_STARTED | Additive tenant-local schema and migration/isolation. |
 | FC07 | NOT_STARTED | Atomic preview/commit, CAS, idempotency. |
@@ -77,11 +78,12 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | `b971eedc475f6c6ed5e53ac78c250e56521885f3` | Isolated Python harness: three temporary SQLite scenarios for future single, late-old single, and future batch | All three confirmed the current-projection mismatch; no repository test file changed. | Temporary databases only; no live or owner data used. |
 | FC02 source audit | Official Ozon notices + local source adapters + JSON parse/structure check for synthetic negative fixture | Completed with explicit source gaps; no unsupported FBO/current v4 semantics or sale cutoff claimed. | Synthetic fixture only; runtime code and owner data unchanged; no live calls. |
 | FC03 contract/ADR check | Python required-heading and cross-link check; `git diff --check` | PASS; Decision 066 and the cutoff blocker are explicit. No implementation tests were applicable because this stage changed only architecture documents. | Documentation only; local data and runtime behavior unchanged. |
+| FC04 core verification | Windows focused `python -m pytest -q tests/test_fifo_cost_allocation_service.py`; `python -m compileall -q app/services/fifo_cost_allocation_service.py tests/test_fifo_cost_allocation_service.py`; `git diff --check` | 27 passed; compilation and whitespace checks PASS. Synthetic-only pure core; no Ozon/Telegram/DB calls. | No owner data used; bounded-generator tests exercise the limit without persistent files. |
 
 ## PR and CI
 
 - Source specification: [PR #725](https://github.com/dopf129-pixel/ai-business-assistant/pull/725), open, exact head `b842e4a812334938e5178de8f4ae158d2b36735c`.
 - Implementation PR: not created yet.
-- Current implementation branch code baseline: `c9924b4cbf2da58af7a9496cfb6c94b5b9e8b50c`; FC03 documentation changes are being committed and runtime implementation remains unchanged.
+- Current implementation branch code baseline at FC04 start: `88e1b55ccf07f3f1b4dafd9f2ca43abc2fe9547d`; exact-head implementation CI is pending.
 - Exact-head CI for implementation: pending; baseline spec PR CI is not implementation verification.
 

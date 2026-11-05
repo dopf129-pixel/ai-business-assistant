@@ -4,6 +4,11 @@
 - The run is baseline evidence only; no FIFO behavior or tests have been implemented yet. FC01 will add isolated SQLite regressions for the dated/current projection defects. FC04 onward will register the pure FIFO core and lifecycle coverage as each responsibility is added.
 - Local `data/`, `.runtime-data/`, and root database hashes were captured before the run and matched after restoring only test-created changes.
 
+# 2026-11-06 — FC04 pure FIFO allocation kernel
+
+- `tests/test_fifo_cost_allocation_service.py` covers N01/N02/N03/N08/N21, finite-layer FIFO order, rate-only unknown purchase quantity, explicit confirmed-zero versus unknown anchor, exact return allocation basis, cutoff/source/order gates, decimal rounding, invalid values, and bounded/failing iterators. The kernel has no storage, Ozon, Telegram, or planning dependencies.
+- Focused Windows result: **27 passed**. Module compile and `git diff --check` PASS. Synthetic-only inputs; no owner data or live calls.
+
 # 2026-11-06 — FIFO FC01 isolated source audit
 
 - A temporary isolated SQLite harness ran three scenarios against `PeriodProfitEffectiveCostService`: future single switch, late older switch after a future switch, and a batch spanning today/tomorrow. It observed current projection **25 vs dated 20** for future single/batch, and current projection **18 vs dated 20** after late insertion of an older cost. The future single write also surfaced through `SELLER_CONFIRMED_LEGACY_CURRENT_TIMESTAMP` for today.
