@@ -7,7 +7,7 @@
 - FC03 завершён: `FIFO_COST_CONTRACTS_2026-11-06.md` и Decision 066 определяют отдельный владелец FIFO-себестоимости в существующей tenant-local SQLite, append-only события/распределения, legacy cutover и fail-closed cutoff. Planning Workspace, финансы, налоги и Return COGS остаются без изменений.
 - FC04 завершён: чистый Decimal-аллокатор FIFO обрабатывает конечные старые слои и цену следующей единицы при неизвестном объёме закупки; разбиение продаж, точный базис восстановления возврата и ограничения коллекций покрыты синтетическими регрессиями. Неизвестный cutoff и неполные источники блокируют денежный итог.
 - FC05 завершён: current cost и пакетная/одиночная запись выбирают последнюю effective-date версию на текущий день; future switch и поздняя старая запись не подменяют текущую проекцию. Текущая карточка и калькулятор переключают кэш на границе даты без рестарта. Сомнительная legacy provenance блокирует стоимость вместо угадывания.
-- FC06 выполняется: additive tenant-local таблицы FIFO и изоляция должны использовать существующий tenant DB, не меняя Planning Workspace migration version или legacy cost tables.
+- FC06 завершён: `FifoCostRepository` создаёт отдельные FIFO-owned таблицы и migration metadata в существующей tenant-local SQLite. Legacy costs, `planning_schema.version` и SQLite `PRAGMA user_version` сохраняются; старые записи не переносятся в FIFO. Повторный запуск, атомарный отказ, append-only guards и owner/store isolation покрыты временными БД.
 - Подробный Resume, таблица FC00–FC35, проверочные SHA и блокеры ведутся в `project_brain/LUNA_FIFO_COST_HISTORY_PROGRESS_2026-11-06.md`.
 
 # 2026-11-06 — следующее задание: FIFO себестоимости

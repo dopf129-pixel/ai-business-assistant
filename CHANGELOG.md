@@ -1,6 +1,6 @@
 # 2026-11-06 — FC03 закреплены контракты и архитектура FIFO
 
-- Решение 066 закрепляет отдельный `FifoCostRepository` в существующей tenant-local SQLite: не трогаем Planning Workspace, legacy cost tables и общий `user_version`.
+- Решение 066 закрепляет отдельный `FifoCostRepository` в существующей tenant-local SQLite: не трогаем Planning Workspace, legacy cost tables и SQLite `PRAGMA user_version`; migration version хранится в FIFO-owned `fifo_cost_schema` отдельно от `planning_schema`.
 - Зафиксированы Decimal/RUB/quantity контракты, неизменяемые события и allocation revisions, явный per-SKU cutover и fail-closed `INVENTORY_CUTOFF_UNRECONCILED`. До owner-валидации источников фактический Period Profit не получает модельную FIFO-себестоимость.
 - Контракт и архитектурные ссылки проверены; runtime-код не менялся.
 
@@ -1449,6 +1449,12 @@
 
 - Если `paymentType` отсутствует после сверки кампании, бот проверяет документированный `GET /api/client/campaign/{campaignId}/objects`.
 - Непустой корректный список объектов определяет CPC; пустой или недоступный список оставляет тип кампании неизвестным.
+
+# 2026-11-06 — FIFO FC06: изолированная схема хранения
+
+- Добавлен `FifoCostRepository` с аддитивными таблицами фактов, источников, ссылок, правил FIFO, слоёв, проекций и распределений в существующей tenant-local SQLite. У схемы собственная версия; Planning Workspace, legacy cost tables и SQLite `PRAGMA user_version` не изменяются.
+- Старые товары автоматически не включаются в FIFO. SQLite проверки покрывают повторную инициализацию, append-only доказательства, неудачную миграцию без частичных изменений, неподдерживаемую будущую версию и изоляцию владельца/магазина.
+- `tests/test_fifo_cost_repository.py`: 5 passed; полный связанный профиль и итоговые проверки фиксируются в progress journal.
 
 # Changelog
 

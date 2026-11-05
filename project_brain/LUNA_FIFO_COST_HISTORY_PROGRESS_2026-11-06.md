@@ -9,10 +9,10 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 - Current phase: FC06 additive tenant-local FIFO schema and isolation.
 - Last completed phase: FC05 unified effective-date resolver and legacy compatibility correction.
-- Last completed implementation SHA: recorded in the commit following this FC05 journal update.
+- Last completed implementation SHA: `4decf16fbd941ab3e418ad8e9c94a66ff6584c87`.
 - FC04 result: added `FifoCostAllocationService`, a pure Decimal replay core with explicit anchor/cutoff/order/completeness gates; finite old layers, rate-only unknown purchase quantity, split sales, exact restock basis, and bounded iterable inputs. It has no database, Ozon, Telegram, or Planning Workspace dependencies.
 - FC05 result: single and batch writers project only the latest switch effective today; future switches do not overwrite current legacy evidence, late older switches do not roll it back, and current readers resolve the date dynamically. The card and price-scenario cache keys are date-scoped; ambiguous legacy rows shadowed by a future projection fail closed.
-- Next action: inspect existing tenant storage and backup/migration boundaries, then add FIFO-owned additive tables and verify old DB read compatibility without changing shared `PRAGMA user_version`.
+- Next action: proceed to FC07 atomic preview/commit APIs. The existing backup stores the SQLite database as one file, so all additive FIFO tables are within the existing backup boundary; FC31 will verify round-trip restoration with FIFO rows.
 - Last full test result: Windows Python 3.12.10 / pytest 8.4.2, `python -m pytest`: **4,442 passed in 45.02s** at the spec head. This is baseline evidence, not FIFO implementation verification.
 - Baseline data snapshot: 59 files / 283,840 bytes across `data/`, `.runtime-data/`, and root `ozon_assistant.db`; exact per-file SHA-256 manifest is retained locally under `%TEMP%\fifo-cost-fc00-baseline-20261106\manifest.json` (not committed). Before/after checks matched after restoring only the test-mutated `data/tasks.json` and removing a newly created lock and CPC diagnostic CSV. No user data was intentionally changed.
 - The repository was clean before and after baseline restoration. Do not reset/clean unrelated paths.
@@ -27,7 +27,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | FC03 | DONE | `FIFO_COST_CONTRACTS_2026-11-06.md`, Decision 066 and architecture map specify tenant SQLite ownership, immutable revisions, compatibility, bounded inputs and mandatory cutoff gate. Structure/cross-link and `git diff --check` passed; no code changed. |
 | FC04 | DONE | Pure Decimal kernel in `app/services/fifo_cost_allocation_service.py`; `tests/test_fifo_cost_allocation_service.py`: 27 passing tests covering N01/N02/N03/N08/N21, fail-closed defaults, money/quantity invariants, bounded collections and a 250,000-line replay work cap; compileall and diff checks pass. |
 | FC05 | DONE | `PeriodProfitEffectiveCostService` resolves `get_cost`/`get_all_costs` at the current effective date, syncs `product_costs` only from an active switch, preserves legacy provenance or returns `PERIOD_PROFIT_COST_LEGACY_PROVENANCE_AMBIGUOUS`; current-card and price-scenario cache scope changes at date boundary. Linked profile: 93 passed. |
-| FC06 | NOT_STARTED | Additive tenant-local schema and migration/isolation. |
+| FC06 | DONE | `FifoCostRepository` adds 11 FIFO-owned tables, indexes, append-only triggers and independent `fifo_cost_schema` metadata in the existing tenant-local DB. Five temporary-database tests cover legacy/planning preservation, unchanged SQLite `user_version`, idempotence, append-only behavior, duplicate physical-sale identity, mid-migration rollback, future-version rejection and owner/store isolation. |
 | FC07 | NOT_STARTED | Atomic preview/commit, CAS, idempotency. |
 | FC08 | NOT_STARTED | Allowlisted stock/supply snapshot normalization. |
 | FC09 | NOT_STARTED | Bounded source collection and diagnostics. |
@@ -64,7 +64,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 - Preserve legacy effective-dated mode until an explicit owner-confirmed FIFO cutover.
 - Preserve Ozon read-only behavior, finance authority, TaxService, Return COGS authorization gates, tenant isolation, saved-plan snapshots, and all local data.
 - No additional business decision is currently required. Source uncertainty must be represented as incomplete or blocked evidence, not guessed.
-- Decision 066 chooses a dedicated `FifoCostRepository` in the existing tenant DB, FIFO-owned migration metadata (no change to Planning Workspace `user_version`), append-only events/allocations, explicit per-SKU cutover, and no legacy fallback after activation when FIFO evidence is incomplete. Independent architecture review is required before merge.
+- Decision 066 chooses a dedicated `FifoCostRepository` in the existing tenant DB, FIFO-owned migration metadata separate from Planning Workspace's `planning_schema`, append-only events/allocations, explicit per-SKU cutover, and no legacy fallback after activation when FIFO evidence is incomplete. Independent architecture review is required before merge.
 
 ## Source gaps
 
@@ -81,6 +81,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | FC03 contract/ADR check | Python required-heading and cross-link check; `git diff --check` | PASS; Decision 066 and the cutoff blocker are explicit. No implementation tests were applicable because this stage changed only architecture documents. | Documentation only; local data and runtime behavior unchanged. |
 | FC04 core verification | Windows focused `python -m pytest -q tests/test_fifo_cost_allocation_service.py`; `python -m compileall -q app/services/fifo_cost_allocation_service.py tests/test_fifo_cost_allocation_service.py`; `git diff --check` | 27 passed; compilation and whitespace checks PASS. Synthetic-only pure core; no Ozon/Telegram/DB calls. | No owner data used; bounded-generator tests exercise the limit without persistent files. |
 | FC05 effective-date verification | Windows linked pytest profile: current projection regressions, legacy timestamp/timeline, identity fallback, confirmation runtime, Telegram single-entry, CSV import, current unit-economics cache and price-scenario cache | 93 passed; future single, future-only, late-past, batch, date-boundary, old-projection ambiguity, historical switch lookup, single/CSV paths and both no-restart cache boundaries covered. | Each SQLite regression uses a fresh temporary DB; synthetic cache/source doubles only; no live request or owner data. |
+| FC06 schema verification | Windows project Python: `python -m pytest -q tests/test_fifo_cost_repository.py tests/test_fifo_cost_allocation_service.py`; `python -m compileall -q app/services/fifo_cost_repository.py tests/test_fifo_cost_repository.py`; `git diff --check` | 32 passed; schema compatibility, repeated init, append-only source evidence, duplicate physical-sale identity, transactional rollback, future-version rejection, tenant/store isolation, and FIFO kernel regressions verified; compilation and diff checks PASS. | All DBs use pytest temporary directories; no live database or seller data used. Full compile/test/CI are deferred to FC34. |
 
 ## PR and CI
 

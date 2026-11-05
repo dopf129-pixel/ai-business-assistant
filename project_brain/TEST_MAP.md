@@ -7,6 +7,7 @@
 # 2026-11-06 — FC04 pure FIFO allocation kernel
 
 - `tests/test_fifo_cost_allocation_service.py` covers N01/N02/N03/N08/N21, finite-layer FIFO order, rate-only unknown purchase quantity, explicit confirmed-zero versus unknown anchor, exact return allocation basis, cutoff/source/order gates, decimal rounding, invalid values, and bounded/failing iterators. The kernel has no storage, Ozon, Telegram, or planning dependencies.
+- `tests/test_fifo_cost_repository.py` covers additive schema migration on an existing database, preservation of legacy cost and `planning_schema` data, unchanged SQLite `user_version`, repeat initialization, append-only evidence guards, rollback after a mid-migration DDL failure, future-version rejection, and tenant/store database isolation. All databases are temporary fixtures.
 - Focused Windows result: **27 passed**. Module compile and `git diff --check` PASS. Synthetic-only inputs; no owner data or live calls.
 
 # 2026-11-06 — FC05 effective-date resolver and current cost caches

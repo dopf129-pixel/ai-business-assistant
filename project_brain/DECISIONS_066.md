@@ -9,7 +9,7 @@ The repository has dated seller cost history, mutable current-cost projection, P
 
 ## Decision
 
-- Add a dedicated `FifoCostRepository` over the existing tenant-local `ozon_assistant.db` path. It owns only FIFO factual events, stream projections and allocation revisions. It does not create another database, alter `PlanningWorkspaceRepository` ownership, or change the database-wide `PRAGMA user_version`; FIFO migrations use an additive FIFO-owned schema metadata table and an atomic local migration.
+- Add a dedicated `FifoCostRepository` over the existing tenant-local `ozon_assistant.db` path. It owns only FIFO factual events, stream projections and allocation revisions. It does not create another database or alter `PlanningWorkspaceRepository` ownership. Planning migrations use their own `planning_schema` table; FIFO migrations use a separate `fifo_cost_schema` table and an atomic transaction. SQLite `PRAGMA user_version` is left unchanged.
 - Preserve legacy cost tables and behavior before explicit per-SKU FIFO cutover. Do not auto-backfill current/history rows into quantity layers. After cutover, no reader may silently fall back to mutable legacy cost when the FIFO stream is incomplete.
 - Store immutable allowlisted FIFO events and immutable allocation revisions; update only a derived stream projection under one SQLite immediate transaction with CAS and idempotency. Corrections append and supersede; they never rewrite prior evidence.
 - Treat inventory source, supplier cost, physical movements, and financial recognition as separate evidence. A finance accrual is not a second sale, and current FC02 data does not yet prove physical sale time or a shared stock watermark.
