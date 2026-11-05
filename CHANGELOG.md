@@ -1,3 +1,9 @@
+# 2026-11-06 — FC03 закреплены контракты и архитектура FIFO
+
+- Решение 066 закрепляет отдельный `FifoCostRepository` в существующей tenant-local SQLite: не трогаем Planning Workspace, legacy cost tables и общий `user_version`.
+- Зафиксированы Decimal/RUB/quantity контракты, неизменяемые события и allocation revisions, явный per-SKU cutover и fail-closed `INVENTORY_CUTOFF_UNRECONCILED`. До owner-валидации источников фактический Period Profit не получает модельную FIFO-себестоимость.
+- Контракт и архитектурные ссылки проверены; runtime-код не менялся.
+
 # 2026-11-06 — FC02 доказаны границы источников FIFO
 
 - По официальным объявлениям Ozon и текущим адаптерам описаны поддержанные поля остатков/приёмок и неподтверждённые семантики. Зафиксировано, что crossdock `arrival_date` возвращается `null`; дата обновления статуса не используется как фактическая дата приёмки FIFO.

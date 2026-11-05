@@ -528,6 +528,15 @@ AssistantMemoryService
 5. Архитектурное решение при изменении структуры
 
 
+---
+
+# FIFO Cost History (planned additive extension)
+
+FC03 defines a dedicated `FifoCostRepository` as owner of factual FIFO cost events and allocation revisions. It uses the existing tenant-local SQLite database and its backup/restore boundary; it is not a second database and does not reuse `PlanningWorkspaceRepository` for accounting facts. Legacy cost history remains in its existing service until an explicit per-SKU cutover. The FIFO projection is isolated behind a typed adapter to Period Profit and price planning.
+
+The current source audit has not proven a common Ozon stock/physical-sale cutoff. `INVENTORY_CUTOFF_UNRECONCILED` therefore blocks factual FIFO COGS until read-only, sanitized owner validation closes that gap. Existing finance revenue, `TaxService`, Return COGS authorization/recognition and saved-plan snapshot ownership stay unchanged. See `FIFO_COST_CONTRACTS_2026-11-06.md` and `DECISIONS_066.md`. This architecture is planned; implementation is not yet complete.
+
+
 
 ---
 

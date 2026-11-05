@@ -1,0 +1,102 @@
+# FIFO cost history contracts
+
+Date: 2026-11-06  
+Status: implementation contract for FC04–FC35; factual inventory cutoff remains source-blocked per FC02.  
+Specification: `LUNA_FIFO_COST_HISTORY_TASK_2026-11-06.md`  
+Architecture proposal: `DECISIONS_066.md`
+
+## 1. Scope and authority
+
+This contract defines a simplified FIFO cost pool for one exact seller SKU in one Ozon store. It allocates confirmed cost to confirmed units; it does not prove which physical batch Ozon picked and is not a home WMS. Factual Period Profit may consume a FIFO allocation only when the inventory anchor, sale event identity, and cutoff bridge are all reconciled. Current FC02 evidence does not meet that gate, so the integration status remains unavailable until owner validation proves the needed source semantics.
+
+The new `FifoCostRepository` owns factual FIFO events and their projections. It uses the existing tenant-local `ozon_assistant.db` path through `tenant_storage`; it does not create a second database. `PlanningWorkspaceRepository` continues to own only plans, observations, and experiments. The new FIFO migration has its own metadata/version table and transaction and must not change the database-wide `PRAGMA user_version` used by Planning Workspace.
+
+The repository is additive. Existing `product_costs`, `product_cost_history`, `product_cost_switch_history`, finance authority, `TaxService`, forward calculator, Return COGS authorization/recognition, and saved-plan schemas retain their owners and existing meaning. No legacy costs are automatically converted into inventory layers.
+
+## 2. Identity and tenancy
+
+Every stream is scoped by the current tenant (the tenant-local database) and exact `store_id`. The normalized product identity contains `product_id`, `offer_id`, and Ozon `sku`; at least one stable product identifier plus SKU must be present. A stream key is derived from a canonical serialization of `(store_id, product_id, offer_id, sku, cost_policy_version)`. Missing or ambiguous store/product mapping is an error, never a global or cross-store fallback.
+
+If the seller changes an offer/SKU mapping, the repository requires an explicit identity-link event backed by an already-supported catalog identity mapping. It does not merge old/new identities by display name. One supply may contain one SKU and multiple same-SKU cost layers only when their quantities and costs are explicitly split and reconcile to accepted quantity.
+
+## 3. Money, quantity, and time
+
+- Currency is RUB in this release. New user amounts are parsed as `Decimal`, finite and non-negative, then normalized to canonical two-decimal strings with the project's established half-up rounding at the input boundary. Never persist new FIFO money as SQLite `REAL` or perform arithmetic through `float`.
+- A unit cost is the all-in purchase cost for one sellable SKU unit: purchase, delivery to the owner, and packaging. If components are supplied, the canonical unit amount must equal their exact normalized sum. Ozon commission, logistics, advertising, tax, storage and cross-docking remain separate model components and are never folded into acquisition cost again.
+- Quantities are positive integers for layer additions and sale/acceptance quantities; confirmed zero is a separate accepted observation, never a missing value. Boolean, fractional, negative, non-finite, overflow, or mismatched quantities are invalid. Initial implementation caps: 100,000 units per event, 1,000,000 units in one active stream projection, 64 KiB normalized event, 100,000 replayed events per synchronous replay segment. Exceeding replay work returns a bounded continuation/incomplete result and never a partial factual result.
+- Persist exact UTC `effective_at` only when source precision supports it. Also retain `effective_date`/store timezone, `recorded_at`, `captured_at`, `source_as_of`, `inventory_cutoff`, and finance `accrual_date` as distinct fields. Date-only evidence never becomes an invented midnight timestamp. If same-day ordering changes FIFO allocation and cannot be proven, return `EVENT_ORDER_UNRESOLVED` and require a correction/owner confirmation or keep the period unavailable.
+- Local response receipt time is collector `captured_at`; it is not an Ozon server snapshot time. Finance recognition date is not silently renamed physical sale time.
+
+## 4. Evidence envelope
+
+Every normalized source fact has an allowlisted envelope:
+
+`schema_version`, `source_kind`, `source_method`, `source_status`, `scope`, `identity`, `quantity`, `unit_cost_rub`, `currency`, `effective_at`, `effective_date`, `recorded_at`, `captured_at`, `source_as_of`, `inventory_cutoff`, `coverage`, `completeness`, `provenance`, `source_fingerprint`, `supersedes_event_id`, `reason_code`.
+
+Allowed provenance values: `OWNER_CONFIRMED`, `OZON_CONFIRMED_FIELD`, `DOCUMENT_RECONCILED`, `LEGACY_DATED_COST`, `MODEL_ASSUMPTION`. Values are not interchangeable. `MODEL_ASSUMPTION` cannot enter factual cost allocation or Period Profit. `OWNER_CONFIRMED` preserves what the seller stated; it is not labeled an Ozon fact.
+
+Never persist raw Seller API responses, credentials, Client ID/API key, Telegram callback tokens, product titles, barcodes, or raw posting/supply/act identifiers. Persist only the minimum normalized values required for replay and a source identity digest for deduplication. Diagnostics show field names/status/counts and sanitized issue codes only.
+
+## 5. Event and state contracts
+
+Event kind allowlist for the first release:
+
+- `OPENING_FIFO_ANCHOR`: per-cost quantity layers at an owner-confirmed cutoff, with disjoint Ozon / old goods in transit / old-at-home counts and source provenance.
+- `COST_LAYER_RECEIPT`: quantity of one cost basis accepted into the FIFO pool. A purchase document alone can confirm cost but does not assert that the whole purchased quantity is available to sell. A new layer's quantity is only the portion explicitly reconciled to a received/accepted quantity or separately owner-confirmed inventory.
+- `INVENTORY_TRANSFER`: movement between home, transit and Ozon of units already counted in the pool. It changes location evidence, not total FIFO quantity; it must not create the same units a second time.
+- `PHYSICAL_SALE`: exact posting+SKU quantity with a proven cutoff/event ordering. Finance accrual is a monetary recognition link, not a second sale event.
+- `SALE_CANCELLATION`: cancel a prior sale only when the underlying source proves no physical sale occurred; it does not retroactively delete the event.
+- `SALEABLE_RETURN_RESTOCK`: explicit eligible, saleable inventory restoration linked to its original sale and matching quantity. Existing Return COGS recognition/authorization gates still apply independently.
+- `NON_SALE_OUTFLOW`: an explicit loss, damage, write-off, or other non-sale removal with a supported reason and quantity.
+- `CORRECTION`: immutable replacement event with `supersedes_event_id`, reason and impact preview; no UPDATE/DELETE of prior events.
+
+Stream state is `LEGACY`, `FIFO_PENDING_ANCHOR`, `FIFO_READY`, `FIFO_PARTIAL`, `FIFO_CONFLICT`, or `FIFO_SOURCE_BLOCKED`. Source completeness is a separate status: `COMPLETE`, `PARTIAL`, `UNAVAILABLE`, `STALE`, `CONFLICT`, `NOT_REQUESTED`, `OWNER_CONFIRMED`, or `MODEL_ONLY`. `FIFO_READY` requires a verified anchor, event continuity, exact identity, no unallocated movement, a matching revision and successful reconciliation. A numeric total by itself is never a readiness status.
+
+The explicit error/reason allowlist includes `HISTORY_GAP`, `ANCHOR_UNCONFIRMED`, `INVENTORY_CUTOFF_UNRECONCILED`, `PHYSICAL_SALE_IDENTITY_UNCONFIRMED`, `STOCK_SEMANTICS_UNCONFIRMED`, `TRANSIT_OVERLAP_UNRESOLVED`, `SUPPLY_COST_LINK_MISSING`, `EVENT_ORDER_UNRESOLVED`, `RECONCILIATION_CONFLICT`, `STALE_PREVIEW`, `REVISION_CONFLICT`, `BUDGET_EXHAUSTED`, and `SOURCE_UNAVAILABLE`.
+
+## 6. Anchor, layers, and FIFO allocation
+
+An anchor is a frozen preview containing `(store, exact SKU identity, captured interval, old layers/cost provenance, FBO observation, transit not already present at Ozon, old home remainder, reserve treatment, exclusions, current stream revision, source fingerprints)`. The seller separately confirms old-at-home remainder; blank is not zero. The preview does not write. Commit rechecks owner/store/SKU, expected revision, captured source fingerprints, idempotency key and current cutoff state atomically.
+
+`Q_old = Q_old_ozon + Q_old_transit_not_already_in_ozon + Q_old_home` is valid only when each component is disjoint and its provenance is accepted. Reserved units are not added as another location. They cannot be excluded as sold unless the source proves a physical outflow. Transit is not added to Ozon stock if already represented there. Unknown quantities remain unknown. A negative remaining layer or conflicting total is `FIFO_CONFLICT`, not zero.
+
+Inventory transfers preserve the existing layer and total quantity. A new `COST_LAYER_RECEIPT` is created only for new-cost units whose quantity is explicitly supported. A new cost rate with unknown purchase quantity is represented as a price assumption for the next unit, not infinite inventory. It can support a clearly labeled unit scenario but cannot assert available stock or cover factual sales beyond reconciled known quantity.
+
+The pure allocation engine sorts only by a proven causal/effective order and consumes oldest confirmed layers first. For each sale it persists layer quantities, cost basis/revision and exact COGS. Per-sale allocation quantities equal sale units; per-sale COGS equals the sum of allocation lines; period COGS equals the sum of selected sale allocations. Average COGS per unit is display-only. Allocation replay is deterministic for the same event set, policy version and source fingerprints.
+
+## 7. Cutoff bridge (mandatory factual gate)
+
+The current sources do not yet provide a proven shared watermark from FBO stock snapshot to physical sale. The following contract must be implemented as a gate, not assumed complete:
+
+1. Record an anchor capture interval and its exact store/SKU source scope; do not describe it as a server-atomic snapshot unless Ozon returns a verified server as-of/revision.
+2. Classify each sale as already represented in the anchor or after it using an independently supported physical event time or a validated reconciliation protocol.
+3. Deduplicate money recognition by stable sale identity (`posting_number + SKU`) and never consume an inventory quantity again for a reaccrual.
+4. A pre-anchor physical outflow whose finance accrual appears later has zero post-anchor queue consumption. A post-anchor outflow consumes once. If the only available date is a finance accrual date and it cannot prove which case applies, return `INVENTORY_CUTOFF_UNRECONCILED`; do not expose factual FIFO COGS to Period Profit.
+5. Returns, cancellations, losses and transfers are separate movements. Current stock deltas and return status alone never infer their cause or saleable recovery.
+
+The synthetic case in `tests/fixtures_fifo_cutoff_gap_v1.json` is a contract fixture, not an observed Ozon response. A future owner-triggered sanitized diagnostic may validate source fields. Real seller requests and source snapshots are outside this development run.
+
+## 8. Preview, commit, revisions, and replay
+
+- Preview is read-only and binds to tenant/store/exact product identity, stream revision, policy version, source fingerprint, capture interval, request budget and normalized payload hash. Transient confirmation state is user-scoped, short-lived, one-time, and not valid after restart.
+- Commit uses one SQLite `BEGIN IMMEDIATE` transaction for compare-and-swap (CAS), idempotency, event insertion and projection revision. Exact idempotent replay returns the prior result. Same key/different payload, stale expected revision, identity drift, incomplete source, or owner/store mismatch rejects without partial writes.
+- Event rows and allocation revision/lines are append-only, protected from accidental UPDATE/DELETE. A correction creates new events and a new replay/allocation revision linked to the prior one; old reports/plans remain readable at their captured revision.
+- Replay is bounded and resumable using a source-set fingerprint and cursor. A cursor from another tenant/store/SKU/revision is rejected. No partial replay becomes the latest factual revision.
+- Raw API data and local drafts are never restored as valid transient confirmations. Existing tenant backup/restore includes the same DB. Migration failure is atomic and old databases remain readable.
+
+## 9. Integration contracts
+
+- Before explicit per-SKU FIFO activation, current and historical calculations preserve the existing legacy dated-cost rules. Migration never auto-activates or fabricates an opening quantity.
+- For an activated FIFO stream, current next-unit cost, confirmed remaining units, next layer and queue completeness are separate output fields. Unknown stock is not an available quantity.
+- Period Profit consumes only an allocation revision that passes the cutoff bridge and exact sale quantity/identity gates. Revenue/net Ozon accrual and TaxService remain unchanged; tax is recalculated through the existing canonical service. No double deduction for cross-docking, commission, logistics, tax, returns or finance reaccruals.
+- A blocked FIFO stream returns a typed cost-evidence failure; it must not fall back to the mutable legacy `get_cost` and pretend the report is complete. Before activation, legacy fallback remains compatible.
+- Price calculator/grid/target/sensitivity can use the next confirmed layer cost for one next-unit scenario. A Q-unit scenario requires allocation across known layers and a complete quantity basis; unknown future purchase quantity is not extrapolated as factual inventory.
+- Saved plans/observations/experiments freeze the FIFO policy, stream/allocation revision, queue coverage and layer basis used at capture. Opening/exporting an old snapshot never refreshes Ozon or re-costs its result.
+
+## 10. Source collection and acceptance
+
+One owner-triggered collection uses one parent operation trace, maximum 60 seconds and 64 actual HTTP attempts total, bounded children and cancellation. Diagnostic uses at most 10 actual attempts and 2 pages per source; truncated reads are not complete. No scheduled monitor, background polling, unbounded supply history search, seller-price write or required paid report is introduced.
+
+FC08/FC09 must validate normalized current stock response (including `total_items` ahead of Ozon's announced transition), exact product IDs, `type=fbo`, reserve handling, pagination/completeness and capture interval. FC02-unresolved fields remain `UNKNOWN` until a sanitized owner validation confirms them. Crossdock `arrival_date`, supply slot, act created date, and parent `state_updated_date` are not facts about physical receipt time.
+
+The owner acceptance packet must list the exact read-only bot actions and sanitized fields needed to close source gaps. No credentials, raw response dump, private cabinet scraping, or real API access is required during implementation or CI.

@@ -7,10 +7,10 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: FC03 cost contracts and architecture decision.
-- Last completed phase: FC02 stock/supply/cutoff source proof (completed with explicit source gaps).
-- Current code/source-audit SHA before the FC02 documentation/fixture commit: `5a70ccbbf2053920fe4c5efdf7dd7c48d25c1a1b`; runtime implementation remains unchanged.
-- Next action: define a dedicated factual FIFO repository in the existing tenant-local SQLite database, with allowlisted immutable events/projections, an explicit unreconciled cutoff state, and no reuse of Planning Workspace as cost authority. Do not make live seller calls.
+- Current phase: FC04 pure deterministic FIFO allocation core.
+- Last completed phase: FC03 cost contracts and architecture decision.
+- Current code baseline for FC03 documentation validation: `c9924b4cbf2da58af7a9496cfb6c94b5b9e8b50c`; runtime implementation remains unchanged.
+- Next action: implement a pure Decimal FIFO allocator and numeric invariants, independent of SQLite, Telegram, Planning Workspace, and Ozon. Start with synthetic layer/sale events only; do not make live seller calls.
 - Last full test result: Windows Python 3.12.10 / pytest 8.4.2, `python -m pytest`: **4,442 passed in 45.02s** at the spec head. This is baseline evidence, not FIFO implementation verification.
 - Baseline data snapshot: 59 files / 283,840 bytes across `data/`, `.runtime-data/`, and root `ozon_assistant.db`; exact per-file SHA-256 manifest is retained locally under `%TEMP%\fifo-cost-fc00-baseline-20261106\manifest.json` (not committed). Before/after checks matched after restoring only the test-mutated `data/tasks.json` and removing a newly created lock and CPC diagnostic CSV. No user data was intentionally changed.
 - The repository was clean before and after baseline restoration. Do not reset/clean unrelated paths.
@@ -22,8 +22,8 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | FC00 | DONE | Branch/base verified; required docs read; 4,442-test baseline passed; local data hashes restored and matched. |
 | FC01 | DONE | Source map and three confirmed temporal projection defects are recorded in `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`; isolated SQLite reproductions are captured. |
 | FC02 | DONE_WITH_GAP | Official source matrix and synthetic delayed-accrual counterexample added. FBO present/reserved semantics, disjoint transit, physical exit time, and stock/finance watermark remain unproven; factual Period Profit FIFO must fail closed until owner validation establishes them. |
-| FC03 | IN_PROGRESS | Define versioned contracts and additive repository/ADR without weakening the FC02 cutoff gate. |
-| FC04 | NOT_STARTED | Pure deterministic FIFO allocation core and numeric invariants. |
+| FC03 | DONE | `FIFO_COST_CONTRACTS_2026-11-06.md`, Decision 066 and architecture map specify tenant SQLite ownership, immutable revisions, compatibility, bounded inputs and mandatory cutoff gate. Structure/cross-link and `git diff --check` passed; no code changed. |
+| FC04 | IN_PROGRESS | Implement the isolated Decimal FIFO kernel and test numeric invariants using synthetic events. |
 | FC05 | NOT_STARTED | Unified effective-date resolver and legacy compatibility fix. |
 | FC06 | NOT_STARTED | Additive tenant-local schema and migration/isolation. |
 | FC07 | NOT_STARTED | Atomic preview/commit, CAS, idempotency. |
@@ -62,6 +62,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 - Preserve legacy effective-dated mode until an explicit owner-confirmed FIFO cutover.
 - Preserve Ozon read-only behavior, finance authority, TaxService, Return COGS authorization gates, tenant isolation, saved-plan snapshots, and all local data.
 - No additional business decision is currently required. Source uncertainty must be represented as incomplete or blocked evidence, not guessed.
+- Decision 066 chooses a dedicated `FifoCostRepository` in the existing tenant DB, FIFO-owned migration metadata (no change to Planning Workspace `user_version`), append-only events/allocations, explicit per-SKU cutover, and no legacy fallback after activation when FIFO evidence is incomplete. Independent architecture review is required before merge.
 
 ## Source gaps
 
@@ -75,11 +76,12 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | `b842e4a812334938e5178de8f4ae158d2b36735c` | Windows Python 3.12.10, pytest 8.4.2, `python -m pytest` | 4,442 passed, 0 failed, 45.02s | All 59 pre-test files matched exact SHA-256 snapshot after restoration of test-created changes. |
 | `b971eedc475f6c6ed5e53ac78c250e56521885f3` | Isolated Python harness: three temporary SQLite scenarios for future single, late-old single, and future batch | All three confirmed the current-projection mismatch; no repository test file changed. | Temporary databases only; no live or owner data used. |
 | FC02 source audit | Official Ozon notices + local source adapters + JSON parse/structure check for synthetic negative fixture | Completed with explicit source gaps; no unsupported FBO/current v4 semantics or sale cutoff claimed. | Synthetic fixture only; runtime code and owner data unchanged; no live calls. |
+| FC03 contract/ADR check | Python required-heading and cross-link check; `git diff --check` | PASS; Decision 066 and the cutoff blocker are explicit. No implementation tests were applicable because this stage changed only architecture documents. | Documentation only; local data and runtime behavior unchanged. |
 
 ## PR and CI
 
 - Source specification: [PR #725](https://github.com/dopf129-pixel/ai-business-assistant/pull/725), open, exact head `b842e4a812334938e5178de8f4ae158d2b36735c`.
 - Implementation PR: not created yet.
-- Current implementation branch SHA: `b971eedc475f6c6ed5e53ac78c250e56521885f3` plus the FC01 audit commit being prepared.
+- Current implementation branch code baseline: `c9924b4cbf2da58af7a9496cfb6c94b5b9e8b50c`; FC03 documentation changes are being committed and runtime implementation remains unchanged.
 - Exact-head CI for implementation: pending; baseline spec PR CI is not implementation verification.
 
