@@ -9,7 +9,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 - Current phase: FC01 source and cost-path audit.
 - Last completed phase: FC00 baseline.
-- Current code SHA: `b842e4a812334938e5178de8f4ae158d2b36735c` (no implementation commit yet).
+- Current code SHA: `6eecd733d8d33bd67e0ef4c5fea2fa11fd07b178` (FC00 documentation commit only; no runtime implementation yet).
 - Next action: reproduce dated/current cost discrepancies in isolated SQLite tests, audit all readers/writers, and publish the source map before changing behavior.
 - Last full test result: Windows Python 3.12.10 / pytest 8.4.2, `python -m pytest`: **4,442 passed in 45.02s** at the spec head. This is baseline evidence, not FIFO implementation verification.
 - Baseline data snapshot: 59 files / 283,840 bytes across `data/`, `.runtime-data/`, and root `ozon_assistant.db`; exact per-file SHA-256 manifest is retained locally under `%TEMP%\fifo-cost-fc00-baseline-20261106\manifest.json` (not committed). Before/after checks matched after restoring only the test-mutated `data/tasks.json` and removing a newly created lock and CPC diagnostic CSV. No user data was intentionally changed.
@@ -77,6 +77,6 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 - Source specification: [PR #725](https://github.com/dopf129-pixel/ai-business-assistant/pull/725), open, exact head `b842e4a812334938e5178de8f4ae158d2b36735c`.
 - Implementation PR: not created yet.
-- Current implementation branch SHA: `b842e4a812334938e5178de8f4ae158d2b36735c`.
+- Current implementation branch SHA: `6eecd733d8d33bd67e0ef4c5fea2fa11fd07b178`.
 - Exact-head CI for implementation: pending; baseline spec PR CI is not implementation verification.
 

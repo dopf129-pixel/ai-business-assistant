@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO cost history implementation baseline
+
+- Baseline for the FIFO implementation branch: full Windows `python -m pytest` at spec head `b842e4a812334938e5178de8f4ae158d2b36735c` — **4,442 passed in 45.02s**.
+- The run is baseline evidence only; no FIFO behavior or tests have been implemented yet. FC01 will add isolated SQLite regressions for the dated/current projection defects. FC04 onward will register the pure FIFO core and lifecycle coverage as each responsibility is added.
+- Local `data/`, `.runtime-data/`, and root database hashes were captured before the run and matched after restoring only test-created changes.
+
 # 2026-11-06 — план проверок FIFO себестоимости
 
 - В LUNA_FIFO_COST_HISTORY_TASK_2026-11-06.md заданы N01–N24: суммы FIFO, несколько старых слоёв, reserve/transit overlap, delayed accrual cutoff, однократность физической продажи, late correction, возвраты, current/future dated cost, scoped callbacks/CAS, планирование Q, frozen revisions и backup/restore.
@@ -6274,9 +6280,4 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_sales_mix_planning_service.py::test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero` проверяет смесь одного SKU с подтверждённым нулём и другого с положительным STORAGE; `test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix` сохраняет подтверждённый кросс-докинг при неизвестной рекламе. Неизвестная реклама оставляет количество/выручку и маржу до рекламы, но не выдаёт after-ad totals.
 - `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
 - Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.
-# 2026-11-06 — FIFO cost history implementation baseline
-
-- Baseline for the FIFO implementation branch: full Windows `python -m pytest` at spec head `b842e4a812334938e5178de8f4ae158d2b36735c` — **4,442 passed in 45.02s**.
-- The run is baseline evidence only; no FIFO behavior or tests have been implemented yet. FC01 will add isolated SQLite regressions for the dated/current projection defects. FC04 onward will register the pure FIFO core and lifecycle coverage as each responsibility is added.
-- Local `data/`, `.runtime-data/`, and root database hashes were captured before the run and matched after restoring only test-created changes.
 
