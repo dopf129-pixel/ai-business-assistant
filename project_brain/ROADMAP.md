@@ -1,6 +1,14 @@
 # Project Roadmap
 
-## Следующая программа — помощник выбора цены (26.10.2026)
+## Следующая программа — расширенная экономика SKU и ценовые эксперименты (28.10.2026)
+
+- По выбору владельца подготовлено LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md: 40 этапов W00–W39, 8 модулей A–H. Журнал — LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_PROGRESS_2026-10-28.md; все стадии NOT_STARTED.
+- Модули: источники/контракты; disjoint expense evidence; canonical extended calculation; persistence; experiment state machine; Telegram/exports; reliability/restore; CI/review handoff.
+- Цель — прибыль в RUB с успешной единицы с доказанным cost scope и управляемое сравнение baseline/candidate. Операционные пороги выборки/созревания не являются статистическим доказательством ценового эффекта.
+- Сохранить TaxService, единый calculation/storage authority, legacy history и read-only Ozon. Не добавлять scheduler, автоматическую смену цены/рекламы, обязательную платную аналитику, закупки или новый финансовый движок.
+- База подготовки — main 9315046c. PR #719/#720 merged; CI reviewed head 28e6ae77 зелёный. Статусы прежних checkpoint ниже — история.
+
+## Завершённая программа — помощник выбора цены (26.10.2026, PR #719/#720 слиты)
 
 - Задание `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`; Q00–Q35 выполнены поверх PR #719. По решению владельца выкуп рассчитывается из SKU-scoped завершённых FBO postings и Returns; неполнота блокирует модель, возвратные расходы показаны, но не включены в прибыль/шт. Q30/Q33 focused: 56 passed; Q31: 1,374 passed / 175 modules, bounded checks 3 passed; Q33 full suite: 3,983 passed; Q35 Verify `40574423459` success on PR SHA `483cd4d1` (Windows/Linux/Docker). PR #720 — stacked implementation PR, merge не выполнялся. База — main `07a84b5d` после PR #718.
 - A: безопасная база/контракты; B: тарифные диапазоны и ручной резерв; C: сравнение по ₽/шт. и рекламная компенсация; D: журнал наблюдений; E: выбор по качеству данных; F: Telegram/export/persistence; G: сквозная приёмка; H: exact-head CI/review handoff.
