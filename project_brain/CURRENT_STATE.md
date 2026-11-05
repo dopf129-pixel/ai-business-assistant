@@ -5263,3 +5263,10 @@ Completed:
 - Проекция подписывает неполный expense scope и не считает неизвестные расходы нулём. Существующий cross-docking denominator guard и цель after-ad оптимизации сохранены.
 - Новый `advertising_tax_bridge` v1 разделяет T0/T1, рекламный расход и налоговый эффект; формула `after = before − ad + (T0−T1)` сверяется. TaxService unchanged, SalesMix по-прежнему считает налог один раз на группу.
 - Linked scenario/current-card/Telegram profile: **315 passed in 4.97s**. Полный suite/current-head CI pending; live Ozon/Telegram и запуск бота не выполнялись.
+# 2026-11-06 — статус реализации FIFO себестоимости
+
+- Работа начата в ветке `codex/fifo-cost-implementation-20261106` от точной головы спецификации PR #725 (`b842e4a812334938e5178de8f4ae158d2b36735c`, base `main` `68aa6db09649bdbb4be406d423c6315a8961697b`). Реализационный PR ещё не создан.
+- FC00 завершён: обязательные документы прочитаны; исходный полный набор на Windows Python 3.12.10 прошёл **4,442 теста** за 45.02 с. До/после проверки подтвердили побайтовое сохранение 59 файлов локальных данных после возврата тестовых побочных изменений.
+- FC01 выполняется: аудит cost history/switch, current cost, возвратов, Period Profit и price/planning потребителей. Runtime-поведение ещё не изменено.
+- Подробный Resume, таблица FC00–FC35, проверочные SHA и блокеры ведутся в `project_brain/LUNA_FIFO_COST_HISTORY_PROGRESS_2026-11-06.md`.
+
