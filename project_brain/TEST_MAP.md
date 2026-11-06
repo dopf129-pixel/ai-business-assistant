@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+# 2026-11-06 — FC10 owner-confirmed opening anchor
+
+- `tests/test_fifo_cost_anchor_service.py` verifies a no-write preview, explicit multi-price FIFO ordering, per-layer Ozon/transit/home counts, explicit confirmed home zero, reserved-included Ozon count confirmation, non-overlapping transit confirmation, date-only cutoff, persisted digest references for zero zones, atomic commit, latest projection totals and repeated-anchor rejection.
+- Invalid/missing/boolean/fractional/negative counts, unsupported money floats, ambiguous layer order, partial zones, unconfirmed stock semantics, unproven transit overlap and invalid cutoff reject before preview. Repository tests enforce an exclusive opening-anchor command, exact owner provenance and capture time, date-only effective fields, per-zone location/cutoff, and preserve idempotency/CAS behavior. Invalid optional identifiers cannot silently fall back to another identifier.
+- Linked Windows profile including FC09 collection/client, FC08 normalizer, FIFO kernel and repository: **113 passed in 2.24s**. Module compile and `git diff --check` PASS. Temporary SQLite/synthetic inputs only; no live API or bot.
+
 # 2026-11-06 — FC09 bounded FIFO source collection
 
 - `tests/test_fifo_cost_source_collection_service.py` covers exact owner/store/SKU scope, read-only FBO collection, two-page resumable supply search, complete negative lookup only after terminal pagination, opaque single-use and expiring checkpoint, source fingerprint, repeated cursor/order conflict, rate limit, cancellation, parent deadline/request caps, child-call reservation, timeout mid-operation, duplicate concurrent callback and SKU mismatch. It uses synthetic client responses only.

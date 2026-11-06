@@ -109,3 +109,11 @@ Supply act SKU `fact_quantity` lines are reconciled against the accepted-act sum
 
 Synthetic FC09 regression profile: `tests/test_fifo_cost_client_contract.py` and `tests/test_fifo_cost_source_collection_service.py`, linked with FIFO normalizer/kernel/repository and existing supply/act tests — **117 passed**. No live Ozon/Telegram calls were made. The physical stock-to-sale cutoff gap described above remains unchanged.
 
+## FC10 owner-confirmed opening anchor
+
+`FifoCostAnchorService` accepts only explicit manual owner evidence: a date-only cutoff, one or more finite old cost layers in an explicit oldest-to-newest order, and separate Ozon/transit/home integer quantities per layer. Ozon present (including reserved units) and non-overlap of transit must each be explicitly confirmed. A zero in any zone is retained as an opaque source reference; a missing field is not zero. The preview does not write; the confirmed repository command creates per-zone anchor events and one projection atomically. The projection's operational queue is ready, but its factual Period Profit cutoff remains `INVENTORY_CUTOFF_UNRECONCILED`. This flow does not use an unvalidated API snapshot as owner confirmation and does not change legacy histories.
+
+FC10 synthetic profile: `tests/test_fifo_cost_anchor_service.py` plus repository/kernel and FC08/FC09 regressions — **113 passed**. All stateful checks use temporary SQLite; no live source or owner data.
+
+The FC10 write boundary requires a normalized store/SKU identity plus at least one stable product identifier; any malformed supplied identifier is rejected instead of being silently discarded. Persisted anchor events require the exact owner-confirmation source method, capture timestamp, matching date-only cutoff/effective date, and no fabricated `effective_at`. This remains owner evidence and does not resolve the physical stock-to-sale source gap.
+
