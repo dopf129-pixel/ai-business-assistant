@@ -32,6 +32,7 @@ class SellerCostDisplayOfferIdTests(unittest.TestCase):
             result["keyboard"]["buttons"],
             [
                 {"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"},
+                {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
                 {"text": "hook-2", "callback": "seller_cost:3921245627"},
             ],
         )
