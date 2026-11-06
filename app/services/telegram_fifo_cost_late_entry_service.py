@@ -23,11 +23,13 @@ class TelegramFifoCostLateEntryService:
 
     def __init__(
         self, *, history_service, source_collection_service,
-        supply_evidence_service, date_provider=None, monotonic_clock=monotonic,
+        supply_evidence_service, reconstruction_service=None,
+        date_provider=None, monotonic_clock=monotonic,
     ):
         self.history_service = history_service
         self.source_collection_service = source_collection_service
         self.supply_evidence_service = supply_evidence_service
+        self.reconstruction_service = reconstruction_service
         self.date_provider = date_provider or date.today
         self.monotonic_clock = monotonic_clock
         self._pending = {}
@@ -336,6 +338,39 @@ class TelegramFifoCostLateEntryService:
             "количества и ваши допущения. FIFO-слои, себестоимость продаж и прибыль пока "
             "не пересчитаны. Для этого потребуется отдельный preview восстановления истории."
         )
+        reconstruction = None
+        if self.reconstruction_service is not None:
+            reconstruction = self.reconstruction_service.preview(
+                **frozen["identity"], draft_id=saved["draft_id"],
+            )
+            if reconstruction.get("code") == "FIFO_LATE_ENTRY_RECONSTRUCTION_READY":
+                message += (
+                    "\n\nИсторию удалось восстановить для предварительного расчёта: "
+                    f"продаж до границы — {reconstruction['sales_before_boundary']}, "
+                    f"после — {reconstruction['sales_after_boundary']}; "
+                    f"модельный COGS по новой ставке — "
+                    f"{reconstruction['candidate_total_cogs_rub']} ₽. "
+                    "Принятые по акту единицы не добавлялись к остатку. "
+                    "Финансовый отчёт и прибыль не изменены."
+                )
+            elif reconstruction.get("code") == "FIFO_LATE_ENTRY_RECONSTRUCTION_BLOCKED":
+                message += (
+                    "\n\nПока нельзя восстановить прошлый остаток: "
+                    f"{self._reconstruction_reason(reconstruction.get('reason_code'))}. "
+                    "Текущий остаток Ozon не использован как исторический. "
+                    "Финансовый отчёт и прибыль не изменены."
+                )
+                requirements = reconstruction.get("required_evidence")
+                if isinstance(requirements, list) and requirements:
+                    message += "\nНужно сверить:\n" + "\n".join(
+                        f"• {item}" for item in requirements[:3]
+                        if isinstance(item, str) and item.strip()
+                    )
+            elif reconstruction.get("error") is True:
+                message += (
+                    "\n\nПроверка полноты истории сейчас недоступна. "
+                    "Сохранён только черновик; остатки, себестоимость и прибыль не изменены."
+                )
         committed = {
             "error": False, "handled": True, "message": message,
             "fifo_late_entry_draft_saved": True, "read_only_ozon": True,
@@ -346,6 +381,24 @@ class TelegramFifoCostLateEntryService:
                 latest["step"] = "committed"
                 latest["committed_result"] = committed
         return dict(committed)
+
+    @staticmethod
+    def _reconstruction_reason(code):
+        labels = {
+            "INVENTORY_CUTOFF_UNRECONCILED": (
+                "нет подтверждённой границы исторического остатка и полного перечня "
+                "последующих движений"
+            ),
+            "HISTORY_GAP": "в истории есть неподтверждённый участок",
+            "EVENT_ORDER_UNRESOLVED": "нельзя доказать порядок событий внутри даты",
+            "STALE_PREVIEW": "FIFO-история изменилась после сохранения черновика",
+            "PHYSICAL_SALE_IDENTITY_UNCONFIRMED": "не подтверждены идентичность или дата продаж",
+            "SUPPLY_COST_LINK_MISSING": "связь с актом поставки не подтверждена",
+            "FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED": (
+                "для SKU уже есть другие ставки; несколько поздних переходов будут обработаны позже"
+            ),
+        }
+        return labels.get(code, "не хватает подтверждённых данных для точного повтора FIFO")
 
     def clear_pending(self, user_id):
         owner = self._user_key(user_id)

@@ -81,7 +81,7 @@ def _anchor(repository):
     assert result["error"] is False
 
 
-def _flow(tmp_path, source=None):
+def _flow(tmp_path, source=None, reconstruction=None):
     tenant = set_current_tenant_user_id("owner-1::ozon::store-a")
     repository = FifoCostRepository(
         db_path=tmp_path / "fifo-late-entry.sqlite",
@@ -94,6 +94,7 @@ def _flow(tmp_path, source=None):
         history_service=history,
         source_collection_service=source or _Source(),
         supply_evidence_service=FifoCostSupplyEvidenceService(repository),
+        reconstruction_service=reconstruction,
         date_provider=lambda: datetime(2026, 11, 6).date(),
     )
     adapter = SellerCostTelegramAdapter(
@@ -145,6 +146,41 @@ def test_public_late_entry_saves_redacted_revision_bound_draft_only(tmp_path):
         assert snapshot["layers"][0]["recorded_quantity"] == 25
         replayed = adapter.handle_button(confirm_callback, user_id="owner-1")
         assert replayed == saved
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_public_late_entry_reports_exact_historical_cutoff_gap(tmp_path):
+    class _BlockedReconstruction:
+        def __init__(self):
+            self.calls = []
+
+        def preview(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "error": False,
+                "code": "FIFO_LATE_ENTRY_RECONSTRUCTION_BLOCKED",
+                "reason_code": "INVENTORY_CUTOFF_UNRECONCILED",
+                "required_evidence": ["остаток на историческую дату по зонам"],
+                "current_stock_used_as_historical": False,
+                "period_profit_changed": False,
+            }
+
+    reconstruction = _BlockedReconstruction()
+    tenant, _repository, _history, _telegram_history, _late, adapter = _flow(
+        tmp_path, reconstruction=reconstruction,
+    )
+    try:
+        _open_late(adapter)
+        for text in ("40", "3", "1.5", "12", "2001", "2026-10-16"):
+            response = adapter.handle_text(text, user_id="owner-1")
+        callback = response["keyboard"]["buttons"][0]["callback"]
+        result = adapter.handle_button(callback, user_id="owner-1")
+
+        assert result["error"] is False
+        assert "Текущий остаток Ozon не использован как исторический" in result["message"]
+        assert "остаток на историческую дату по зонам" in result["message"]
+        assert reconstruction.calls[0]["draft_id"].startswith("late_")
     finally:
         reset_current_tenant_user_id(tenant)
 

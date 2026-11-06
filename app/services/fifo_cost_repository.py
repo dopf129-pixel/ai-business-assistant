@@ -1562,7 +1562,7 @@ class FifoCostRepository:
                           d.owner_old_home_units, d.accepted_units, d.purchase_cost_rub,
                           d.delivery_cost_rub, d.packaging_cost_rub, d.unit_cost_rub,
                           d.order_digest, d.supply_digest, d.source_fingerprint,
-                          d.evidence_fingerprint, d.recorded_at
+                          d.evidence_fingerprint, d.payload_fingerprint, d.recorded_at
                    FROM fifo_cost_late_entry_drafts AS d
                    JOIN fifo_cost_streams AS s ON s.stream_id=d.stream_id
                    WHERE d.stream_id=? AND s.store_id=? AND s.identity_fingerprint=?
@@ -1581,6 +1581,291 @@ class FifoCostRepository:
         finally:
             if connection is not None:
                 connection.close()
+
+    def preview_late_entry_reconstruction(
+        self, *, store_id, product_id=None, offer_id=None, sku, draft_id,
+    ):
+        """Replay a late rate against complete history without writing any rows.
+
+        The draft's accepted act quantity is evidence for the supply link only;
+        it is not treated as total purchased stock or added as a finite layer.
+        """
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not isinstance(draft_id, str)
+            or not re.fullmatch(r"late_[0-9a-f]{40}", draft_id)
+        ):
+            return self._error("FIFO_LATE_ENTRY_DRAFT_NOT_FOUND")
+        connection = None
+        try:
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            connection = self.get_connection()
+            connection.execute("BEGIN")
+            stream = connection.execute(
+                """SELECT revision, policy_version, state FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchone()
+            if stream is None:
+                connection.rollback()
+                return self._error("FIFO_LATE_ENTRY_DRAFT_NOT_FOUND")
+            draft = connection.execute(
+                """SELECT draft_id, expected_revision, evidence_fingerprint,
+                          source_fingerprint, owner_effective_date,
+                          owner_old_home_units, accepted_units, unit_cost_rub,
+                          payload_fingerprint
+                   FROM fifo_cost_late_entry_drafts
+                   WHERE draft_id=? AND stream_id=?""",
+                (draft_id, stream_id),
+            ).fetchone()
+            if draft is None:
+                connection.rollback()
+                return self._error("FIFO_LATE_ENTRY_DRAFT_NOT_FOUND")
+            if draft["expected_revision"] != stream["revision"]:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked(
+                    "STALE_PREVIEW", stream_revision=stream["revision"],
+                )
+            evidence = connection.execute(
+                """SELECT source_fingerprint, source_status
+                   FROM fifo_cost_supply_evidence
+                   WHERE stream_id=? AND evidence_fingerprint=?""",
+                (stream_id, draft["evidence_fingerprint"]),
+            ).fetchone()
+            if (
+                evidence is None
+                or evidence["source_fingerprint"] != draft["source_fingerprint"]
+                or evidence["source_status"] != "COMPLETE"
+            ):
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("SUPPLY_COST_LINK_MISSING")
+
+            projection = connection.execute(
+                """SELECT cutoff_status, queue_complete
+                   FROM fifo_cost_projections WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()
+            if projection is None:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("ANCHOR_UNCONFIRMED")
+            if stream["state"] not in {"FIFO_READY", "FIFO_PARTIAL"}:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("ANCHOR_UNCONFIRMED")
+            if projection["cutoff_status"] != "RECONCILED":
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked(
+                    "INVENTORY_CUTOFF_UNRECONCILED",
+                    required_evidence=(
+                        "Подтверждённый исторический остаток на дату перехода по складам Ozon, "
+                        "дому и пути",
+                        "Полный перечень продаж, возвратов, приёмок, перемещений и списаний "
+                        "после среза",
+                        "Согласованная граница между остатком и финансовыми продажами",
+                    ),
+                )
+            if projection["queue_complete"] != 1:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("HISTORY_GAP")
+
+            anchor = connection.execute(
+                """SELECT COUNT(DISTINCT inventory_cutoff), MIN(inventory_cutoff)
+                   FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='OPENING_FIFO_ANCHOR'""",
+                (stream_id,),
+            ).fetchone()
+            if anchor[0] != 1 or self._normalize_date(anchor[1]) is None:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("ANCHOR_UNCONFIRMED")
+            anchor_date = anchor[1]
+            effective_date = draft["owner_effective_date"]
+            if self._normalize_date(effective_date) is None or effective_date <= anchor_date:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("RECONCILIATION_CONFLICT")
+
+            event_count = connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_events WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()[0]
+            if event_count > 100_000:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("FIFO_REPLAY_INPUT_LIMIT")
+            unsupported = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind NOT IN (
+                       'OPENING_FIFO_ANCHOR', 'PHYSICAL_SALE',
+                       'SALEABLE_RETURN_RESTOCK', 'NON_SALE_OUTFLOW'
+                   )""",
+                (stream_id,),
+            ).fetchone()[0]
+            if unsupported:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("HISTORY_GAP")
+            unresolved_dates = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind<>'OPENING_FIFO_ANCHOR'
+                     AND (effective_date IS NULL OR effective_date<=?)""",
+                (stream_id, anchor_date),
+            ).fetchone()[0]
+            if unresolved_dates:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("EVENT_ORDER_UNRESOLVED")
+            cutoff_mismatches = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+                     AND (inventory_cutoff IS NULL OR inventory_cutoff<>?
+                          OR effective_date IS NULL OR effective_date<=?)""",
+                (stream_id, anchor_date, anchor_date),
+            ).fetchone()[0]
+            if cutoff_mismatches:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked(
+                    "INVENTORY_CUTOFF_UNRECONCILED",
+                )
+            same_day_events = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind<>'OPENING_FIFO_ANCHOR'
+                     AND effective_date=?""",
+                (stream_id, effective_date),
+            ).fetchone()[0]
+            if same_day_events:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked("EVENT_ORDER_UNRESOLVED")
+            if connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()[0]:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked(
+                    "FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED",
+                )
+            untrusted_sales = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events AS e
+                   LEFT JOIN fifo_cost_sources AS s ON s.source_id=e.source_id
+                   WHERE e.stream_id=? AND e.event_kind='PHYSICAL_SALE' AND NOT (
+                       e.provenance='OZON_CONFIRMED_FIELD'
+                       AND e.completeness='COMPLETE'
+                       AND s.source_method='OZON_REALIZATION_REPORT'
+                       AND s.source_status='COMPLETE'
+                       AND s.coverage_status='COMPLETE'
+                   )""",
+                (stream_id,),
+            ).fetchone()[0]
+            if untrusted_sales:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked(
+                    "PHYSICAL_SALE_IDENTITY_UNCONFIRMED",
+                )
+
+            source_fingerprint = self._allocation_source_fingerprint(
+                connection, stream_id, stream["revision"], stream["policy_version"],
+                projection["cutoff_status"],
+            )
+            allocation_revision = connection.execute(
+                "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()[0]
+            candidate_rate_id = "late_candidate_" + draft_id[-24:]
+            candidate_rate = FifoOpenCostRate(
+                candidate_rate_id, draft["unit_cost_rub"],
+            )
+            common = {
+                "stream_revision": stream["revision"],
+                "allocation_revision": allocation_revision,
+                "source_fingerprint": source_fingerprint,
+                "cutoff_status": projection["cutoff_status"],
+                "anchor_cutoff_date": anchor_date,
+            }
+            after = self._preview_allocation_from_connection(
+                connection, stream_id, **common,
+                hypothetical_open_rate=candidate_rate,
+                hypothetical_open_rate_effective_date=effective_date,
+            )
+            if after is None or after.get("complete") is not True:
+                connection.rollback()
+                return self._late_entry_reconstruction_blocked(
+                    after.get("reason_code") if isinstance(after, dict) else "HISTORY_GAP",
+                )
+
+            sales_before = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+                     AND effective_date<?""",
+                (stream_id, effective_date),
+            ).fetchone()[0]
+            sales_after = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+                     AND effective_date>?""",
+                (stream_id, effective_date),
+            ).fetchone()[0]
+            candidate_rate_units = sum(
+                line["quantity"]
+                for allocation in after["allocations"]
+                for line in allocation["lines"]
+                if line.get("rate_change_id") == candidate_rate_id
+            )
+            fingerprint = self._sha256({
+                "draft_fingerprint": draft["payload_fingerprint"],
+                "source_set_fingerprint": source_fingerprint,
+                "stream_revision": stream["revision"],
+                "allocation_revision": allocation_revision,
+                "anchor_date": anchor_date,
+                "candidate": after["preview_fingerprint"],
+            })
+            connection.commit()
+            return {
+                "error": False,
+                "code": "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+                "complete": True,
+                "preview_fingerprint": fingerprint,
+                "stream_revision": stream["revision"],
+                "allocation_revision": allocation_revision,
+                "source_set_fingerprint": source_fingerprint,
+                "anchor_cutoff_date": anchor_date,
+                "effective_date": effective_date,
+                "recorded_at": self._now().isoformat(),
+                "candidate_unit_cost_rub": draft["unit_cost_rub"],
+                "owner_old_home_units": draft["owner_old_home_units"],
+                "accepted_units_documentary_only": draft["accepted_units"],
+                "accepted_units_added_to_stock": 0,
+                "sales_before_boundary": sales_before,
+                "sales_after_boundary": sales_after,
+                "candidate_rate_units": candidate_rate_units,
+                "candidate_total_cogs_rub": after["total_cogs_rub"],
+                "candidate_allocations": after["allocations"],
+                "period_profit_changed": False,
+                "read_only": True,
+            }
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_RECONCILIATION_CONFLICT"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    @staticmethod
+    def _late_entry_reconstruction_blocked(reason, *, stream_revision=None, required_evidence=()):
+        return {
+            "error": False,
+            "code": "FIFO_LATE_ENTRY_RECONSTRUCTION_BLOCKED",
+            "complete": False,
+            "reason_code": reason or "HISTORY_GAP",
+            "stream_revision": stream_revision,
+            "required_evidence": list(required_evidence),
+            "current_stock_used_as_historical": False,
+            "period_profit_changed": False,
+            "read_only": True,
+        }
 
     def read_supply_evidence_history(
         self, *, store_id, product_id=None, offer_id=None, sku,
@@ -3820,6 +4105,8 @@ class FifoCostRepository:
         cls, connection, stream_id, *, stream_revision,
         allocation_revision, source_fingerprint, cutoff_status,
         anchor_cutoff_date, hypothetical_outflow=None,
+        hypothetical_open_rate=None,
+        hypothetical_open_rate_effective_date=None,
     ):
         """Rebuild expected FIFO output from immutable source rows before write."""
         anchor_row = connection.execute(
@@ -4102,6 +4389,11 @@ class FifoCostRepository:
                WHERE stream_id=? ORDER BY rate_sequence LIMIT 2""",
             (stream_id,),
         ).fetchall()
+        if hypothetical_open_rate is not None and rate_rows:
+            return {
+                "complete": False,
+                "reason_code": "FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED",
+            }
         if len(rate_rows) > 1:
             return {
                 "complete": False,
@@ -4109,7 +4401,10 @@ class FifoCostRepository:
             }
         open_rate = None
         open_rate_date = None
-        if rate_rows:
+        if hypothetical_open_rate is not None:
+            open_rate = hypothetical_open_rate
+            open_rate_date = hypothetical_open_rate_effective_date
+        elif rate_rows:
             rate = rate_rows[0]
             open_rate = FifoOpenCostRate(
                 rate["rate_change_id"], rate["unit_cost_rub"],

@@ -74,6 +74,9 @@ from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
 from services.fifo_cost_supply_evidence_service import FifoCostSupplyEvidenceService
+from services.fifo_cost_late_entry_reconstruction_service import (
+    FifoCostLateEntryReconstructionService,
+)
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateEntryService
 from services.telegram_fifo_cost_late_entry_service import TelegramFifoCostLateEntryService
@@ -605,10 +608,14 @@ def create_telegram_assistant():
     fifo_cost_supply_evidence_service = FifoCostSupplyEvidenceService(
         fifo_cost_repository,
     )
+    fifo_cost_late_entry_reconstruction_service = (
+        FifoCostLateEntryReconstructionService(fifo_cost_repository)
+    )
     telegram_fifo_cost_late_entry_service = TelegramFifoCostLateEntryService(
         history_service=fifo_cost_history_service,
         source_collection_service=fifo_cost_source_collection_service,
         supply_evidence_service=fifo_cost_supply_evidence_service,
+        reconstruction_service=fifo_cost_late_entry_reconstruction_service,
     )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
