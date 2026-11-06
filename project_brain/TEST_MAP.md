@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC29: versioned import and safe history export
+
+- `tests/test_seller_cost_table_service.py` covers the legacy template contract, multiple dated transitions for one SKU, duplicate same-date rejection, ambiguity/catalog/history checks, future history requiring an explicit date, CSV UTF-8/size/row/cell/column bounds, spreadsheet formula escaping, source reference/revision, stale preview rejection, FIFO-mode conflict, read-only history export and whole-history opt-in restrictions.
+- `app/tests/test_period_profit_effective_cost_current_projection.py` uses temporary SQLite to verify revision CAS inside the atomic writer transaction and an end-to-end CSV import whose source reference/revision survive evidence readback and history export.
+- `tests/test_telegram_fifo_cost_history.py` verifies revision-bound FIFO CSV export is redacted and stale tickets are refused. `tests/test_telegram_document_contract.py`, `app/tests/test_seller_cost_confirmation_flow.py` and `tests/test_guided_seller_cost_onboarding.py` cover read-only document delivery, owner confirmation and legacy menu compatibility.
+- FC29 linked Windows profile: **80 passed in 2.16s**. `compileall -q app tests` and `git diff --check` PASS. All persistence tests use temporary SQLite; no live external requests.
+
 # 2026-11-06 — FIFO FC28: отчёт периода и история коррекций
 
 - `tests/test_fifo_cost_period_explanation_service.py` covers safe basis references/provenance, exact layer and open-rate sums, period/partial completeness, and aligned versus unknown correction history with before/after COGS/tax/profit.

@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC29: безопасный импорт legacy-истории и выгрузка FIFO
+
+- Legacy CSV import now validates UTF-8, byte/row/cell limits, exact column count, unique catalog SKU, duplicate SKU/date and existing history (including future dated rates). Multiple distinct dated legacy rates for a SKU can be previewed and saved atomically. Preview captures a file reference and source revision; commit checks both current source and the history revision inside the SQLite write transaction.
+- FIFO-mode SKUs are rejected with a clear message by the legacy importer. FIFO layers/rates and legacy history have read-only CSV exports with dates, source/provenance and revisions; no bulk FIFO import or inferred batch quantity is created. Generated spreadsheet identifiers are formula-safe.
+- FC29 linked profile: **80 passed in 2.16s**; `compileall -q app tests` and `git diff --check` PASS. Temporary SQLite/synthetic fixtures only; no Ozon/Telegram network calls or bot startup.
+
 # 2026-11-06 — FIFO FC28: объяснение и детализация себестоимости периода
 
 - Period Profit now includes a consistent FIFO explanation: exact period units/COGS by allocation layer, opaque source references, effective dates, provenance, cost mode, cutoff/completeness and current correction revision. Append-only correction snapshots show prior versus current COGS, tax and profit while preserving access to the prior result.
