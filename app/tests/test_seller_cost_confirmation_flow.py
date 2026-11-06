@@ -47,7 +47,7 @@ class Costs:
         self.recorded.append(kwargs)
         return {"error": False, "status": "PRODUCT_COST_SWITCH_RECORDED"}
 
-    def record_cost_switches(self, rows):
+    def record_cost_switches(self, rows, *, expected_revision=None):
         self.bulk_recorded.append(rows)
         self.current.extend(
             (
@@ -381,10 +381,10 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
         )
         self.assertFalse(saved["error"])
         self.assertEqual(costs.bulk_recorded[0][0]["effective_from"], "0001-01-01")
-        self.assertEqual(
-            costs.bulk_recorded[0][0]["source"],
-            "SELLER_CONFIRMED_INITIAL_HISTORY_TABLE",
-        )
+        self.assertTrue(costs.bulk_recorded[0][0]["source"].startswith(
+            "SELLER_CONFIRMED_INITIAL_HISTORY_TABLE|ref=seller-cost-file-"
+        ))
+        self.assertIn("|revision=seller-cost-rev-", costs.bulk_recorded[0][0]["source"])
 
     def test_csv_import_uses_explicit_date_and_confirmation_callback(self):
         costs = Costs()

@@ -118,6 +118,43 @@ def test_history_callback_is_opaque_revision_bound_and_user_facing(tmp_path):
         reset_current_tenant_user_id(tenant)
 
 
+def test_fifo_history_export_is_read_only_redacted_and_revision_bound(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history = _anchored_history(tmp_path)
+        ui = TelegramFifoCostHistoryService(history)
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = ui.handle_callback(101, ticket["callback"])
+        history_callback = next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["callback"].split(":")[1] == "history"
+        )
+        history_result = ui.handle_callback(101, history_callback)
+        export_callback = next(
+            button["callback"] for button in history_result["keyboard"]["buttons"]
+            if button["callback"].split(":")[1] == "export"
+        )
+        exported = ui.handle_callback(101, export_callback)
+        assert exported["error"] is False
+        assert exported["document_kind"] == "analytics_export"
+        assert exported["revision"] == 1
+        assert "FINITE_LAYER" in exported["file_content"]
+        assert "2026-11-05" in exported["file_content"]
+        assert "store-a" not in exported["file_content"]
+        assert "product-101" not in exported["file_content"]
+        assert "fifo-cost-history.csv" == exported["filename"]
+
+        # A cost change invalidates the export ticket before another file is returned.
+        _commit_planned_rate(repository, expected_revision=1)
+        stale = ui.handle_callback(101, export_callback)
+        assert stale["error"] is True
+        assert stale["code"] == "FIFO_HISTORY_CALLBACK_STALE"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_history_buttons_fail_closed_after_stream_revision_changes(tmp_path):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:

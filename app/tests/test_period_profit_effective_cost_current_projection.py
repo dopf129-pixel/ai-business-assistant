@@ -13,6 +13,7 @@ if APP_ROOT not in sys.path:
 from services.period_profit_effective_cost_service import (  # noqa: E402
     PeriodProfitEffectiveCostService,
 )
+from services.seller_cost_table_service import SellerCostTableService  # noqa: E402
 
 
 class TempCostService(PeriodProfitEffectiveCostService):
@@ -180,6 +181,65 @@ class PeriodProfitEffectiveCostCurrentProjectionTests(unittest.TestCase):
 
             self.assertFalse(result["error"])
             self.assertEqual(service.get_cost("p1")[3], 20.0)
+
+    def test_batch_expected_revision_is_checked_inside_the_atomic_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = self._service(tmp)
+            initial = service.get_cost_history_snapshot()
+            self.assertFalse(initial["error"])
+            first = service.record_cost_switches(
+                [{
+                    "product_id": "p1", "sku": "sku-1", "offer_id": "offer-1",
+                    "cost_price": 20.0, "effective_from": date.today().isoformat(),
+                    "source": "CSV_TEST",
+                }],
+                expected_revision=initial["revision"],
+            )
+            self.assertFalse(first["error"])
+            stale = service.record_cost_switches(
+                [{
+                    "product_id": "p2", "sku": "sku-2", "offer_id": "offer-2",
+                    "cost_price": 30.0, "effective_from": date.today().isoformat(),
+                    "source": "CSV_TEST",
+                }],
+                expected_revision=initial["revision"],
+            )
+            self.assertTrue(stale["error"])
+            self.assertEqual(stale["code"], "PRODUCT_COST_SWITCH_REVISION_STALE")
+            current = service.get_cost_history_snapshot()
+            self.assertEqual(current["row_count"], 1)
+
+    def test_csv_import_persists_safe_source_reference_and_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            costs = self._service(tmp)
+
+            class Products:
+                def load_products(self):
+                    return [("p1", "offer-1", "sku-1")]
+
+            table = SellerCostTableService(Products(), costs)
+            preview = table.import_csv(
+                "Артикул;Ozon SKU;Себестоимость, ₽;Действует с (ГГГГ-ММ-ДД)\n"
+                "offer-1;sku-1;20.00;2026-11-01\n"
+            )
+            self.assertFalse(preview["error"], preview)
+            saved = table.commit_import(
+                preview["rows"],
+                expected_source_revision=preview["source_revision"],
+                expected_history_revision=preview["history_revision"],
+                source_reference=preview["source_reference"],
+                source_revision=preview["source_revision"],
+            )
+            self.assertFalse(saved["error"], saved)
+            evidence = costs.get_effective_cost_evidence(
+                "2026-11-06", product_id="p1", sku="sku-1", offer_id="offer-1",
+            )
+            self.assertEqual(evidence["source"], "SELLER_CONFIRMED_COST_TABLE")
+            self.assertEqual(evidence["source_reference"], preview["source_reference"])
+            self.assertEqual(evidence["source_revision"], preview["source_revision"])
+            exported = table.export_history_csv()
+            self.assertIn(preview["source_reference"], exported["file_content"])
+            self.assertIn(preview["source_revision"], exported["file_content"])
 
     def test_effective_cost_advances_after_date_boundary_without_restart(self):
         with tempfile.TemporaryDirectory() as tmp:

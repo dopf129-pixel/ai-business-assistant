@@ -1,4 +1,7 @@
 from datetime import date, datetime
+import hashlib
+import json
+import re
 
 from services.cost_service import ProductCostService
 
@@ -18,6 +21,12 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         self.today_provider = today_provider or date.today
         super().__init__()
         self._create_switch_table()
+
+    _TABLE_IMPORT_SOURCE = re.compile(
+        r"^(SELLER_CONFIRMED_(?:INITIAL_HISTORY|COST)_TABLE)"
+        r"\|ref=(seller-cost-file-[0-9a-f]{20})"
+        r"\|revision=(seller-cost-rev-[0-9a-f]{24})$"
+    )
 
     def get_current_cost_date(self):
         """Return the date used by current-cost readers without caching it."""
@@ -95,6 +104,74 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             if row is not None:
                 effective_rows.append(row)
         return effective_rows
+
+    def get_cost_history_snapshot(self):
+        """Return a stable revision for preview-first legacy cost imports."""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor()
+            history, records = self._read_cost_history_records(cursor)
+            canonical = json.dumps(
+                history, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+            return {
+                "error": False,
+                "revision": "legacy-cost-" + hashlib.sha256(canonical).hexdigest()[:24],
+                "row_count": len(records),
+                "records": records,
+            }
+        except Exception:
+            return {"error": True, "code": "PRODUCT_COST_HISTORY_SNAPSHOT_UNAVAILABLE"}
+        finally:
+            if connection is not None:
+                connection.close()
+
+    @staticmethod
+    def _read_cost_history_records(cursor):
+        queries = (
+            (
+                "product_cost_history",
+                "SELECT product_id, sku, offer_id, cost_price, currency, "
+                "effective_from, effective_through, source, recorded_at "
+                "FROM product_cost_history ORDER BY product_id, effective_from, id",
+            ),
+            (
+                "product_cost_switch_history",
+                "SELECT product_id, sku, offer_id, cost_price, currency, "
+                "effective_from, NULL, source, recorded_at "
+                "FROM product_cost_switch_history ORDER BY product_id, effective_from, id",
+            ),
+        )
+        history = []
+        records = []
+        for table, query in queries:
+            cursor.execute(query)
+            for row in cursor.fetchall():
+                values = [str(value) if value is not None else None for value in row]
+                history.append([table, *values])
+                records.append({
+                    "record_type": table,
+                    "product_id": values[0],
+                    "sku": values[1],
+                    "offer_id": values[2],
+                    "cost_price": values[3],
+                    "currency": values[4],
+                    "effective_from": values[5],
+                    "effective_through": values[6],
+                    "source": values[7],
+                    "recorded_at": values[8],
+                })
+        cursor.execute(
+            "SELECT product_id, sku, offer_id, cost_price, currency, updated_at "
+            "FROM product_costs ORDER BY product_id"
+        )
+        for row in cursor.fetchall():
+            history.append([
+                "product_costs",
+                *[str(value) if value is not None else None for value in row],
+            ])
+        return history, records
 
     def _create_switch_table(self):
         conn = self.get_connection()
@@ -223,7 +300,7 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             "read_only_ozon": True,
         }
 
-    def record_cost_switches(self, switches):
+    def record_cost_switches(self, switches, *, expected_revision=None):
         """Atomically persist dated cost switches, allowing exact replays.
 
         All inputs and same-date conflicts are checked before the first insert.
@@ -233,6 +310,15 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         if not isinstance(switches, (list, tuple)) or not switches:
             return self._switch_record_unavailable(
                 "PRODUCT_COST_SWITCH_INPUT_INVALID"
+            )
+        if expected_revision is not None and (
+            not isinstance(expected_revision, str)
+            or len(expected_revision) != len("legacy-cost-") + 24
+            or not expected_revision.startswith("legacy-cost-")
+            or any(char not in "0123456789abcdef" for char in expected_revision[-24:])
+        ):
+            return self._switch_record_unavailable(
+                "PRODUCT_COST_SWITCH_REVISION_INVALID"
             )
         current_date = self.get_current_cost_date()
         if current_date is None:
@@ -288,6 +374,20 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         try:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
+
+            if expected_revision is not None:
+                history, _records = self._read_cost_history_records(cursor)
+                canonical = json.dumps(
+                    history, ensure_ascii=False, separators=(",", ":"),
+                ).encode("utf-8")
+                current_revision = (
+                    "legacy-cost-" + hashlib.sha256(canonical).hexdigest()[:24]
+                )
+                if current_revision != expected_revision:
+                    conn.rollback()
+                    return self._switch_record_unavailable(
+                        "PRODUCT_COST_SWITCH_REVISION_STALE"
+                    )
 
             existing_by_identity = {}
             for item in normalized:
@@ -764,7 +864,10 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             return self._switch_unavailable(
                 "PRODUCT_COST_SWITCH_ROW_INVALID"
             )
-        return {
+        source, source_reference, source_revision = self._parse_table_import_source(
+            row[7],
+        )
+        result = {
             "error": False,
             "status": "PRODUCT_COST_SWITCH_READY",
             "switch_id": row[0],
@@ -775,12 +878,24 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             "currency": str(row[5]),
             "effective_from": effective_from.isoformat(),
             "effective_through": None,
-            "source": str(row[7]),
+            "source": source,
             "recorded_at": row[8],
             "at_date": target.isoformat(),
             "switch_cost_confirmed": True,
             "seller_confirmed": True,
         }
+        if source_reference is not None:
+            result["source_reference"] = source_reference
+            result["source_revision"] = source_revision
+        return result
+
+    @classmethod
+    def _parse_table_import_source(cls, value):
+        text = cls._text(value)
+        match = cls._TABLE_IMPORT_SOURCE.fullmatch(text)
+        if match is None:
+            return text, None, None
+        return match.group(1), match.group(2), match.group(3)
 
     def _has_history_timeline(self, product_id=None, sku=None, offer_id=None):
         clauses, values = self._identity_where(product_id, sku, offer_id)

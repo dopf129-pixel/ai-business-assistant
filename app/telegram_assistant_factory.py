@@ -624,6 +624,7 @@ def create_telegram_assistant():
         product_service=ProductService(),
         cost_service=period_profit_cost_service,
         fifo_history_service=telegram_fifo_cost_history_service,
+        fifo_cost_repository=fifo_cost_repository,
     )
 
 

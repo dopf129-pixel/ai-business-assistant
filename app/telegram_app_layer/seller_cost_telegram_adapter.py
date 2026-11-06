@@ -66,7 +66,9 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         if filename and not str(filename).lower().endswith(".csv"):
             return {"error": True, "message": "Отправьте CSV-файл, который выдал бот.", "code": "SELLER_COST_TABLE_FILE_TYPE_INVALID", "read_only_ozon": True}
         try:
-            return self.seller_cost_service.import_table_for_user(user_id, content)
+            return self.seller_cost_service.import_table_for_user(
+                user_id, content, filename=filename,
+            )
         except Exception:
             return {"error": True, "message": "Не удалось импортировать таблицу. Изменений не применено.", "code": "SELLER_COST_TABLE_IMPORT_FAILED", "read_only_ozon": True}
 
@@ -102,6 +104,8 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                 if self.fifo_late_entry_service is not None:
                     self.fifo_late_entry_service.clear_pending(user_id)
                 return self.seller_cost_service.export_table()
+            if callback_text == "seller_cost_history_export":
+                return self.seller_cost_service.export_history_table()
             if callback_text.startswith("seller_cost_return:"):
                 token = callback_text.split(":", 1)[1]
                 resolver = getattr(

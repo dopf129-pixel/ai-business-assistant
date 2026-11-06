@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
+import json
 from threading import RLock
 from time import monotonic
 from uuid import uuid4
@@ -68,7 +72,7 @@ class TelegramFifoCostHistoryService:
         _prefix, action, token = parts
         if action not in {
             "open", "history", "new", "late", "correct", "sku",
-            "cancel_rate", "confirm_rate_cancel",
+            "cancel_rate", "confirm_rate_cancel", "export",
         }:
             return {"error": False, "handled": False, "read_only_ozon": True}
         ticket = self._validated_ticket(owner, token)
@@ -118,6 +122,8 @@ class TelegramFifoCostHistoryService:
             return self._confirm_rate_cancellation(owner, ticket)
         if action == "history":
             return self._render_history(ticket)
+        if action == "export":
+            return self._export_history(ticket)
         if action == "sku":
             return self._render_sku_card(ticket)
         return self._render_sku_card(ticket)
@@ -246,6 +252,131 @@ class TelegramFifoCostHistoryService:
             ),
             "read_only_ozon": True,
         }
+
+    def _export_history(self, ticket):
+        snapshot = ticket.get("snapshot")
+        if not isinstance(snapshot, dict) or snapshot.get("error") is not False:
+            return self._message_result(
+                "История устарела. Откройте SKU заново перед выгрузкой.",
+                ticket["token"],
+            )
+        layers = snapshot.get("layers")
+        rates = snapshot.get("rates")
+        if (
+            not isinstance(layers, list) or not isinstance(rates, list)
+            or len(layers) + len(rates) > 10_000
+        ):
+            return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_LIMIT", "message": "История слишком большая или неполная; файл не сформирован.", "read_only_ozon": True}
+        stream = io.StringIO(newline="")
+        writer = csv.writer(stream, delimiter=";")
+        writer.writerow((
+            "Режим", "SKU", "Тип записи", "Порядок", "Действует с",
+            "Количество", "Место", "Себестоимость за шт., ₽",
+            "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
+            "Подтверждение", "Состояние источника", "Полнота источника",
+            "Ревизия FIFO", "Ревизия распределения", "Дата cutoff",
+            "Ссылка строки",
+        ))
+        allocation = snapshot.get("latest_allocation")
+        allocation_revision = (
+            allocation.get("revision") if isinstance(allocation, dict) else None
+        )
+        common = {
+            "mode": "FIFO",
+            "sku": ticket.get("sku"),
+            "stream_revision": snapshot.get("revision"),
+            "allocation_revision": allocation_revision,
+            "cutoff_date": snapshot.get("cutoff_date") or "",
+        }
+        rows = []
+        for layer in layers:
+            if not isinstance(layer, dict):
+                return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_INVALID", "message": "Невозможно безопасно выгрузить повреждённую историю.", "read_only_ozon": True}
+            rows.append({
+                **common,
+                "kind": "FINITE_LAYER",
+                "sequence": layer.get("sequence"),
+                "effective_date": layer.get("effective_date") or "",
+                "quantity": layer.get("recorded_quantity"),
+                "location": layer.get("location") or "UNKNOWN",
+                "unit_cost": layer.get("unit_cost_rub"),
+                "purchase": "", "delivery": "", "packaging": "",
+                "status": layer.get("remaining_status") or "UNKNOWN",
+                "provenance": layer.get("provenance") or "UNKNOWN",
+                "source_status": layer.get("source_status") or "UNKNOWN",
+                "coverage": layer.get("coverage_status") or "UNKNOWN",
+            })
+        for rate in rates:
+            if not isinstance(rate, dict):
+                return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_INVALID", "message": "Невозможно безопасно выгрузить повреждённую историю.", "read_only_ozon": True}
+            rows.append({
+                **common,
+                "kind": "OPEN_RATE",
+                "sequence": rate.get("sequence"),
+                "effective_date": rate.get("effective_date") or "",
+                "quantity": rate.get("reconciled_quantity"),
+                "location": "UNKNOWN",
+                "unit_cost": rate.get("unit_cost_rub"),
+                "purchase": rate.get("purchase_cost_rub"),
+                "delivery": rate.get("delivery_cost_rub"),
+                "packaging": rate.get("packaging_cost_rub"),
+                "status": rate.get("status") or "UNKNOWN",
+                "provenance": rate.get("provenance") or "UNKNOWN",
+                "source_status": rate.get("source_status") or "UNKNOWN",
+                "coverage": rate.get("coverage_status") or "UNKNOWN",
+            })
+        for row in rows:
+            reference_payload = {
+                key: row.get(key) for key in (
+                    "mode", "sku", "kind", "sequence", "effective_date",
+                    "quantity", "unit_cost", "stream_revision",
+                    "allocation_revision", "cutoff_date", "provenance",
+                )
+            }
+            reference = "fifo-export-" + hashlib.sha256(
+                json.dumps(reference_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()[:20]
+            writer.writerow((
+                row["mode"], self._spreadsheet_safe(row["sku"]), row["kind"],
+                row["sequence"], row["effective_date"],
+                "" if row["quantity"] is None else row["quantity"],
+                self._spreadsheet_safe(row["location"]),
+                row["unit_cost"], row["purchase"], row["delivery"], row["packaging"],
+                self._spreadsheet_safe(row["status"]),
+                self._spreadsheet_safe(row["provenance"]),
+                self._spreadsheet_safe(row["source_status"]),
+                self._spreadsheet_safe(row["coverage"]), row["stream_revision"],
+                "" if row["allocation_revision"] is None else row["allocation_revision"],
+                row["cutoff_date"], reference,
+            ))
+        if not rows:
+            writer.writerow((
+                "FIFO", self._spreadsheet_safe(ticket.get("sku")), "EMPTY", "", "",
+                "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
+                "UNKNOWN", "UNKNOWN", "UNKNOWN", snapshot.get("revision"), "",
+                snapshot.get("cutoff_date") or "", "",
+            ))
+        content = "\ufeff" + stream.getvalue()
+        if len(content.encode("utf-8")) > 1_000_000:
+            return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_TOO_LARGE", "message": "Выгрузка превышает 1 МБ. История и расчёты не изменены.", "read_only_ozon": True}
+        return {
+            "error": False,
+            "handled": True,
+            "message": "Выгружена только для просмотра история FIFO. Количество открытой ставки может быть неизвестно; пустое поле не означает ноль. Файл нельзя импортировать как legacy-себестоимость.",
+            "filename": "fifo-cost-history.csv",
+            "mime_type": "text/csv",
+            "document_kind": "analytics_export",
+            "file_content": content,
+            "rows": len(rows),
+            "revision": snapshot.get("revision"),
+            "read_only_ozon": True,
+        }
+
+    @classmethod
+    def _spreadsheet_safe(cls, value):
+        text = str(value or "")
+        probe = text.lstrip(" \t\r\n")
+        return "'" + text if probe and probe[0] in "=+-@" else text
 
     def _preview_rate_cancellation(self, owner, ticket):
         planned_rate = next(
@@ -411,6 +542,7 @@ class TelegramFifoCostHistoryService:
     def _history_keyboard(cls, token, *, allow_cancel=False):
         buttons = [
             {"text": "➕ Новая себестоимость", "callback": f"{cls.CALLBACK_PREFIX}:new:{token}"},
+            {"text": "📤 Скачать историю CSV", "callback": f"{cls.CALLBACK_PREFIX}:export:{token}"},
         ]
         if allow_cancel:
             buttons.append({
