@@ -163,6 +163,16 @@ class FifoCostRepository:
             finally:
                 connection.close()
 
+            if any(event["kind"] == "OPENING_FIFO_ANCHOR" for event in normalized_events):
+                anchor_error = self._opening_anchor_error(
+                    normalized_events,
+                    normalized_source,
+                    current_revision=current_revision,
+                    current_state=current_state,
+                )
+                if anchor_error:
+                    return self._error(anchor_error)
+
             if expected_revision is not None and (
                 type(expected_revision) is not int
                 or expected_revision < 0
@@ -309,6 +319,21 @@ class FifoCostRepository:
                     connection.rollback()
                     return self._error("FIFO_REVISION_CONFLICT")
 
+                has_opening_anchor = any(
+                    event["kind"] == "OPENING_FIFO_ANCHOR"
+                    for event in normalized["events"]
+                )
+                if has_opening_anchor:
+                    anchor_error = self._opening_anchor_error(
+                        normalized["events"],
+                        normalized["source"],
+                        current_revision=current_revision,
+                        current_state=current_state,
+                    )
+                    if anchor_error:
+                        connection.rollback()
+                        return self._error(anchor_error)
+
                 self._ensure_source(connection, normalized)
                 self._ensure_policy_revision(connection, normalized, now)
                 command_id = normalized["command_id"]
@@ -400,13 +425,48 @@ class FifoCostRepository:
                     )
 
                 new_state = current_state
-                if current_revision == 0 and not stream:
+                if has_opening_anchor:
+                    new_state = "FIFO_READY"
+                elif current_revision == 0 and not stream:
                     new_state = "FIFO_PENDING_ANCHOR"
                 connection.execute(
                     """UPDATE fifo_cost_streams
                        SET revision=?, state=?, updated_at=? WHERE stream_id=?""",
                     (next_revision, new_state, self._iso(now), normalized["stream_id"]),
                 )
+                if has_opening_anchor:
+                    known_quantity = sum(event["quantity"] for event in normalized["events"])
+                    known_cost = sum(
+                        Decimal(event["unit_cost_rub"]) * event["quantity"]
+                        for event in normalized["events"]
+                    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    next_unit_cost = normalized["events"][0]["unit_cost_rub"]
+                    connection.execute(
+                        """INSERT INTO fifo_cost_projections (
+                            stream_id, revision, state, known_quantity,
+                            known_cost_rub, next_unit_cost_rub, queue_complete,
+                            cutoff_status, source_set_fingerprint, last_event_id,
+                            updated_at
+                        ) VALUES (?, ?, 'FIFO_READY', ?, ?, ?, 1, ?, ?, ?, ?)
+                        ON CONFLICT(stream_id) DO UPDATE SET
+                            revision=excluded.revision,
+                            state=excluded.state,
+                            known_quantity=excluded.known_quantity,
+                            known_cost_rub=excluded.known_cost_rub,
+                            next_unit_cost_rub=excluded.next_unit_cost_rub,
+                            queue_complete=excluded.queue_complete,
+                            cutoff_status=excluded.cutoff_status,
+                            source_set_fingerprint=excluded.source_set_fingerprint,
+                            last_event_id=excluded.last_event_id,
+                            updated_at=excluded.updated_at""",
+                        (
+                            normalized["stream_id"], next_revision, known_quantity,
+                            format(known_cost, ".2f"), next_unit_cost,
+                            "INVENTORY_CUTOFF_UNRECONCILED",
+                            normalized["source"]["source_fingerprint"],
+                            event_ids[-1], self._iso(now),
+                        ),
+                    )
                 result = {
                     "command_id": command_id,
                     "stream_id": normalized["stream_id"],
@@ -621,7 +681,12 @@ class FifoCostRepository:
                 raise ValueError("FIFO_CURRENCY_UNSUPPORTED")
             from_location = item.get("location_from")
             to_location = item.get("location_to")
-            if kind == "INVENTORY_TRANSFER":
+            if kind == "OPENING_FIFO_ANCHOR":
+                if from_location is not None or to_location not in {"HOME", "TRANSIT", "OZON"}:
+                    raise ValueError("FIFO_ANCHOR_ZONE_REQUIRED")
+                if cutoff is None:
+                    raise ValueError("FIFO_ANCHOR_CUTOFF_REQUIRED")
+            elif kind == "INVENTORY_TRANSFER":
                 if (from_location not in cls._LOCATIONS or to_location not in cls._LOCATIONS
                         or from_location == to_location):
                     raise ValueError("FIFO_TRANSFER_LOCATION_INVALID")
@@ -660,6 +725,39 @@ class FifoCostRepository:
                 "reason_code": reason,
             })
         return normalized
+
+    @staticmethod
+    def _opening_anchor_error(events, source, *, current_revision, current_state):
+        if any(event["kind"] != "OPENING_FIFO_ANCHOR" for event in events):
+            return "FIFO_ANCHOR_COMMAND_MUST_BE_EXCLUSIVE"
+        if current_revision != 0 or current_state != "FIFO_PENDING_ANCHOR":
+            return "FIFO_ANCHOR_ALREADY_EXISTS"
+        if (
+            source["source_status"] != "OWNER_CONFIRMED"
+            or source["completeness"] != "OWNER_CONFIRMED"
+            or source["provenance"] != "OWNER_CONFIRMED"
+            or source["coverage_status"] != "OWNER_CONFIRMED"
+            or source["source_kind"] != "OWNER_CONFIRMATION"
+            or source["source_method"] != "OWNER_CONFIRMED_FIFO_CUTOFF"
+        ):
+            return "FIFO_ANCHOR_OWNER_CONFIRMATION_REQUIRED"
+        if source["inventory_cutoff"] is None:
+            return "FIFO_ANCHOR_CUTOFF_REQUIRED"
+        if source["captured_at"] is None:
+            return "FIFO_ANCHOR_CAPTURE_TIME_REQUIRED"
+        if not events or sum(event["quantity"] for event in events) <= 0:
+            return "FIFO_ANCHOR_QUANTITY_REQUIRED"
+        if any(event["inventory_cutoff"] != source["inventory_cutoff"] for event in events):
+            return "FIFO_ANCHOR_CUTOFF_MISMATCH"
+        if any(
+            event["effective_at"] is not None
+            or event["effective_date"] != source["inventory_cutoff"]
+            for event in events
+        ):
+            return "FIFO_ANCHOR_CUTOFF_MISMATCH"
+        if any(event["location_to"] not in {"HOME", "TRANSIT", "OZON"} for event in events):
+            return "FIFO_ANCHOR_ZONE_REQUIRED"
+        return None
 
     def _ensure_source(self, connection, normalized):
         source = normalized["source"]

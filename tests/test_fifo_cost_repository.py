@@ -30,10 +30,12 @@ def _tenant(store_id="store-a", owner="owner-1"):
 def _source(**overrides):
     source = {
         "kind": "OWNER_CONFIRMATION",
-        "method": "TELEGRAM_COST_ENTRY",
+        "method": "OWNER_CONFIRMED_FIFO_CUTOFF",
         "status": "OWNER_CONFIRMED",
         "provenance": "OWNER_CONFIRMED",
         "coverage_status": "OWNER_CONFIRMED",
+        "captured_at": "2026-11-06T12:00:00Z",
+        "inventory_cutoff": "2026-11-01",
     }
     source.update(overrides)
     return source
@@ -47,6 +49,8 @@ def _event(*, kind="OPENING_FIFO_ANCHOR", quantity=5, unit_cost="10.00", **overr
     }
     if kind in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}:
         event["unit_cost_rub"] = unit_cost
+    if kind == "OPENING_FIFO_ANCHOR":
+        event["location_to"] = "OZON"
     event.update(overrides)
     return event
 
@@ -387,7 +391,9 @@ def test_idempotency_key_cannot_replay_a_different_payload(tmp_path):
         first = _preview(repo)
         result = _commit(repo, first, key="same-confirm-key")
         assert result["error"] is False
-        changed = _preview(repo, events=[_event(quantity=6)])
+        changed = _preview(repo, events=[_event(
+            kind="COST_LAYER_RECEIPT", quantity=6,
+        )])
         conflict = _commit(repo, changed, key="same-confirm-key")
         assert conflict == {"error": True, "code": "FIFO_IDEMPOTENCY_CONFLICT"}
         connection = sqlite3.connect(repo.db_path)
@@ -411,7 +417,9 @@ def test_reused_source_fingerprint_cannot_change_its_reference_set(tmp_path):
         ))
         assert _commit(repo, first, key="source-fingerprint1")["error"] is False
 
-        changed = _preview(repo, events=[_event(quantity=2)], source=_source(
+        changed = _preview(repo, events=[_event(
+            kind="COST_LAYER_RECEIPT", quantity=2,
+        )], source=_source(
             fingerprint=fingerprint,
             references=[{"kind": "SUPPLY", "digest": "c" * 64}],
         ))
@@ -616,5 +624,37 @@ def test_preview_expiration_uses_injected_aware_clock(tmp_path):
         now[0] = datetime(2026, 11, 6, 13, tzinfo=timezone.utc)
         result = _commit(repo, preview, key="expired-confirm1")
         assert result == {"error": True, "code": "FIFO_PREVIEW_STALE"}
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+@pytest.mark.parametrize(
+    ("source_overrides", "event_overrides", "code"),
+    [
+        ({"method": "TELEGRAM_COST_ENTRY"}, {}, "FIFO_ANCHOR_OWNER_CONFIRMATION_REQUIRED"),
+        ({"captured_at": None}, {}, "FIFO_ANCHOR_CAPTURE_TIME_REQUIRED"),
+        ({}, {"effective_date": "2026-11-02"}, "FIFO_ANCHOR_CUTOFF_MISMATCH"),
+        ({}, {"effective_at": "2026-11-01T12:00:00Z"}, "FIFO_ANCHOR_CUTOFF_MISMATCH"),
+    ],
+)
+def test_opening_anchor_requires_exact_owner_source_and_date_only_cutoff(
+    tmp_path, source_overrides, event_overrides, code,
+):
+    repository = FifoCostRepository(db_path=tmp_path / "strict-anchor.sqlite")
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-1", "store-a"))
+    try:
+        event = _event(**event_overrides)
+        result = repository.preview_command(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", events=[event], source=_source(**source_overrides),
+        )
+        assert result == {"error": True, "code": code}
+        connection = repository.get_connection()
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_streams").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_commands").fetchone()[0] == 0
+        finally:
+            connection.close()
     finally:
         reset_current_tenant_user_id(token)
