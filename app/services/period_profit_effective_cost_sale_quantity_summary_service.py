@@ -22,6 +22,16 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
     sale date; current mutable cost is never used as retroactive authority.
     """
 
+    def __init__(
+        self, finance_service, cost_service, tax_rate=0.06,
+        sale_quantity_ozon_client=None, fifo_cost_source_service=None,
+    ):
+        super().__init__(
+            finance_service, cost_service, tax_rate=tax_rate,
+            sale_quantity_ozon_client=sale_quantity_ozon_client,
+        )
+        self.fifo_cost_source_service = fifo_cost_source_service
+
     OFFER_KEY_PREFIX = "@offer:"
 
     @staticmethod
@@ -292,6 +302,9 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         total_units = 0
         total_product_cost = 0.0
         historical_bucket_count = 0
+        fifo_sku_count = 0
+        legacy_sku_count = 0
+        fifo_allocation_revisions = set()
 
         for row in product_rows:
             finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
@@ -302,6 +315,81 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             revenue = self._number(row.get("revenue"), missing_zero=True)
             if None in (net_accrual, tax, revenue):
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+
+            fifo_source = getattr(self, "fifo_cost_source_service", None)
+            if fifo_source is not None and not cost_excluded():
+                fifo_sales = [
+                    sale for sale in physical_sales if sale["sku"] == finance_sku
+                ]
+                try:
+                    fifo = fifo_source.reconcile_period_sales(
+                        product=row,
+                        finance_sku=finance_sku,
+                        date_from=start.isoformat(),
+                        date_to=end.isoformat(),
+                        sales=fifo_sales,
+                    )
+                except Exception:
+                    fifo = None
+                if not isinstance(fifo, dict) or fifo.get("error") is not False:
+                    error = self._quantity_error(
+                        "PERIOD_PROFIT_FIFO_COGS_UNAVAILABLE"
+                    )
+                    if isinstance(fifo, dict) and fifo.get("code"):
+                        error["fifo_reason_code"] = fifo["code"]
+                    return error
+                if fifo.get("active") is True:
+                    if fifo.get("complete") is not True:
+                        error = self._quantity_error(
+                            "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE"
+                        )
+                        error["fifo_reason_code"] = (
+                            fifo.get("reason_code") or "FIFO_ALLOCATION_INCOMPLETE"
+                        )
+                        return error
+                    units = fifo.get("units_sold")
+                    product_cost_value = self._number(fifo.get("product_cost"))
+                    if (
+                        type(units) is not int or units < 0
+                        or product_cost_value is None
+                    ):
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_FIFO_COGS_RESPONSE_INVALID"
+                        )
+                    profit = net_accrual - product_cost_value - tax
+                    if not isfinite(profit):
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
+                        )
+                    next_row = dict(row)
+                    next_row["units_sold"] = units
+                    next_row["product_cost"] = round(product_cost_value, 2)
+                    next_row["cost_per_unit"] = (
+                        round(product_cost_value / units, 2) if units else None
+                    )
+                    next_row["profit"] = round(profit, 2)
+                    next_row["margin_percent"] = self._margin(
+                        next_row["profit"], revenue,
+                    )
+                    if next_row["margin_percent"] is None:
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
+                        )
+                    next_row["cost_source"] = "FIFO_ALLOCATION_REVISION"
+                    next_row["fifo_cogs_reconciliation_required"] = False
+                    next_row["fifo_stream_revision"] = fifo.get("stream_revision")
+                    next_row["fifo_allocation_revision"] = fifo.get(
+                        "allocation_revision"
+                    )
+                    next_row["fifo_cutoff_date"] = fifo.get("cutoff_date")
+                    next_rows.append(next_row)
+                    covered_skus.add(finance_sku)
+                    total_units += units
+                    total_product_cost += product_cost_value
+                    fifo_sku_count += 1
+                    if fifo.get("allocation_revision") is not None:
+                        fifo_allocation_revisions.add(fifo["allocation_revision"])
+                    continue
 
             units = 0
             product_cost = 0.0
@@ -351,6 +439,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
 
             next_row = dict(row)
+            next_row["cost_source"] = "LEGACY_DATED_COST"
+            next_row["fifo_cogs_reconciliation_required"] = False
             next_row["units_sold"] = units
             next_row["product_cost"] = round(product_cost, 2)
             if units > 0:
@@ -364,6 +454,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             covered_skus.add(finance_sku)
             total_units += units
             total_product_cost += product_cost
+            legacy_sku_count += 1
 
         if any(sale["sku"] not in covered_skus for sale in physical_sales):
             return self._quantity_error(
@@ -398,6 +489,15 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         enriched["effective_cost_reconciled"] = True
         enriched["effective_cost_source"] = (
             "SELLER_CONFIRMED_BOUNDED_HISTORY_OR_OPERATIONAL_SWITCH"
+        )
+        enriched["fifo_cogs_reconciliation_required"] = False
+        enriched["fifo_cogs_reconciled"] = True
+        enriched["fifo_cost_source_counts"] = {
+            "fifo": fifo_sku_count,
+            "legacy": legacy_sku_count,
+        }
+        enriched["fifo_allocation_revision_count"] = len(
+            fifo_allocation_revisions
         )
         enriched["historical_cost_bucket_count"] = historical_bucket_count
         enriched["legacy_current_cost_bucket_count"] = 0

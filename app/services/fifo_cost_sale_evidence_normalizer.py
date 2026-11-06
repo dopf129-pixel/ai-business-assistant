@@ -40,25 +40,6 @@ class FifoCostSaleEvidenceNormalizer:
         validated as source evidence but is not part of that key, so a catalog
         SKU rewrite for the same confirmed offer does not create another sale.
         """
-        store = self._text(store_id)
-        posting = self._text(posting_number)
-        source_sku = self._text(finance_sku)
-        if store is None or posting is None or source_sku is None:
-            return self._error("FIFO_SALE_IDENTITY_INPUT_INVALID")
-        if not isinstance(identity, Mapping):
-            return self._error("FIFO_SALE_PRODUCT_IDENTITY_UNAVAILABLE")
-        if identity.get("mapping_confirmed") is not True:
-            return self._error("FIFO_SALE_PRODUCT_IDENTITY_UNCONFIRMED")
-
-        offer_id = self._text(identity.get("offer_id"))
-        product_id = self._text(identity.get("product_id"))
-        if offer_id is not None:
-            identity_kind, stable_product_identity = "OFFER", offer_id
-        elif product_id is not None:
-            identity_kind, stable_product_identity = "PRODUCT", product_id
-        else:
-            return self._error("FIFO_SALE_STABLE_PRODUCT_KEY_UNAVAILABLE")
-
         if sale_authority != "OZON_REALIZATION_REPORT":
             return self._error("FIFO_SALE_AUTHORITY_UNSUPPORTED")
         if sale_authority_confirmed is not True:
@@ -66,22 +47,15 @@ class FifoCostSaleEvidenceNormalizer:
         if type(quantity) is not int or not 1 <= quantity <= self.MAX_QUANTITY:
             return self._error("FIFO_SALE_QUANTITY_INVALID")
 
-        material = {
-            "version": 1,
-            "domain": "ozon-fifo-physical-sale",
-            "store_id": store,
-            "posting_number": posting,
-            "identity_kind": identity_kind,
-            "stable_product_identity": stable_product_identity,
-        }
-        digest = hashlib.sha256(
-            json.dumps(
-                material,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        identity_result = self.build_identity_digest(
+            store_id=store_id,
+            posting_number=posting_number,
+            finance_sku=finance_sku,
+            identity=identity,
+        )
+        if identity_result.get("error") is True:
+            return identity_result
+        digest = identity_result["source_identity_digest"]
 
         dates = self._dates(financial_accrual_dates)
         if dates is None:
@@ -123,6 +97,47 @@ class FifoCostSaleEvidenceNormalizer:
             "financial_accrual_dates": dates,
             "allocation_eligible": allocation_eligible,
         }
+
+    @classmethod
+    def build_identity_digest(
+        cls, *, store_id: object, posting_number: object,
+        finance_sku: object, identity: Mapping[str, object],
+    ) -> dict:
+        """Create a redacted join key without asserting time/source eligibility."""
+        store = cls._text(store_id)
+        posting = cls._text(posting_number)
+        source_sku = cls._text(finance_sku)
+        if store is None or posting is None or source_sku is None:
+            return cls._error("FIFO_SALE_IDENTITY_INPUT_INVALID")
+        if not isinstance(identity, Mapping):
+            return cls._error("FIFO_SALE_PRODUCT_IDENTITY_UNAVAILABLE")
+        if identity.get("mapping_confirmed") is not True:
+            return cls._error("FIFO_SALE_PRODUCT_IDENTITY_UNCONFIRMED")
+        offer_id = cls._text(identity.get("offer_id"))
+        product_id = cls._text(identity.get("product_id"))
+        if offer_id is not None:
+            identity_kind, stable_product_identity = "OFFER", offer_id
+        elif product_id is not None:
+            identity_kind, stable_product_identity = "PRODUCT", product_id
+        else:
+            return cls._error("FIFO_SALE_STABLE_PRODUCT_KEY_UNAVAILABLE")
+        material = {
+            "version": 1,
+            "domain": "ozon-fifo-physical-sale",
+            "store_id": store,
+            "posting_number": posting,
+            "identity_kind": identity_kind,
+            "stable_product_identity": stable_product_identity,
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                material,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return {"error": False, "source_identity_digest": digest}
 
     @classmethod
     def _text(cls, value):

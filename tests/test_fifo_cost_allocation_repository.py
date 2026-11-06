@@ -376,6 +376,45 @@ def test_fc16_read_guard_blocks_sales_exceeding_confirmed_fifo_quantity(tmp_path
         reset_current_tenant_user_id(token)
 
 
+def test_fc17_period_read_uses_only_latest_complete_allocations_and_exact_dates(tmp_path):
+    repo, token, _, preview = _two_sale_fixture(tmp_path)
+    try:
+        before = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-03",
+        )
+        assert before["active"] is True
+        assert before["complete"] is False
+        assert before["reason_code"] == "FIFO_ALLOCATION_STALE_OR_MISSING"
+
+        committed = repo.append_allocation_revision(
+            store_id="store-a", product_id="product-1", offer_id="offer-1", sku="sku-1",
+            preview=preview, idempotency_key="allocation-period-read-01",
+        )
+        assert committed["error"] is False
+        whole_period = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-03",
+        )
+        first_day = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-02",
+        )
+        assert whole_period["complete"] is True
+        assert whole_period["allocation_revision"] == 1
+        assert [row["source_identity_digest"] for row in whole_period["allocations"]] == [
+            "d" * 64, "e" * 64,
+        ]
+        assert [row["total_cogs_rub"] for row in whole_period["allocations"]] == [
+            "20.00", "40.00",
+        ]
+        assert first_day["complete"] is True
+        assert [(row["quantity"], row["total_cogs_rub"])
+                for row in first_day["allocations"]] == [(2, "20.00")]
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_fc16_v5_migration_adds_stream_revision_and_rate_lines_without_rewriting_headers(tmp_path):
     database = tmp_path / "fifo-v5.sqlite"
     connection = sqlite3.connect(database)
