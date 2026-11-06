@@ -542,6 +542,8 @@ FC03 defines a dedicated `FifoCostRepository` as owner of factual FIFO cost even
 
 The current source audit has not proven a common Ozon stock/physical-sale cutoff. `INVENTORY_CUTOFF_UNRECONCILED` therefore blocks factual FIFO COGS until read-only, sanitized owner validation closes that gap. The FC12 Telegram flow presents confirmed quantities only at their saved snapshot; any later movement suppresses a current remaining/next-unit claim until replay exists. FC13 evidence refreshes are append-only and deduplicated by normalized content fingerprint; they do not change FIFO quantity, stream revision, or produce a `COST_LAYER_RECEIPT`. A new rate is a price record, never inventory quantity; “already sent” and correction controls remain non-mutating until FC20/FC22. FC24 connects the shared current-cost view to the current card and price-scenario source, without changing the factual Period Profit gate. Existing finance revenue, `TaxService`, Return COGS authorization/recognition and saved-plan snapshot ownership stay unchanged. See `FIFO_COST_CONTRACTS_2026-11-06.md` and `DECISIONS_066.md`. Source cutoff proof, complete historic replay and factual FIFO COGS remain incomplete.
 
+FC33 owner documentation also verified the public wiring boundary: the history/rate/late-entry services are connected to Telegram, but `FifoCostAnchorService` currently has no user-facing action. An uninitialized SKU therefore cannot be set up end to end from the bot. This is documented as an owner-acceptance/product gap, not hidden behind the accepted service contract. See `docs/fifo-cost-history-user-guide.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md`; real-owner validation is `USER_VALIDATION_PENDING`.
+
 
 
 ---

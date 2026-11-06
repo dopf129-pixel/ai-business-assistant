@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC33: документация и owner acceptance
+
+- Added `docs/fifo-cost-history-user-guide.md` for the owner-facing mode boundaries and existing Telegram steps, plus `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for safe future validation without credentials or raw API payloads.
+- Source/wiring audit confirmed `FifoCostAnchorService` has no Telegram entry point. The guide now records that an uninitialized SKU cannot be enabled through the bot; late entry saves documentary evidence only; factual period FIFO COGS remains source-blocked. Real-owner verification remains `USER_VALIDATION_PENDING`.
+- No new test code in this documentation stage. `git diff --check` is run before commit; FC34 performs the full required test/compile/CI verification.
+
 # 2026-11-06 — FIFO FC32: независимая числовая матрица N01–N24
 
 - `tests/test_fifo_cost_allocation_service.py` checks N01/N02/N03/N08/N21 and invalid money/quantity inputs; `tests/test_fifo_cost_replay_service.py` covers chronological order, exact restore basis, duplicate sales/returns, movements, bounded replay, and the new FC32 six-permutation exact-layer invariant.

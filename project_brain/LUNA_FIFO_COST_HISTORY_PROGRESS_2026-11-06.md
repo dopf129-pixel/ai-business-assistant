@@ -7,7 +7,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: FC33 — owner documentation and live acceptance instructions. FC32 is complete for synthetic/local numerical and stateful coverage. FC23 multi-transition correction and factual production cutoff remain explicitly blocked.
+- Current phase: FC34 — full test suite and exact-head CI. FC33 documentation is complete; owner live validation remains pending. FC23 multi-transition correction, initial-anchor Telegram setup and factual production cutoff remain blocked/documented.
 - FC24 completed with a shared read-only adapter for current unit economics and price planning. Next-unit cost is tied to exact store/product/offer/SKU, effective date, FIFO stream revision, and full sanitized history fingerprint. Uninitialized stream uses legacy effective-dated cost; any initialized but incomplete/replay-required FIFO stream is unknown and never falls back.
 - FC24 linked Windows profile: adjacent current economics + scenario/target/grid/batch/sensitivity modules — **393 passed in 7.28s**; `compileall -q app tests` and `git diff --check` PASS. No `data/` file changed. Code commit: `b014f7159cd18bb80097deb08d0ba62d01e8dae6`.
 - FC25 linked Windows profile: `tests/test_unit_price_scenario_telegram_runtime.py tests/test_unit_price_sensitivity_service.py` — **80 passed in 1.27s**; `compileall -q app tests` and `git diff --check` PASS. One frozen cost and FIFO revision are reused for every price candidate; manual cost stays scenario-only; tariff boundary fees stay candidate-specific; unknown ads remain unavailable after-ad. No `data/` file changed. Code commit: `1a22f081`.
@@ -85,8 +85,8 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | FC30 | DONE | Added independent-scope concurrency regression; existing coverage confirms same-scope single-flight, cancellation, shared parent budget, stale drafts/callbacks, and bounded local-only operations. Linked profile 116 passed; changed-file compileall/diff PASS; commit `862bf3fb`. |
 | FC31 | DONE | Existing backup/restore preserved FIFO event/rate/supply/allocation/correction history and planning document in a fresh root; new repositories resolved history/current cost/export and replay parity. Transient callbacks and secrets were not restored. Legacy migration and rollback tests pass. Linked profile 103 passed; 6/6 `data/` files unchanged; commit `d8f2198c`. |
 | FC32 | DONE | N01–N24 linked across numeric/source/replay/return/correction/planning/backup suites; added six-permutation exact-layer allocation and period-query read-order/no-mutation regressions. **406 passed in 12.25s**; compileall/diff PASS; 6/6 `data/` hashes/lengths unchanged. Synthetic only; unsupported physical cutoff remains a refusal, not positive production acceptance. Test commit `f9f7395d`. |
-| FC33 | IN_PROGRESS | Owner guide, source audit, mode limitations and safe owner acceptance steps. |
-| FC34 | NOT_STARTED | Full pytest, compileall, diff checks, exact-head CI. |
+| FC33 | DONE | Added Russian owner guide and safe acceptance checklist; refreshed source audit and architecture notes. Verified real wiring: opening-anchor service exists but has no Telegram entry point, so new SKU setup cannot be completed by owner; late-entry creates documentary draft only. `SOURCE_BLOCKED` and `USER_VALIDATION_PENDING` are explicit. `git diff --check` PASS; no tests or live requests required for documentation-only change. |
+| FC34 | IN_PROGRESS | Full pytest, compileall, diff checks, data integrity and exact-head CI. |
 | FC35 | NOT_STARTED | Independent review handoff and ready PR; no merge/deploy/live bot. |
 
 ## Confirmed decisions
@@ -101,6 +101,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 - FC01 confirmed the reader/writer paths and their semantic limitations. FC02 confirmed current official endpoint/version direction and documents exact gaps: current v4 stock response semantics/as-of watermark need owner validation; `/v1/analytics/stocks` has transit-status fields but overlap is unproven; crossdock `arrival_date` is officially null; the current sale evidence retains finance recognition date, not physical exit time; no shared inventory/finance watermark exists in the current adapter.
 - This source gap is an implementation gate, not permission to substitute an assumption. `INVENTORY_CUTOFF_UNRECONCILED` must keep factual Period Profit COGS unavailable. A model view must be separately labeled and cannot be persisted as factual results.
+- Production wiring review found no Telegram entry point for `FifoCostAnchorService`; uninitialized SKU onboarding is not owner-usable. FC33 owner documentation and acceptance matrix record this product gap separately from the source cutoff and do not count it as passed.
 
 ## Check history
 
@@ -169,6 +170,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 - FC32 completed from independent expected values and source semantics. New six-permutation replay test always yields `170.00 ₽` and eight consumed units; repeated reads in different day/range orders preserve published allocations and revision. Linked profile: **406 passed**, six data files unchanged.
 - FC31 must use the existing backup/restore path only. Verify restored FIFO histories/revisions/supply references and compatible planning documents in an isolated temporary root; transient tickets/secrets must not be copied. Migrations remain additive/atomic and failures leave no partial schema.
 - FC32 independently verifies N01–N24 from financial meaning, exact totals and source states, including stateful replay/return/movement/correction, tenant isolation, bounded work and query-order independence. A correctly blocked unsupported physical cutoff is a negative safety assertion, not proof that production factual FIFO COGS is ready. Local matrix: 406 passed; all six owner data files unchanged.
+- FC33 documentation/wiring audit completed. Owner guide and acceptance plan are in `docs/fifo-cost-history-user-guide.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md`; source audit and architecture now call out the missing initial-anchor Telegram action and current per-mode limits. No live API/bot request; `USER_VALIDATION_PENDING` remains.
 - FC33 prepares understandable owner-facing instructions and a separate safe acceptance plan. Do not ask for credentials, `.env`, or raw payloads. Mark live-owner confirmation `USER_VALIDATION_PENDING`; source limitations remain `SOURCE_BLOCKED`.
 - FC34 runs full pytest, compileall and diff checks, records exact Python/tool versions, protects the 59-file data manifest before/after tests, and requires Windows/Linux CI plus the production Docker build/smoke for the exact pushed SHA. A green prior SHA is not sufficient.
 - FC35 creates the final implementation PR against main and `FIFO_COST_REVIEW_HANDOFF_2026-11-06.md`, including exact SHA, diff/architecture/migration map, numeric evidence, source gaps, known restrictions and reproduction steps. Do not merge, deploy, or start the real bot.

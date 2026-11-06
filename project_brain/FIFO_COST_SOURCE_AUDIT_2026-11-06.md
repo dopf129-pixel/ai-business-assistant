@@ -147,3 +147,20 @@ The Telegram history menu exposes only exact catalog SKU labels and owner-entere
 
 FC12 verification: **108 passed in 2.91s** across temporary FIFO databases, synthetic callbacks and existing seller-cost regressions; no source API or real bot was exercised. No FC02 evidence gap was closed in this stage.
 
+## FC32/FC33 implementation readiness update
+
+The integrated implementation adds source collection, late-supply drafts, seller-entered cost layers, replay/allocation revisions, planning snapshots, history and export. The sanitized source contracts above remain unchanged: the normalizer's accepted counts do not establish a shared physical inventory/finance cutoff, actual receipt timestamp, or physical sale timestamp.
+
+Production wiring check on the implementation branch confirms that `TelegramFifoCostHistoryService`, the new-rate flow and the late-entry draft flow are wired. However, the opening-anchor service has no user-facing Telegram entry point. An uninitialized SKU displays its FIFO button, then the new/late actions instruct the owner to initialize the opening balance; the owner cannot complete that step in the bot. The normal rate preview also refuses a rate when the required complete stock reconciliation is unavailable. Therefore setup and timely transition are not yet owner-usable end to end.
+
+Current mode boundaries:
+
+- Legacy dated cost remains the default for SKU streams without an explicit FIFO opening event.
+- FIFO history/current-cost and price-planning projections may use known finite layers when available; those values are model/planning evidence and do not make Period Profit factual.
+- Accepted supply `fact_quantity` is documentary evidence tied to a SKU/supply; it does not create a stock layer or prove receipt time.
+- Period Profit factual FIFO COGS remains `SOURCE_BLOCKED` until a common stock/physical-sale cutoff and supported movement replay are proven.
+- FIFO return confirmation is not exposed through a user-facing FIFO action; existing Return COGS authorization and accounting gates remain separate.
+- The visible `Исправить запись` action currently refuses edits; multi-transition late correction, linked returns/outflows and historical movement replay remain unsupported.
+
+FC32 covered these boundaries with synthetic acceptance tests; it did not turn refusals into positive support. See `docs/fifo-cost-history-user-guide.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for the exact current user flow and `USER_VALIDATION_PENDING` steps. Do not request credentials or raw JSON to close the gate.
+

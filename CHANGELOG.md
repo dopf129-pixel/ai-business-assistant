@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC33: руководство владельца и статус готовности
+
+- Added a Russian owner guide and a separate safe acceptance checklist covering timely cost entry, explicit zero at home, transit, late supply, sales across a transition, returns, third rates, corrections and frozen plans.
+- The source audit now records current production wiring and per-mode evidence limits. It confirms the opening-anchor service exists but has no Telegram entry point: an uninitialized SKU cannot be set up end to end by an owner. The guide does not claim factual FIFO Period Profit; that remains `SOURCE_BLOCKED`, while real-store validation remains `USER_VALIDATION_PENDING`.
+- FC33 was a documentation and wiring audit only; no live API call, real bot run, or owner-data change. Full validation follows at FC34.
+
 # 2026-11-06 — FIFO FC32: независимая числовая матрица
 
 - Added replay permutation and repeated period-query regressions: six input orders produce the same exact layer allocations/170.00 ₽ total, and reading day/range summaries in a different order does not consume stock or change the published revision.
