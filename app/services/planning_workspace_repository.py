@@ -28,6 +28,9 @@ from services.planning_unit_economics_experiment_adapter import (
 from services.fifo_planning_quantity_allocation_service import (
     FifoPlanningQuantityAllocationService,
 )
+from services.planning_sales_mix_cost_snapshot_adapter import (
+    PlanningSalesMixCostSnapshotAdapter,
+)
 from services.unit_economics_experiment_state_machine import (
     UnitEconomicsExperimentStateMachine,
 )
@@ -5458,7 +5461,7 @@ class PlanningWorkspaceRepository:
     def _payload(self, payload, scope, *, allow_legacy_sales_mix=False):
         if not isinstance(payload, dict) or set(payload) - {
             "plan_kind", "items", "sales_mix", "schema_version", "calculation_version",
-            "target_margin_percent",
+            "target_margin_percent", "sales_mix_cost_snapshot",
         }:
             return None
         kind = payload.get("plan_kind")
@@ -5709,6 +5712,14 @@ class PlanningWorkspaceRepository:
             sales_mix, normalized_items, allow_legacy=allow_legacy_sales_mix,
         ):
             return None
+        raw_cost_snapshot = payload.get("sales_mix_cost_snapshot")
+        cost_snapshot = None
+        if raw_cost_snapshot is not None:
+            cost_snapshot = PlanningSalesMixCostSnapshotAdapter().normalize(
+                raw_cost_snapshot, normalized_items, sales_mix,
+            )
+            if cost_snapshot is None:
+                return None
         target = self._decimal_string(payload.get("target_margin_percent"), nullable=True)
         if target is False:
             return None
@@ -5716,12 +5727,15 @@ class PlanningWorkspaceRepository:
             from decimal import Decimal
             if not Decimal("0") <= Decimal(target) <= Decimal("100"):
                 return None
-        return {
+        normalized_payload = {
             "plan_kind": kind, "items": normalized_items,
             "sales_mix": sales_mix,
             "schema_version": schema, "calculation_version": calc,
             "target_margin_percent": target,
         }
+        if cost_snapshot is not None:
+            normalized_payload["sales_mix_cost_snapshot"] = cost_snapshot
+        return normalized_payload
 
     @classmethod
     def _clean_sources(cls, sources):

@@ -68,13 +68,16 @@ class UnitPriceObservationQualityService:
         source_signatures = {item.get("source_date_bases") for item in assessed}
         if len(source_signatures) > 1:
             reasons.append("SOURCE_DATE_BASIS_MISMATCH")
-        signatures = {
-            candidate.get("assumption_signature")
-            for candidate in candidates if isinstance(candidate, dict)
+        modelled_candidates = [
+            candidate for candidate in candidates if isinstance(candidate, dict)
             and isinstance(candidate.get("result"), dict)
             and candidate["result"].get("evidence_basis") == "MODELLED_FROM_OBSERVED_INPUTS"
-        }
-        if len(signatures) > 1:
+        ]
+        signatures = [candidate.get("assumption_signature") for candidate in modelled_candidates]
+        if any(candidate.get("plan_fifo_cost_basis_status") == "UNKNOWN"
+               for candidate in modelled_candidates):
+            reasons.append("MODEL_COST_BASIS_UNKNOWN")
+        if len(set(signatures)) > 1:
             reasons.append("MODEL_ASSUMPTIONS_MISMATCH")
 
         cost_basis_signatures = [item["cost_basis_signature"] for item in assessed]

@@ -4,6 +4,9 @@ from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.fifo_planning_basis_compatibility_service import (
+    FifoPlanningBasisCompatibilityService,
+)
 
 
 class PlanningPlanComparisonService:
@@ -26,6 +29,7 @@ class PlanningPlanComparisonService:
 
     def __init__(self, sales_mix_planning_service):
         self.sales_mix_planning_service = sales_mix_planning_service
+        self.cost_basis_compatibility = FifoPlanningBasisCompatibilityService()
 
     def compare(self, first_result, second_result):
         first = self._document(first_result)
@@ -54,6 +58,12 @@ class PlanningPlanComparisonService:
         exact_scope = set(first_rows) == set(second_rows)
         scope_reason = None if exact_scope else "PRODUCT_SCOPE_MISMATCH"
         comparison_reason = prerequisite_reason or scope_reason
+        if comparison_reason is None:
+            compatible_cost, cost_reason = self._cost_basis_compatibility(
+                first_rows, second_rows,
+            )
+            if not compatible_cost:
+                comparison_reason = cost_reason
 
         rows = []
         for key in sorted(set(first_rows) | set(second_rows)):
@@ -208,6 +218,15 @@ class PlanningPlanComparisonService:
                 or any(first_mix.get(key) is None or second_mix.get(key) is None
                        for key in ("profit", "margin_percent"))):
             return False, "RESULT_METRIC_UNAVAILABLE"
+        return True, None
+
+    def _cost_basis_compatibility(self, first_rows, second_rows):
+        for key in sorted(set(first_rows) & set(second_rows)):
+            compatible, reason = self.cost_basis_compatibility.compare_items(
+                first_rows[key], second_rows[key],
+            )
+            if not compatible:
+                return False, reason
         return True, None
 
     @classmethod

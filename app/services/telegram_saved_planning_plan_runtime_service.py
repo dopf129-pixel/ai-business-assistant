@@ -1432,6 +1432,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 expected_revision=pending["revision"],
                 expected_state_revision=pending["state_revision"],
                 idempotency_key=pending["ticket"],
+                cost_projection=verified,
             )
             self._pending.pop(scope["key"], None)
         if result.get("error") is True:

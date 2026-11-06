@@ -628,6 +628,101 @@ def test_observation_ranking_blocks_different_frozen_scenario_assumptions(flow):
     assert "Максимум" not in result["message"]
 
 
+def test_observation_ranking_blocks_different_frozen_fifo_cost_revisions(flow):
+    repo, runtime, _, scope, document, _ = flow
+
+    def payload_with_basis(revision):
+        payload = _plan_payload()
+        item = payload["items"][0]
+        item["provenance"]["cost"] = "fifo_next_unit_cost"
+        item["sources"]["completeness"]["cost"] = {
+            "amount": "100.00", "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "as_of_date": "2026-10-27", "cutoff_date": "2026-10-26",
+            "stream_revision": 7, "revision": revision, "model_only": True,
+            "factual_period_profit_eligible": False,
+            "quantity_allocation_basis": {
+                "schema_version": 1, "status": "AVAILABLE",
+                "method": "FIFO_CURRENT_SNAPSHOT", "as_of_date": "2026-10-27",
+                "cutoff_date": "2026-10-26", "revision": revision,
+                "remaining_status": "AT_CONFIRMED_SNAPSHOT", "movement_count": 0,
+                "model_only": True, "factual_period_profit_eligible": False,
+                "layers": [{
+                    "sequence": 1, "kind": "FINITE_LAYER", "quantity": 10,
+                    "unit_cost_rub": "100.00", "effective_date": "2026-10-26",
+                }],
+                "open_rate": None,
+            },
+        }
+        return payload
+
+    first_plan = repo.save_document(
+        title="FIFO first", payload=payload_with_basis("fifo-rev-a"),
+        idempotency_key="rank-fifo-plan-a",
+    )
+    second_plan = repo.save_document(
+        title="FIFO second", payload=payload_with_basis("fifo-rev-b"),
+        idempotency_key="rank-fifo-plan-b",
+    )
+    first_doc = runtime.planning_service.get_document(first_plan["document_id"], revision=1)["document"]
+    second_doc = runtime.planning_service.get_document(second_plan["document_id"], revision=1)["document"]
+    first_card = _create_observation_at_price(runtime, scope, first_doc, "100")
+    first = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"][0]
+    finish = next(button["callback"] for button in first_card["keyboard"]["buttons"]
+                  if button["callback"].startswith("upo:finish:"))
+    runtime.handle_callback(finish, user_id="owner-1")
+    _create_observation_at_price(runtime, scope, second_doc, "95")
+    observations = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"]
+    first = next(item for item in observations if item["seller_price_cents"] == 10_000)
+    second = next(item for item in observations if item["seller_price_cents"] == 9_500)
+    _append_model_observation_result(
+        repo, first, scope, start="2026-10-01", end="2026-10-07", profit="20.00", units=100,
+    )
+    _append_model_observation_result(
+        repo, second, scope, start="2026-10-08", end="2026-10-14", profit="18.00", units=100,
+    )
+
+    result = runtime.handle_callback(f"upo:rank:{first['observation_id']}", user_id="owner-1")
+
+    assert result["status"] == "OBSERVATION_RANKING_NOT_READY"
+    assert "модельные допущения различаются" in result["message"]
+    assert "Максимум" not in result["message"]
+
+
+def test_observation_ranking_blocks_unknown_frozen_fifo_cost_basis(flow):
+    repo, runtime, _, scope, document, _ = flow
+    payload = _plan_payload()
+    item = payload["items"][0]
+    item["provenance"]["cost"] = "fifo_next_unit_cost"
+    item["sources"]["completeness"]["cost"] = {
+        "method": "FIFO_CURRENT_SNAPSHOT", "revision": "fifo-unknown",
+        "quantity_allocation_basis": {
+            "schema_version": 1, "status": "UNAVAILABLE",
+            "method": "FIFO_CURRENT_SNAPSHOT", "as_of_date": "2026-10-27",
+            "cutoff_date": "2026-10-26", "revision": "fifo-unknown",
+            "remaining_status": "INCOMPLETE", "movement_count": 1,
+            "model_only": True, "factual_period_profit_eligible": False,
+            "layers": [], "open_rate": None,
+            "reason_code": "FIFO_MOVEMENT_UNREPLAYED",
+        },
+    }
+    saved = repo.save_document(
+        title="FIFO unknown", payload=payload, idempotency_key="rank-fifo-unknown-plan",
+    )
+    frozen = runtime.planning_service.get_document(saved["document_id"], revision=1)["document"]
+    card = _create_observation_at_price(runtime, scope, frozen, "100")
+    observation = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"][0]
+    _append_model_observation_result(
+        repo, observation, scope, start="2026-10-01", end="2026-10-07", profit="20.00", units=100,
+    )
+
+    result = runtime.handle_callback(f"upo:rank:{observation['observation_id']}", user_id="owner-1")
+
+    assert card["status"] == "OBSERVATION_CARD_READY"
+    assert result["status"] == "OBSERVATION_RANKING_NOT_READY"
+    assert "Максимум" not in result["message"]
+
+
 def test_observation_ranking_callback_cannot_read_another_store(flow):
     repo, runtime, collector, scope, document, _ = flow
     _create_observation_at_price(runtime, scope, document, "100")

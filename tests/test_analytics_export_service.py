@@ -231,6 +231,69 @@ def test_saved_plan_sales_mix_and_advertising_cap_exports_expose_same_frozen_com
     }
 
 
+def test_saved_plan_export_keeps_fifo_basis_and_exact_sales_mix_allocation():
+    basis = {
+        "complete": True, "amount": "100.00", "method": "FIFO_FINITE_LAYER",
+        "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+        "as_of_date": "2026-11-06", "cutoff_date": "2026-11-05",
+        "stream_revision": 7, "revision": "fifo-rev-7", "model_only": True,
+        "factual_period_profit_eligible": False,
+        "quantity_allocation_basis": {
+            "schema_version": 1, "status": "AVAILABLE",
+            "method": "FIFO_CURRENT_SNAPSHOT", "as_of_date": "2026-11-06",
+            "cutoff_date": "2026-11-05", "revision": "fifo-rev-7",
+            "remaining_status": "AT_CONFIRMED_SNAPSHOT", "movement_count": 0,
+            "model_only": True, "factual_period_profit_eligible": False,
+            "layers": [{
+                "sequence": 1, "kind": "FINITE_LAYER", "quantity": 2,
+                "unit_cost_rub": "100.00", "effective_date": "2026-11-05",
+            }],
+            "open_rate": {"unit_cost_rub": "120.00", "effective_date": "2026-11-06"},
+        },
+    }
+    item = {
+        "row_id": "r1",
+        "identity": {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        "inputs": {"cost": "100.00"},
+        "sources": {"completeness": {"cost": basis}},
+        "projection": {"available": True},
+    }
+    document = {
+        "document_id": "doc-1", "revision": 2, "current_revision": 2,
+        "status": "ACTIVE", "title": "FIFO plan",
+        "payload": {
+            "plan_kind": "single", "calculation_version": 1,
+            "items": [item],
+            "sales_mix": {"period_label": "01.11.2026 - 30.11.2026",
+                          "quantities": {"r1": 3}, "confirmed": True},
+        },
+    }
+    allocation = {
+        "status": "COMPLETE", "quantity": 3, "total_cost_rub": "320.00",
+        "average_cost_rub": "106.67", "source_revision": "fifo-rev-7",
+        "model_only": True, "factual_period_profit_eligible": False,
+        "lines": [
+            {"sequence": 1, "kind": "FINITE_LAYER", "quantity": 2,
+             "unit_cost_rub": "100.00", "total_cost_rub": "200.00"},
+            {"sequence": "OPEN_RATE", "kind": "OPEN_RATE", "quantity": 1,
+             "unit_cost_rub": "120.00", "total_cost_rub": "120.00"},
+        ],
+    }
+
+    exported = _json(AnalyticsExportService().export_saved_plan(
+        document, "json", sales_mix_projection={"rows": [{
+            "row_id": "r1", "quantity": 3, "cost_allocation": allocation,
+        }]},
+    ))
+
+    row = exported["rows"][0]
+    assert row["sales_quantity"] == 3
+    assert row["fifo_cost_basis"]["quantity_allocation_basis"]["revision"] == "fifo-rev-7"
+    assert row["sales_mix_cost_allocation"]["total_cost_rub"] == "320.00"
+    assert row["sales_mix_cost_allocation"]["lines"][0]["quantity"] == 2
+    assert row["sales_mix_cost_allocation"]["factual_period_profit_eligible"] is False
+
+
 def test_sensitivity_export_contains_all_cells_not_just_visible_page():
     result = {
         "kind": "UNIT_PRICE_SENSITIVITY", "cell_count": 8, "available_cell_count": 7,

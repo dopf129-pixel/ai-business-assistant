@@ -44,6 +44,31 @@ def _document(revision, *, price="500", quantity=10, period="01.08.2026 - 31.08.
     }}
 
 
+def _attach_fifo_basis(document, *, revision="fifo-rev-1", status="AVAILABLE"):
+    item = document["document"]["payload"]["items"][0]
+    item["inputs"]["cost"] = "150"
+    item["provenance"] = {"cost": "fifo_next_unit_cost"}
+    item["sources"] = {"completeness": {"cost": {
+        "amount": "150.00", "method": "FIFO_FINITE_LAYER",
+        "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+        "as_of_date": "2026-11-06", "cutoff_date": "2026-11-05",
+        "stream_revision": 7, "revision": revision,
+        "model_only": True, "factual_period_profit_eligible": False,
+        "quantity_allocation_basis": {
+            "schema_version": 1, "status": status,
+            "method": "FIFO_CURRENT_SNAPSHOT", "as_of_date": "2026-11-06",
+            "cutoff_date": "2026-11-05", "revision": revision,
+            "remaining_status": "AT_CONFIRMED_SNAPSHOT", "movement_count": 0,
+            "model_only": True, "factual_period_profit_eligible": False,
+            "layers": [],
+            "open_rate": {"unit_cost_rub": "150.00", "effective_date": "2026-11-06"}
+                if status == "AVAILABLE" else None,
+            **({} if status == "AVAILABLE" else {"reason_code": "FIFO_BASIS_UNAVAILABLE"}),
+        },
+    }}}
+    return document
+
+
 def test_comparison_recomputes_only_compatible_historical_sales_mix_and_marks_margin_delta_pp():
     scenario = UnitPriceScenarioService(TaxService())
     service = PlanningPlanComparisonService(SalesMixPlanningService(scenario, scenario.tax_service))
@@ -136,6 +161,39 @@ def test_equal_but_unsupported_calculation_versions_do_not_use_current_calculato
     assert result["recalculated_from_saved_inputs"] is False
     assert result["metrics"]["profit"]["status"] == "NOT_COMPARABLE"
     assert calculate_calls == []
+
+
+def test_fifo_sales_mix_compares_only_the_same_frozen_basis_and_allows_a_different_quantity():
+    scenario = UnitPriceScenarioService(TaxService())
+    service = PlanningPlanComparisonService(SalesMixPlanningService(scenario, scenario.tax_service))
+    first = _attach_fifo_basis(_document(1, quantity=10))
+    same_basis = _attach_fifo_basis(_document(2, price="550", quantity=8))
+    different_basis = _attach_fifo_basis(
+        _document(3, price="550", quantity=8), revision="fifo-rev-2",
+    )
+
+    comparable = service.compare(first, same_basis)
+    mismatched = service.compare(first, different_basis)
+
+    assert comparable["status"] == "COMPARABLE", comparable.get("reason")
+    assert comparable["metrics"]["profit"]["status"] == "COMPARABLE"
+    assert mismatched["status"] == "NOT_COMPARABLE"
+    assert mismatched["reason"] == "COST_BASIS_MISMATCH"
+    assert all(metric["status"] == "NOT_COMPARABLE"
+               for metric in mismatched["metrics"].values())
+
+
+def test_fifo_sales_mix_with_unknown_cost_basis_is_not_ranked_as_comparable():
+    scenario = UnitPriceScenarioService(TaxService())
+    service = PlanningPlanComparisonService(SalesMixPlanningService(scenario, scenario.tax_service))
+    first = _attach_fifo_basis(_document(1))
+    unknown = _attach_fifo_basis(_document(2, price="550"), status="UNAVAILABLE")
+
+    result = service.compare(first, unknown)
+
+    assert result["status"] == "NOT_COMPARABLE"
+    assert result["reason"] == "COST_BASIS_UNKNOWN"
+    assert all(metric["status"] == "NOT_COMPARABLE" for metric in result["metrics"].values())
 
 
 def test_v2_plan_comparison_and_exports_include_frozen_cross_docking_evidence():

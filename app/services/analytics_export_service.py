@@ -9,6 +9,9 @@ from services.period_profit_diagnostic_view_service import (
     PeriodProfitDiagnosticViewService,
 )
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.fifo_planning_basis_compatibility_service import (
+    FifoPlanningBasisCompatibilityService,
+)
 from services.unit_economics_experiment_snapshot_view_service import (
     UnitEconomicsExperimentSnapshotViewService,
 )
@@ -32,6 +35,7 @@ class AnalyticsExportService:
 
     def __init__(self, serializer=None):
         self.serializer = serializer or AnalyticsExportSerializer()
+        self.fifo_cost_basis = FifoPlanningBasisCompatibilityService()
 
     def export_period_profit(self, snapshot, file_format):
         if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
@@ -483,12 +487,43 @@ class AnalyticsExportService:
             self._column("tariff_price_basis", "Основа тарифной цены", "status"),
             self._column("projection", "Сохранённая проекция", "json"),
             self._column("sales_quantity", "Подтверждённое количество", "integer", "шт."),
+            self._column("fifo_cost_basis", "Снимок FIFO-себестоимости", "json"),
+            self._column("sales_mix_cost_allocation", "Распределение FIFO на объём", "json"),
         ]
         cross_docking_enabled = PlanningCrossDockingAdapter.is_current(payload)
         if cross_docking_enabled:
             columns.append(self._column("cross_docking_source", "Источник кросс-докинга", "json"))
         mix = payload.get("sales_mix")
         quantities = mix.get("quantities") if isinstance(mix, dict) else {}
+        allocation_rows = []
+        saved_cost_snapshot = payload.get("sales_mix_cost_snapshot")
+        if isinstance(saved_cost_snapshot, dict) and isinstance(saved_cost_snapshot.get("rows"), list):
+            allocation_rows = saved_cost_snapshot["rows"]
+        elif isinstance(sales_mix_projection, dict):
+            for key in ("rows", "excluded_rows"):
+                value = sales_mix_projection.get(key)
+                if isinstance(value, list):
+                    allocation_rows.extend(value)
+        allocations_by_row = {}
+        if isinstance(allocation_rows, list):
+            for allocation_row in allocation_rows:
+                if not isinstance(allocation_row, dict):
+                    continue
+                row_id = allocation_row.get("row_id")
+                if isinstance(row_id, str) and row_id:
+                    allocation = allocation_row.get("cost_allocation")
+                    if not isinstance(allocation, dict) and "method" in allocation_row:
+                        allocation = {
+                            key: allocation_row.get(key) for key in (
+                                "status", "method", "reason_code", "quantity",
+                                "basis_ref", "allocated_quantity", "total_cost_rub", "known_cost_rub",
+                                "average_cost_rub", "source_revision", "as_of_date",
+                                "cutoff_date", "lines",
+                            )
+                        }
+                        allocation["model_only"] = True
+                        allocation["factual_period_profit_eligible"] = False
+                    allocations_by_row[row_id] = deepcopy(allocation)
         rows = []
         for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("identity"), dict):
@@ -496,6 +531,13 @@ class AnalyticsExportService:
             identity = item["identity"]
             row_id = str(item.get("row_id") or identity.get("sku") or "")
             projection = deepcopy(item.get("projection") or {})
+            sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+            completeness = sources.get("completeness")
+            completeness = completeness if isinstance(completeness, dict) else {}
+            cost_basis = self.fifo_cost_basis.export_snapshot(item)
+            allocation = allocations_by_row.get(row_id)
+            if isinstance(allocation, dict):
+                allocation = self._saved_fifo_allocation_export(allocation)
             row = {
                 "row_id": row_id,
                 "product_id": identity.get("product_id"),
@@ -508,7 +550,9 @@ class AnalyticsExportService:
                 **self._unit_price_tariff_export_fields(item),
                 "projection": projection,
                 "sales_quantity": quantities.get(row_id) if isinstance(quantities, dict) else None,
+                "fifo_cost_basis": deepcopy(cost_basis),
             }
+            row["sales_mix_cost_allocation"] = allocation
             if cross_docking_enabled:
                 row["cross_docking_source"] = deepcopy(
                     (item.get("sources") or {}).get("cross_docking")
@@ -530,9 +574,42 @@ class AnalyticsExportService:
             "sales_mix_period": mix.get("period_label") if isinstance(mix, dict) else None,
             "sales_mix_confirmed": mix.get("confirmed") if isinstance(mix, dict) else None,
             "sales_mix_projection": deepcopy(sales_mix_projection),
+            "sales_mix_cost_snapshot": (
+                {
+                    key: saved_cost_snapshot.get(key)
+                    for key in (
+                        "schema_version", "status", "model_only",
+                        "factual_period_profit_eligible",
+                    )
+                }
+                if isinstance(saved_cost_snapshot, dict) else None
+            ),
             "exported_scope": "all_rows_in_exact_saved_revision",
         }
         return self.serializer.serialize("saved_plan", file_format, columns, rows, metadata)
+
+    @staticmethod
+    def _saved_fifo_allocation_export(value):
+        if not isinstance(value, dict):
+            return None
+        lines = value.get("lines")
+        safe_lines = []
+        if isinstance(lines, list):
+            for line in lines[:20]:
+                if not isinstance(line, dict):
+                    continue
+                safe_lines.append({key: line.get(key) for key in (
+                    "sequence", "kind", "effective_date", "quantity",
+                    "unit_cost_rub", "total_cost_rub",
+                )})
+        return {
+            key: value.get(key) for key in (
+                "status", "method", "reason_code", "quantity", "allocated_quantity",
+                "basis_ref", "total_cost_rub", "known_cost_rub", "average_cost_rub",
+                "source_revision", "as_of_date", "cutoff_date", "model_only",
+                "factual_period_profit_eligible",
+            ) if key in value
+        } | {"lines": safe_lines}
 
     def export_advertising_cap(self, document, caps, file_format):
         if not isinstance(document, dict) or not isinstance(caps, list) or len(caps) > 10:

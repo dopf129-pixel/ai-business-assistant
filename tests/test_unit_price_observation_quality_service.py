@@ -146,6 +146,17 @@ def test_overlap_and_different_price_basis_block_comparison():
     assert "MODEL_ASSUMPTIONS_MISMATCH" in different_assumptions["reasons"]
 
 
+def test_modelled_observation_candidates_without_a_frozen_assumption_signature_are_incomparable():
+    first = _model_candidate(100, "2026-10-01", "2026-10-07")
+    second = _model_candidate(95, "2026-10-08", "2026-10-14")
+    first["plan_fifo_cost_basis_status"] = "UNKNOWN"
+    second["plan_fifo_cost_basis_status"] = "UNKNOWN"
+    result = _assess([first, second])
+
+    assert result["status"] == "INCOMPARABLE"
+    assert "MODEL_COST_BASIS_UNKNOWN" in result["reasons"]
+
+
 def test_extended_cost_scope_mode_and_origin_must_match_for_comparison():
     first = _with_extended_cost(
         _model_candidate(100, "2026-10-01", "2026-10-07"), signature="a" * 64,

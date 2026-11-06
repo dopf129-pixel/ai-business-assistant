@@ -869,6 +869,163 @@ def test_fifo_sales_mix_preview_uses_frozen_layers_and_shows_exact_quantity_brea
         reset_current_tenant_user_id(tenant)
 
 
+def test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        saved_runtime.handle_callback(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("FIFO frozen revision", user_id="user-1")
+        original = service.get_document(saved["document_id"])["document"]
+        payload = deepcopy(original["payload"])
+        item = payload["items"][0]
+        row_id = str(item.get("row_id") or item["identity"]["sku"])
+        item["inputs"]["cost"] = "100.00"
+        item.setdefault("provenance", {})["cost"] = "fifo_next_unit_cost"
+        item.setdefault("sources", {}).setdefault("completeness", {})[
+            "cost"
+        ] = _fifo_planning_cost_basis()
+        frozen = service.repository.save_document(
+            title=original["title"], payload=payload,
+            document_id=saved["document_id"], expected_revision=1,
+            expected_state_revision=original["state_revision"],
+            idempotency_key="fc27-save-frozen-fifo-plan",
+            owner_id="user-1", store_id="store-a",
+        )
+        assert frozen["error"] is False, frozen
+
+        sales_mix = {
+            "period_label": "01.10.2026 - 31.10.2026",
+            "quantities": {row_id: 10}, "expenses": [], "confirmed": True,
+        }
+        calculator = SalesMixPlanningService(
+            service.scenario_service, service.scenario_service.tax_service,
+        )
+        projection = calculator.calculate(
+            payload["items"], quantities=sales_mix["quantities"],
+            period_label=sales_mix["period_label"], expenses=[],
+            expenses_confirmed=True,
+        )
+        frozen_document = service.get_document(saved["document_id"])["document"]
+        missing_snapshot = service.save_sales_mix_revision(
+            saved["document_id"], sales_mix,
+            expected_revision=frozen_document["current_revision"],
+            expected_state_revision=frozen_document["state_revision"],
+            idempotency_key="fc27-fifo-mix-without-snapshot",
+        )
+        assert missing_snapshot["error"] is True
+        assert missing_snapshot["code"] == "PLANNING_SALES_MIX_COST_SNAPSHOT_REQUIRED"
+        frozen_mix = service.save_sales_mix_revision(
+            saved["document_id"], sales_mix,
+            expected_revision=frozen_document["current_revision"],
+            expected_state_revision=frozen_document["state_revision"],
+            idempotency_key="fc27-save-fifo-mix", cost_projection=projection,
+        )
+        assert frozen_mix["error"] is False, frozen_mix
+        source_calls = len(source.calls)
+
+        reopened_repository = PlanningWorkspaceRepository(db_path=tmp_path / "plans.sqlite")
+        reopened_service = SavedPlanningPlanService(
+            reopened_repository, UnitPriceScenarioService(TaxService()),
+        )
+        old_revision = reopened_service.get_document(
+            saved["document_id"], revision=1,
+        )["document"]
+        frozen_revision = reopened_service.get_document(
+            saved["document_id"], revision=3,
+        )["document"]
+        old_cost = old_revision["payload"]["items"][0].get("sources", {}).get(
+            "completeness", {},
+        ).get("cost", {})
+        assert "quantity_allocation_basis" not in old_cost
+        frozen_basis = frozen_revision["payload"]["items"][0]["sources"][
+            "completeness"
+        ]["cost"]
+        assert frozen_basis == _fifo_planning_cost_basis()
+        assert frozen_revision["payload"]["sales_mix"]["quantities"][row_id] == 10
+        cost_snapshot = frozen_revision["payload"]["sales_mix_cost_snapshot"]
+        assert cost_snapshot["schema_version"] == 1
+        assert cost_snapshot["status"] == "COMPLETE"
+        assert cost_snapshot["model_only"] is True
+        assert cost_snapshot["factual_period_profit_eligible"] is False
+        assert len(cost_snapshot["rows"][0]["basis_ref"]) == 64
+        assert cost_snapshot["rows"][0]["source_revision"] == "fc26-frozen-revision"
+        assert cost_snapshot["rows"][0]["total_cost_rub"] == "1040.00"
+        assert [line["quantity"] for line in cost_snapshot["rows"][0]["lines"]] == [8, 2]
+
+        copied = reopened_service.copy_document(
+            saved["document_id"], title="FIFO copied revision", revision=3,
+        )
+        assert copied["error"] is False
+        copied_revision = reopened_service.get_document(copied["document_id"])["document"]
+        assert copied_revision["payload"]["sales_mix_cost_snapshot"] == cost_snapshot
+        assert copied_revision["payload"]["items"][0]["sources"][
+            "completeness"
+        ]["cost"] == frozen_basis
+        edited_payload = deepcopy(copied_revision["payload"])
+        edited_payload["sales_mix"]["quantities"][row_id] = 9
+        stale_update = reopened_repository.save_document(
+            title=copied_revision["title"], payload=edited_payload,
+            document_id=copied["document_id"], expected_revision=1,
+            expected_state_revision=copied_revision["state_revision"],
+            idempotency_key="fc27-reject-stale-fifo-snapshot",
+            owner_id="user-1", store_id="store-a",
+        )
+        assert stale_update["error"] is True
+        assert reopened_service.get_document(copied["document_id"])[
+            "document"
+        ]["current_revision"] == 1
+        revised_projection = calculator.calculate(
+            edited_payload["items"],
+            quantities=edited_payload["sales_mix"]["quantities"],
+            period_label=edited_payload["sales_mix"]["period_label"],
+            expenses=edited_payload["sales_mix"]["expenses"],
+            expenses_confirmed=True,
+        )
+        copied_document = reopened_service.get_document(copied["document_id"])["document"]
+        edited = reopened_service.save_sales_mix_revision(
+            copied["document_id"], edited_payload["sales_mix"],
+            expected_revision=copied_document["current_revision"],
+            expected_state_revision=copied_document["state_revision"],
+            idempotency_key="fc27-edit-fifo-copy",
+            cost_projection=revised_projection,
+        )
+        assert edited["error"] is False, edited
+        edited_copy = reopened_service.get_document(
+            copied["document_id"], revision=2,
+        )["document"]
+        assert edited_copy["payload"]["items"][0]["sources"][
+            "completeness"
+        ]["cost"] == frozen_basis
+        assert edited_copy["payload"]["sales_mix"]["quantities"][row_id] == 9
+        assert edited_copy["payload"]["sales_mix_cost_snapshot"]["rows"][0][
+            "total_cost_rub"
+        ] == "920.00"
+        assert reopened_service.get_document(
+            saved["document_id"], revision=3,
+        )["document"]["payload"] == frozen_revision["payload"]
+
+        exported = AnalyticsExportService().export_saved_plan(
+            edited_copy, "json",
+        )
+        assert exported["error"] is False
+        export_document = json.loads(exported["file_content"].decode("utf-8"))
+        export_row = export_document["rows"][0]
+        assert export_row["sales_quantity"] == 9
+        assert export_row["fifo_cost_basis"]["revision"] == "fc26-frozen-revision"
+        assert export_row["sales_mix_cost_allocation"]["basis_ref"] == cost_snapshot[
+            "rows"
+        ][0]["basis_ref"]
+        assert export_row["sales_mix_cost_allocation"]["total_cost_rub"] == "920.00"
+        assert export_row["sales_mix_cost_allocation"]["lines"][0]["quantity"] == 8
+        assert export_row["sales_mix_cost_allocation"]["factual_period_profit_eligible"] is False
+        assert len(source.calls) == source_calls
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_public_plan_fact_flow_uses_finalized_canonical_result_and_snapshot_exports(tmp_path):
     class Finance:
         def __init__(self):
@@ -998,10 +1155,21 @@ def test_plan_fact_refresh_does_not_publish_after_plan_revision_changes(tmp_path
             mix = deepcopy(current["payload"]["sales_mix"])
             row_id = next(iter(mix["quantities"]))
             mix["quantities"][row_id] += 1
+            calculator = SalesMixPlanningService(
+                plan_service.scenario_service,
+                plan_service.scenario_service.tax_service,
+            )
+            projection = calculator.calculate(
+                current["payload"]["items"],
+                quantities=mix["quantities"],
+                period_label=mix["period_label"],
+                expenses=mix["expenses"], expenses_confirmed=True,
+            )
             changed = plan_service.save_sales_mix_revision(
                 document_id, mix, expected_revision=current["current_revision"],
                 expected_state_revision=current["state_revision"],
                 idempotency_key="concurrent-plan-update",
+                cost_projection=projection,
             )
             assert changed["error"] is False, changed
             return canonical_runtime.query_selected_identities(
