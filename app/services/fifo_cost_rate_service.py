@@ -30,6 +30,8 @@ class FifoCostRateService:
         old_home_units,
         expected_revision,
         zero_stock_snapshot=None,
+        stock_snapshot=None,
+        owner_confirms_reconciliation_scope=False,
     ):
         """Build a no-write preview for the next open FIFO rate."""
         zero_stock_evidence = None
@@ -58,6 +60,8 @@ class FifoCostRateService:
             owner_old_home_units=old_home_units,
             expected_revision=expected_revision,
             zero_stock_evidence=zero_stock_evidence,
+            stock_snapshot=stock_snapshot,
+            owner_confirms_reconciliation_scope=owner_confirms_reconciliation_scope,
         )
 
     def confirm_new_cost(self, *, preview_id, active_preview_id, idempotency_key):

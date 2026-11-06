@@ -202,6 +202,11 @@ class TelegramFifoCostHistoryService:
                         f"  На момент записи владелец указал дома {rate['owner_old_home_units']} шт. "
                         "старой партии; это подтверждение, не дополнительный складской остаток."
                     )
+                if rate.get("reconciled_quantity") is not None:
+                    lines.append(
+                        f"  До следующей ставки подтверждено {rate['reconciled_quantity']} шт. "
+                        f"по этой цене из общего остатка {rate['reconciled_total_units']} шт."
+                    )
                 if captured:
                     lines.append(f"  Записано: {captured}.")
             if len(snapshot["rates"]) > 30:

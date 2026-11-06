@@ -181,9 +181,12 @@ class _RateStub:
     def __init__(self):
         self.preview_payload = None
         self.confirm_payloads = []
+        self.preview_error = None
 
     def preview_new_cost(self, **payload):
         self.preview_payload = payload
+        if self.preview_error is not None:
+            return self.preview_error
         return {
             "error": False,
             "code": "FIFO_RATE_PREVIEW_READY",
@@ -230,6 +233,29 @@ def test_new_rate_flow_collects_components_and_confirms_without_batch_quantity()
         assert repeated == saved
         assert len(rate_stub.confirm_payloads) == 1
         assert rate_stub.confirm_payloads[0]["active_preview_id"] == "private-preview-id"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_new_rate_flow_explains_missing_reconciliation_and_does_not_confirm():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        rate_stub = _RateStub()
+        rate_stub.preview_error = {
+            "error": True,
+            "code": "FIFO_RATE_RECONCILIATION_REQUIRED",
+        }
+        entry = TelegramFifoCostRateEntryService(
+            _HistoryStub(), rate_stub, date_provider=lambda: date(2026, 11, 6),
+        )
+        entry.start(101, IDENTITY, "Крючки", 3)
+        for value in ("100", "20", "5", "2"):
+            result = entry.handle_text(101, value)
+        assert result["error"] is True
+        assert "полная сверка старого остатка" in result["message"]
+        assert "новую ставку не сохранил" in result["message"]
+        assert "FIFO_RATE_RECONCILIATION_REQUIRED" not in result["message"]
+        assert rate_stub.confirm_payloads == []
     finally:
         reset_current_tenant_user_id(tenant)
 

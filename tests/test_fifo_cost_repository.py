@@ -238,7 +238,7 @@ def test_fc11_schema_v2_upgrade_adds_rate_history_without_changing_other_data(tm
     try:
         assert upgraded.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 4
+        ).fetchone()[0] == 5
         assert tuple(upgraded.execute(
             "SELECT state, revision FROM fifo_cost_streams WHERE stream_id='stream-v2'"
         ).fetchone()) == ("FIFO_READY", 1)
@@ -274,7 +274,7 @@ def test_fc13_schema_v3_upgrade_adds_append_only_supply_evidence(tmp_path):
     try:
         assert upgraded.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 4
+        ).fetchone()[0] == 5
         assert tuple(upgraded.execute(
             "SELECT state, revision FROM fifo_cost_streams WHERE stream_id='stream-v3'"
         ).fetchone()) == ("FIFO_READY", 1)
@@ -285,6 +285,42 @@ def test_fc13_schema_v3_upgrade_adds_append_only_supply_evidence(tmp_path):
         assert upgraded.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
             "AND name='trg_fifo_cost_supply_evidence_no_update'"
+        ).fetchone()[0] == 1
+    finally:
+        upgraded.close()
+
+
+def test_fc14_schema_v4_upgrade_adds_append_only_rate_reconciliations(tmp_path):
+    db = tmp_path / "schema-v4.sqlite"
+    repo = FifoCostRepository(db_path=db)
+    connection = repo.get_connection()
+    try:
+        connection.execute("UPDATE fifo_cost_schema SET version=4 WHERE singleton=1")
+        connection.execute(
+            "INSERT INTO fifo_cost_streams(stream_id, store_id, product_id, offer_id, sku, "
+            "identity_fingerprint, policy_version, state, revision, created_at, updated_at) "
+            "VALUES ('stream-v4', 'store-a', 'product-1', 'offer-1', 'sku-1', "
+            "'identity-v4', 1, 'FIFO_READY', 1, 'created', 'updated')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    upgraded = FifoCostRepository(db_path=db).get_connection()
+    try:
+        assert upgraded.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION
+        assert tuple(upgraded.execute(
+            "SELECT state, revision FROM fifo_cost_streams WHERE stream_id='stream-v4'"
+        ).fetchone()) == ("FIFO_READY", 1)
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='fifo_cost_rate_reconciliations'"
+        ).fetchone()[0] == 1
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
+            "AND name='trg_fifo_cost_rate_reconciliations_no_update'"
         ).fetchone()[0] == 1
     finally:
         upgraded.close()

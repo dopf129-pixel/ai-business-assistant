@@ -44,14 +44,26 @@ class FifoCostHistoryService:
         except (TypeError, ValueError):
             return {"error": True, "code": "FIFO_HISTORY_DATE_INVALID"}
 
+        reconciliations_by_rate = {
+            row["reconciled_rate_sequence"]: row
+            for row in snapshot.get("rate_reconciliations", ())
+        }
         rates = []
         for row in snapshot["rates"]:
             effective_date = date.fromisoformat(row["effective_date"])
+            reconciliation = reconciliations_by_rate.get(row["sequence"])
             rates.append({
                 **row,
                 "status": "EFFECTIVE" if effective_date <= as_of else "PLANNED",
                 "provenance_label": self._provenance_label(row.get("provenance")),
+                "reconciled_quantity": (
+                    reconciliation["prior_rate_units"] if reconciliation else None
+                ),
+                "reconciled_total_units": (
+                    reconciliation["reconciled_total_units"] if reconciliation else None
+                ),
             })
+        rate_reconciliations = list(snapshot.get("rate_reconciliations", ()))
         effective_rates = [item for item in rates if item["status"] == "EFFECTIVE"]
         planned_rates = [item for item in rates if item["status"] == "PLANNED"]
         active_rate = effective_rates[-1] if effective_rates else None
@@ -97,6 +109,7 @@ class FifoCostHistoryService:
             "projection": snapshot["projection"],
             "layers": layers,
             "rates": rates,
+            "rate_reconciliations": rate_reconciliations,
             "active_rate": active_rate,
             "next_planned_rate": next_planned_rate,
             "next_unit_cost_rub": next_unit_cost,

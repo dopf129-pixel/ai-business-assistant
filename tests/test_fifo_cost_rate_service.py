@@ -5,8 +5,10 @@ from dataclasses import replace
 import pytest
 
 from services.fifo_cost_anchor_service import FifoCostAnchorService
+from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_source_normalizer import FifoStockSnapshot
 from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import (
@@ -71,6 +73,31 @@ def _preview(service, **overrides):
     }
     payload.update(overrides)
     return service.preview_new_cost(**payload)
+
+
+def _stock_snapshot(*, date="2026-11-08", fbo=20, reserved=4, transit=0,
+                    source_fingerprint="a" * 64, status="COMPLETE"):
+    return FifoStockSnapshot(
+        status=status,
+        source_status="COMPLETE" if status == "COMPLETE" else status,
+        store_id=IDENTITY["store_id"],
+        product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"],
+        sku=IDENTITY["sku"],
+        captured_at=f"{date}T12:00:00Z",
+        source_as_of=None,
+        pagination_complete=True,
+        pages_read=1,
+        total_items=1,
+        fbo_units=fbo,
+        reserved_units=reserved,
+        available_units=fbo - reserved,
+        transit_units=transit,
+        transit_status="DISJOINT_CONFIRMED",
+        source_fingerprint=source_fingerprint,
+        issue_codes=(),
+        anchor_eligible=False,
+    )
 
 
 @pytest.fixture
@@ -211,16 +238,242 @@ def test_later_rate_preserves_fifo_order_and_rejects_old_effective_date(scoped_r
         effective_date="2026-11-08",
         expected_revision=2,
         purchase_cost_rub="20.00",
+        stock_snapshot=_stock_snapshot(fbo=20, reserved=4),
+        owner_confirms_reconciliation_scope=True,
     )
     assert later["error"] is False
     assert later["rate_sequence"] == 2
     assert later["prior_rate_unit_cost_rub"] == "15.00"
+    assert later["rate_reconciliation"]["older_finite_units"] == 17
+    assert later["rate_reconciliation"]["prior_rate_units"] == 3
     earlier = _preview(
         service,
         effective_date="2026-11-06",
         expected_revision=2,
     )
     assert earlier == {"error": True, "code": "FIFO_RATE_DATE_ORDER_UNRESOLVED"}
+
+
+def test_fc14_third_and_fourth_prices_reconcile_only_the_previous_open_rate(tmp_path):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "four-price-transitions.sqlite",
+        now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+    )
+    rate_service = FifoCostRateService(repository)
+    anchor_service = FifoCostAnchorService(
+        repository,
+        now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+    )
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-1", "store-a"))
+    try:
+        anchor = anchor_service.preview_opening_anchor(
+            **IDENTITY,
+            inventory_cutoff="2026-11-05",
+            cost_layers=[{
+                "sequence": 1,
+                "unit_cost_rub": "20.00",
+                "ozon_units": 150,
+                "transit_units": 0,
+                "home_units": 0,
+            }],
+            ozon_units_include_reserved_confirmed=True,
+            transit_not_in_ozon_confirmed=True,
+        )
+        anchored = anchor_service.commit_opening_anchor(
+            preview_id=anchor["preview_id"],
+            active_preview_id=anchor["preview_id"],
+            idempotency_key="four-price-anchor01",
+        )
+        assert anchored["error"] is False
+
+        second_price = rate_service.preview_new_cost(
+            **IDENTITY, effective_date="2026-11-06",
+            purchase_cost_rub="25.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=0, expected_revision=1,
+        )
+        second_saved = rate_service.confirm_new_cost(
+            preview_id=second_price["preview_id"],
+            active_preview_id=second_price["preview_id"],
+            idempotency_key="four-price-rate-two",
+        )
+        assert second_saved["error"] is False
+
+        third_price = rate_service.preview_new_cost(
+            **IDENTITY, effective_date="2026-11-07",
+            purchase_cost_rub="30.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=50, expected_revision=2,
+            stock_snapshot=_stock_snapshot(
+                date="2026-11-07", fbo=300, reserved=40, source_fingerprint="b" * 64,
+            ),
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert third_price["error"] is False
+        assert third_price["rate_reconciliation"]["reconciled_total_units"] == 350
+        assert third_price["rate_reconciliation"]["older_finite_units"] == 150
+        assert third_price["rate_reconciliation"]["prior_rate_units"] == 200
+        third_saved = rate_service.confirm_new_cost(
+            preview_id=third_price["preview_id"],
+            active_preview_id=third_price["preview_id"],
+            idempotency_key="four-price-rate-three",
+        )
+        assert third_saved["error"] is False
+        assert third_saved["reconciled_previous_rate_units"] == 200
+
+        unexplained_lower_count = rate_service.preview_new_cost(
+            **IDENTITY, effective_date="2026-11-08",
+            purchase_cost_rub="40.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=50, expected_revision=3,
+            stock_snapshot=_stock_snapshot(
+                date="2026-11-08", fbo=290, reserved=40, source_fingerprint="d" * 64,
+            ),
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert unexplained_lower_count == {
+            "error": True, "code": "FIFO_RATE_STOCK_DISCREPANCY",
+        }
+        unchanged = repository.read_cost_history_snapshot(**IDENTITY)
+        assert [rate["unit_cost_rub"] for rate in unchanged["rates"]] == [
+            "25.00", "30.00",
+        ]
+        assert unchanged["projection"]["known_quantity"] == 350
+
+        fourth_price = rate_service.preview_new_cost(
+            **IDENTITY, effective_date="2026-11-08",
+            purchase_cost_rub="40.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=50, expected_revision=3,
+            stock_snapshot=_stock_snapshot(
+                date="2026-11-08", fbo=360, reserved=40, transit=10,
+                source_fingerprint="c" * 64,
+            ),
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert fourth_price["error"] is False
+        assert fourth_price["rate_reconciliation"]["older_finite_units"] == 350
+        assert fourth_price["rate_reconciliation"]["prior_rate_units"] == 70
+        fourth_saved = rate_service.confirm_new_cost(
+            preview_id=fourth_price["preview_id"],
+            active_preview_id=fourth_price["preview_id"],
+            idempotency_key="four-price-rate-four",
+        )
+        assert fourth_saved["error"] is False
+
+        history = repository.read_cost_history_snapshot(**IDENTITY)
+        assert [rate["unit_cost_rub"] for rate in history["rates"]] == [
+            "25.00", "30.00", "40.00",
+        ]
+        assert [item["prior_rate_units"] for item in history["rate_reconciliations"]] == [
+            200, 70,
+        ]
+        connection = repository.get_connection()
+        try:
+            assert [row[0] for row in connection.execute(
+                "SELECT source_fingerprint FROM fifo_cost_rate_reconciliations "
+                "ORDER BY transition_rate_sequence"
+            )] == ["b" * 64, "c" * 64]
+        finally:
+            connection.close()
+        assert history["layers"] == [{
+            "sequence": 1,
+            "recorded_quantity": 150,
+            "unit_cost_rub": "20.00",
+            "effective_date": "2026-11-05",
+            "provenance": "OWNER_CONFIRMED",
+            "location": "OZON",
+            "source_status": "OWNER_CONFIRMED",
+            "coverage_status": "OWNER_CONFIRMED",
+        }]
+        assert history["projection"]["known_quantity"] == 420
+        assert history["projection"]["known_cost_rub"] == "10100.00"
+        assert history["projection"]["next_unit_cost_rub"] == "20.00"
+        history_view = FifoCostHistoryService(repository).get_sku_history(
+            **IDENTITY, as_of_date="2026-11-09",
+        )
+        assert [rate["reconciled_quantity"] for rate in history_view["rates"]] == [
+            200, 70, None,
+        ]
+
+        connection = repository.get_connection()
+        try:
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                connection.execute(
+                    "UPDATE fifo_cost_rate_reconciliations SET prior_rate_units=1"
+                )
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fc14_missing_or_partial_stock_evidence_cannot_advance_second_rate(scoped_rate_service):
+    repository, service = scoped_rate_service
+    first = _preview(service)
+    committed = service.confirm_new_cost(
+        preview_id=first["preview_id"],
+        active_preview_id=first["preview_id"],
+        idempotency_key="first-rate-change01",
+    )
+    assert committed["error"] is False
+
+    missing = _preview(service, effective_date="2026-11-08", expected_revision=2)
+    assert missing == {"error": True, "code": "FIFO_RATE_RECONCILIATION_REQUIRED"}
+    incomplete = _preview(
+        service,
+        effective_date="2026-11-08",
+        expected_revision=2,
+        stock_snapshot=_stock_snapshot(status="PARTIAL"),
+        owner_confirms_reconciliation_scope=True,
+    )
+    assert incomplete == {
+        "error": True, "code": "FIFO_RATE_RECONCILIATION_SOURCE_INCOMPLETE",
+    }
+    connection = repository.get_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_rate_changes"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_rate_reconciliations"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT revision FROM fifo_cost_streams"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
+
+
+def test_fc14_lower_total_is_conflict_and_does_not_shrink_older_layer(scoped_rate_service):
+    repository, service = scoped_rate_service
+    first = _preview(service)
+    committed = service.confirm_new_cost(
+        preview_id=first["preview_id"],
+        active_preview_id=first["preview_id"],
+        idempotency_key="first-rate-change01",
+    )
+    assert committed["error"] is False
+    too_low = _preview(
+        service,
+        effective_date="2026-11-08",
+        expected_revision=2,
+        old_home_units=0,
+        stock_snapshot=_stock_snapshot(
+            date="2026-11-08", fbo=16, reserved=0, source_fingerprint="d" * 64,
+        ),
+        owner_confirms_reconciliation_scope=True,
+    )
+    assert too_low == {"error": True, "code": "FIFO_RATE_RECONCILIATION_CONFLICT"}
+    connection = repository.get_connection()
+    try:
+        assert tuple(connection.execute(
+            "SELECT quantity, unit_cost_rub FROM fifo_cost_layers ORDER BY layer_sequence"
+        ).fetchone()) == (10, "5.00")
+        assert connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_rate_reconciliations"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT revision FROM fifo_cost_streams"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
 
 
 def test_rate_before_opening_cutoff_is_rejected(scoped_rate_service):

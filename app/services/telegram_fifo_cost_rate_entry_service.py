@@ -215,6 +215,34 @@ class TelegramFifoCostRateEntryService:
         )
         if not isinstance(preview, dict) or preview.get("error") is not False:
             self._pending.pop(owner, None)
+            code = preview.get("code") if isinstance(preview, dict) else None
+            if code in {
+                "FIFO_RATE_RECONCILIATION_REQUIRED",
+                "FIFO_RATE_RECONCILIATION_SOURCE_INCOMPLETE",
+                "FIFO_RATE_RECONCILIATION_SCOPE_UNCONFIRMED",
+                "FIFO_RATE_RECONCILIATION_SCOPE_MISMATCH",
+                "FIFO_RATE_RECONCILIATION_DATE_MISMATCH",
+            }:
+                return self._failure(
+                    "Для следующей смены себестоимости нужна полная сверка старого остатка "
+                    "по Ozon, отдельному товару в пути и остатку дома. Сейчас бот не может "
+                    "подтвердить полноту такого снимка, поэтому новую ставку не сохранил. "
+                    "Ранее записанные цены и остатки не изменены."
+                )
+            if code in {
+                "FIFO_RATE_RECONCILIATION_CONFLICT",
+                "FIFO_RATE_STOCK_DISCREPANCY",
+            }:
+                return self._failure(
+                    "Остаток меньше уже подтверждённых старых партий или расходится с "
+                    "предыдущей сверкой. Новую ставку не сохранил и остатки не уменьшал. "
+                    "Нужно отдельно разобраться с движением товара."
+                )
+            if code == "FIFO_RATE_REPLAY_REQUIRED":
+                return self._failure(
+                    "После последней сверки есть движения товара, которые ещё не распределены "
+                    "по FIFO. Новую ставку не сохранил; сначала требуется пересчёт истории."
+                )
             return self._failure(
                 "Не удалось построить подтверждённый расчёт. Очередь FIFO изменилась или требует сверки; "
                 "ничего не сохранено. Откройте товар заново."

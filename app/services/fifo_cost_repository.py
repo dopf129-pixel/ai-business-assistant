@@ -23,7 +23,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -77,6 +77,7 @@ class FifoCostRepository:
         "fifo_cost_commands",
         "fifo_cost_command_events",
         "fifo_cost_rate_changes",
+        "fifo_cost_rate_reconciliations",
         "fifo_cost_supply_evidence",
     )
 
@@ -92,6 +93,7 @@ class FifoCostRepository:
         "fifo_cost_commands",
         "fifo_cost_command_events",
         "fifo_cost_rate_changes",
+        "fifo_cost_rate_reconciliations",
         "fifo_cost_supply_evidence",
     )
 
@@ -148,6 +150,7 @@ class FifoCostRepository:
                     "projection": None,
                     "layers": [],
                     "rates": [],
+                    "rate_reconciliations": [],
                     "event_counts": {},
                     "movement_count": 0,
                     "latest_allocation": None,
@@ -218,6 +221,27 @@ class FifoCostRepository:
                 "source_status": row["source_status"],
                 "coverage_status": row["coverage_status"],
             } for row in rate_rows]
+            reconciliation_rows = connection.execute(
+                """SELECT transition_rate_sequence, reconciled_rate_sequence,
+                          reconciled_total_units, older_finite_units,
+                          prior_rate_units, fbo_units, reserved_units,
+                          transit_units, home_units, captured_at
+                   FROM fifo_cost_rate_reconciliations
+                   WHERE stream_id=? ORDER BY transition_rate_sequence""",
+                (stream_id,),
+            ).fetchall()
+            rate_reconciliations = [{
+                "transition_rate_sequence": row["transition_rate_sequence"],
+                "reconciled_rate_sequence": row["reconciled_rate_sequence"],
+                "reconciled_total_units": row["reconciled_total_units"],
+                "older_finite_units": row["older_finite_units"],
+                "prior_rate_units": row["prior_rate_units"],
+                "fbo_units": row["fbo_units"],
+                "reserved_units": row["reserved_units"],
+                "transit_units": row["transit_units"],
+                "home_units": row["home_units"],
+                "captured_at": row["captured_at"],
+            } for row in reconciliation_rows]
             event_rows = connection.execute(
                 """SELECT event_kind, COUNT(*) AS event_count
                    FROM fifo_cost_events WHERE stream_id=?
@@ -254,6 +278,7 @@ class FifoCostRepository:
                 "projection": projection,
                 "layers": layers,
                 "rates": rates,
+                "rate_reconciliations": rate_reconciliations,
                 "event_counts": event_counts,
                 "movement_count": movement_count,
                 "latest_allocation": latest_allocation,
@@ -979,7 +1004,8 @@ class FifoCostRepository:
         self, *, store_id, product_id=None, offer_id=None, sku,
         effective_date, purchase_cost_rub, delivery_cost_rub,
         packaging_cost_rub, owner_old_home_units, expected_revision,
-        zero_stock_evidence=None,
+        zero_stock_evidence=None, stock_snapshot=None,
+        owner_confirms_reconciliation_scope=False,
     ):
         """Preview an owner-reported open rate without adding inventory units."""
         scope = self._tenant_scope(store_id)
@@ -1081,6 +1107,87 @@ class FifoCostRepository:
                    ORDER BY rate_sequence DESC LIMIT 1""",
                 (stream_id,),
             ).fetchone()
+            if previous is not None and effective_date < previous["effective_date"]:
+                return self._error("FIFO_RATE_DATE_ORDER_UNRESOLVED")
+            reconciliation = None
+            if previous is not None:
+                if stock_snapshot is None:
+                    return self._error("FIFO_RATE_RECONCILIATION_REQUIRED")
+                if owner_confirms_reconciliation_scope is not True:
+                    return self._error("FIFO_RATE_RECONCILIATION_SCOPE_UNCONFIRMED")
+                stock = self._normalize_rate_reconciliation_snapshot(
+                    stock_snapshot, identity, effective_date,
+                )
+                if isinstance(stock, str):
+                    return self._error(stock)
+                # Until accepted sale/movement replay is available, a current
+                # count cannot be used to shrink older layers or explain away
+                # inventory disappearance.
+                movement_count = connection.execute(
+                    """SELECT COUNT(*) FROM fifo_cost_events
+                       WHERE stream_id=? AND event_kind NOT IN (
+                           'OPENING_FIFO_ANCHOR', 'COST_LAYER_RECEIPT'
+                       )""",
+                    (stream_id,),
+                ).fetchone()[0]
+                if movement_count:
+                    return self._error("FIFO_RATE_REPLAY_REQUIRED")
+                previous_rate_sequence = previous["rate_sequence"]
+                prior_reconciliation_count = connection.execute(
+                    """SELECT COUNT(*) FROM fifo_cost_rate_reconciliations
+                       WHERE stream_id=? AND reconciled_rate_sequence < ?""",
+                    (stream_id, previous_rate_sequence),
+                ).fetchone()[0]
+                if prior_reconciliation_count != previous_rate_sequence - 1:
+                    return self._error("FIFO_RATE_HISTORY_GAP")
+                already_reconciled = connection.execute(
+                    """SELECT 1 FROM fifo_cost_rate_reconciliations
+                       WHERE stream_id=? AND reconciled_rate_sequence=?""",
+                    (stream_id, previous_rate_sequence),
+                ).fetchone()
+                if already_reconciled is not None:
+                    return self._error("FIFO_RATE_RECONCILIATION_ALREADY_EXISTS")
+                older_units = projection["known_quantity"]
+                if type(older_units) is not int or older_units < 0:
+                    return self._error("FIFO_PROJECTION_STALE")
+                total_units = (
+                    stock["fbo_units"] + stock["transit_units"]
+                    + owner_old_home_units
+                )
+                if total_units > self.MAX_COMMAND_UNITS:
+                    return self._error("FIFO_STREAM_QUANTITY_LIMIT")
+                last_total = connection.execute(
+                    """SELECT reconciled_total_units
+                       FROM fifo_cost_rate_reconciliations WHERE stream_id=?
+                       ORDER BY transition_rate_sequence DESC LIMIT 1""",
+                    (stream_id,),
+                ).fetchone()
+                if last_total is not None and total_units < last_total["reconciled_total_units"]:
+                    return self._error("FIFO_RATE_STOCK_DISCREPANCY")
+                if total_units < older_units:
+                    return self._error("FIFO_RATE_RECONCILIATION_CONFLICT")
+                previous_rate_units = total_units - older_units
+                if owner_old_home_units > previous_rate_units:
+                    return self._error("FIFO_RATE_RECONCILIATION_CONFLICT")
+                reconciliation = {
+                    "transition_rate_sequence": previous_rate_sequence + 1,
+                    "reconciled_rate_sequence": previous_rate_sequence,
+                    "effective_date": effective_date,
+                    "reconciled_total_units": total_units,
+                    "older_finite_units": older_units,
+                    "prior_rate_units": previous_rate_units,
+                    "fbo_units": stock["fbo_units"],
+                    "reserved_units": stock["reserved_units"],
+                    "transit_units": stock["transit_units"],
+                    "home_units": owner_old_home_units,
+                    "source_fingerprint": stock["source_fingerprint"],
+                    "captured_at": stock["captured_at"],
+                    "prior_rate_unit_cost_rub": previous["unit_cost_rub"],
+                    "older_finite_cost_rub": projection["known_cost_rub"],
+                    "prior_total_units": (
+                        last_total["reconciled_total_units"] if last_total else None
+                    ),
+                }
             latest_layer = connection.execute(
                 """SELECT MAX(effective_date) FROM fifo_cost_layers
                    WHERE stream_id=?""",
@@ -1123,6 +1230,7 @@ class FifoCostRepository:
                     normalized_zero_stock["source_fingerprint"]
                     if normalized_zero_stock else None
                 ),
+                "rate_reconciliation": reconciliation,
             }
             payload_fingerprint = self._sha256(payload)
             source_fingerprint = self._sha256({
@@ -1130,6 +1238,17 @@ class FifoCostRepository:
                 "payload_fingerprint": payload_fingerprint,
                 "captured_at": self._iso(now),
             })
+            source_references = []
+            if normalized_zero_stock is not None:
+                source_references.append({
+                    "kind": "OTHER",
+                    "digest": normalized_zero_stock["source_fingerprint"],
+                })
+            if reconciliation is not None:
+                source_references.append({
+                    "kind": "OTHER",
+                    "digest": reconciliation["source_fingerprint"],
+                })
             source = self._normalize_source({
                 "kind": "OWNER_CONFIRMATION",
                 "method": "OWNER_CONFIRMED_NEW_COST_RATE",
@@ -1139,10 +1258,7 @@ class FifoCostRepository:
                 "coverage_status": "OWNER_CONFIRMED",
                 "fingerprint": source_fingerprint,
                 "captured_at": self._iso(now),
-                "references": ([{
-                    "kind": "OTHER",
-                    "digest": normalized_zero_stock["source_fingerprint"],
-                }] if normalized_zero_stock else []),
+                "references": source_references,
             })
             source_id = "src_" + self._sha256({
                 "store_id": identity["store_id"],
@@ -1197,6 +1313,17 @@ class FifoCostRepository:
                 "inventory_units_added": 0,
                 "new_batch_quantity": None,
                 "zero_old_inventory_anchor": stream_snapshot["zero_stock_anchor"],
+                "rate_reconciliation": ({
+                    "reconciled_rate_sequence": reconciliation["reconciled_rate_sequence"],
+                    "reconciled_total_units": reconciliation["reconciled_total_units"],
+                    "older_finite_units": reconciliation["older_finite_units"],
+                    "prior_rate_units": reconciliation["prior_rate_units"],
+                    "prior_rate_unit_cost_rub": reconciliation["prior_rate_unit_cost_rub"],
+                    "fbo_units": reconciliation["fbo_units"],
+                    "reserved_units": reconciliation["reserved_units"],
+                    "transit_units": reconciliation["transit_units"],
+                    "home_units": reconciliation["home_units"],
+                } if reconciliation else None),
                 "expires_in_seconds": self.PREVIEW_TTL_SECONDS,
             }
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
@@ -1267,7 +1394,8 @@ class FifoCostRepository:
                     (normalized["stream_id"],),
                 ).fetchone()
                 projection = connection.execute(
-                    "SELECT revision, state, source_set_fingerprint "
+                    "SELECT revision, state, known_quantity, known_cost_rub, "
+                    "next_unit_cost_rub, source_set_fingerprint "
                     "FROM fifo_cost_projections WHERE stream_id=?",
                     (normalized["stream_id"],),
                 ).fetchone()
@@ -1347,6 +1475,40 @@ class FifoCostRepository:
                         self._iso(now), normalized["source"]["captured_at"],
                     ),
                 )
+                reconciliation = normalized["payload"]["rate_reconciliation"]
+                if reconciliation is not None:
+                    reconciliation_id = "rate_recon_" + self._sha256({
+                        "stream_id": normalized["stream_id"],
+                        "transition_rate_sequence": reconciliation[
+                            "transition_rate_sequence"
+                        ],
+                        "source_fingerprint": reconciliation["source_fingerprint"],
+                    })[:40]
+                    connection.execute(
+                        """INSERT INTO fifo_cost_rate_reconciliations (
+                            reconciliation_id, stream_id, stream_revision,
+                            transition_rate_sequence, reconciled_rate_sequence,
+                            effective_date, reconciled_total_units,
+                            older_finite_units, prior_rate_units, fbo_units,
+                            reserved_units, transit_units, home_units,
+                            source_fingerprint, captured_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            reconciliation_id, normalized["stream_id"], next_revision,
+                            reconciliation["transition_rate_sequence"],
+                            reconciliation["reconciled_rate_sequence"],
+                            reconciliation["effective_date"],
+                            reconciliation["reconciled_total_units"],
+                            reconciliation["older_finite_units"],
+                            reconciliation["prior_rate_units"],
+                            reconciliation["fbo_units"],
+                            reconciliation["reserved_units"],
+                            reconciliation["transit_units"],
+                            reconciliation["home_units"],
+                            reconciliation["source_fingerprint"],
+                            reconciliation["captured_at"], self._iso(now),
+                        ),
+                    )
                 connection.execute(
                     "UPDATE fifo_cost_streams SET state='FIFO_PARTIAL', revision=?, updated_at=? "
                     "WHERE stream_id=?",
@@ -1375,21 +1537,57 @@ class FifoCostRepository:
                         "previous": projection["source_set_fingerprint"],
                         "rate": normalized["source"]["source_fingerprint"],
                     })
-                    connection.execute(
-                        """UPDATE fifo_cost_projections
-                           SET revision=?, state='FIFO_PARTIAL', queue_complete=0,
-                               source_set_fingerprint=?, updated_at=?
-                           WHERE stream_id=?""",
-                        (
-                            next_revision, combined_source_set, self._iso(now),
-                            normalized["stream_id"],
-                        ),
-                    )
+                    if reconciliation is None:
+                        connection.execute(
+                            """UPDATE fifo_cost_projections
+                               SET revision=?, state='FIFO_PARTIAL', queue_complete=0,
+                                   source_set_fingerprint=?, updated_at=?
+                               WHERE stream_id=?""",
+                            (
+                                next_revision, combined_source_set, self._iso(now),
+                                normalized["stream_id"],
+                            ),
+                        )
+                    else:
+                        prior_rate_cost = Decimal(
+                            reconciliation["prior_rate_unit_cost_rub"]
+                        )
+                        added_cost = (
+                            prior_rate_cost * reconciliation["prior_rate_units"]
+                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        reconciled_cost = (
+                            Decimal(reconciliation["older_finite_cost_rub"])
+                            + added_cost
+                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        old_next_cost = projection["next_unit_cost_rub"]
+                        if projection["known_quantity"] > 0:
+                            next_unit_cost = old_next_cost
+                        elif reconciliation["prior_rate_units"] > 0:
+                            next_unit_cost = reconciliation["prior_rate_unit_cost_rub"]
+                        else:
+                            next_unit_cost = payload["unit_cost_rub"]
+                        connection.execute(
+                            """UPDATE fifo_cost_projections
+                               SET revision=?, state='FIFO_PARTIAL',
+                                   known_quantity=?, known_cost_rub=?,
+                                   next_unit_cost_rub=?, queue_complete=0,
+                                   source_set_fingerprint=?, updated_at=?
+                               WHERE stream_id=?""",
+                            (
+                                next_revision,
+                                reconciliation["reconciled_total_units"],
+                                format(reconciled_cost, ".2f"), next_unit_cost,
+                                combined_source_set, self._iso(now),
+                                normalized["stream_id"],
+                            ),
+                        )
                 result = {
                     "revision": next_revision,
                     "rate_sequence": normalized["stream_snapshot"]["rate_sequence"],
                     "unit_cost_rub": payload["unit_cost_rub"],
                     "owner_old_home_units": payload["owner_old_home_units"],
+                    **({"reconciled_previous_rate_units": reconciliation["prior_rate_units"]}
+                       if reconciliation else {}),
                 }
                 connection.commit()
                 return {
@@ -1473,6 +1671,68 @@ class FifoCostRepository:
         if value is None or str(value).strip() == "":
             return None
         return cls._safe_identity_part(value, name, max_length)
+
+    @classmethod
+    def _normalize_rate_reconciliation_snapshot(
+        cls, snapshot, identity, effective_date,
+    ):
+        """Accept only a complete exact-SKU snapshot on the chosen date."""
+        fields = (
+            "status", "source_status", "store_id", "product_id", "offer_id",
+            "sku", "captured_at", "pagination_complete", "fbo_units",
+            "reserved_units", "transit_units", "transit_status",
+            "source_fingerprint",
+        )
+        try:
+            evidence = {field: getattr(snapshot, field) for field in fields}
+        except (AttributeError, TypeError):
+            return "FIFO_RATE_RECONCILIATION_SOURCE_INVALID"
+        if (
+            evidence["status"] != "COMPLETE"
+            or evidence["source_status"] != "COMPLETE"
+            or evidence["pagination_complete"] is not True
+            or evidence["transit_status"] != "DISJOINT_CONFIRMED"
+            or not cls._valid_digest(evidence["source_fingerprint"])
+        ):
+            return "FIFO_RATE_RECONCILIATION_SOURCE_INCOMPLETE"
+        quantities = (
+            evidence["fbo_units"], evidence["reserved_units"],
+            evidence["transit_units"],
+        )
+        if any(
+            type(value) is not int or value < 0 or value > cls.MAX_COMMAND_UNITS
+            for value in quantities
+        ):
+            return "FIFO_RATE_RECONCILIATION_SOURCE_INVALID"
+        if evidence["reserved_units"] > evidence["fbo_units"]:
+            return "FIFO_RATE_RECONCILIATION_SOURCE_CONFLICT"
+        try:
+            store_id = cls._safe_identity_part(evidence["store_id"], "store_id", 128)
+            product_id = cls._optional_identity_part(evidence["product_id"], "product_id", 128)
+            offer_id = cls._optional_identity_part(evidence["offer_id"], "offer_id", 128)
+            sku = cls._safe_identity_part(evidence["sku"], "sku", 64)
+            captured_at = cls._normalize_timestamp(evidence["captured_at"])
+        except (TypeError, ValueError):
+            return "FIFO_RATE_RECONCILIATION_SOURCE_INVALID"
+        if (
+            store_id != identity["store_id"]
+            or product_id != identity["product_id"]
+            or offer_id != identity["offer_id"]
+            or sku != identity["sku"]
+        ):
+            return "FIFO_RATE_RECONCILIATION_SCOPE_MISMATCH"
+        if captured_at is None or captured_at[:10] != effective_date:
+            return "FIFO_RATE_RECONCILIATION_DATE_MISMATCH"
+        total = evidence["fbo_units"] + evidence["transit_units"]
+        if total > cls.MAX_COMMAND_UNITS:
+            return "FIFO_STREAM_QUANTITY_LIMIT"
+        return {
+            "fbo_units": evidence["fbo_units"],
+            "reserved_units": evidence["reserved_units"],
+            "transit_units": evidence["transit_units"],
+            "captured_at": captured_at,
+            "source_fingerprint": evidence["source_fingerprint"],
+        }
 
     @classmethod
     def _normalize_zero_stock_evidence(cls, evidence, identity):
@@ -2158,6 +2418,44 @@ class FifoCostRepository:
                 UNIQUE(stream_id, idempotency_key)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_rate_reconciliations (
+                reconciliation_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 2),
+                transition_rate_sequence INTEGER NOT NULL CHECK(
+                    transition_rate_sequence >= 2
+                ),
+                reconciled_rate_sequence INTEGER NOT NULL CHECK(
+                    reconciled_rate_sequence >= 1
+                ),
+                effective_date TEXT NOT NULL,
+                reconciled_total_units INTEGER NOT NULL CHECK(
+                    reconciled_total_units >= 0 AND reconciled_total_units <= 1000000
+                ),
+                older_finite_units INTEGER NOT NULL CHECK(
+                    older_finite_units >= 0 AND older_finite_units <= 1000000
+                ),
+                prior_rate_units INTEGER NOT NULL CHECK(
+                    prior_rate_units >= 0 AND prior_rate_units <= 1000000
+                ),
+                fbo_units INTEGER NOT NULL CHECK(fbo_units >= 0 AND fbo_units <= 1000000),
+                reserved_units INTEGER NOT NULL CHECK(
+                    reserved_units >= 0 AND reserved_units <= fbo_units
+                ),
+                transit_units INTEGER NOT NULL CHECK(
+                    transit_units >= 0 AND transit_units <= 1000000
+                ),
+                home_units INTEGER NOT NULL CHECK(home_units >= 0 AND home_units <= 1000000),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                captured_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                CHECK(transition_rate_sequence = reconciled_rate_sequence + 1),
+                CHECK(reconciled_total_units = fbo_units + transit_units + home_units),
+                CHECK(reconciled_total_units = older_finite_units + prior_rate_units),
+                UNIQUE(stream_id, transition_rate_sequence),
+                UNIQUE(stream_id, reconciled_rate_sequence)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_supply_evidence (
                 evidence_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -2256,6 +2554,8 @@ class FifoCostRepository:
                 ON fifo_cost_source_refs(reference_kind, reference_digest);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_rate_changes_order
                 ON fifo_cost_rate_changes(stream_id, effective_date, rate_sequence);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_rate_reconciliations_order
+                ON fifo_cost_rate_reconciliations(stream_id, transition_rate_sequence);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_supply_evidence_order
                 ON fifo_cost_supply_evidence(stream_id, snapshot_sequence);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
