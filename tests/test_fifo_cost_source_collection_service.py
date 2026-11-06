@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
+import pytest
+
 from services.fifo_cost_source_collection_service import (
     FifoCostSourceCollectionService,
 )
@@ -495,6 +497,69 @@ def test_duplicate_concurrent_stock_collection_is_singleflight():
     assert duplicate.actual_http_attempts == 0
     assert "FIFO_SOURCE_ALREADY_IN_PROGRESS" in duplicate.issue_codes
     assert client.calls == ["stocks"]
+
+
+@pytest.mark.parametrize(
+    ("second_identity", "second_store"),
+    [
+        (IDENTITY, "store-b"),
+        ({**IDENTITY, "offer_id": "other-hook", "sku": "9876543210"}, "store-a"),
+    ],
+    ids=("different-store", "different-sku"),
+)
+def test_concurrent_stock_collection_does_not_block_independent_scope(
+    second_identity, second_store,
+):
+    client = _FakeOzonClient()
+    first_entered = Event()
+    second_entered = Event()
+    release_first = Event()
+    request_count = [0]
+
+    def pause_first_request(method):
+        if method != "stocks":
+            return
+        request_count[0] += 1
+        if request_count[0] == 1:
+            first_entered.set()
+            assert release_first.wait(timeout=2)
+        elif request_count[0] == 2:
+            second_entered.set()
+
+    client.on_request = pause_first_request
+    service = _service(client)
+    first_options = {
+        "identity": IDENTITY,
+        "store_id": "store-a",
+        "tenant_scope": "owner:1",
+        "identity_mapping_confirmed": True,
+    }
+    second_options = {
+        "identity": second_identity,
+        "store_id": second_store,
+        "tenant_scope": "owner:1",
+        "identity_mapping_confirmed": True,
+    }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            service.collect_stock_snapshot, **first_options
+        )
+        assert first_entered.wait(timeout=2)
+        second_future = executor.submit(
+            service.collect_stock_snapshot, **second_options
+        )
+        assert second_entered.wait(timeout=2)
+        second = second_future.result(timeout=2)
+        release_first.set()
+        first = first_future.result(timeout=2)
+
+    assert first.actual_http_attempts == 1
+    assert second.actual_http_attempts == 1
+    assert first.status == second.status == "PARTIAL"
+    assert first.stock_snapshot is not None
+    assert second.stock_snapshot is not None
+    assert request_count[0] == 2
 
 
 def test_search_page_cap_is_enforced_and_token_expires():
