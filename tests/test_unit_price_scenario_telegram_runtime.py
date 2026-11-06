@@ -1453,6 +1453,156 @@ def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for
     assert len(tariff.calls) == 1
 
 
+def test_price_grid_uses_one_frozen_fifo_next_unit_cost_and_keeps_candidate_tariffs():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    original_load_snapshot = source.load_snapshot
+    source_basis = {"amount": 20.0, "revision": "fifo-revision-1"}
+
+    def load_fifo_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["cost"] = source_basis["amount"]
+        snapshot["input_provenance"]["cost"] = "fifo_next_unit_cost"
+        snapshot["source_completeness"]["cost"] = {
+            "complete": True,
+            "amount": source_basis["amount"],
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "as_of_date": "2026-10-14",
+            "cutoff_date": "2026-10-10",
+            "stream_revision": 1,
+            "revision": source_basis["revision"],
+            "next_layer_remaining_units": 80,
+            "next_planned_rate": {
+                "unit_cost_rub": "25.00",
+                "effective_date": "2026-10-20",
+            },
+            "remaining_status": "PARTIAL",
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+        }
+        return snapshot
+
+    source.load_snapshot = load_fifo_snapshot
+    forward_calls = []
+    original_calculate = runtime.scenario_service.calculate
+
+    def capture_forward(inputs, *args, **kwargs):
+        forward_calls.append((deepcopy(inputs), deepcopy(kwargs.get("sources") or {})))
+        return original_calculate(inputs, *args, **kwargs)
+
+    runtime.scenario_service.calculate = capture_forward
+    tenant = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        source_basis.update(amount=25.0, revision="fifo-revision-2")
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1",
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон цены")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("99;101;1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    grid = result["price_planning_result"]
+    candidate_calls = [
+        (inputs, sources) for inputs, sources in forward_calls
+        if inputs.get("price") in {"99.00", "100.00", "100.01", "101.00"}
+    ]
+    candidates_by_price = {
+        inputs["price"]: inputs for inputs, _sources in candidate_calls
+    }
+    assert prompt["stage"] == "price_grid"
+    assert grid["error"] is False
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert set(candidates_by_price) == {"99.00", "100.00", "100.01", "101.00"}
+    assert all(float(candidate["cost"]) == 20 for candidate in candidates_by_price.values())
+    assert float(candidates_by_price["100.00"]["commission_rate"]) == 11
+    assert float(candidates_by_price["100.01"]["commission_rate"]) == 22
+    assert all(
+        sources["completeness"]["cost"]["revision"] == "fifo-revision-1"
+        for _inputs, sources in candidate_calls
+    )
+    assert "Все варианты используют один снимок стоимости следующей успешной единицы FIFO" in result["message"]
+    assert "Текущего слоя хватает на 80 шт." in result["message"]
+    assert "Этот расчёт оценивает одну единицу." in result["message"]
+    assert source_basis["revision"] == "fifo-revision-2"
+
+
+def test_manual_scenario_cost_overrides_fifo_reference_without_changing_its_basis():
+    runtime, source = _runtime(tariff_profile_runtime_service=_FrozenRangeTariffRuntime())
+    original_load_snapshot = source.load_snapshot
+
+    def load_fifo_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["cost"] = 20.0
+        snapshot["input_provenance"]["cost"] = "fifo_next_unit_cost"
+        snapshot["source_completeness"]["cost"] = {
+            "complete": True,
+            "amount": 20.0,
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "next_layer_remaining_units": 80,
+            "next_planned_rate": {"unit_cost_rub": "25.00"},
+            "remaining_status": "PARTIAL",
+            "revision": "fifo-revision-1",
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+        }
+        return snapshot
+
+    source.load_snapshot = load_fifo_snapshot
+    forward_calls = []
+    original_calculate = runtime.scenario_service.calculate
+
+    def capture_forward(inputs, *args, **kwargs):
+        forward_calls.append((deepcopy(inputs), deepcopy(kwargs.get("sources") or {})))
+        return original_calculate(inputs, *args, **kwargs)
+
+    runtime.scenario_service.calculate = capture_forward
+    tenant = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        cost_prompt = runtime.handle_callback(
+            _find_button(scenario, "Себестоимость")["callback"], user_id="user-1",
+        )
+        scenario = runtime.handle_text("23", user_id="user-1")
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1",
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон цены")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("99;101;1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    candidates = [
+        (inputs, sources) for inputs, sources in forward_calls
+        if inputs.get("price") in {"99.00", "100.00", "100.01", "101.00"}
+    ]
+    assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert prompt["stage"] == "price_grid"
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert len(candidates) == 4
+    assert all(float(inputs["cost"]) == 23 for inputs, _sources in candidates)
+    assert all(
+        inputs["cost"] != sources["completeness"]["cost"]["amount"]
+        for inputs, sources in candidates
+    )
+    assert all(
+        sources["completeness"]["cost"]["revision"] == "fifo-revision-1"
+        for _inputs, sources in candidates
+    )
+    assert "введённую вручную себестоимость" in result["message"]
+    assert "23,00 ₽/шт." in result["message"]
+    assert "показана только для сверки" in result["message"]
+
+
 def test_no_ad_price_grid_is_a_separate_mode_and_applying_it_preserves_current_ad_assumption():
     tariff = _FrozenRangeTariffRuntime()
     runtime, source = _runtime(tariff_profile_runtime_service=tariff)

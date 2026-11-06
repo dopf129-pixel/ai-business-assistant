@@ -1872,6 +1872,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Магазин: "
             + str(identity.get("store_name") or identity.get("store_id") or "активный")[:60],
         ]
+        lines.extend(self._planning_cost_basis_lines(session))
         if mode == "target_margin":
             target = result.get("target_margin_percent")
             lines.append("Целевая маржа после налога: " + self._percent(target))
@@ -4515,4 +4516,62 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.append("Полнота себестоимости подтверждена для этой плановой оценки.")
         if basis.get("model_only") is True:
             lines.append("Себестоимость FIFO применяется только в плановом сценарии.")
+        return lines
+
+    def _planning_cost_basis_lines(self, session):
+        """Explain the one-unit cost basis shared by all planned prices."""
+        snapshot = session.get("snapshot") or {}
+        basis = (snapshot.get("source_completeness") or {}).get("cost") or {}
+        method = str(basis.get("method") or "")
+        if not method.startswith(("FIFO_", "LEGACY_")):
+            return []
+
+        inputs = session.get("inputs") or {}
+        provenance = session.get("provenance") or {}
+        cost = inputs.get("cost")
+        manual_cost = str(provenance.get("cost") or "") in {
+            "manual_seller_assumption",
+            "manual_unit_economics_input",
+        }
+        lines = []
+        if method.startswith("FIFO_"):
+            next_cost = basis.get("amount")
+            if manual_cost:
+                lines.append(
+                    "Все варианты используют введённую вручную себестоимость "
+                    + self._money(cost)
+                    + " ₽/шт.; следующая стоимость FIFO "
+                    + self._money(next_cost)
+                    + " ₽/шт. показана только для сверки."
+                )
+            elif basis.get("complete") is True and cost is not None:
+                lines.append(
+                    "Все варианты используют один снимок стоимости следующей "
+                    "успешной единицы FIFO: "
+                    + self._money(cost)
+                    + " ₽/шт.; кандидаты не расходуют очередь между расчётами."
+                )
+            else:
+                lines.append(
+                    "Стоимость следующей единицы FIFO не подтверждена; "
+                    "прибыльные сравнения требуют ручного ввода себестоимости."
+                )
+
+            remaining = basis.get("next_layer_remaining_units")
+            if type(remaining) is int and remaining > 0:
+                lines.append(
+                    f"Текущего слоя хватает на {remaining} шт.; для большего объёма "
+                    "себестоимость может измениться. Этот расчёт оценивает одну единицу."
+                )
+            elif basis.get("remaining_status") in {"UNKNOWN", "UNAVAILABLE"}:
+                lines.append(
+                    "Количество в текущем FIFO-слое неизвестно; результат нельзя "
+                    "распространять на объём продаж."
+                )
+        elif cost is not None:
+            lines.append(
+                "Все варианты используют одну датированную себестоимость "
+                + self._money(cost)
+                + " ₽/шт.; расчёт оценивает одну единицу."
+            )
         return lines

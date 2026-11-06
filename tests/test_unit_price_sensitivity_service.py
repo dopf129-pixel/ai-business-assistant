@@ -149,6 +149,42 @@ def test_one_axis_sweep_matches_direct_forward_calculator_and_preserves_base():
     assert result["best_worst_basis"] == "among_checked_scenarios_only"
 
 
+def test_fifo_next_unit_cost_and_revision_are_frozen_across_price_sensitivity_cells():
+    context = _context()
+    context["inputs"]["cost"] = "20"
+    context["provenance"]["cost"] = "fifo_next_unit_cost"
+    context["sources"]["completeness"]["cost"] = {
+        "complete": True,
+        "amount": 20,
+        "method": "FIFO_FINITE_LAYER",
+        "next_layer_remaining_units": 80,
+        "next_planned_rate": {"unit_cost_rub": "25.00"},
+        "revision": "fifo-revision-1",
+        "model_only": True,
+        "factual_period_profit_eligible": False,
+    }
+    context["inputs"]["advertising_rate"] = None
+    result = _service().build_sweep(context, {"price": ["99", "100", "101"]})
+
+    assert result["error"] is False
+    assert result["available_cell_count"] == 0
+    assert len(result["cells"]) == 3
+    assert all(cell["inputs"]["cost"] == "20" for cell in result["cells"])
+    assert all(cell["status"] == "INCOMPLETE_INPUTS" for cell in result["cells"])
+    assert all(
+        cell["scenario"]["source_completeness"]["cost"]["revision"] == "fifo-revision-1"
+        for cell in result["cells"]
+    )
+    assert all(
+        cell["scenario"]["pre_ad_margin"]["status"] == "AVAILABLE"
+        for cell in result["cells"]
+    )
+    assert all(
+        cell["scenario"]["advertising_tax_bridge"]["status"] != "APPLIED"
+        for cell in result["cells"]
+    )
+
+
 def test_sensitivity_keeps_cross_docking_rate_fixed_across_price_scenarios():
     service = _service()
     context = _context({
