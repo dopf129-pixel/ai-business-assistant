@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC19 — explicit non-sale movement and separate estimated value
+
+- `tests/test_fifo_cost_movement_evidence_normalizer.py` covers redacted movement digests, exact owner source shape, dates/cutoff, non-outflow acceptance-shortfall discrepancy, pool-neutral transfer, and invalid quantities. `tests/test_fifo_cost_non_sale_movement_service.py` covers no-write preview, estimated FIFO finite-layer value, commit/replay, sale COGS separation, and append-only valuation rows.
+- `tests/test_fifo_cost_allocation_service.py` covers FIFO reduction/value of an outflow without adding it to total sales COGS and blocks valuation from unknown open-rate units. `tests/test_fifo_cost_replay_service.py` covers physical time, cutoff, explicit reason confirmation, and insufficient finite basis. Repository regressions include v6→v8 additive migration, old data preservation and the new append-only valuation table.
+- FC19 linked profile: **111 passed in 3.49s**; full project pytest: **4,676 passed in 46.45s**. Synthetic fixtures/temp SQLite only. All 59 user-data files matched baseline hashes after reverting the test-created `data/tasks.json` change and removing its lock file.
+
 ## FC18 — return recovery and exact prior cost basis
 
 - `tests/test_fifo_cost_return_evidence_normalizer.py` covers exact return type/SKU/posting/quantity matching, complete source, exact supported Ozon return state, explicit non-compensated state, owner-confirmed saleable restoration, date and cutoff gates, redacted identities, and rejection of forged candidates.
