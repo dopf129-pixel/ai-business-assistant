@@ -82,11 +82,18 @@ class FifoCostReturnRestockService:
         event = FifoCostReturnEvidenceNormalizer.build_event(
             candidate, origin_sale_event_id=origin["event_id"],
         )
+        captured_at = self._now()
+        if (
+            not isinstance(captured_at, datetime)
+            or captured_at.tzinfo is None
+            or captured_at.utcoffset() is None
+        ):
+            return self._blocked("FIFO_RETURN_CAPTURE_TIME_INVALID")
         source = FifoCostReturnEvidenceNormalizer.build_command_source(
-            candidate, captured_at=self._now().astimezone(timezone.utc).isoformat(),
+            candidate, captured_at=captured_at.astimezone(timezone.utc).isoformat(),
         )
-        if event.get("eligible") is False or source.get("eligible") is False:
-            return event if event.get("eligible") is False else source
+        if event.get("kind") != "SALEABLE_RETURN_RESTOCK" or source.get("method") != "OWNER_CONFIRMED_SALEABLE_RETURN_RECOVERY":
+            return self._blocked("FIFO_RETURN_EVIDENCE_INVALID")
         preview = self.repository.preview_command(
             store_id=store_id, product_id=product_id, offer_id=offer_id, sku=sku,
             events=[event], source=source,

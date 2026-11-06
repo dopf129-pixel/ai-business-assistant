@@ -63,6 +63,15 @@ class FifoRestockEvent:
 
 
 @dataclass(frozen=True)
+class FifoOutflowEvent:
+    """A confirmed non-sale quantity loss, valued separately from sales COGS."""
+
+    event_id: str
+    quantity: int
+    reason_code: str
+
+
+@dataclass(frozen=True)
 class FifoAllocationLine:
     layer_id: str
     quantity: int
@@ -80,12 +89,23 @@ class FifoSaleAllocation:
 
 
 @dataclass(frozen=True)
+class FifoOutflowAllocation:
+    event_id: str
+    quantity: int
+    reason_code: str
+    estimated_value_rub: Decimal
+    lines: tuple[FifoAllocationLine, ...]
+
+
+@dataclass(frozen=True)
 class FifoAllocationResult:
     status: str
     complete: bool
     reason_code: str | None
     sale_allocations: tuple[FifoSaleAllocation, ...]
+    outflow_allocations: tuple[FifoOutflowAllocation, ...]
     total_cogs_rub: Decimal | None
+    non_sale_outflow_value_rub: Decimal | None
     inventory_restored_value_rub: Decimal | None
     restored_units: int | None
     remaining_confirmed_units: int | None
@@ -107,7 +127,7 @@ class FifoCostAllocationService:
         self,
         *,
         layers: Iterable[FifoCostLayer],
-        events: Iterable[FifoSaleEvent | FifoRestockEvent],
+        events: Iterable[FifoSaleEvent | FifoRestockEvent | FifoOutflowEvent],
         anchor_status: str = "UNKNOWN",
         cutoff_status: str = "UNRECONCILED",
         event_order_status: str = "UNKNOWN",
@@ -173,7 +193,9 @@ class FifoCostAllocationService:
         allocation_by_sale: dict[str, FifoSaleAllocation] = {}
         allocation_line_by_sale_layer: dict[tuple[str, str], FifoAllocationLine] = {}
         sale_allocations: list[FifoSaleAllocation] = []
+        outflow_allocations: list[FifoOutflowAllocation] = []
         total_cogs = Decimal("0.00")
+        outflow_value = Decimal("0.00")
         restored_value = Decimal("0.00")
         restored_units = 0
         source_sequence = list(layer_state)
@@ -245,6 +267,53 @@ class FifoCostAllocationService:
                     allocation_line_by_sale_layer[(event.event_id, line.layer_id)] = line
                 sale_allocations.append(allocation)
                 total_cogs += allocation.total_cost_rub
+                continue
+
+            if isinstance(event, FifoOutflowEvent):
+                remaining = event.quantity
+                lines: list[FifoAllocationLine] = []
+                for layer_id in source_sequence:
+                    if remaining <= 0:
+                        break
+                    # An open rate has unknown physical quantity. Never use it
+                    # to value a confirmed outflow or silently consume it.
+                    if layer_id == (normalized_rate[0] if normalized_rate else None):
+                        continue
+                    available = layer_state.get(layer_id, 0)
+                    taken = min(available, remaining)
+                    if taken <= 0:
+                        continue
+                    replay_work_used += 1
+                    if replay_work_used > _MAX_REPLAY_ALLOCATION_LINES:
+                        return self._incomplete("FIFO_REPLAY_WORK_LIMIT")
+                    unit_cost = layer_costs[layer_id]
+                    lines.append(FifoAllocationLine(
+                        layer_id=layer_id,
+                        quantity=taken,
+                        unit_cost_rub=unit_cost,
+                        total_cost_rub=(unit_cost * taken).quantize(
+                            _CENT, rounding=ROUND_HALF_UP,
+                        ),
+                        origin_sale_event_id=(
+                            layer_origins[layer_id][0]
+                            if layer_origins.get(layer_id) is not None else None
+                        ),
+                    ))
+                    layer_state[layer_id] -= taken
+                    remaining -= taken
+                if remaining:
+                    return self._incomplete("FIFO_OUTFLOW_FINITE_BASIS_UNAVAILABLE")
+                estimated_value = sum(
+                    (line.total_cost_rub for line in lines), Decimal("0.00"),
+                ).quantize(_CENT, rounding=ROUND_HALF_UP)
+                outflow_allocations.append(FifoOutflowAllocation(
+                    event_id=event.event_id,
+                    quantity=event.quantity,
+                    reason_code=event.reason_code,
+                    estimated_value_rub=estimated_value,
+                    lines=tuple(lines),
+                ))
+                outflow_value += estimated_value
                 continue
 
             if not event.restores:
@@ -319,7 +388,11 @@ class FifoCostAllocationService:
             complete=True,
             reason_code=None,
             sale_allocations=tuple(sale_allocations),
+            outflow_allocations=tuple(outflow_allocations),
             total_cogs_rub=total_cogs.quantize(_CENT, rounding=ROUND_HALF_UP),
+            non_sale_outflow_value_rub=outflow_value.quantize(
+                _CENT, rounding=ROUND_HALF_UP,
+            ),
             inventory_restored_value_rub=restored_value.quantize(
                 _CENT, rounding=ROUND_HALF_UP
             ),
@@ -380,7 +453,7 @@ class FifoCostAllocationService:
         normalized = []
         restore_slice_count = 0
         for event in rows:
-            if not isinstance(event, (FifoSaleEvent, FifoRestockEvent)):
+            if not isinstance(event, (FifoSaleEvent, FifoRestockEvent, FifoOutflowEvent)):
                 return "FIFO_EVENT_INPUT_INVALID"
             event_id = self._identifier(event.event_id)
             quantity = self._quantity(event.quantity)
@@ -388,7 +461,15 @@ class FifoCostAllocationService:
                 return "FIFO_EVENT_INPUT_INVALID"
             if quantity > self.MAX_UNITS_PER_EVENT:
                 return "FIFO_EVENT_QUANTITY_LIMIT"
-            if isinstance(event, FifoRestockEvent):
+            if isinstance(event, FifoOutflowEvent):
+                reason = event.reason_code
+                if reason not in {
+                    "HOME_SHORTAGE", "OZON_DISPOSAL", "SUPPLIER_RETURN",
+                    "INVENTORY_WRITE_OFF",
+                }:
+                    return "FIFO_OUTFLOW_REASON_INVALID"
+                normalized.append(FifoOutflowEvent(event_id, quantity, reason))
+            elif isinstance(event, FifoRestockEvent):
                 if not isinstance(event.restores, tuple) or not event.restores:
                     return "FIFO_RETURN_BASIS_MISSING"
                 restore_slice_count += len(event.restores)
@@ -479,7 +560,9 @@ class FifoCostAllocationService:
             complete=False,
             reason_code=reason_code,
             sale_allocations=(),
+            outflow_allocations=(),
             total_cogs_rub=None,
+            non_sale_outflow_value_rub=None,
             inventory_restored_value_rub=None,
             restored_units=None,
             remaining_confirmed_units=None,

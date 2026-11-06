@@ -7,6 +7,7 @@ from services.fifo_cost_allocation_service import (
     FifoCostAllocationService,
     FifoCostLayer,
     FifoOpenCostRate,
+    FifoOutflowEvent,
     FifoRestoreSlice,
     FifoRestockEvent,
     FifoSaleEvent,
@@ -127,6 +128,32 @@ def test_n08_exact_return_basis_restores_inventory_value_without_rewriting_sale_
     assert result.remaining_confirmed_units == 5
     assert result.total_available_units == 5
     assert result.next_unit_cost_rub == Decimal("20.00")
+
+
+def test_fc19_non_sale_outflow_reduces_fifo_stock_and_is_valued_outside_sales_cogs(service):
+    result = _allocate(
+        service,
+        layers=[FifoCostLayer("old", "20.00", 3), FifoCostLayer("new", "25.00", 5)],
+        events=[FifoSaleEvent("sale", 4), FifoOutflowEvent("loss", 2, "HOME_SHORTAGE")],
+    )
+    assert result.complete is True
+    assert result.total_cogs_rub == Decimal("85.00")
+    assert result.non_sale_outflow_value_rub == Decimal("50.00")
+    assert result.outflow_allocations[0].estimated_value_rub == Decimal("50.00")
+    assert [(line.layer_id, line.quantity) for line in result.outflow_allocations[0].lines] == [("new", 2)]
+    assert result.remaining_confirmed_units == 2
+
+
+def test_fc19_outflow_never_uses_unknown_open_rate_quantity(service):
+    result = _allocate(
+        service,
+        layers=[FifoCostLayer("old", "20.00", 1)],
+        open_rate=FifoOpenCostRate("rate", "25.00"),
+        events=[FifoOutflowEvent("loss", 2, "OZON_DISPOSAL")],
+    )
+    assert result.complete is False
+    assert result.reason_code == "FIFO_OUTFLOW_FINITE_BASIS_UNAVAILABLE"
+    assert result.non_sale_outflow_value_rub is None
 
 
 def test_unknown_partial_return_basis_and_duplicate_restoration_do_not_publish_partial_totals(service):

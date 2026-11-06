@@ -4,6 +4,7 @@ import pytest
 
 from services.fifo_cost_allocation_service import (
     FifoCostLayer,
+    FifoOutflowEvent,
     FifoOpenCostRate,
     FifoRestoreSlice,
     FifoRestockEvent,
@@ -42,6 +43,20 @@ def _return(event_id, quantity, return_date, digest, restores, **overrides):
         "physical_time_confirmed": True,
         "cutoff_bridge_confirmed": True,
         "saleable_recovery_confirmed": True,
+    }
+    values.update(overrides)
+    return FifoDatedAllocationEvent(**values)
+
+
+def _outflow(event_id, quantity, movement_date, digest, **overrides):
+    values = {
+        "event": FifoOutflowEvent(event_id, quantity, "HOME_SHORTAGE"),
+        "effective_at": None,
+        "effective_date": movement_date,
+        "source_identity_digest": digest,
+        "physical_time_confirmed": True,
+        "cutoff_bridge_confirmed": True,
+        "movement_reason_confirmed": True,
     }
     values.update(overrides)
     return FifoDatedAllocationEvent(**values)
@@ -254,3 +269,29 @@ def test_fc18_duplicate_return_identity_and_over_restoration_fail_closed(service
     assert duplicate_result["allocations"] == []
     assert excessive_result["reason_code"] == "FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN"
     assert excessive_result["allocations"] == []
+
+
+def test_fc19_non_sale_outflow_has_separate_fifo_estimate_and_no_sales_cogs(service):
+    result = _preview(service, [
+        _outflow("loss-a", 1, "2026-11-02", "b" * 64),
+    ])
+    assert result["complete"] is True
+    assert result["total_cogs_rub"] == "0.00"
+    assert result["non_sale_outflow_value_rub"] == "10.00"
+    assert result["outflows"][0]["estimated_value_rub"] == "10.00"
+    assert result["outflows"][0]["valuation_method"] == "FIFO_FINITE_LAYER_ESTIMATE"
+    assert result["remaining_confirmed_units"] == 6
+
+
+def test_fc19_unconfirmed_reason_or_open_rate_outflow_basis_is_blocked(service):
+    no_reason = _preview(service, [
+        _outflow("loss-a", 1, "2026-11-02", "b" * 64,
+                 movement_reason_confirmed=False),
+    ])
+    unknown_basis = _preview(service, [
+        _outflow("loss-b", 8, "2026-11-04", "c" * 64),
+    ], layers=[FifoCostLayer("finite", "10.00", 2)],
+       open_rate=FifoOpenCostRate("open", "20.00"),
+       open_rate_effective_date="2026-11-03")
+    assert no_reason["reason_code"] == "FIFO_MOVEMENT_REASON_UNCONFIRMED"
+    assert unknown_basis["reason_code"] == "FIFO_OUTFLOW_FINITE_BASIS_UNAVAILABLE"

@@ -18,6 +18,7 @@ from typing import Iterable
 from services.fifo_cost_allocation_service import (
     FifoCostAllocationService,
     FifoCostLayer,
+    FifoOutflowEvent,
     FifoOpenCostRate,
     FifoRestockEvent,
     FifoSaleEvent,
@@ -28,13 +29,14 @@ from services.fifo_cost_allocation_service import (
 class FifoDatedAllocationEvent:
     """A core allocation event plus evidence needed to establish causal order."""
 
-    event: FifoSaleEvent | FifoRestockEvent
+    event: FifoSaleEvent | FifoRestockEvent | FifoOutflowEvent
     effective_at: str | None
     effective_date: str | None
     source_identity_digest: str | None = None
     physical_time_confirmed: bool = False
     cutoff_bridge_confirmed: bool = False
     saleable_recovery_confirmed: bool = False
+    movement_reason_confirmed: bool = False
 
 
 class FifoCostReplayService:
@@ -97,7 +99,7 @@ class FifoCostReplayService:
                 and self._event_day(item) <= open_rate_effective_date
             )
             if sales_before_rate > finite_units or any(
-                isinstance(item.event, FifoRestockEvent)
+                isinstance(item.event, (FifoRestockEvent, FifoOutflowEvent))
                 and self._event_day(item) <= open_rate_effective_date
                 for item in ordered
             ):
@@ -122,6 +124,16 @@ class FifoCostReplayService:
                 "total_cost_rub": format(sale.total_cost_rub, ".2f"),
                 "lines": [self._allocation_line(line, open_rate) for line in sale.lines],
             })
+        outflows = []
+        for outflow in result.outflow_allocations:
+            outflows.append({
+                "event_id": outflow.event_id,
+                "quantity": outflow.quantity,
+                "reason_code": outflow.reason_code,
+                "estimated_value_rub": format(outflow.estimated_value_rub, ".2f"),
+                "valuation_method": "FIFO_FINITE_LAYER_ESTIMATE",
+                "lines": [self._allocation_line(line, open_rate) for line in outflow.lines],
+            })
 
         preview = {
             "error": False,
@@ -138,9 +150,14 @@ class FifoCostReplayService:
                 format(result.total_cogs_rub, ".2f")
                 if result.total_cogs_rub is not None else None
             ),
+            "non_sale_outflow_value_rub": (
+                format(result.non_sale_outflow_value_rub, ".2f")
+                if result.non_sale_outflow_value_rub is not None else None
+            ),
             "remaining_confirmed_units": result.remaining_confirmed_units,
             "restored_units": result.restored_units,
             "allocations": allocations,
+            "outflows": outflows,
         }
         preview["preview_fingerprint"] = self._fingerprint(preview)
         return preview
@@ -153,6 +170,7 @@ class FifoCostReplayService:
         ids = []
         sale_digests = []
         return_digests = []
+        movement_digests = []
         normalized = []
         for item in events:
             event = item.event
@@ -183,6 +201,16 @@ class FifoCostReplayService:
                 if item.cutoff_bridge_confirmed is not True:
                     return None, "INVENTORY_CUTOFF_UNRECONCILED"
                 return_digests.append(item.source_identity_digest)
+            elif isinstance(event, FifoOutflowEvent):
+                if not self._valid_digest(item.source_identity_digest):
+                    return None, "FIFO_MOVEMENT_IDENTITY_UNCONFIRMED"
+                if item.movement_reason_confirmed is not True:
+                    return None, "FIFO_MOVEMENT_REASON_UNCONFIRMED"
+                if item.physical_time_confirmed is not True:
+                    return None, "FIFO_MOVEMENT_EFFECTIVE_DATE_UNAVAILABLE"
+                if item.cutoff_bridge_confirmed is not True:
+                    return None, "INVENTORY_CUTOFF_UNRECONCILED"
+                movement_digests.append(item.source_identity_digest)
             else:
                 return None, "FIFO_EVENT_INVALID"
             normalized.append((position, event_id, item))
@@ -193,6 +221,8 @@ class FifoCostReplayService:
             return None, "FIFO_SALE_IDENTITY_DUPLICATE"
         if len(set(return_digests)) != len(return_digests):
             return None, "FIFO_RETURN_IDENTITY_DUPLICATE"
+        if len(set(movement_digests)) != len(movement_digests):
+            return None, "FIFO_MOVEMENT_IDENTITY_DUPLICATE"
 
         # Date-only evidence cannot order multiple events on the same date.
         # Equal instants are also ambiguous for per-sale layer attribution.

@@ -385,7 +385,7 @@ def test_fc18_repeated_single_layer_partial_returns_are_bounded_and_idempotent(t
         reset_current_tenant_user_id(token)
 
 
-def test_fc18_v6_upgrade_adds_only_return_basis_objects_and_keeps_other_metadata(tmp_path):
+def test_fifo_v6_upgrade_adds_return_and_outflow_objects_and_keeps_other_metadata(tmp_path):
     repo = FifoCostRepository(db_path=tmp_path / "fifo-v6.sqlite")
     connection = repo.get_connection()
     try:
@@ -410,13 +410,17 @@ def test_fc18_v6_upgrade_adds_only_return_basis_objects_and_keeps_other_metadata
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 7
+        ).fetchone()[0] == 8
         assert migrated.execute(
             "SELECT version FROM planning_schema WHERE singleton=1"
         ).fetchone()[0] == 9
         assert migrated.execute(
             "SELECT value FROM legacy_cost_fixture"
         ).fetchone()[0] == "preserved"
+        assert migrated.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN "
+            "('fifo_cost_return_basis','fifo_cost_allocation_outflow_lines')"
+        ).fetchone()[0] == 2
         with pytest.raises(sqlite3.IntegrityError):
             migrated.execute(
                 "INSERT INTO fifo_cost_return_basis "

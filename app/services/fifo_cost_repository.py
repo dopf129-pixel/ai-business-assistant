@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.fifo_cost_allocation_service import (
-    FifoCostLayer, FifoOpenCostRate, FifoRestoreSlice, FifoRestockEvent,
+    FifoCostLayer, FifoOpenCostRate, FifoOutflowEvent, FifoRestoreSlice, FifoRestockEvent,
     FifoSaleEvent,
 )
 from services.fifo_cost_replay_service import FifoCostReplayService, FifoDatedAllocationEvent
@@ -28,7 +28,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -53,6 +53,9 @@ class FifoCostRepository:
     })
     _REFERENCE_KINDS = frozenset({"ORDER", "SUPPLY", "ACT", "POSTING", "DOCUMENT", "OTHER"})
     _LOCATIONS = frozenset({"HOME", "TRANSIT", "OZON", "UNKNOWN"})
+    _OUTFLOW_REASONS = frozenset({
+        "HOME_SHORTAGE", "OZON_DISPOSAL", "SUPPLIER_RETURN", "INVENTORY_WRITE_OFF",
+    })
     _REASON_CODES = frozenset({
         "HISTORY_GAP", "ANCHOR_UNCONFIRMED", "INVENTORY_CUTOFF_UNRECONCILED",
         "PHYSICAL_SALE_IDENTITY_UNCONFIRMED", "STOCK_SEMANTICS_UNCONFIRMED",
@@ -62,6 +65,8 @@ class FifoCostRepository:
         "PERIOD_PROFIT_COST_LEGACY_PROVENANCE_AMBIGUOUS",
         "OWNER_REPORTED_LATE", "COST_ENTRY_CORRECTION", "QUANTITY_CORRECTION",
         "SUPPLY_LINK_CORRECTION", "CANCELLED_FUTURE_CHANGE",
+        "HOME_SHORTAGE", "OZON_DISPOSAL", "SUPPLIER_RETURN",
+        "INVENTORY_WRITE_OFF", "ACCEPTANCE_SHORTFALL", "INVENTORY_TRANSFER",
     })
     _PREVIEW_LOCK = threading.RLock()
     _ACTIVE_PREVIEWS = {}
@@ -86,6 +91,7 @@ class FifoCostRepository:
         "fifo_cost_rate_reconciliations",
         "fifo_cost_supply_evidence",
         "fifo_cost_return_basis",
+        "fifo_cost_allocation_outflow_lines",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -104,6 +110,7 @@ class FifoCostRepository:
         "fifo_cost_rate_reconciliations",
         "fifo_cost_supply_evidence",
         "fifo_cost_return_basis",
+        "fifo_cost_allocation_outflow_lines",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -372,7 +379,7 @@ class FifoCostRepository:
                 """SELECT COUNT(*) FROM fifo_cost_events
                    WHERE stream_id=? AND event_kind NOT IN (
                        'OPENING_FIFO_ANCHOR', 'PHYSICAL_SALE',
-                       'SALEABLE_RETURN_RESTOCK'
+                       'SALEABLE_RETURN_RESTOCK', 'NON_SALE_OUTFLOW'
                    )""",
                 (stream_id,),
             ).fetchone()[0]
@@ -510,6 +517,7 @@ class FifoCostRepository:
 
     def preview_current_allocation(
         self, *, store_id, product_id=None, offer_id=None, sku,
+        hypothetical_outflow=None,
     ):
         """Return a bounded replay preview for the exact current stream revision."""
         guard = self.read_allocation_guard(
@@ -519,6 +527,24 @@ class FifoCostRepository:
             return guard
         if guard.get("eligible_for_publication") is not True:
             return self._error(guard.get("replay_reason_code") or "FIFO_ALLOCATION_REPLAY_UNAVAILABLE")
+        if hypothetical_outflow is not None:
+            if not isinstance(hypothetical_outflow, dict) or set(hypothetical_outflow) != {
+                "quantity", "reason_code", "effective_date", "inventory_cutoff",
+                "source_identity_digest",
+            }:
+                return self._error("FIFO_MOVEMENT_EVIDENCE_INVALID")
+            if (
+                type(hypothetical_outflow["quantity"]) is not int
+                or not 1 <= hypothetical_outflow["quantity"] <= self.MAX_EVENT_QUANTITY
+                or hypothetical_outflow["reason_code"] not in {
+                    "HOME_SHORTAGE", "OZON_DISPOSAL", "SUPPLIER_RETURN",
+                    "INVENTORY_WRITE_OFF",
+                }
+                or self._normalize_date(hypothetical_outflow["effective_date"]) is None
+                or hypothetical_outflow["inventory_cutoff"] != guard.get("anchor_cutoff_date")
+                or not self._valid_digest(hypothetical_outflow["source_identity_digest"])
+            ):
+                return self._error("FIFO_MOVEMENT_EVIDENCE_INVALID")
         connection = None
         try:
             identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
@@ -560,6 +586,7 @@ class FifoCostRepository:
                 source_fingerprint=fingerprint,
                 cutoff_status=projection["cutoff_status"],
                 anchor_cutoff_date=guard["anchor_cutoff_date"],
+                hypothetical_outflow=hypothetical_outflow,
             )
             connection.commit()
             if preview is None or preview.get("complete") is not True:
@@ -1024,6 +1051,22 @@ class FifoCostRepository:
                                 basis_allocation_id, basis_line_number,
                             ),
                         )
+            outflow_line_number = 0
+            for outflow in normalized["outflows"]:
+                for line in outflow["lines"]:
+                    outflow_line_number += 1
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_outflow_lines (
+                            allocation_id, line_number, event_id, layer_id,
+                            quantity, unit_cost_rub, estimated_value_rub,
+                            valuation_method
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            allocation_id, outflow_line_number, outflow["event_id"],
+                            line["layer_id"], line["quantity"], line["unit_cost_rub"],
+                            line["total_cost_rub"], outflow["valuation_method"],
+                        ),
+                    )
             result = {
                 "allocation_id": allocation_id,
                 "allocation_revision": allocation_revision,
@@ -1581,6 +1624,13 @@ class FifoCostRepository:
                 if return_events and len(normalized["events"]) != 1:
                     connection.rollback()
                     return self._error("FIFO_RETURN_COMMAND_MUST_BE_EXCLUSIVE")
+                outflow_events = [
+                    event for event in normalized["events"]
+                    if event["kind"] == "NON_SALE_OUTFLOW"
+                ]
+                if outflow_events and len(normalized["events"]) != 1:
+                    connection.rollback()
+                    return self._error("FIFO_MOVEMENT_COMMAND_MUST_BE_EXCLUSIVE")
 
                 has_opening_anchor = any(
                     event["kind"] == "OPENING_FIFO_ANCHOR"
@@ -1795,6 +1845,9 @@ class FifoCostRepository:
                 code = (
                     "FIFO_RETURN_IDENTITY_DUPLICATE"
                     if "SALEABLE_RETURN_RESTOCK" in event_kinds
+                    and "source_identity_digest" in detail
+                    else "FIFO_MOVEMENT_IDENTITY_DUPLICATE"
+                    if "NON_SALE_OUTFLOW" in event_kinds
                     and "source_identity_digest" in detail
                     else "FIFO_EVENT_IDENTITY_CONFLICT"
                     if "PHYSICAL_SALE" in event_kinds
@@ -2691,6 +2744,16 @@ class FifoCostRepository:
             cutoff = cls._normalize_cutoff(
                 item.get("inventory_cutoff", source.get("inventory_cutoff")),
             )
+            if kind == "NON_SALE_OUTFLOW":
+                event_day = effective_date
+                if effective_at is not None:
+                    event_day = datetime.fromisoformat(
+                        effective_at.replace("Z", "+00:00"),
+                    ).date().isoformat()
+                if item.get("reason_code") not in cls._OUTFLOW_REASONS:
+                    raise ValueError("FIFO_OUTFLOW_REASON_INVALID")
+                if cutoff is None or event_day is None or event_day <= cutoff:
+                    raise ValueError("FIFO_MOVEMENT_EFFECTIVE_DATE_UNAVAILABLE")
             cost_fields = ("purchase_cost_rub", "delivery_cost_rub", "packaging_cost_rub")
             supplied_components = [name in item for name in cost_fields]
             components = {
@@ -2738,6 +2801,10 @@ class FifoCostRepository:
                 raise ValueError("FIFO_SOURCE_IDENTITY_INVALID")
             if kind == "SALEABLE_RETURN_RESTOCK":
                 cls._validate_return_source(source, source_identity_digest, cutoff)
+            if kind == "NON_SALE_OUTFLOW":
+                if not cls._valid_digest(source_identity_digest):
+                    raise ValueError("FIFO_MOVEMENT_IDENTITY_UNCONFIRMED")
+                cls._validate_outflow_source(source, source_identity_digest, cutoff)
             supersedes = item.get("supersedes_event_id")
             if kind in {"CORRECTION", "SALE_CANCELLATION", "SALEABLE_RETURN_RESTOCK"}:
                 if not isinstance(supersedes, str) or not re.fullmatch(r"evt_[0-9a-f]{32}", supersedes):
@@ -2789,6 +2856,27 @@ class FifoCostRepository:
             or return_digest not in {reference["digest"] for reference in references}
         ):
             raise ValueError("FIFO_RETURN_SOURCE_REFERENCE_INVALID")
+
+    @classmethod
+    def _validate_outflow_source(cls, source, movement_digest, event_cutoff):
+        if (
+            source.get("source_kind") != "OWNER_CONFIRMATION"
+            or source.get("source_method") != "OWNER_CONFIRMED_FIFO_NON_SALE_MOVEMENT"
+            or source.get("source_status") != "OWNER_CONFIRMED"
+            or source.get("completeness") != "OWNER_CONFIRMED"
+            or source.get("provenance") != "OWNER_CONFIRMED"
+            or source.get("coverage_status") != "OWNER_CONFIRMED"
+            or source.get("captured_at") is None
+            or source.get("inventory_cutoff") != event_cutoff
+        ):
+            raise ValueError("FIFO_MOVEMENT_EVIDENCE_UNCONFIRMED")
+        references = source.get("references", [])
+        if (
+            len(references) != 1
+            or references[0].get("kind") != "OTHER"
+            or references[0].get("digest") != movement_digest
+        ):
+            raise ValueError("FIFO_MOVEMENT_SOURCE_REFERENCE_INVALID")
 
     @staticmethod
     def _opening_anchor_error(events, source, *, current_revision, current_state):
@@ -3159,8 +3247,9 @@ class FifoCostRepository:
             "error", "complete", "status", "reason_code", "cutoff_status",
             "anchor_cutoff_date", "open_rate_effective_date", "stream_revision",
             "expected_allocation_revision", "source_set_fingerprint",
-            "total_cogs_rub", "remaining_confirmed_units", "restored_units",
-            "allocations", "preview_fingerprint",
+            "total_cogs_rub", "non_sale_outflow_value_rub",
+            "remaining_confirmed_units", "restored_units",
+            "allocations", "outflows", "preview_fingerprint",
         }
         if set(preview) != expected_preview_keys:
             return "FIFO_ALLOCATION_PREVIEW_INVALID"
@@ -3276,6 +3365,85 @@ class FifoCostRepository:
         grand_total = cls._normalize_money(preview.get("total_cogs_rub"))
         if grand_total is None or Decimal(grand_total) != total:
             return "FIFO_ALLOCATION_TOTAL_MISMATCH"
+        outflows = preview.get("outflows")
+        if not isinstance(outflows, list) or len(outflows) > 100_000:
+            return "FIFO_REPLAY_INPUT_LIMIT"
+        normalized_outflows, seen_outflows = [], set()
+        outflow_units, outflow_lines_total, outflow_value = 0, 0, Decimal("0.00")
+        for row in outflows:
+            if not isinstance(row, dict) or set(row) != {
+                "event_id", "quantity", "reason_code", "estimated_value_rub",
+                "valuation_method", "lines",
+            }:
+                return "FIFO_ALLOCATION_PREVIEW_INVALID"
+            event_id, quantity = row.get("event_id"), row.get("quantity")
+            reason = row.get("reason_code")
+            estimated = cls._normalize_money(row.get("estimated_value_rub"))
+            lines = row.get("lines")
+            if (
+                not isinstance(event_id, str) or not event_id or len(event_id) > 160
+                or event_id in seen_events or event_id in seen_outflows
+                or type(quantity) is not int or quantity < 1
+                or reason not in {"HOME_SHORTAGE", "OZON_DISPOSAL", "SUPPLIER_RETURN", "INVENTORY_WRITE_OFF"}
+                or estimated is None or row.get("valuation_method") != "FIFO_FINITE_LAYER_ESTIMATE"
+                or not isinstance(lines, list) or not lines
+            ):
+                return "FIFO_ALLOCATION_PREVIEW_INVALID"
+            seen_outflows.add(event_id)
+            line_units, line_value = 0, Decimal("0.00")
+            normalized_lines = []
+            seen_layers = set()
+            for line in lines:
+                if not isinstance(line, dict) or set(line) != {
+                    "layer_id", "rate_change_id", "quantity", "unit_cost_rub",
+                    "total_cost_rub", "origin_sale_event_id",
+                }:
+                    return "FIFO_ALLOCATION_PREVIEW_INVALID"
+                layer_id = line.get("layer_id")
+                line_quantity = line.get("quantity")
+                unit_cost = cls._normalize_money(line.get("unit_cost_rub"))
+                line_total = cls._normalize_money(line.get("total_cost_rub"))
+                origin = line.get("origin_sale_event_id")
+                if (
+                    not isinstance(layer_id, str) or not layer_id or len(layer_id) > 160
+                    or line.get("rate_change_id") is not None
+                    or layer_id in seen_layers or type(line_quantity) is not int
+                    or line_quantity < 1 or unit_cost is None or line_total is None
+                    or (origin is not None and (
+                        not isinstance(origin, str) or not origin or len(origin) > 160
+                    ))
+                ):
+                    return "FIFO_ALLOCATION_PREVIEW_INVALID"
+                seen_layers.add(layer_id)
+                if (Decimal(unit_cost) * line_quantity).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP,
+                ) != Decimal(line_total):
+                    return "FIFO_ALLOCATION_TOTAL_MISMATCH"
+                line_units += line_quantity
+                line_value += Decimal(line_total)
+                normalized_lines.append({
+                    "layer_id": layer_id, "rate_change_id": None,
+                    "quantity": line_quantity, "unit_cost_rub": unit_cost,
+                    "total_cost_rub": line_total, "origin_sale_event_id": origin,
+                })
+            if line_units != quantity or line_value != Decimal(estimated):
+                return "FIFO_ALLOCATION_TOTAL_MISMATCH"
+            outflow_units += quantity
+            outflow_value += line_value
+            outflow_lines_total += len(normalized_lines)
+            if outflow_units > cls.MAX_COMMAND_UNITS or outflow_lines_total > 250_000:
+                return "FIFO_REPLAY_WORK_LIMIT"
+            normalized_outflows.append({
+                "event_id": event_id, "quantity": quantity,
+                "reason_code": reason, "estimated_value_rub": estimated,
+                "valuation_method": "FIFO_FINITE_LAYER_ESTIMATE",
+                "lines": normalized_lines,
+            })
+        normalized_outflow_total = cls._normalize_money(
+            preview.get("non_sale_outflow_value_rub"),
+        )
+        if normalized_outflow_total is None or Decimal(normalized_outflow_total) != outflow_value:
+            return "FIFO_ALLOCATION_TOTAL_MISMATCH"
         payload = {
             "stream_revision": stream_revision,
             "expected_allocation_revision": allocation_revision,
@@ -3284,7 +3452,9 @@ class FifoCostRepository:
             "anchor_cutoff_date": preview["anchor_cutoff_date"],
             "open_rate_effective_date": preview["open_rate_effective_date"],
             "allocations": normalized,
+            "outflows": normalized_outflows,
             "total_cogs_rub": grand_total,
+            "non_sale_outflow_value_rub": normalized_outflow_total,
         }
         return {**payload, "payload_fingerprint": cls._sha256(payload)}
 
@@ -3307,7 +3477,7 @@ class FifoCostRepository:
             """SELECT COUNT(*) FROM fifo_cost_events
                WHERE stream_id=? AND event_kind NOT IN (
                    'OPENING_FIFO_ANCHOR', 'PHYSICAL_SALE',
-                   'SALEABLE_RETURN_RESTOCK'
+                   'SALEABLE_RETURN_RESTOCK', 'NON_SALE_OUTFLOW'
                )""",
             (stream_id,),
         ).fetchone()[0]
@@ -3420,7 +3590,9 @@ class FifoCostRepository:
             preview["anchor_cutoff_date"] != anchor_cutoff
             or preview["open_rate_effective_date"] != expected["open_rate_effective_date"]
             or preview["allocations"] != expected["allocations"]
+            or preview["outflows"] != expected["outflows"]
             or preview["total_cogs_rub"] != expected["total_cogs_rub"]
+            or preview["non_sale_outflow_value_rub"] != expected["non_sale_outflow_value_rub"]
         ):
             raise ValueError("FIFO_ALLOCATION_REPLAY_MISMATCH")
 
@@ -3428,7 +3600,7 @@ class FifoCostRepository:
     def _preview_allocation_from_connection(
         cls, connection, stream_id, *, stream_revision,
         allocation_revision, source_fingerprint, cutoff_status,
-        anchor_cutoff_date,
+        anchor_cutoff_date, hypothetical_outflow=None,
     ):
         """Rebuild expected FIFO output from immutable source rows before write."""
         anchor_row = connection.execute(
@@ -3616,6 +3788,94 @@ class FifoCostRepository:
                 physical_time_confirmed=True,
                 cutoff_bridge_confirmed=(cutoff_status == "RECONCILED"),
                 saleable_recovery_confirmed=True,
+            ))
+        outflow_rows = connection.execute(
+            """SELECT e.event_id, e.effective_at, e.effective_date, e.quantity,
+                      e.source_identity_digest, e.inventory_cutoff, e.reason_code,
+                      e.provenance, e.completeness, s.source_kind, s.source_method,
+                      s.source_status, s.coverage_status
+               FROM fifo_cost_events AS e
+               LEFT JOIN fifo_cost_sources AS s ON s.source_id=e.source_id
+               WHERE e.stream_id=? AND e.event_kind='NON_SALE_OUTFLOW'
+               ORDER BY e.event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(outflow_rows) > 100_000:
+            return {"complete": False, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
+        outflow_refs = connection.execute(
+            """SELECT e.event_id, r.reference_kind, r.reference_digest
+               FROM fifo_cost_events AS e
+               LEFT JOIN fifo_cost_source_refs AS r ON r.source_id=e.source_id
+               WHERE e.stream_id=? AND e.event_kind='NON_SALE_OUTFLOW'
+               ORDER BY e.event_id, r.reference_kind, r.reference_digest
+               LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(outflow_refs) > 100_000:
+            return {"complete": False, "reason_code": "FIFO_REPLAY_WORK_LIMIT"}
+        refs_by_outflow = {}
+        for ref in outflow_refs:
+            if ref["reference_kind"] is not None:
+                refs_by_outflow.setdefault(ref["event_id"], set()).add(
+                    (ref["reference_kind"], ref["reference_digest"]),
+                )
+        outflow_commands = connection.execute(
+            """SELECT ce.event_id, c.stream_revision
+               FROM fifo_cost_command_events AS ce
+               JOIN fifo_cost_commands AS c ON c.command_id=ce.command_id
+               JOIN fifo_cost_events AS e ON e.event_id=ce.event_id
+               WHERE e.stream_id=? AND e.event_kind='NON_SALE_OUTFLOW'
+               ORDER BY ce.event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(outflow_commands) > 100_000:
+            return {"complete": False, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
+        outflow_command_revisions = {
+            row["event_id"]: row["stream_revision"] for row in outflow_commands
+        }
+        for row in outflow_rows:
+            digest = row["source_identity_digest"]
+            if (
+                row["source_kind"] != "OWNER_CONFIRMATION"
+                or row["source_method"] != "OWNER_CONFIRMED_FIFO_NON_SALE_MOVEMENT"
+                or row["source_status"] != "OWNER_CONFIRMED"
+                or row["provenance"] != "OWNER_CONFIRMED"
+                or row["completeness"] != "OWNER_CONFIRMED"
+                or row["coverage_status"] != "OWNER_CONFIRMED"
+                or row["inventory_cutoff"] != anchor_cutoff_date
+                or not cls._valid_digest(digest)
+                or row["reason_code"] not in cls._OUTFLOW_REASONS
+                or refs_by_outflow.get(row["event_id"], set()) != {("OTHER", digest)}
+                or row["event_id"] not in outflow_command_revisions
+            ):
+                return {
+                    "complete": False,
+                    "reason_code": "FIFO_MOVEMENT_EVIDENCE_UNCONFIRMED",
+                }
+            sales.append(FifoDatedAllocationEvent(
+                event=FifoOutflowEvent(
+                    row["event_id"], row["quantity"], row["reason_code"],
+                ),
+                effective_at=row["effective_at"],
+                effective_date=row["effective_date"],
+                source_identity_digest=digest,
+                physical_time_confirmed=True,
+                cutoff_bridge_confirmed=(cutoff_status == "RECONCILED"),
+                movement_reason_confirmed=True,
+            ))
+        if hypothetical_outflow is not None:
+            sales.append(FifoDatedAllocationEvent(
+                event=FifoOutflowEvent(
+                    "evt_" + hypothetical_outflow["source_identity_digest"][:32],
+                    hypothetical_outflow["quantity"],
+                    hypothetical_outflow["reason_code"],
+                ),
+                effective_at=None,
+                effective_date=hypothetical_outflow["effective_date"],
+                source_identity_digest=hypothetical_outflow["source_identity_digest"],
+                physical_time_confirmed=True,
+                cutoff_bridge_confirmed=(cutoff_status == "RECONCILED"),
+                movement_reason_confirmed=True,
             ))
         rate_rows = connection.execute(
             """SELECT rate_change_id, effective_date, unit_cost_rub
@@ -4022,6 +4282,20 @@ class FifoCostRepository:
                 CHECK((basis_allocation_id IS NULL) = (basis_line_number IS NULL))
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_allocation_outflow_lines (
+                allocation_id TEXT NOT NULL REFERENCES fifo_cost_allocations(allocation_id),
+                line_number INTEGER NOT NULL CHECK(line_number >= 1),
+                event_id TEXT NOT NULL REFERENCES fifo_cost_events(event_id),
+                layer_id TEXT NOT NULL REFERENCES fifo_cost_layers(layer_id),
+                quantity INTEGER NOT NULL CHECK(quantity > 0),
+                unit_cost_rub TEXT NOT NULL,
+                estimated_value_rub TEXT NOT NULL,
+                valuation_method TEXT NOT NULL CHECK(
+                    valuation_method='FIFO_FINITE_LAYER_ESTIMATE'
+                ),
+                PRIMARY KEY(allocation_id, line_number)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_allocation_rate_lines (
                 allocation_id TEXT NOT NULL REFERENCES fifo_cost_allocations(allocation_id),
                 line_number INTEGER NOT NULL CHECK(line_number >= 1),
@@ -4093,8 +4367,13 @@ class FifoCostRepository:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_return_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='SALEABLE_RETURN_RESTOCK' AND source_identity_digest IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_non_sale_movement_identity
+                ON fifo_cost_events(stream_id, source_identity_digest)
+                WHERE event_kind='NON_SALE_OUTFLOW' AND source_identity_digest IS NOT NULL;
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_return_basis_origin
                 ON fifo_cost_return_basis(origin_sale_event_id, layer_id);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_outflow_allocation_event
+                ON fifo_cost_allocation_outflow_lines(allocation_id, event_id);
             """
         for statement in statements.split(";"):
             if statement.strip():

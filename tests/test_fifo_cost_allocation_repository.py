@@ -246,7 +246,8 @@ def test_fc16_stale_stream_revision_and_changed_cutoff_cannot_publish(tmp_path):
     repo, token, _, preview = _ready_fixture(tmp_path)
     try:
         _command(repo, events=[_event(
-            "NON_SALE_OUTFLOW", 1, reason_code="HISTORY_GAP",
+            "INVENTORY_TRANSFER", 1,
+            location_from="OZON", location_to="HOME",
         )])
         result = repo.append_allocation_revision(
             store_id="store-a", product_id="product-1", offer_id="offer-1", sku="sku-1",
