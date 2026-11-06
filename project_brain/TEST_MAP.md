@@ -6394,6 +6394,13 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `app/tests/test_seller_cost_confirmation_flow.py` проверяет возврат после подтверждённой себестоимости к тому же SKU, одноразовость callback и отказ после переключения магазина. `tests/test_unit_price_scenario_telegram_runtime.py::test_current_unit_economics_detail_has_entry_to_same_calculator_runtime` сохраняет SKU при входе в сценарий, а `test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` — цену, себестоимость и рекламу после ручного тарифа.
 - Final linked Windows profile across query, Telegram UI, current integration, historical pre-ad, seller-cost flow and calculator runtime: **98 passed in 1.95s**. Production `py_compile`, `git diff --check` PASS; owner data hash unchanged and lock absent. No live request or bot.
 
+# FC25 — frozen FIFO unit cost in price planning
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_grid_uses_one_frozen_fifo_next_unit_cost_and_keeps_candidate_tariffs` runs the public Telegram grid flow, changes the fake underlying source revision after opening, and proves every price candidate retains the original next-unit cost and source revision while commission changes at the 100 ₽ tariff boundary. The result shows the 80-unit layer limit and labels the calculation as one-unit planning.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_scenario_cost_overrides_fifo_reference_without_changing_its_basis` confirms a manual 23 ₽ cost is applied to every candidate while FIFO 20 ₽ and its revision remain read-only reference evidence.
+- `tests/test_unit_price_sensitivity_service.py::test_fifo_next_unit_cost_and_revision_are_frozen_across_price_sensitivity_cells` preserves cost and revision across sensitivity cells; unknown advertising leaves after-ad profit unavailable while the independent pre-ad margin remains available.
+- Linked Windows/Python 3.12 profile: `tests/test_unit_price_scenario_telegram_runtime.py tests/test_unit_price_sensitivity_service.py` — **80 passed in 1.27s**. `python -m compileall -q app tests` and `git diff --check` PASS. No live Ozon/Telegram calls, bot startup, or data changes.
+
 # MA18 — налоговое основание и provenance в current/history/experiment views
 
 - `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, and `tests/test_current_unit_economics_integration.py` retain the current tax-policy and historical recorded-tax basis, source periods, and legacy outputs.
