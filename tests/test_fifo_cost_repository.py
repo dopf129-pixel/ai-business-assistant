@@ -218,6 +218,42 @@ def test_fc06_schema_upgrades_atomically_to_latest_without_losing_existing_event
         upgraded.close()
 
 
+def test_fc20_v8_schema_upgrade_adds_append_only_late_entry_drafts(tmp_path):
+    db = tmp_path / "schema-v8.sqlite"
+    repo = FifoCostRepository(db_path=db)
+    connection = repo.get_connection()
+    try:
+        connection.execute(
+            "CREATE TABLE legacy_marker(value TEXT NOT NULL)"
+        )
+        connection.execute("INSERT INTO legacy_marker VALUES ('preserved')")
+        connection.execute("DROP TRIGGER trg_fifo_cost_late_entry_drafts_no_update")
+        connection.execute("DROP TRIGGER trg_fifo_cost_late_entry_drafts_no_delete")
+        connection.execute("DROP TABLE fifo_cost_late_entry_drafts")
+        connection.execute("UPDATE fifo_cost_schema SET version=8 WHERE singleton=1")
+    finally:
+        connection.close()
+
+    upgraded = repo.get_connection()
+    try:
+        assert upgraded.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION
+        assert upgraded.execute(
+            "SELECT value FROM legacy_marker"
+        ).fetchone()[0] == "preserved"
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='fifo_cost_late_entry_drafts'"
+        ).fetchone()[0] == 1
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
+            "AND name='trg_fifo_cost_late_entry_drafts_no_delete'"
+        ).fetchone()[0] == 1
+    finally:
+        upgraded.close()
+
+
 def test_fc11_schema_v2_upgrade_adds_rate_history_without_changing_other_data(tmp_path):
     db = tmp_path / "schema-v2.sqlite"
     repo = FifoCostRepository(db_path=db)

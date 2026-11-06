@@ -17,6 +17,7 @@ class FifoCostSupplyEvidenceService:
 
     def record_collected_supply(
         self, *, collection_result, store_id, product_id=None, offer_id=None, sku,
+        expected_revision=None,
     ):
         """Persist only a complete result from the explicit read-only collector."""
         if (
@@ -33,10 +34,51 @@ class FifoCostSupplyEvidenceService:
             offer_id=offer_id,
             sku=sku,
             snapshot=snapshot,
+            expected_revision=expected_revision,
+        )
+
+    def record_late_entry_draft(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+        expected_revision, snapshot, owner_effective_date, owner_old_home_units,
+        purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+    ):
+        """Persist an owner-confirmed late-rate proposal as a no-write draft."""
+        recorded = self.repository.record_supply_evidence(
+            store_id=store_id,
+            product_id=product_id,
+            offer_id=offer_id,
+            sku=sku,
+            snapshot=snapshot,
+            expected_revision=expected_revision,
+        )
+        if not isinstance(recorded, dict) or recorded.get("error") is not False:
+            return recorded if isinstance(recorded, dict) else {
+                "error": True, "code": "FIFO_SUPPLY_EVIDENCE_RECORD_FAILED",
+            }
+        return self.repository.record_late_entry_draft(
+            store_id=store_id,
+            product_id=product_id,
+            offer_id=offer_id,
+            sku=sku,
+            expected_revision=expected_revision,
+            snapshot=snapshot,
+            owner_effective_date=owner_effective_date,
+            owner_old_home_units=owner_old_home_units,
+            purchase_cost_rub=purchase_cost_rub,
+            delivery_cost_rub=delivery_cost_rub,
+            packaging_cost_rub=packaging_cost_rub,
         )
 
     def read_history(self, *, store_id, product_id=None, offer_id=None, sku):
         return self.repository.read_supply_evidence_history(
+            store_id=store_id,
+            product_id=product_id,
+            offer_id=offer_id,
+            sku=sku,
+        )
+
+    def read_late_entry_drafts(self, *, store_id, product_id=None, offer_id=None, sku):
+        return self.repository.read_late_entry_drafts(
             store_id=store_id,
             product_id=product_id,
             offer_id=offer_id,

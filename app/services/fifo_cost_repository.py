@@ -28,7 +28,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 9
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -92,6 +92,7 @@ class FifoCostRepository:
         "fifo_cost_supply_evidence",
         "fifo_cost_return_basis",
         "fifo_cost_allocation_outflow_lines",
+        "fifo_cost_late_entry_drafts",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -111,6 +112,7 @@ class FifoCostRepository:
         "fifo_cost_supply_evidence",
         "fifo_cost_return_basis",
         "fifo_cost_allocation_outflow_lines",
+        "fifo_cost_late_entry_drafts",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -1107,6 +1109,7 @@ class FifoCostRepository:
 
     def record_supply_evidence(
         self, *, store_id, product_id=None, offer_id=None, sku, snapshot,
+        expected_revision=None,
     ):
         """Append a reconciled supply-act snapshot without creating inventory."""
         scope = self._tenant_scope(store_id)
@@ -1122,6 +1125,10 @@ class FifoCostRepository:
 
             if not isinstance(snapshot, FifoSupplyActSnapshot):
                 return self._error("FIFO_SUPPLY_SNAPSHOT_INVALID")
+            if expected_revision is not None and (
+                type(expected_revision) is not int or expected_revision < 0
+            ):
+                return self._error("FIFO_REVISION_CONFLICT")
             identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
             if (
                 snapshot.status not in {"COMPLETE", "CONFIRMED_ZERO"}
@@ -1283,6 +1290,12 @@ class FifoCostRepository:
             if stream is None:
                 connection.rollback()
                 return self._error("FIFO_HISTORY_NOT_INITIALIZED")
+            if (
+                expected_revision is not None
+                and stream["revision"] != expected_revision
+            ):
+                connection.rollback()
+                return self._error("FIFO_REVISION_CONFLICT")
             existing = connection.execute(
                 """SELECT evidence_id, source_id, snapshot_sequence, normalized_evidence_json
                    FROM fifo_cost_supply_evidence
@@ -1358,6 +1371,212 @@ class FifoCostRepository:
                     connection.rollback()
                 except sqlite3.Error:
                     pass
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def record_late_entry_draft(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+        expected_revision, snapshot, owner_effective_date, owner_old_home_units,
+        purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+    ):
+        """Append an owner-confirmed late-entry draft, without changing FIFO."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            from services.fifo_cost_source_normalizer import FifoSupplyActSnapshot
+
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            if (
+                type(expected_revision) is not int or expected_revision < 0
+                or not isinstance(snapshot, FifoSupplyActSnapshot)
+                or snapshot.status != "COMPLETE"
+                or snapshot.source_status != "COMPLETE"
+                or snapshot.store_id != identity["store_id"]
+                or snapshot.captured_at is None
+                or snapshot.evidence_fingerprint is None
+                or not self._valid_digest(snapshot.evidence_fingerprint)
+                or snapshot.source_fingerprint is None
+                or not self._valid_digest(snapshot.source_fingerprint)
+                or snapshot.order_ref is None
+                or not self._valid_digest(snapshot.order_ref)
+                or snapshot.supply_ref is None
+                or not self._valid_digest(snapshot.supply_ref)
+            ):
+                return self._error("FIFO_LATE_ENTRY_EVIDENCE_INVALID")
+            owner_date = self._normalize_date(owner_effective_date)
+            if owner_date is None or owner_date > self._now().date().isoformat():
+                return self._error("FIFO_LATE_ENTRY_EFFECTIVE_DATE_INVALID")
+            if (
+                type(owner_old_home_units) is not int
+                or not 0 <= owner_old_home_units <= self.MAX_COMMAND_UNITS
+            ):
+                return self._error("FIFO_LATE_ENTRY_HOME_QUANTITY_INVALID")
+            components = {
+                "purchase_cost_rub": self._normalize_money(purchase_cost_rub),
+                "delivery_cost_rub": self._normalize_money(delivery_cost_rub),
+                "packaging_cost_rub": self._normalize_money(packaging_cost_rub),
+            }
+            unit_cost = format(
+                sum((Decimal(value) for value in components.values()), Decimal("0.00")),
+                ".2f",
+            )
+            if Decimal(unit_cost) > Decimal("1000000000"):
+                return self._error("FIFO_MONEY_INPUT_INVALID")
+            if (
+                not isinstance(snapshot.units_by_sku, tuple)
+                or len(snapshot.units_by_sku) != 1
+                or snapshot.units_by_sku[0][0] != identity["sku"]
+                or type(snapshot.units_by_sku[0][1]) is not int
+                or snapshot.units_by_sku[0][1] <= 0
+                or snapshot.units_by_sku[0][1] > self.MAX_COMMAND_UNITS
+            ):
+                return self._error("FIFO_LATE_ENTRY_SKU_OR_QUANTITY_MISMATCH")
+            accepted_units = snapshot.units_by_sku[0][1]
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            material = {
+                "stream_id": stream_id,
+                "expected_revision": expected_revision,
+                "source_fingerprint": snapshot.source_fingerprint,
+                "evidence_fingerprint": snapshot.evidence_fingerprint,
+                "owner_effective_date": owner_date,
+                "owner_old_home_units": owner_old_home_units,
+                "accepted_units": accepted_units,
+                **components,
+                "unit_cost_rub": unit_cost,
+            }
+            payload_fingerprint = self._sha256(material)
+            draft_id = "late_" + payload_fingerprint[:40]
+            recorded_at = self._iso(self._now())
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            stream = connection.execute(
+                """SELECT revision FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchone()
+            if stream is None:
+                connection.rollback()
+                return self._error("FIFO_HISTORY_NOT_INITIALIZED")
+            if stream["revision"] != expected_revision:
+                connection.rollback()
+                return self._error("FIFO_REVISION_CONFLICT")
+            evidence = connection.execute(
+                """SELECT source_fingerprint, captured_at FROM fifo_cost_supply_evidence
+                   WHERE stream_id=? AND evidence_fingerprint=?""",
+                (stream_id, snapshot.evidence_fingerprint),
+            ).fetchone()
+            if (
+                evidence is None
+                or evidence["source_fingerprint"] != snapshot.source_fingerprint
+                or evidence["captured_at"] != self._normalize_timestamp(snapshot.captured_at)
+            ):
+                connection.rollback()
+                return self._error("FIFO_LATE_ENTRY_EVIDENCE_NOT_RECORDED")
+            existing = connection.execute(
+                """SELECT draft_id FROM fifo_cost_late_entry_drafts
+                   WHERE stream_id=? AND payload_fingerprint=?""",
+                (stream_id, payload_fingerprint),
+            ).fetchone()
+            if existing is not None:
+                connection.rollback()
+                return {
+                    "error": False,
+                    "code": "FIFO_LATE_ENTRY_DRAFT_RECORDED",
+                    "draft_id": existing["draft_id"],
+                    "idempotent": True,
+                    "expected_revision": expected_revision,
+                    "accepted_units": accepted_units,
+                    "owner_effective_date": owner_date,
+                    "unit_cost_rub": unit_cost,
+                }
+            connection.execute(
+                """INSERT INTO fifo_cost_late_entry_drafts (
+                    draft_id, stream_id, expected_revision, evidence_fingerprint,
+                    source_fingerprint, order_digest, supply_digest, owner_effective_date,
+                    owner_old_home_units, accepted_units, purchase_cost_rub,
+                    delivery_cost_rub, packaging_cost_rub, unit_cost_rub,
+                    payload_fingerprint, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    draft_id, stream_id, expected_revision,
+                    snapshot.evidence_fingerprint, snapshot.source_fingerprint,
+                    snapshot.order_ref, snapshot.supply_ref, owner_date,
+                    owner_old_home_units, accepted_units,
+                    components["purchase_cost_rub"], components["delivery_cost_rub"],
+                    components["packaging_cost_rub"], unit_cost,
+                    payload_fingerprint, recorded_at,
+                ),
+            )
+            connection.commit()
+            return {
+                "error": False,
+                "code": "FIFO_LATE_ENTRY_DRAFT_RECORDED",
+                "draft_id": draft_id,
+                "idempotent": False,
+                "expected_revision": expected_revision,
+                "accepted_units": accepted_units,
+                "owner_effective_date": owner_date,
+                "unit_cost_rub": unit_cost,
+            }
+        except ValueError as exc:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_LATE_ENTRY_INVALID"
+            return self._error(code)
+        except (TypeError, IndexError, InvalidOperation, OverflowError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_LATE_ENTRY_INVALID")
+        except sqlite3.IntegrityError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_REVISION_CONFLICT")
+        except (sqlite3.Error, OSError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_late_entry_drafts(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+    ):
+        """Read immutable late-entry proposals for the exact tenant/SKU stream."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            connection = self.get_connection()
+            rows = connection.execute(
+                """SELECT d.draft_id, d.expected_revision, d.owner_effective_date,
+                          d.owner_old_home_units, d.accepted_units, d.purchase_cost_rub,
+                          d.delivery_cost_rub, d.packaging_cost_rub, d.unit_cost_rub,
+                          d.order_digest, d.supply_digest, d.source_fingerprint,
+                          d.evidence_fingerprint, d.recorded_at
+                   FROM fifo_cost_late_entry_drafts AS d
+                   JOIN fifo_cost_streams AS s ON s.stream_id=d.stream_id
+                   WHERE d.stream_id=? AND s.store_id=? AND s.identity_fingerprint=?
+                   ORDER BY d.recorded_at, d.draft_id""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchall()
+            return {
+                "error": False,
+                "code": "FIFO_LATE_ENTRY_DRAFTS_READY",
+                "drafts": [dict(row) for row in rows],
+            }
+        except (TypeError, ValueError):
+            return self._error("FIFO_IDENTITY_INVALID")
+        except (sqlite3.Error, OSError):
             return self._error("FIFO_STORAGE_UNAVAILABLE")
         finally:
             if connection is not None:
@@ -4253,6 +4472,32 @@ class FifoCostRepository:
                 CHECK((layer_id IS NULL) != (rate_change_id IS NULL))
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_late_entry_drafts (
+                draft_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                expected_revision INTEGER NOT NULL CHECK(expected_revision >= 0),
+                evidence_fingerprint TEXT NOT NULL CHECK(length(evidence_fingerprint) = 64),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                order_digest TEXT NOT NULL CHECK(length(order_digest) = 64),
+                supply_digest TEXT NOT NULL CHECK(length(supply_digest) = 64),
+                owner_effective_date TEXT NOT NULL,
+                owner_old_home_units INTEGER NOT NULL CHECK(
+                    owner_old_home_units >= 0 AND owner_old_home_units <= 1000000
+                ),
+                accepted_units INTEGER NOT NULL CHECK(
+                    accepted_units > 0 AND accepted_units <= 1000000
+                ),
+                purchase_cost_rub TEXT NOT NULL,
+                delivery_cost_rub TEXT NOT NULL,
+                packaging_cost_rub TEXT NOT NULL,
+                unit_cost_rub TEXT NOT NULL,
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                recorded_at TEXT NOT NULL,
+                UNIQUE(stream_id, payload_fingerprint),
+                FOREIGN KEY(stream_id, evidence_fingerprint)
+                    REFERENCES fifo_cost_supply_evidence(stream_id, evidence_fingerprint)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_allocations (
                 allocation_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -4361,6 +4606,8 @@ class FifoCostRepository:
                 ON fifo_cost_rate_reconciliations(stream_id, transition_rate_sequence);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_supply_evidence_order
                 ON fifo_cost_supply_evidence(stream_id, snapshot_sequence);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_late_entry_drafts_order
+                ON fifo_cost_late_entry_drafts(stream_id, recorded_at, draft_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;
@@ -4407,9 +4654,19 @@ class FifoCostRepository:
                 "PRAGMA table_info(fifo_cost_allocation_rate_lines)"
             )
         }
+        late_entry_columns = {
+            str(item[1])
+            for item in connection.execute(
+                "PRAGMA table_info(fifo_cost_late_entry_drafts)"
+            )
+        }
         if "stream_revision" not in allocation_columns or not {
             "allocation_id", "line_number", "event_id", "rate_change_id",
             "quantity", "unit_cost_rub", "total_cost_rub",
-        } <= rate_line_columns:
-            raise sqlite3.DatabaseError("invalid FIFO allocation schema")
+        } <= rate_line_columns or not {
+            "draft_id", "stream_id", "expected_revision", "evidence_fingerprint",
+            "owner_effective_date", "accepted_units", "unit_cost_rub",
+            "payload_fingerprint", "recorded_at",
+        } <= late_entry_columns:
+            raise sqlite3.DatabaseError("invalid FIFO repository schema")
 

@@ -16,6 +16,7 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
         onboarding_service=None,
         fifo_history_service=None,
         fifo_rate_entry_service=None,
+        fifo_late_entry_service=None,
     ):
         super().__init__(
             assistant,
@@ -27,6 +28,7 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
             onboarding_service,
             fifo_history_service,
             fifo_rate_entry_service,
+            fifo_late_entry_service,
         )
         self.return_inventory_service = return_inventory_service
 

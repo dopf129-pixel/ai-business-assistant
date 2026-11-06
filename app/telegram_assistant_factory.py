@@ -72,8 +72,11 @@ from services.period_profit_effective_cost_service import (
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
+from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
+from services.fifo_cost_supply_evidence_service import FifoCostSupplyEvidenceService
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateEntryService
+from services.telegram_fifo_cost_late_entry_service import TelegramFifoCostLateEntryService
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
@@ -596,6 +599,17 @@ def create_telegram_assistant():
         fifo_cost_history_service,
         FifoCostRateService(fifo_cost_repository),
     )
+    fifo_cost_source_collection_service = FifoCostSourceCollectionService(
+        ozon_client=OzonClient(),
+    )
+    fifo_cost_supply_evidence_service = FifoCostSupplyEvidenceService(
+        fifo_cost_repository,
+    )
+    telegram_fifo_cost_late_entry_service = TelegramFifoCostLateEntryService(
+        history_service=fifo_cost_history_service,
+        source_collection_service=fifo_cost_source_collection_service,
+        supply_evidence_service=fifo_cost_supply_evidence_service,
+    )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
         cost_service=period_profit_cost_service,
@@ -628,6 +642,7 @@ def create_telegram_assistant():
             onboarding_service,
             telegram_fifo_cost_history_service,
             telegram_fifo_cost_rate_entry_service,
+            telegram_fifo_cost_late_entry_service,
         )
     )
 

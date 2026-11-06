@@ -170,20 +170,105 @@ def test_partial_acceptance_is_linked_as_evidence_without_fifo_receipt(scoped_re
             "SELECT normalized_evidence_json FROM fifo_cost_supply_evidence"
         ).fetchone()[0])
         stored_strings = {
-            value
-            for value in payload.values()
-            if isinstance(value, str)
+            value for value in payload.values() if isinstance(value, str)
         }
         stored_strings.update(
-            value
-            for act in payload["act_evidence"]
-            for value in act.values()
+            value for act in payload["act_evidence"] for value in act.values()
             if isinstance(value, str)
         )
         for raw_id in ("11", "2001", "3001"):
             assert raw_id not in stored_strings
     finally:
         connection.close()
+
+
+def test_late_entry_draft_is_revision_bound_append_only_and_does_not_change_fifo(scoped_repository):
+    service = FifoCostSupplyEvidenceService(scoped_repository)
+    snapshot = _snapshot()
+    before = scoped_repository.read_cost_history_snapshot(
+        store_id=STORE, product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+    )
+
+    result = service.record_late_entry_draft(
+        store_id=STORE,
+        product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"],
+        sku=IDENTITY["sku"],
+        expected_revision=before["revision"],
+        snapshot=snapshot,
+        owner_effective_date="2026-10-16",
+        owner_old_home_units=12,
+        purchase_cost_rub="20.00",
+        delivery_cost_rub="2.50",
+        packaging_cost_rub="1.25",
+    )
+    assert result["error"] is False
+    assert result["unit_cost_rub"] == "23.75"
+    assert result["accepted_units"] == 100
+    assert result["owner_effective_date"] == "2026-10-16"
+
+    again = service.record_late_entry_draft(
+        store_id=STORE,
+        product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"],
+        sku=IDENTITY["sku"],
+        expected_revision=before["revision"],
+        snapshot=snapshot,
+        owner_effective_date="2026-10-16",
+        owner_old_home_units=12,
+        purchase_cost_rub="20.00",
+        delivery_cost_rub="2.50",
+        packaging_cost_rub="1.25",
+    )
+    assert again["error"] is False
+    assert again["idempotent"] is True
+    assert again["draft_id"] == result["draft_id"]
+
+    history = service.read_late_entry_drafts(
+        store_id=STORE, product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+    )
+    assert len(history["drafts"]) == 1
+    draft = history["drafts"][0]
+    assert draft["owner_effective_date"] == "2026-10-16"
+    assert draft["accepted_units"] == 100
+    assert draft["owner_old_home_units"] == 12
+    assert draft["unit_cost_rub"] == "23.75"
+    assert "2001" not in str(draft)
+    assert "3001" not in str(draft)
+
+    after = scoped_repository.read_cost_history_snapshot(
+        store_id=STORE, product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+    )
+    assert after["revision"] == before["revision"]
+    assert after["layers"] == before["layers"]
+    assert after["rates"] == before["rates"]
+
+
+def test_late_entry_draft_rejects_stale_stream_revision(scoped_repository):
+    service = FifoCostSupplyEvidenceService(scoped_repository)
+    snapshot = _snapshot()
+    result = service.record_late_entry_draft(
+        store_id=STORE,
+        product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"],
+        sku=IDENTITY["sku"],
+        expected_revision=0,
+        snapshot=snapshot,
+        owner_effective_date="2026-10-16",
+        owner_old_home_units=0,
+        purchase_cost_rub="20",
+        delivery_cost_rub="0",
+        packaging_cost_rub="0",
+    )
+    assert result == {"error": True, "code": "FIFO_REVISION_CONFLICT"}
+    history = service.read_late_entry_drafts(
+        store_id=STORE, product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+    )
+    assert history["drafts"] == []
 
 
 def test_repeated_refresh_is_idempotent_and_changed_act_is_new_evidence_only(scoped_repository):

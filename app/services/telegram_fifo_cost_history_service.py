@@ -87,12 +87,21 @@ class TelegramFifoCostHistoryService:
                 "read_only_ozon": True,
             }
         if action == "late":
-            return self._message_result(
-                "Поздний ввод новой партии пока не записывается: сначала нужно восстановить дату и "
-                "остаток на момент отправки, чтобы не перенести новую цену на старые продажи. "
-                "Данные не изменены.",
-                ticket["token"],
-            )
+            if ticket["queue_initialized"] is not True:
+                return self._message_result(
+                    "Сначала зафиксируйте начальный FIFO-остаток для этого SKU. "
+                    "Позднюю партию пока нельзя безопасно восстановить.",
+                    ticket["token"],
+                )
+            return {
+                "error": False,
+                "handled": True,
+                "action": "start_late_entry",
+                "identity": ticket["identity"],
+                "display_name": ticket["display_name"],
+                "expected_revision": ticket["revision"],
+                "read_only_ozon": True,
+            }
         if action == "correct":
             return self._message_result(
                 "Исправление сохранённой записи пока недоступно. Старую запись нельзя заменить "
