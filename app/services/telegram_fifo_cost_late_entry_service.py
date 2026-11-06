@@ -494,4 +494,3 @@ class TelegramFifoCostLateEntryService:
         for owner, item in list(self._pending.items()):
             if item.get("expires_at", 0) <= now:
                 self._pending.pop(owner, None)
-
