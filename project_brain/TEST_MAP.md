@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC30: конкуренция запросов и границы операций
+
+- `tests/test_fifo_cost_source_collection_service.py::test_duplicate_concurrent_stock_collection_is_singleflight` verifies duplicate same-scope requests produce one actual source call and a bounded in-progress response. `test_concurrent_stock_collection_does_not_block_independent_scope` verifies a blocked request does not serialize a different store or exact SKU; incomplete synthetic stock evidence remains `PARTIAL`.
+- The same collector profile covers shared parent attempt/time budgets, cancellation before/during calls, bounded retry/timeout, page/checkpoint caps and stale checkpoints. Repository, rate/correction and Telegram history/late-entry tests cover revision races, stale/foreign/expired drafts and fail-closed updates; operation diagnostics cover concurrent reservations against the shared owner budget.
+- FC30 linked Windows profile: **116 passed in 4.55s**; changed-file `compileall` and `git diff --check` PASS. All API responses are synthetic and repository tests use temporary SQLite.
+
 # 2026-11-06 — FIFO FC29: versioned import and safe history export
 
 - `tests/test_seller_cost_table_service.py` covers the legacy template contract, multiple dated transitions for one SKU, duplicate same-date rejection, ambiguity/catalog/history checks, future history requiring an explicit date, CSV UTF-8/size/row/cell/column bounds, spreadsheet formula escaping, source reference/revision, stale preview rejection, FIFO-mode conflict, read-only history export and whole-history opt-in restrictions.

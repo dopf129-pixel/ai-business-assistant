@@ -1,3 +1,8 @@
+# 2026-11-06 — FIFO FC30: конкурентность и bounded source work
+
+- Added a deterministic concurrency regression proving same-scope stock collection is single-flight while different stores and different exact SKU identities can collect independently. Both source results remain partial when the synthetic evidence does not establish the full inventory cutoff.
+- FC30 linked Windows profile: **116 passed in 4.55s** across source collection, repository, rate/correction, history and late-entry Telegram, FIFO explanation/allocation, and shared operation-budget diagnostics. Changed-file compileall and `git diff --check` PASS. Synthetic clients and temporary SQLite only; no live API or bot startup.
+
 # 2026-11-06 — FIFO FC29: безопасный импорт legacy-истории и выгрузка FIFO
 
 - Legacy CSV import now validates UTF-8, byte/row/cell limits, exact column count, unique catalog SKU, duplicate SKU/date and existing history (including future dated rates). Multiple distinct dated legacy rates for a SKU can be previewed and saved atomically. Preview captures a file reference and source revision; commit checks both current source and the history revision inside the SQLite write transaction.
