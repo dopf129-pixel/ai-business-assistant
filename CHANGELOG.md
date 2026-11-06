@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC24: единый источник текущей себестоимости
+
+- Добавлен read-only `FifoCurrentUnitCostAdapter` для текущей юнит-экономики и калькулятора цены. При незаведённом FIFO сохраняется датированная legacy-себестоимость; активная, но неполная FIFO-история не подменяется старой ценой.
+- Карточка и сценарии цены показывают способ оценки, дату/отсечку, остаток слоя, следующую ставку и полноту. FIFO остаётся плановой моделью и не открывает фактический COGS в Period Profit.
+- Кеши текущей карточки и сценариев связаны с owner/store/SKU, effective date и fingerprint полной обезличенной FIFO-истории; смена ревизии, даты или восстановленного содержимого инвалидирует старый результат.
+- FC24 verification: смежный профиль **393 passed in 7.28s**; `compileall -q app tests` и `git diff --check` PASS. Локальные данные не изменены; live Ozon/Telegram и bot startup не выполнялись.
+
 # 2026-11-06 — FIFO FC23: cancellation audit and date-boundary safety
 
 - Added an append-only v11 cancellation record for an unused future FIFO rate, preserving the original rate and monotonic sequence history. Owner/store/SKU/revision/source-bound previews reject stale confirmations and refuse rates already used by events, allocations or reconciliations.

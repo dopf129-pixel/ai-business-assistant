@@ -560,6 +560,56 @@ def test_cost_display_uses_canonical_half_up_rounding_and_reconciles_scope():
     assert projection["expense_scope"]["known_non_ad_expenses_rub"]["ROUNDING_ADJUSTMENT"] == -0.01
 
 
+def test_assumptions_explain_fifo_layer_remaining_next_rate_and_model_only_scope():
+    runtime, source = _runtime()
+    original_load = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["input_provenance"]["cost"] = "fifo_next_unit_cost"
+        snapshot["source_completeness"]["cost"] = {
+            "complete": True,
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "as_of_date": "2026-10-14",
+            "cutoff_date": "2026-10-10",
+            "next_layer_remaining_units": 40,
+            "next_planned_rate": {
+                "unit_cost_rub": "135.00",
+                "effective_date": "2026-10-20",
+            },
+            "model_only": True,
+        }
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        assumptions = runtime.handle_callback(
+            _find_button(scenario, "Допущения и источники")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert assumptions["status"] == "UNIT_PRICE_SCENARIO_ASSUMPTIONS_READY"
+    assert "Метод себестоимости: FIFO" in assumptions["message"]
+    assert "Срез FIFO на 2026-10-14." in assumptions["message"]
+    assert "Фактическая отсечка FIFO: 2026-10-10." in assumptions["message"]
+    assert "Остаток слоя со следующей себестоимостью: 40 шт." in assumptions["message"]
+    assert "Следующая запланированная ставка: 135.00 ₽/шт. с 2026-10-20" in assumptions["message"]
+    assert "текущий FIFO-слой она не заменяет" in assumptions["message"]
+    assert "Полнота себестоимости подтверждена" in assumptions["message"]
+    assert "только в плановом сценарии" in assumptions["message"]
+    manual_lines = runtime._cost_basis_assumption_lines(
+        {"source_completeness": {"cost": {"method": "FIFO_FINITE_LAYER", "complete": True}}},
+        provenance={"cost": "manual_seller_assumption"},
+    )
+    assert any("для сверки: FIFO" in line for line in manual_lines)
+    assert any("применяется введённая вручную себестоимость" in line for line in manual_lines)
+
+
 def test_small_confirmed_expense_keeps_allocation_basis_when_unit_amount_rounds_to_zero():
     runtime, _source = _runtime()
     extended = {

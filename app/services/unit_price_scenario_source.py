@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 from threading import Event, RLock
 from time import monotonic
 from uuid import uuid4
@@ -47,11 +48,13 @@ class UnitPriceScenarioSource:
         cache_ttl_seconds=CACHE_TTL_SECONDS,
         max_cache_entries=MAX_CACHE_ENTRIES,
         cross_docking_source=None,
+        cost_adapter=None,
     ):
         self.product_service = product_service
         self.current_economics_source = current_economics_source
         self.finance_service = finance_service
         self.cost_service = cost_service
+        self.cost_adapter = cost_adapter
         self.tax_configuration_service = tax_configuration_service
         self.cross_docking_source = cross_docking_source
         self.clock = clock or (lambda: datetime.now().astimezone())
@@ -61,6 +64,7 @@ class UnitPriceScenarioSource:
         self._cache = {}
         self._cache_order = []
         self._inflight = {}
+        self._cost_identity_cache = {}
         self._lock = RLock()
 
     def load_snapshot(
@@ -101,14 +105,15 @@ class UnitPriceScenarioSource:
             return self._error("UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE")
         # A batch supplies the exact product row from its one catalog snapshot.
         # Keep that cache/in-flight key distinct from legacy SKU-only lookups.
-        key = (tenant_scope, target_user, target_sku)
+        cache_base_key = (tenant_scope, target_user, target_sku)
         if normalized_catalog_product is not None:
-            key += (
+            cache_base_key += (
                 str(normalized_catalog_product.get("product_id")),
                 str(normalized_catalog_product.get("offer_id")),
             )
+        cost_date = None
         cost_date_getter = getattr(
-            self.cost_service,
+            self.cost_adapter or self.cost_service,
             "get_current_cost_date",
             None,
         )
@@ -117,15 +122,57 @@ class UnitPriceScenarioSource:
                 cost_date = cost_date_getter()
             except Exception:
                 cost_date = None
-            if cost_date:
-                key += (str(cost_date),)
+        if cost_date:
+            cost_date = str(cost_date)
         waited_for_refresh = False
+        flight_key = None
 
         while True:
             operation_error = self._operation_error(operation_trace)
             if operation_error is not None:
                 return self._error(operation_error)
+            cost_product = normalized_catalog_product
+            if self.cost_adapter is not None and cost_product is None:
+                with self._lock:
+                    remembered = self._cost_identity_cache.get(
+                        (tenant_scope, target_user, target_sku)
+                    )
+                cost_product = self._normalize_product(remembered)
+            resolved_cost_basis = None
+            if self.cost_adapter is not None and cost_product is not None:
+                resolved_cost_basis = self._resolve_cost_basis(
+                    cost_product,
+                    store_id=store_id,
+                    as_of_date=cost_date,
+                )
+            key = cache_base_key
+            if (
+                self.cost_adapter is not None
+                and normalized_catalog_product is None
+                and cost_product is not None
+            ):
+                key += (
+                    str(cost_product.get("product_id")),
+                    str(cost_product.get("offer_id")),
+                )
+            if cost_date:
+                key += (cost_date,)
+            if self.cost_adapter is not None:
+                revision = (
+                    resolved_cost_basis.get("cost_revision")
+                    if isinstance(resolved_cost_basis, dict)
+                    else None
+                )
+                key += (str(revision or "COST_IDENTITY_UNRESOLVED"),)
             with self._lock:
+                if self.cost_adapter is not None and cost_product is not None:
+                    self._invalidate_cost_cache_for_identity(
+                        tenant_scope,
+                        target_user,
+                        target_sku,
+                        cost_product,
+                        keep_key=key,
+                    )
                 cached = self._cache.get(key)
                 age = (
                     self.cache_clock() - cached["stored_at"]
@@ -154,6 +201,7 @@ class UnitPriceScenarioSource:
                     leader = False
 
             if leader:
+                flight_key = key
                 break
             wait_timeout = self.TIME_BUDGET_SECONDS + 1
             if operation_trace is not None:
@@ -179,17 +227,46 @@ class UnitPriceScenarioSource:
                 parent_trace=operation_trace,
                 catalog_product=normalized_catalog_product,
                 force_refresh=force_refresh,
+                resolved_cost_basis=resolved_cost_basis,
+                resolved_cost_product=cost_product,
+                cost_date=cost_date,
             )
             operation_error = self._operation_error(operation_trace)
             if operation_error is not None:
                 return self._error(operation_error)
+            result_identity = result.get("identity") if isinstance(result, dict) else None
+            if self.cost_adapter is not None and isinstance(result_identity, dict):
+                with self._lock:
+                    self._remember_cost_identity(
+                        tenant_scope,
+                        target_user,
+                        target_sku,
+                        result_identity,
+                    )
             if self._snapshot_is_cacheable(result):
                 with self._lock:
-                    self._cache[key] = {
+                    result_identity = result.get("identity") or {}
+                    if self.cost_adapter is not None and result_identity:
+                        result_cost = (result.get("source_completeness") or {}).get("cost") or {}
+                        result_revision = str(result_cost.get("revision") or "COST_IDENTITY_UNRESOLVED")
+                        if normalized_catalog_product is None:
+                            store_key = (
+                                tenant_scope,
+                                target_user,
+                                target_sku,
+                                str(result_identity.get("product_id") or ""),
+                                str(result_identity.get("offer_id") or ""),
+                            )
+                        else:
+                            store_key = cache_base_key
+                        store_key = store_key + ((cost_date,) if cost_date else ()) + (result_revision,)
+                    else:
+                        store_key = key
+                    self._cache[store_key] = {
                         "stored_at": self.cache_clock(),
                         "result": deepcopy(result),
                     }
-                    self._touch(key)
+                    self._touch(store_key)
                     self._evict()
             result = deepcopy(result)
             result["cache"] = {
@@ -200,20 +277,25 @@ class UnitPriceScenarioSource:
             return result
         finally:
             with self._lock:
-                event = self._inflight.pop(key, None)
+                event = self._inflight.pop(flight_key, None)
                 if event is not None:
                     event.set()
 
     def _snapshot_is_cacheable(self, result):
         if not isinstance(result, dict) or result.get("error") is True:
             return False
-        if self.cross_docking_source is None:
-            return True
-        cross_docking = result.get("cross_docking")
-        return (
-            isinstance(cross_docking, dict)
-            and cross_docking.get("evidence_complete") is True
-        )
+        if self.cross_docking_source is not None:
+            cross_docking = result.get("cross_docking")
+            if not (
+                isinstance(cross_docking, dict)
+                and cross_docking.get("evidence_complete") is True
+            ):
+                return False
+        if self.cost_adapter is not None:
+            cost = (result.get("source_completeness") or {}).get("cost") or {}
+            if cost.get("complete") is not True:
+                return False
+        return True
 
     def _load_snapshot(
         self,
@@ -224,6 +306,9 @@ class UnitPriceScenarioSource:
         parent_trace=None,
         catalog_product=None,
         force_refresh=False,
+        resolved_cost_basis=None,
+        resolved_cost_product=None,
+        cost_date=None,
     ):
         trace = PeriodProfitOperationTrace(
             operation="unit_price_scenario_source",
@@ -263,7 +348,23 @@ class UnitPriceScenarioSource:
             self._ensure_operation_active(trace)
             current_facts = self._load_current_facts(product)
             self._ensure_operation_active(trace)
-            cost, cost_updated_at = self._load_cost(product)
+            cost_basis = None
+            if self.cost_adapter is not None:
+                if not self._same_product_identity(product, resolved_cost_product):
+                    resolved_cost_basis = None
+                if not isinstance(resolved_cost_basis, dict):
+                    resolved_cost_basis = self._resolve_cost_basis(
+                        product,
+                        store_id=store_id,
+                        as_of_date=cost_date,
+                    )
+                cost = self._nonnegative_number(
+                    resolved_cost_basis.get("cost_per_unit_rub")
+                )
+                cost_updated_at = resolved_cost_basis.get("cost_updated_at")
+                cost_basis = deepcopy(resolved_cost_basis.get("cost_basis") or {})
+            else:
+                cost, cost_updated_at = self._load_cost(product)
             self._ensure_operation_active(trace)
             policy = self._load_tax_policy()
             self._ensure_operation_active(trace)
@@ -301,7 +402,7 @@ class UnitPriceScenarioSource:
             }
             provenance = {
                 "price": "ozon_current_seller_price" if suggested["price"] is not None else "unknown",
-                "cost": "confirmed_store_cost" if cost is not None else "unknown",
+                "cost": self._cost_provenance(cost_basis, cost),
                 "commission_rate": "ozon_current_fbo_rate" if suggested["commission_rate"] is not None else "unknown",
                 "cross_docking_per_unit": (
                     "ozon_cross_docking_sku_average"
@@ -359,6 +460,8 @@ class UnitPriceScenarioSource:
                         "timezone": cross_docking.get("timezone"),
                     },
                     "cost_as_of": cost_updated_at,
+                    "cost_basis_as_of": (cost_basis or {}).get("as_of_date"),
+                    "cost_revision": (cost_basis or {}).get("cache_revision"),
                     "seller_price_as_of": as_of,
                     "commission_rate_as_of": as_of,
                     "tax_policy_as_of": as_of,
@@ -367,7 +470,28 @@ class UnitPriceScenarioSource:
                     "catalog_identity": {"complete": True},
                     "seller_price": {"complete": suggested["price"] is not None},
                     "commission_rate": {"complete": suggested["commission_rate"] is not None},
-                    "cost": {"complete": cost is not None},
+                    "cost": {
+                        "complete": self._cost_basis_complete(cost_basis, cost),
+                        "amount": cost,
+                        "method": (cost_basis or {}).get("method"),
+                        "completeness": (cost_basis or {}).get("completeness"),
+                        "reason_code": (cost_basis or {}).get("reason_code"),
+                        "as_of_date": (cost_basis or {}).get("as_of_date"),
+                        "cutoff_date": (cost_basis or {}).get("cutoff_date"),
+                        "stream_revision": (cost_basis or {}).get("stream_revision"),
+                        "next_layer_remaining_units": (
+                            (cost_basis or {}).get("next_layer_remaining_units")
+                        ),
+                        "next_planned_rate": deepcopy(
+                            (cost_basis or {}).get("next_planned_rate")
+                        ),
+                        "remaining_status": (cost_basis or {}).get("remaining_status"),
+                        "model_only": (cost_basis or {}).get("model_only"),
+                        "factual_period_profit_eligible": (
+                            (cost_basis or {}).get("factual_period_profit_eligible")
+                        ),
+                        "revision": (cost_basis or {}).get("cache_revision"),
+                    },
                     "tax_policy": {"complete": policy.get("mode") is not None},
                     "discount_points": points["completeness"],
                     "cross_docking": {
@@ -527,6 +651,113 @@ class UnitPriceScenarioSource:
         if value is None:
             return None, None
         return value, str(updated_at) if updated_at is not None else None
+
+    def _resolve_cost_basis(self, product, *, store_id, as_of_date):
+        try:
+            result = self.cost_adapter.resolve_current_cost(
+                product,
+                store_id=store_id,
+                as_of_date=as_of_date,
+            )
+        except Exception:
+            result = None
+        if (
+            isinstance(result, dict)
+            and isinstance(result.get("cost_basis"), dict)
+            and str(result.get("cost_revision") or "").strip()
+        ):
+            return result
+        revision = sha256(
+            ("COST_ADAPTER_UNAVAILABLE:" + str(as_of_date or "")).encode()
+        ).hexdigest()
+        return {
+            "cost_per_unit_rub": None,
+            "cost_updated_at": None,
+            "cost_revision": revision,
+            "cost_method": "UNAVAILABLE",
+            "cost_basis": {
+                "method": "UNAVAILABLE",
+                "completeness": "COST_ADAPTER_UNAVAILABLE",
+                "reason_code": "FIFO_COST_ADAPTER_UNAVAILABLE",
+                "as_of_date": as_of_date,
+                "next_unit_cost_rub": None,
+                "next_layer_remaining_units": None,
+                "next_planned_rate": None,
+                "remaining_status": "UNKNOWN",
+                "model_only": True,
+                "factual_period_profit_eligible": False,
+                "cache_revision": revision,
+            },
+        }
+
+    def _invalidate_cost_cache_for_identity(
+        self, tenant_scope, user_id, sku, product, *, keep_key,
+    ):
+        for cached_key in tuple(self._cache):
+            if cached_key == keep_key or cached_key[:3] != (
+                tenant_scope, user_id, sku,
+            ):
+                continue
+            cached_identity = (
+                (self._cache[cached_key].get("result") or {}).get("identity") or {}
+            )
+            if (
+                str(cached_identity.get("product_id") or "")
+                == str(product.get("product_id") or "")
+                and str(cached_identity.get("offer_id") or "")
+                == str(product.get("offer_id") or "")
+            ):
+                self._cache.pop(cached_key, None)
+                try:
+                    self._cache_order.remove(cached_key)
+                except ValueError:
+                    pass
+
+    def _remember_cost_identity(self, tenant_scope, user_id, sku, identity):
+        key = (tenant_scope, user_id, sku)
+        self._cost_identity_cache.pop(key, None)
+        self._cost_identity_cache[key] = {
+            "product_id": identity.get("product_id"),
+            "offer_id": identity.get("offer_id"),
+            "sku": identity.get("sku"),
+        }
+        while len(self._cost_identity_cache) > self.max_cache_entries:
+            oldest = next(iter(self._cost_identity_cache))
+            self._cost_identity_cache.pop(oldest, None)
+
+    @staticmethod
+    def _same_product_identity(left, right):
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        fields = ("product_id", "offer_id", "sku")
+        return all(
+            str(left.get(field) or "").strip()
+            == str(right.get(field) or "").strip()
+            for field in fields
+        ) and all(str(left.get(field) or "").strip() for field in fields)
+
+    @staticmethod
+    def _cost_basis_complete(cost_basis, cost):
+        if not isinstance(cost_basis, dict):
+            return cost is not None
+        return (
+            cost is not None
+            and cost_basis.get("completeness") in {
+                "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+                "LEGACY_EFFECTIVE_COST_CONFIRMED",
+            }
+        )
+
+    @staticmethod
+    def _cost_provenance(cost_basis, cost):
+        if not isinstance(cost_basis, dict):
+            return "confirmed_store_cost" if cost is not None else "unknown"
+        method = str(cost_basis.get("method") or "")
+        if method in {"FIFO_FINITE_LAYER", "FIFO_OPEN_RATE"} and cost is not None:
+            return "fifo_next_unit_cost"
+        if method == "LEGACY_EFFECTIVE_DATED" and cost is not None:
+            return "legacy_effective_dated_cost"
+        return "unknown"
 
     def _load_tax_policy(self):
         try:

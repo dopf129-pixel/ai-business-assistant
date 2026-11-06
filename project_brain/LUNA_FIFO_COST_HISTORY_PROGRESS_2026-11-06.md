@@ -7,7 +7,10 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: FC24 unifies the exact-SKU current-economics cost adapter and cache invalidation. FC23 completed with an explicit multi-transition correction gap; production cutoff remains unreconciled.
+- Current phase: FC25 — wire one frozen next-unit cost basis through every single-price/grid/target/sensitivity forward call. FC24 is complete; FC23 multi-transition correction and factual production cutoff remain explicitly blocked.
+- FC24 completed with a shared read-only adapter for current unit economics and price planning. Next-unit cost is tied to exact store/product/offer/SKU, effective date, FIFO stream revision, and full sanitized history fingerprint. Uninitialized stream uses legacy effective-dated cost; any initialized but incomplete/replay-required FIFO stream is unknown and never falls back.
+- FC24 linked Windows profile: adjacent current economics + scenario/target/grid/batch/sensitivity modules — **393 passed**; `compileall -q app tests` and `git diff --check` PASS. No `data/` file changed. Code/docs checkpoint will be recorded after this progress update.
+- Resume FC25 from the same current implementation branch and worktree. Use `FifoCurrentUnitCostAdapter` through `unit_economics_query.cost_adapter`; do not query FIFO independently from each price-grid candidate. Freeze one next-unit snapshot for all candidates in a scenario, keep manual cost as an explicit override, and keep production Period Profit cutoff unchanged.
 - Last completed phase: FC23 date-only ordering, future-snapshot rejection, and append-only cancellation of an unused future rate (`DONE_WITH_GAP`; multi-transition late correction, returns/non-sale movement replay, and production cutoff remain blocked).
 - Last completed implementation SHA: FC23 `097ef33f`; FC22 `7253690e`; FC21 code `b1e6a0fe`; FC20 code `1277baae` (file-ending cleanup `a0501285`); FC19 `dd885cb9`; FC18 `05132478`; FC17 code `69f043f8`, FC16 code `f6af16d7`, FC15 code `26ee2244`, FC14 code `0f89bd07`, FC13 `27cd5798`; FC12 SHA is `c75717ad`, FC11 SHA is `1b138766`, FC10 SHA is `5043f5b6`, FC09 SHA is `a3ce84b0`, FC08 SHA is `0e4e3144`, FC07 SHA is `29eb3a6a`, and FC06 schema SHA is `5c0707b8`.
 - FC04 result: added `FifoCostAllocationService`, a pure Decimal replay core with explicit anchor/cutoff/order/completeness gates; finite old layers, rate-only unknown purchase quantity, split sales, exact restock basis, and bounded iterable inputs. It has no database, Ozon, Telegram, or Planning Workspace dependencies.
@@ -35,6 +38,13 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Stage status
 
+### FC24 — current unit economics and price-scenario cost source
+
+- One `FifoCurrentUnitCostAdapter` now serves the current-economics query and the price-scenario source. Exact owner/store/product/offer/SKU identity is required. An uninitialized FIFO stream preserves dated legacy cost. An initialized stream with unreplayed movement, missing basis or adapter failure returns unknown and never silently reads legacy cost.
+- Both user views disclose method, as-of/cutoff, next-unit cost, remaining finite layer, next planned rate and completeness. Manual scenario cost is explicitly identified as the applied override; the FIFO view remains reference-only. Adapter evidence is planning-only and does not change Period Profit, tax, revenue or the factual cutoff gate.
+- Current card key includes tenant/store/product/offer/SKU/date/revision. Scenario source uses exact identity/date/revision for cache and single-flight, invalidates older snapshots for the exact cost identity, does not cache incomplete cost, and bounds its identity memo. The adapter revision includes the full sanitized FIFO history so divergent restored contents cannot reuse an old cost snapshot when the next amount happens to match.
+- Linked Windows profile: adjacent current economics, unit-price scenario/runtime/service, target/grid/batch/sensitivity and production wiring — **393 passed in 7.28s**. Changed-code `compileall -q app tests` and `git diff --check` PASS. `git status` shows no data paths changed. Synthetic services and temporary SQLite only.
+
 | Stage | Status | Evidence / remaining work |
 |---|---|---|
 | FC00 | DONE | Branch/base verified; required docs read; 4,442-test baseline passed; local data hashes restored and matched. |
@@ -61,7 +71,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 | FC21 | DONE_WITH_GAP | Read-only exact-SKU reconstruction preview; stale/missing/ambiguous source, movements, order, or cutoff fail closed. Synthetic complete-cutoff replay does not write FIFO or Period Profit. Linked 261 tests, compileall/diff PASS; code commit `b1e6a0fe`. Production cutoff still blocked. |
 | FC22 | DONE_WITH_GAP | Before/after layer units, COGS, tax and profit preview; append-only schema v10 correction snapshot committed atomically with rate revision and invalidated projection. Linked profile 65 passed; compileall/diff PASS. Only a single missing rate with no return/non-sale movements is supported; cutoff remains production-blocked. |
 | FC23 | DONE_WITH_GAP | Schema v10→v11 adds append-only cancellation audit for an unused future rate; cancelled rates are excluded from projections while sequence history is preserved. Telegram now previews and confirms cancellation, refreshes history and rejects stale callback writes. Same-date boundaries and future stock snapshots are rejected; cancellation is stale/revision-bound and cannot cross an event/reconciliation boundary. Linked profile 89 passed; compileall/diff PASS. Late correction with active multi-rate history remains explicitly fail-closed (`FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED`); cutoff remains production-blocked. |
-| FC24 | NOT_STARTED | Current economics cost adapter/cache invalidation. |
+| FC24 | DONE | Shared adapter and exact store/SKU/date/history revision cache invalidation; fail-closed incomplete FIFO; user-visible provenance; 393 linked tests, compileall/diff PASS. |
 | FC25 | NOT_STARTED | Single-price, grid, target, and sensitivity integration. |
 | FC26 | NOT_STARTED | Quantity/sales-mix FIFO allocations. |
 | FC27 | NOT_STARTED | Frozen plans, observations, and experiments. |
@@ -121,7 +131,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 - Current implementation branch code baseline at FC04 start: `88e1b55ccf07f3f1b4dafd9f2ca43abc2fe9547d`; exact-head implementation CI is pending.
 - Exact-head CI for implementation: pending; baseline spec PR CI is not implementation verification.
 
-## Resume after FC23
+## Resume after FC24
 
 - FC09 exposes explicit read-only collector methods but does not activate FIFO or write Ozon observations. FC12 wires only local FIFO history and owner-entered rate confirmation; it does not trigger Ozon collection. Trigger collection only from an explicit future caller.
 - Parent operation trace must be passed through. Keep `max_attempts=1` for each client call so the trace and transport observer report every actual HTTP attempt; never exceed 60 seconds/64 attempts per owner collection or diagnostic limits of 10 attempts/2 pages.
@@ -139,5 +149,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 - FC15 is `DONE_WITH_GAP`, not a development stop. Build deterministic replay and append-only allocation revision machinery against synthetic, explicitly confirmed fixtures; all production replay must remain `SOURCE_BLOCKED` while there is no validated physical-sale date and shared stock/finance cutoff bridge. Never mark an allocation factual based only on test flags or an unverified source contract.
 - Before production eligibility can be enabled, collect a safe ID-free summary from the monthly realization response: total rows; counts with `order.posting_number`, `item.sku`, positive-integer `delivery_commission.quantity`, and nonempty/parseable `sale_date`; and confirmation whether the same data expose a shared cutoff with the stock snapshot. If the bot does not expose these counts, FC33 may add a bounded redacted diagnostic; never ask for credentials/raw payloads. Orders, cancellations, Analytics totals, realization line counts, or finance accrual dates alone are not physical sale time.
 - FC17 connects only a complete persisted allocation to Period Profit; do not weaken source/cutoff gates to make a report succeed. The active FIFO SKU must not fall back to current or date-only legacy costs after cutover. Uninitialized streams continue the legacy dated-cost path.
-- Resume at FC24. First inspect the current worktree and exact commit; use the existing FIFO history/projection contracts to add a single cost adapter and invalidate cache keys by exact store/SKU cost revision and date. Do not change Period Profit amounts or activate factual FIFO without the existing cutoff gate. Continue FC24–FC35 in dependency order; FC23 multi-transition late correction stays a reported gap and must not be silently treated as implemented.
+- FC24's shared adapter belongs to the current-economics query and the source layer before planning calculations. Resolve it once per exact store/SKU snapshot. Do not add per-candidate FIFO reads to grid/target/sensitivity loops. Preserve the adapter's returned revision and frozen source provenance in any forward-call context.
+- If an owner manually overrides unit cost, the model must use that explicit override and label FIFO data only as the reference source. A manual scenario input never writes to FIFO.
+- Resume at FC25. Freeze the same confirmed next-unit cost basis, rate revision and source date for every single-price/grid/target/sensitivity candidate; revalidate that forward calculations do not observe a changing queue between calls. Keep the default basis at the next successful unit. Model one unit only in FC25; multi-unit FIFO layer allocation is FC26. Do not change Period Profit COGS, the historical cutoff gate, or factual tax/profit paths. FC23 multi-transition late correction and production cutoff remain explicit gaps. Continue FC25–FC35 in dependency order.
 

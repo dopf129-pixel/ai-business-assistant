@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC24 cost adapter and current-economics cache profile
+
+- `tests/test_fifo_current_unit_cost_adapter.py` checks legacy dated fallback, exact store/SKU FIFO resolution, old finite layer before a future rate, fail-closed movement replay and full history fingerprint changes after a restore-like content change.
+- `tests/test_product_unit_economics_query_cache.py` checks revision-driven immediate cache invalidation, incomplete-cost non-caching, store-scoped current output and user-visible layer/rate/completeness explanation.
+- `tests/test_unit_price_scenario_source.py` checks adapter wiring into scenario snapshots, cache hits on an unchanged revision, invalidation on a changed revision, exact store context and non-caching of unreplayed cost. `tests/test_unit_price_scenario_telegram_runtime.py` checks FIFO assumptions and distinguishes manual scenario overrides from the source basis.
+- Production wiring is covered by `tests/test_current_unit_economics_production_wiring.py`; adjacent current economics, scenario/target/grid/batch/sensitivity profile: **393 passed in 7.28s**. `compileall -q app tests` and `git diff --check` PASS. No real API or bot startup.
+
 # 2026-11-06 — FIFO cost history implementation baseline
 
 ## FC23 — rate boundary and future cancellation regression profile

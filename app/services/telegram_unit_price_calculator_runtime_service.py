@@ -3209,6 +3209,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Калькулятор считает только FBO. Ставка — оценка: Ozon может изменить её при новой цене; FBS не поддержан.",
             point_line,
             "Себестоимость: " + self._source_label(provenance.get("cost")) + ".",
+            *self._cost_basis_assumption_lines(
+                snapshot,
+                provenance=provenance,
+            ),
             "Логистика, последняя миля, эквайринг и реклама: ручные значения сценария.",
             cross_docking_line,
             "Налоговый режим и ставки: политика активного магазина.",
@@ -3567,6 +3571,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Магазин: " + store_label + " · FBO",
             "Цена продавца: " + self._money(inputs.get("price")),
             "Себестоимость: " + self._money(inputs.get("cost")),
+            *self._cost_basis_assumption_lines(
+                snapshot,
+                provenance=session.get("provenance") or {},
+            ),
         ]
         lines.extend(self._pre_ad_projection_lines(result))
         if result.get("available") is True:
@@ -4457,7 +4465,54 @@ class TelegramUnitPriceCalculatorRuntimeService:
     def _source_label(self, source):
         labels = {
             "confirmed_store_cost": "подтверждённая себестоимость магазина",
+            "fifo_next_unit_cost": "следующая стоимость по FIFO",
+            "legacy_effective_dated_cost": "датированная себестоимость (FIFO ещё не задан)",
             "manual_seller_assumption": "ручное допущение",
             "unknown": "не задана",
         }
         return labels.get(str(source or "unknown"), "данные источника")
+
+    @staticmethod
+    def _cost_basis_assumption_lines(snapshot, *, provenance=None):
+        basis = (snapshot.get("source_completeness") or {}).get("cost") or {}
+        provenance = provenance or {}
+        lines = []
+        method = str(basis.get("method") or "")
+        if method.startswith("FIFO_"):
+            manual_cost = str(provenance.get("cost") or "") in {
+                "manual_seller_assumption",
+                "manual_unit_economics_input",
+            }
+            lines.append(
+                ("Исходная база себестоимости для сверки: FIFO" if manual_cost else "Метод себестоимости: FIFO")
+                + "; это плановая оценка, не факт для прошлых периодов."
+            )
+            if manual_cost:
+                lines.append("В этом сценарии применяется введённая вручную себестоимость.")
+            as_of = str(basis.get("as_of_date") or "")
+            cutoff = str(basis.get("cutoff_date") or "")
+            if as_of:
+                lines.append("Срез FIFO на " + as_of + ".")
+            if cutoff:
+                lines.append("Фактическая отсечка FIFO: " + cutoff + ".")
+        elif method.startswith("LEGACY_"):
+            lines.append("Метод себестоимости: действующая датированная ставка.")
+        remaining = basis.get("next_layer_remaining_units")
+        if type(remaining) is int and remaining >= 0:
+            lines.append(f"Остаток слоя со следующей себестоимостью: {remaining} шт.")
+        planned = basis.get("next_planned_rate")
+        if isinstance(planned, dict) and planned.get("unit_cost_rub") not in (None, ""):
+            effective_date = str(planned.get("effective_date") or "")
+            text = "Следующая запланированная ставка: " + str(planned["unit_cost_rub"]) + " ₽/шт."
+            if effective_date:
+                text += " с " + effective_date
+            text += "; текущий FIFO-слой она не заменяет."
+            lines.append(text)
+        if basis.get("complete") is not True and basis:
+            reason = str(basis.get("reason_code") or basis.get("completeness") or "данные неполны")
+            lines.append("Себестоимость не подтверждена: " + reason + "; расчёт неполный.")
+        elif basis.get("complete") is True:
+            lines.append("Полнота себестоимости подтверждена для этой плановой оценки.")
+        if basis.get("model_only") is True:
+            lines.append("Себестоимость FIFO применяется только в плановом сценарии.")
+        return lines

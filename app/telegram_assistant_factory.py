@@ -228,6 +228,8 @@ def create_telegram_assistant():
         )
     )
 
+    fifo_cost_repository = FifoCostRepository()
+    system["fifo_cost_repository"] = fifo_cost_repository
 
     unit_economics_query = (
         create_current_unit_economics_query(
@@ -594,7 +596,6 @@ def create_telegram_assistant():
     )
 
 
-    fifo_cost_repository = FifoCostRepository()
     fifo_cost_history_service = FifoCostHistoryService(fifo_cost_repository)
     telegram_fifo_cost_history_service = TelegramFifoCostHistoryService(
         fifo_cost_history_service,

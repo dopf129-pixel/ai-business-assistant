@@ -62,7 +62,7 @@ class FakeProvider:
             "product_id": facts.get("product_id"),
             "sku": facts.get("sku"),
             "unit_price": price,
-            "cost": cost,
+            "cost": float(cost) if cost is not None else None,
             "commission": 10.0,
             "logistics": 10.0,
             "last_mile": 1.0,
@@ -87,6 +87,45 @@ class FakeCostService:
             "hook",
             21.0,
         )
+
+
+class FakeCostAdapter:
+    def __init__(self, amount="20.00", revision="rev-1"):
+        self.amount = amount
+        self.revision = revision
+        self.calls = []
+
+    def get_current_cost_date(self):
+        return "2026-11-06"
+
+    def resolve_current_cost(self, product, *, store_id, as_of_date):
+        self.calls.append((dict(product), store_id, as_of_date))
+        basis = {
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "reason_code": None,
+            "as_of_date": as_of_date,
+            "cutoff_date": "2026-10-31",
+            "next_unit_cost_rub": self.amount,
+            "next_unit_cost_basis": "FINITE_FIFO_LAYER",
+            "next_layer_remaining_units": 12,
+            "next_layer_effective_date": "2026-10-01",
+            "next_planned_rate": {
+                "unit_cost_rub": "24.00",
+                "effective_date": "2026-11-20",
+            },
+            "remaining_status": "PARTIAL",
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+            "cache_revision": self.revision,
+        }
+        return {
+            "cost_per_unit_rub": self.amount,
+            "cost_updated_at": "2026-10-01",
+            "cost_revision": self.revision,
+            "cost_method": "FIFO_FINITE_LAYER",
+            "cost_basis": basis,
+        }
 
 
 def _success(price=96.0):
@@ -246,6 +285,90 @@ def test_zero_ttl_preserves_uncached_behavior():
     assert source.calls == 2
     assert "cache" not in first
     assert "cache" not in second
+
+
+def test_fifo_cost_revision_invalidates_current_economics_cache_immediately():
+    clock = FakeClock()
+    service, source = _service([_success(), _success()], clock)
+    adapter = FakeCostAdapter()
+    service.cost_adapter = adapter
+    token = set_current_tenant_user_id("user-1::ozon::store-A")
+    try:
+        first = service.query("hook-2")
+        adapter.amount = "25.00"
+        adapter.revision = "rev-2"
+        second = service.query("hook-2")
+        formatted = service.format_response(second)
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert source.calls == 2
+    assert first["cost"] == 20.0
+    assert second["cost"] == 25.0
+    assert second["cost_revision"] == "rev-2"
+    assert second["cache"]["status"] == "miss"
+    assert len(service._query_cache) == 1
+    assert "Остаток текущего слоя: 12 шт." in formatted
+    assert "Следующая ставка: 24.00 ₽/шт." in formatted
+    assert "Точка фактической отсечки FIFO: 2026-10-31." in formatted
+    assert "Полнота себестоимости: подтверждена" in formatted
+    assert "только для плановой оценки" in formatted
+
+
+def test_incomplete_fifo_cost_basis_is_not_cached_as_current_economics():
+    clock = FakeClock()
+    service, source = _service([_success(), _success()], clock)
+    adapter = FakeCostAdapter(amount=None, revision="incomplete-1")
+    adapter.resolve_current_cost = lambda *_args, **_kwargs: {
+        "cost_per_unit_rub": None,
+        "cost_updated_at": None,
+        "cost_revision": adapter.revision,
+        "cost_method": "FIFO_UNAVAILABLE",
+        "cost_basis": {
+            "method": "FIFO_UNAVAILABLE",
+            "completeness": "REPLAY_REQUIRED",
+            "reason_code": "FIFO_COST_MOVEMENT_REPLAY_REQUIRED",
+            "model_only": True,
+            "cache_revision": adapter.revision,
+        },
+    }
+    service.cost_adapter = adapter
+    token = set_current_tenant_user_id("user-1::ozon::store-A")
+    try:
+        first = service.query("hook-2")
+        second = service.query("hook-2")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert source.calls == 2
+    assert first["cost"] is None
+    assert second["cache"]["status"] == "miss"
+    assert service._query_cache == {}
+
+
+def test_fifo_current_cost_cache_isolated_by_store_for_same_owner_and_sku():
+    clock = FakeClock()
+    service, source = _service([_success(), _success(101.0)], clock)
+    adapter = FakeCostAdapter()
+    service.cost_adapter = adapter
+    store_a = set_current_tenant_user_id("user-1::ozon::store-A")
+    try:
+        first = service.query("hook-2")
+    finally:
+        reset_current_tenant_user_id(store_a)
+    store_b = set_current_tenant_user_id("user-1::ozon::store-B")
+    try:
+        second = service.query_for_product(
+            "hook-2",
+            {"product_id": "1", "offer_id": "hook-2", "sku": "3921245627"},
+        )
+    finally:
+        reset_current_tenant_user_id(store_b)
+
+    assert first["cache"]["status"] == "miss"
+    assert second["cache"]["status"] == "miss"
+    assert source.calls == 2
+    assert [call[1] for call in adapter.calls] == ["store-A", "store-B"]
 
 
 def test_nested_returns_error_is_not_cached_as_fresh_data():

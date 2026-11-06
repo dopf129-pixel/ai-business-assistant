@@ -6,6 +6,9 @@ from product_returns_finance_impact_factory import (
 from services.period_profit_effective_cost_service import (
     PeriodProfitEffectiveCostService,
 )
+from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
 from services.cross_docking_unit_rate_source import CrossDockingUnitRateSource
 from services.current_product_economics_source import (
     CurrentProductEconomicsSource
@@ -44,6 +47,15 @@ def create_current_unit_economics_query(
         )
     )
 
+    cost_service = PeriodProfitEffectiveCostService()
+    fifo_repository = core_components.get("fifo_cost_repository")
+    if not isinstance(fifo_repository, FifoCostRepository):
+        fifo_repository = FifoCostRepository()
+    cost_adapter = FifoCurrentUnitCostAdapter(
+        legacy_cost_service=cost_service,
+        history_service=FifoCostHistoryService(fifo_repository),
+    )
+
     return ProductUnitEconomicsQueryService(
         product_service=(
             historical_query.product_service
@@ -58,7 +70,8 @@ def create_current_unit_economics_query(
             historical_query.unit_economics_provider
         ),
         current_economics_source=current_source,
-        cost_service=PeriodProfitEffectiveCostService(),
+        cost_service=cost_service,
+        cost_adapter=cost_adapter,
         current_finance_days=2,
         returns_finance_impact_query=(
             returns_finance_impact_query

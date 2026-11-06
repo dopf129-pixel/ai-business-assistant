@@ -14,6 +14,9 @@ from services.product_returns_finance_impact_query_service import (
     ProductReturnsFinanceImpactQueryService
 )
 from services.period_profit_finance_service import PeriodProfitFinanceService
+from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
+from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_cost_repository import FifoCostRepository
 from unit_price_scenario_factory import create_unit_price_scenario_runtime
 
 
@@ -27,12 +30,14 @@ class HistoricalQuery:
         )
 
 
-def test_current_query_is_wired_over_existing_core_contract():
+def test_current_query_is_wired_over_existing_core_contract(tmp_path):
     historical = HistoricalQuery()
+    fifo_repository = FifoCostRepository(db_path=tmp_path / "fifo-current-economics.sqlite")
 
     query = create_current_unit_economics_query(
         {
-            "unit_economics_query": historical
+            "unit_economics_query": historical,
+            "fifo_cost_repository": fifo_repository,
         }
     )
 
@@ -63,6 +68,9 @@ def test_current_query_is_wired_over_existing_core_contract():
         is historical.unit_economics_provider
     )
     assert query.cost_service is not None
+    assert isinstance(query.cost_adapter, FifoCurrentUnitCostAdapter)
+    assert isinstance(query.cost_adapter.history_service, FifoCostHistoryService)
+    assert query.cost_adapter.history_service.repository is fifo_repository
     assert query.current_finance_days == 2
     assert query.cache_ttl_seconds == 600
     assert (
@@ -83,9 +91,13 @@ def test_current_query_is_wired_over_existing_core_contract():
     )
 
 
-def test_scenario_factory_reuses_the_current_finance_and_cross_docking_sources():
+def test_scenario_factory_reuses_the_current_finance_and_cross_docking_sources(tmp_path):
+    fifo_repository = FifoCostRepository(db_path=tmp_path / "fifo-scenario.sqlite")
     query = create_current_unit_economics_query(
-        {"unit_economics_query": HistoricalQuery()}
+        {
+            "unit_economics_query": HistoricalQuery(),
+            "fifo_cost_repository": fifo_repository,
+        }
     )
 
     runtime = create_unit_price_scenario_runtime(
@@ -97,3 +109,4 @@ def test_scenario_factory_reuses_the_current_finance_and_cross_docking_sources()
     assert runtime is not None
     assert runtime.source.finance_service is query.current_economics_source.finance_service
     assert runtime.source.cross_docking_source is query.current_economics_source.cross_docking_source
+    assert runtime.source.cost_adapter is query.cost_adapter
