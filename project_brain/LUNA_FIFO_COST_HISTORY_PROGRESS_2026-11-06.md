@@ -9,7 +9,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 - Current phase: FC08 allowlisted stock/supply snapshot normalization.
 - Last completed phase: FC07 atomic commands, compare-and-swap and idempotency.
-- Last completed implementation SHA: pending the FC07 stage commit; FC06 SHA is `5c0707b8`.
+- Last completed implementation SHA: `29eb3a6a`; FC06 schema SHA is `5c0707b8`.
 - FC04 result: added `FifoCostAllocationService`, a pure Decimal replay core with explicit anchor/cutoff/order/completeness gates; finite old layers, rate-only unknown purchase quantity, split sales, exact restock basis, and bounded iterable inputs. It has no database, Ozon, Telegram, or Planning Workspace dependencies.
 - FC05 result: single and batch writers project only the latest switch effective today; future switches do not overwrite current legacy evidence, late older switches do not roll it back, and current readers resolve the date dynamically. The card and price-scenario cache keys are date-scoped; ambiguous legacy rows shadowed by a future projection fail closed.
 - FC06 result: additive FIFO schema has independent `fifo_cost_schema`; FC07 upgrades it from version 1 to 2 with command/revision and event-order tables. Preview tickets are process-local, owner-scoped, latest-only, expire after ten minutes and become invalid after restart.
