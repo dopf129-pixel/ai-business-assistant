@@ -1,3 +1,9 @@
+# 2026-11-06 — FC34: полный набор и целостность данных
+
+- Полная Windows команда `python -m pytest -q` (Python 3.12.10, pytest 8.4.2): **4,792 passed in 50.14s**. Предшествующая регрессия меню исправлена добавлением ожидаемой кнопки экспорта истории; реализация не изменялась.
+- `python -m compileall -q app tests` и `git diff --check` PASS. До/после сравнение точного снимка `data/`: 6/6 файлов одинаковы по размеру и SHA-256, 0 лишних файлов.
+- Репозиторный `.github/workflows/verify.yml` запускает полный набор на Windows/Python 3.12 и Ubuntu/Python 3.11; Ubuntu также собирает production Docker и запускает runtime/import smoke. Проверки конкретного опубликованного SHA ожидаются в FC34.
+
 # 2026-11-06 — FIFO FC33: документация и owner acceptance
 
 - Added `docs/fifo-cost-history-user-guide.md` for the owner-facing mode boundaries and existing Telegram steps, plus `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for safe future validation without credentials or raw API payloads.

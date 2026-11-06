@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC34: локальный полный прогон
+
+- Исправлено устаревшее ожидание клавиатуры в регрессионном тесте меню себестоимости: теперь он учитывает уже существующую кнопку экспорта истории; продуктовый контракт не менялся.
+- Полный Windows прогон `pytest -q`: **4,792 passed in 50.14s**. `compileall -q app tests` и `git diff --check` прошли.
+- Все 6 файлов `data/` после теста побайтно восстановлены по предварительному снимку и повторно сверены по размеру/SHA-256; незапланированных файлов нет. Локальный Docker не установлен; production image build/smoke выполняются CI на Ubuntu для точного SHA.
+- На локальном SHA `327dcff4`; точные Windows/Linux CI и Docker smoke текущего опубликованного SHA ожидаются.
+
 # 2026-11-06 — FIFO FC33: руководство владельца и статус готовности
 
 - Added a Russian owner guide and a separate safe acceptance checklist covering timely cost entry, explicit zero at home, transit, late supply, sales across a transition, returns, third rates, corrections and frozen plans.
