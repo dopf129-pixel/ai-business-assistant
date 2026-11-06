@@ -164,3 +164,9 @@ Current mode boundaries:
 
 FC32 covered these boundaries with synthetic acceptance tests; it did not turn refusals into positive support. See `docs/fifo-cost-history-user-guide.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for the exact current user flow and `USER_VALIDATION_PENDING` steps. Do not request credentials or raw JSON to close the gate.
 
+## Follow-up wiring correction — 2026-11-07
+
+The production-wiring paragraph above records the pre-review state and is superseded by follow-up review fixes on PR #726. The current branch now wires `FifoCostAnchorService` to a revision-bound Telegram preview/confirm flow for positive initial layers. It also offers a separate first-rate path for a declared zero starting inventory; the user confirms no home/FBS/transit stock, and a bounded exact-SKU Ozon stock read must be complete and confirm FBO present/reserved zero before the rate can be previewed or saved. A partial, mismatched or nonzero response fails without writing.
+
+The first zero-stock rate persists its capture-date cutoff and creates no inventory quantity. Its open rate can support planning a chosen quantity, but is owner/model evidence only. This UI change does not resolve source-audit gaps above: shared physical-sale/stock watermark, actual receipt/exit dates, return/outflow replay, and factual Period Profit eligibility remain blocked. CI and synthetic fixtures do not replace live owner validation.
+

@@ -12,6 +12,7 @@ from services.fifo_cost_replay_service import (
     FifoDatedAllocationEvent,
 )
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_history_service import FifoCostHistoryService
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import (
     reset_current_tenant_user_id,
@@ -506,6 +507,32 @@ def test_fc17_period_read_uses_only_latest_complete_allocations_and_exact_dates(
         )["allocation_revision"] == revision_before_reads
     finally:
         reset_current_tenant_user_id(token)
+
+
+def test_complete_fresh_replay_restores_next_unit_cost_from_remaining_fifo_layers(tmp_path):
+    repository, token, _guard, preview = _two_sale_fixture(tmp_path)
+    try:
+        committed = repository.append_allocation_revision(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", preview=preview, idempotency_key="history-current-cost-replay",
+        )
+        assert committed["error"] is False, committed
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: "2026-11-06",
+        ).get_sku_history(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", as_of_date="2026-11-06",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert history["movement_count"] == 2
+    assert history["remaining_status"] == "AFTER_CONFIRMED_REPLAY"
+    assert history["next_unit_cost_rub"] == "20.00"
+    assert history["next_unit_cost_basis"] == "FINITE_FIFO_LAYER"
+    assert [row["remaining_units"] for row in history["layers"]] == [0, 1]
+    assert history["latest_allocation"]["stale"] is False
+    assert history["latest_allocation"]["replayed_remaining_layers"] is not None
 
 
 def test_fc16_v5_migration_adds_stream_revision_and_rate_lines_without_rewriting_headers(tmp_path):

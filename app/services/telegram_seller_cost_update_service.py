@@ -31,6 +31,7 @@ class TelegramSellerCostUpdateService:
         )
         self.store_name_provider = store_name_provider
         self.fifo_history_service = fifo_history_service
+        self.fifo_cost_repository = fifo_cost_repository
         self._pending = {}
         self._pending_lock = RLock()
         self._unit_economics_returns = {}
@@ -511,6 +512,10 @@ class TelegramSellerCostUpdateService:
         return action in actions
 
     def _save_pending_cost(self, user_key, identity, whole_history):
+        fifo_conflict = self._fifo_mode_conflict(identity)
+        if fifo_conflict is not None:
+            self._pending.pop(user_key, None)
+            return fifo_conflict
         effective_from = (
             self.INITIAL_HISTORY_DATE.isoformat()
             if whole_history
@@ -605,6 +610,54 @@ class TelegramSellerCostUpdateService:
                 "buttons": buttons,
             }
         }
+
+    def _fifo_mode_conflict(self, identity):
+        repository = self.fifo_cost_repository
+        if repository is None:
+            return None
+        store_id = self._active_store_id()
+        if not store_id:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_SCOPE_UNAVAILABLE",
+                "message": "Не удалось подтвердить активный магазин. Себестоимость не изменена.",
+                "read_only_ozon": True,
+            }
+        try:
+            mode = repository.read_cost_mode_status(
+                store_id=store_id,
+                product_id=identity.get("product_id"),
+                offer_id=identity.get("offer_id"),
+                sku=identity.get("sku"),
+            )
+        except Exception:
+            mode = None
+        if not isinstance(mode, dict) or mode.get("error") is not False:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_MODE_UNAVAILABLE",
+                "message": "Не удалось проверить FIFO-режим. Себестоимость не изменена; откройте товар заново.",
+                "read_only_ozon": True,
+            }
+        if mode.get("active") is True:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_MODE_CONFLICT",
+                "message": "Для этого SKU уже включена FIFO-история. Старая форма не записала изменения; обновите карточку FIFO.",
+                "read_only_ozon": True,
+            }
+        if mode.get("active") is not False:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_MODE_UNAVAILABLE",
+                "message": "Режим учёта товара не подтверждён. Себестоимость не изменена.",
+                "read_only_ozon": True,
+            }
+        return None
 
     @staticmethod
     def _date_confirmation_message(pending):

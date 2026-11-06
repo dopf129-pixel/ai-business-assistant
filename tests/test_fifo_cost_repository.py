@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import pytest
 
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_rate_service import FifoCostRateService
+from services.fifo_cost_source_normalizer import FifoStockSnapshot
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import (
     reset_current_tenant_user_id,
@@ -116,6 +118,108 @@ def test_additive_schema_preserves_legacy_cost_and_planning_data(tmp_path):
         ).fetchone()[0] == 0
     finally:
         connection.close()
+
+
+def test_v11_migration_adds_inventory_cutoff_without_rewriting_projection(tmp_path):
+    database = tmp_path / "fifo-v11.sqlite"
+    initial = FifoCostRepository(db_path=database)
+    connection = initial.get_connection()
+    try:
+        _insert_stream(
+            connection, stream_id="stream-v11", store_id="store-a", sku="sku-1",
+        )
+        connection.execute(
+            """INSERT INTO fifo_cost_projections (
+                stream_id, revision, state, known_quantity, known_cost_rub,
+                next_unit_cost_rub, queue_complete, cutoff_status,
+                source_set_fingerprint, last_event_id, updated_at
+            ) VALUES ('stream-v11', 7, 'FIFO_READY', 4, '40.00', '10.00', 1,
+                      'RECONCILED', 'fingerprint', NULL, 'before-migration')"""
+        )
+        connection.execute("ALTER TABLE fifo_cost_projections DROP COLUMN inventory_cutoff")
+        connection.execute(
+            "UPDATE fifo_cost_schema SET version=11 WHERE singleton=1"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    migrated = FifoCostRepository(db_path=database).get_connection()
+    try:
+        columns = {
+            row[1] for row in migrated.execute(
+                "PRAGMA table_info(fifo_cost_projections)"
+            )
+        }
+        row = migrated.execute(
+            """SELECT revision, state, known_quantity, known_cost_rub,
+                      cutoff_status, inventory_cutoff, updated_at
+               FROM fifo_cost_projections WHERE stream_id='stream-v11'"""
+        ).fetchone()
+        assert "inventory_cutoff" in columns
+        assert tuple(row) == (
+            7, "FIFO_READY", 4, "40.00", "RECONCILED", None, "before-migration",
+        )
+        assert migrated.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == 12
+    finally:
+        migrated.close()
+
+
+def test_v11_migration_backfills_only_source_proven_zero_stock_cutoff(tmp_path):
+    tenant = set_current_tenant_user_id(_tenant())
+    database = tmp_path / "fifo-v11-zero-stock.sqlite"
+    try:
+        repository = FifoCostRepository(
+            db_path=database,
+            now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+        )
+        snapshot = FifoStockSnapshot(
+            status="CONFIRMED_ZERO", source_status="COMPLETE", store_id="store-a",
+            product_id="product-1", offer_id="offer-1", sku="sku-1",
+            captured_at="2026-11-06T12:00:00Z", source_as_of=None,
+            pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=0, reserved_units=0, available_units=0, transit_units=0,
+            transit_status="DISJOINT_CONFIRMED", source_fingerprint="a" * 64,
+            issue_codes=(), anchor_eligible=False,
+        )
+        rates = FifoCostRateService(repository)
+        preview = rates.preview_new_cost(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", effective_date="2026-11-06",
+            purchase_cost_rub="20.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=0, expected_revision=0,
+            zero_stock_snapshot=snapshot,
+        )
+        assert preview["error"] is False, preview
+        committed = rates.confirm_new_cost(
+            preview_id=preview["preview_id"], active_preview_id=preview["preview_id"],
+            idempotency_key="migrate-zero-cutoff01",
+        )
+        assert committed["error"] is False, committed
+
+        connection = repository.get_connection()
+        try:
+            connection.execute("ALTER TABLE fifo_cost_projections DROP COLUMN inventory_cutoff")
+            connection.execute(
+                "UPDATE fifo_cost_schema SET version=11 WHERE singleton=1"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        migrated = FifoCostRepository(db_path=database)
+        mode = migrated.read_cost_mode_status(
+            store_id="store-a", product_id="product-1",
+            offer_id="offer-1", sku="sku-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert mode["error"] is False
+    assert mode["active"] is True
+    assert mode["cutoff_date"] == "2026-11-06"
 
 
 def test_repeated_initialization_is_idempotent_and_evidence_is_append_only(tmp_path):

@@ -265,6 +265,127 @@ def test_quantity_basis_materializes_reconciled_prior_rate_as_a_finite_fifo_laye
     assert basis["factual_period_profit_eligible"] is False
 
 
+def test_zero_stock_cutoff_is_persisted_and_reconciled_old_rate_is_next_fifo_layer(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = _repository(tmp_path)
+        rates = FifoCostRateService(repository)
+        zero = FifoStockSnapshot(
+            status="CONFIRMED_ZERO", source_status="COMPLETE", store_id="store-a",
+            product_id=IDENTITY["product_id"], offer_id=IDENTITY["offer_id"],
+            sku=IDENTITY["sku"], captured_at="2026-11-06T12:00:00Z",
+            source_as_of=None, pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=0, reserved_units=0, available_units=0, transit_units=0,
+            transit_status="DISJOINT_CONFIRMED", source_fingerprint="a" * 64,
+            issue_codes=(), anchor_eligible=False,
+        )
+        first = rates.preview_new_cost(
+            **IDENTITY, store_id="store-a", effective_date="2026-11-06",
+            purchase_cost_rub="20.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=0,
+            expected_revision=0, zero_stock_snapshot=zero,
+        )
+        assert first["error"] is False, first
+        assert rates.confirm_new_cost(
+            preview_id=first["preview_id"], active_preview_id=first["preview_id"],
+            idempotency_key="zero-cutoff-first-rate",
+        )["error"] is False
+
+        adapter = _adapter(repository)
+        first_cost = adapter.resolve_current_cost(
+            IDENTITY, store_id="store-a", as_of_date="2026-11-06",
+        )
+        assert first_cost["cost_basis"]["cutoff_date"] == "2026-11-06"
+        assert first_cost["cost_basis"]["quantity_allocation_basis"]["status"] == "AVAILABLE"
+        assert first_cost["cost_basis"]["quantity_allocation_basis"]["layers"] == []
+
+        repository._now_provider = lambda: datetime(
+            2026, 11, 7, 12, tzinfo=timezone.utc,
+        )
+        stock = FifoStockSnapshot(
+            status="COMPLETE", source_status="COMPLETE", store_id="store-a",
+            product_id=IDENTITY["product_id"], offer_id=IDENTITY["offer_id"],
+            sku=IDENTITY["sku"], captured_at="2026-11-07T12:00:00Z",
+            source_as_of=None, pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=100, reserved_units=0, available_units=100, transit_units=0,
+            transit_status="DISJOINT_CONFIRMED", source_fingerprint="b" * 64,
+            issue_codes=(), anchor_eligible=False,
+        )
+        second = rates.preview_new_cost(
+            **IDENTITY, store_id="store-a", effective_date="2026-11-07",
+            purchase_cost_rub="30.00", delivery_cost_rub="0.00",
+            packaging_cost_rub="0.00", old_home_units=0,
+            expected_revision=1, stock_snapshot=stock,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert second["error"] is False, second
+        assert second["rate_reconciliation"]["prior_rate_units"] == 100
+        assert rates.confirm_new_cost(
+            preview_id=second["preview_id"], active_preview_id=second["preview_id"],
+            idempotency_key="zero-cutoff-second-rate",
+        )["error"] is False
+
+        result = adapter.resolve_current_cost(
+            IDENTITY, store_id="store-a", as_of_date="2026-11-07",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    basis = result["cost_basis"]["quantity_allocation_basis"]
+    assert result["cost_per_unit_rub"] == "20.00"
+    assert result["cost_basis"]["next_unit_cost_basis"] == "RECONCILED_RATE_LAYER"
+    assert result["cost_basis"]["cutoff_date"] == "2026-11-06"
+    assert basis["status"] == "AVAILABLE"
+    assert basis["layers"] == [{
+        "sequence": 1, "kind": "RECONCILED_RATE", "quantity": 100,
+        "unit_cost_rub": "20.00", "effective_date": "2026-11-06",
+    }]
+    assert basis["open_rate"] == {
+        "unit_cost_rub": "30.00", "effective_date": "2026-11-07",
+    }
+
+
+def test_current_unit_cost_uses_remaining_layer_from_fresh_completed_replay():
+    class ReplayedHistory:
+        def get_sku_history(self, **_kwargs):
+            return {
+                "error": False, "code": "FIFO_HISTORY_READY", "revision": 5,
+                "queue_initialized": True, "stream_state": "FIFO_READY",
+                "cutoff_date": "2026-11-05", "projection": {},
+                "movement_count": 2, "remaining_status": "AFTER_CONFIRMED_REPLAY",
+                "next_unit_cost_rub": "20.00",
+                "next_unit_cost_basis": "FINITE_FIFO_LAYER",
+                "layers": [
+                    {"sequence": 1, "recorded_quantity": 1, "remaining_units": 0,
+                     "unit_cost_rub": "10.00", "effective_date": "2026-11-05"},
+                    {"sequence": 2, "recorded_quantity": 2, "remaining_units": 1,
+                     "unit_cost_rub": "20.00", "effective_date": "2026-11-06"},
+                ],
+                "reconciled_rate_layers": [], "rates": [],
+                "rate_reconciliations": [], "rate_cancellations": [],
+                "active_rate": None, "next_planned_rate": None,
+                "latest_allocation": {
+                    "revision": 3, "stream_revision": 5, "status": "COMPLETE",
+                    "cutoff_status": "RECONCILED", "stale": False,
+                },
+            }
+
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        adapter = FifoCurrentUnitCostAdapter(_LegacyCosts(cost="99.00"), ReplayedHistory())
+        result = adapter.resolve_current_cost(
+            IDENTITY, store_id="store-a", as_of_date="2026-11-06",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["cost_per_unit_rub"] == "20.00"
+    assert result["cost_basis"]["next_layer_remaining_units"] == 1
+    assert result["cost_basis"]["completeness"] == "CONFIRMED_REPLAY_MODEL_ONLY"
+    assert result["cost_basis"]["factual_period_profit_eligible"] is False
+    assert result["cost_basis"]["quantity_allocation_basis"]["status"] == "UNAVAILABLE"
+
+
 def test_fifo_history_is_exact_store_scoped_without_cross_store_fallback(tmp_path):
     tenant_a = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:

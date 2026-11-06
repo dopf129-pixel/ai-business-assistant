@@ -153,6 +153,8 @@ class FifoCostSourceCollectionService:
         store_id,
         tenant_scope,
         identity_mapping_confirmed=False,
+        owner_confirmed_stock_semantics=False,
+        owner_confirmed_zero_transit=False,
         operation_trace=None,
         http_attempt_budget=1,
         time_budget_seconds=15.0,
@@ -174,6 +176,8 @@ class FifoCostSourceCollectionService:
             or attempts_limit is None
             or seconds_limit is None
             or type(identity_mapping_confirmed) is not bool
+            or type(owner_confirmed_stock_semantics) is not bool
+            or type(owner_confirmed_zero_transit) is not bool
         ):
             return self._result(
                 status="INVALID", source_status="CONFLICT", attempts=0,
@@ -221,10 +225,10 @@ class FifoCostSourceCollectionService:
             pagination_complete=pagination_complete,
             pages_read=1,
             identity_mapping_confirmed=identity_mapping_confirmed,
-            field_semantics_confirmed=False,
-            transit_units=None,
-            transit_complete=False,
-            transit_overlap_confirmed=False,
+            field_semantics_confirmed=owner_confirmed_stock_semantics,
+            transit_units=0 if owner_confirmed_zero_transit else None,
+            transit_complete=owner_confirmed_zero_transit,
+            transit_overlap_confirmed=owner_confirmed_zero_transit,
         )
         issues = list(snapshot.issue_codes)
         if reason:

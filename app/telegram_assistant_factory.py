@@ -81,6 +81,8 @@ from services.fifo_cost_late_entry_reconstruction_service import (
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateEntryService
 from services.telegram_fifo_cost_late_entry_service import TelegramFifoCostLateEntryService
+from services.fifo_cost_anchor_service import FifoCostAnchorService
+from services.telegram_fifo_cost_anchor_entry_service import TelegramFifoCostAnchorEntryService
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
@@ -601,12 +603,13 @@ def create_telegram_assistant():
         fifo_cost_history_service,
         FifoCostRateCancellationService(fifo_cost_repository),
     )
+    fifo_cost_source_collection_service = FifoCostSourceCollectionService(
+        ozon_client=OzonClient(),
+    )
     telegram_fifo_cost_rate_entry_service = TelegramFifoCostRateEntryService(
         fifo_cost_history_service,
         FifoCostRateService(fifo_cost_repository),
-    )
-    fifo_cost_source_collection_service = FifoCostSourceCollectionService(
-        ozon_client=OzonClient(),
+        source_collection_service=fifo_cost_source_collection_service,
     )
     fifo_cost_supply_evidence_service = FifoCostSupplyEvidenceService(
         fifo_cost_repository,
@@ -619,6 +622,10 @@ def create_telegram_assistant():
         source_collection_service=fifo_cost_source_collection_service,
         supply_evidence_service=fifo_cost_supply_evidence_service,
         reconstruction_service=fifo_cost_late_entry_reconstruction_service,
+    )
+    telegram_fifo_cost_anchor_entry_service = TelegramFifoCostAnchorEntryService(
+        fifo_cost_history_service,
+        FifoCostAnchorService(fifo_cost_repository),
     )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
@@ -654,6 +661,7 @@ def create_telegram_assistant():
             telegram_fifo_cost_history_service,
             telegram_fifo_cost_rate_entry_service,
             telegram_fifo_cost_late_entry_service,
+            telegram_fifo_cost_anchor_entry_service,
         )
     )
 
@@ -774,6 +782,7 @@ def create_telegram_assistant():
 
 
     runner.seller_cost_service = seller_cost_service
+    runner.fifo_cost_anchor_entry_service = telegram_fifo_cost_anchor_entry_service
     runner.return_inventory_service = return_inventory_service
     runner.onboarding_service = onboarding_service
 

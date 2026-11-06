@@ -114,16 +114,20 @@ class FifoCurrentUnitCostAdapter:
         next_basis = history.get("next_unit_cost_basis")
         remaining_units = None
         effective_date = None
-        if cost is not None and next_basis == "FINITE_FIFO_LAYER":
-            next_layer = next(
-                (
-                    layer for layer in history.get("layers", ())
-                    if isinstance(layer, dict)
-                    and type(layer.get("remaining_units")) is int
-                    and layer["remaining_units"] > 0
-                ),
-                None,
+        if cost is not None and next_basis in {
+            "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+        }:
+            candidate_layers = (
+                history.get("reconciled_rate_layers", ())
+                if next_basis == "RECONCILED_RATE_LAYER"
+                else history.get("layers", ())
             )
+            next_layer = next((
+                layer for layer in candidate_layers
+                if isinstance(layer, dict)
+                and type(layer.get("remaining_units")) is int
+                and layer["remaining_units"] > 0
+            ), None) if isinstance(candidate_layers, (list, tuple)) else None
             if next_layer is None or self._money(next_layer.get("unit_cost_rub")) != cost:
                 cost = None
             else:
@@ -140,7 +144,8 @@ class FifoCurrentUnitCostAdapter:
         else:
             cost = None
 
-        if movement_count is None or movement_count > 0:
+        replay_confirmed = self._has_current_complete_replay(history)
+        if movement_count is None or (movement_count > 0 and not replay_confirmed):
             cost = None
             remaining_units = None
             completeness = "REPLAY_REQUIRED"
@@ -148,6 +153,9 @@ class FifoCurrentUnitCostAdapter:
         elif cost is None:
             completeness = "FIFO_COST_BASIS_UNAVAILABLE"
             reason_code = "FIFO_NEXT_UNIT_COST_UNAVAILABLE"
+        elif replay_confirmed:
+            completeness = "CONFIRMED_REPLAY_MODEL_ONLY"
+            reason_code = None
         else:
             completeness = "CONFIRMED_SNAPSHOT_MODEL_ONLY"
             reason_code = None
@@ -196,8 +204,9 @@ class FifoCurrentUnitCostAdapter:
             history, current_date, revision,
         )
         cost_method = (
-            "FIFO_FINITE_LAYER" if next_basis == "FINITE_FIFO_LAYER"
-            and cost is not None else
+            "FIFO_FINITE_LAYER" if next_basis in {
+                "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+            } and cost is not None else
             "FIFO_OPEN_RATE" if next_basis == "OPEN_RATE_QUANTITY_UNKNOWN"
             and cost is not None else "FIFO_UNAVAILABLE"
         )
@@ -226,6 +235,19 @@ class FifoCurrentUnitCostAdapter:
                 "quantity_allocation_basis": quantity_allocation_basis,
             },
         }
+
+    @staticmethod
+    def _has_current_complete_replay(history):
+        allocation = history.get("latest_allocation")
+        return (
+            history.get("remaining_status") == "AFTER_CONFIRMED_REPLAY"
+            and type(history.get("revision")) is int
+            and isinstance(allocation, dict)
+            and allocation.get("status") == "COMPLETE"
+            and allocation.get("cutoff_status") == "RECONCILED"
+            and allocation.get("stale") is False
+            and allocation.get("stream_revision") == history.get("revision")
+        )
 
     @classmethod
     def _quantity_allocation_basis(cls, history, current_date, revision):
@@ -391,7 +413,6 @@ class FifoCurrentUnitCostAdapter:
         return normalized if normalized is not None else unavailable(
             "FIFO_PLANNING_BASIS_VALIDATION_FAILED"
         )
-
     def _legacy_result(self, identity, current_date, *, reason=None):
         row = None
         if identity.get("product_id"):

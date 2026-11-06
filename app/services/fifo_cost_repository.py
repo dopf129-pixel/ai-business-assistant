@@ -28,7 +28,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 11
+    SCHEMA_VERSION = 12
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -184,7 +184,7 @@ class FifoCostRepository:
             projection_row = connection.execute(
                 """SELECT revision, state, known_quantity, known_cost_rub,
                           next_unit_cost_rub, queue_complete, cutoff_status,
-                          updated_at
+                          updated_at, inventory_cutoff
                    FROM fifo_cost_projections WHERE stream_id=?""",
                 (stream_id,),
             ).fetchone()
@@ -197,6 +197,7 @@ class FifoCostRepository:
                 "queue_complete": bool(projection_row["queue_complete"]),
                 "cutoff_status": projection_row["cutoff_status"],
                 "updated_at": projection_row["updated_at"],
+                "inventory_cutoff": projection_row["inventory_cutoff"],
             }
             layer_rows = connection.execute(
                 """SELECT l.layer_sequence, l.quantity, l.unit_cost_rub,
@@ -317,11 +318,27 @@ class FifoCostRepository:
                 "stale": allocation["stream_revision"] != stream["revision"],
                 "created_at": allocation["created_at"],
             }
+            if latest_allocation is not None:
+                if (
+                    allocation["status"] == "COMPLETE"
+                    and allocation["cutoff_status"] == "RECONCILED"
+                    and allocation["stream_revision"] == stream["revision"]
+                ):
+                    latest_allocation["replayed_remaining_layers"] = (
+                        self._replayed_remaining_layers(
+                            connection, stream_id, allocation["revision"],
+                        )
+                    )
+                else:
+                    latest_allocation["replayed_remaining_layers"] = None
             cutoff_date = connection.execute(
                 """SELECT MIN(inventory_cutoff) FROM fifo_cost_events
                    WHERE stream_id=? AND event_kind='OPENING_FIFO_ANCHOR'""",
                 (stream_id,),
             ).fetchone()[0]
+            cutoff_date = cutoff_date or (
+                projection["inventory_cutoff"] if projection else None
+            )
             return {
                 "error": False,
                 "code": "FIFO_HISTORY_READY",
@@ -345,6 +362,76 @@ class FifoCostRepository:
         finally:
             if connection is not None:
                 connection.close()
+
+    @staticmethod
+    def _replayed_remaining_layers(connection, stream_id, allocation_revision):
+        allocation = connection.execute(
+            """SELECT allocation_id FROM fifo_cost_allocations
+               WHERE stream_id=? AND revision=? AND status='COMPLETE'
+                 AND cutoff_status='RECONCILED' LIMIT 1""",
+            (stream_id, allocation_revision),
+        ).fetchone()
+        if allocation is None:
+            return None
+        rows = connection.execute(
+            """SELECT l.layer_id, l.layer_sequence, l.quantity,
+                      l.unit_cost_rub, l.effective_date, l.provenance,
+                      e.location_to
+               FROM fifo_cost_layers AS l
+               JOIN fifo_cost_events AS e ON e.event_id=l.event_id
+               WHERE l.stream_id=? ORDER BY l.layer_sequence LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rows) > 100_000:
+            return None
+        remaining = {row["layer_id"]: row["quantity"] for row in rows}
+        allocation_id = allocation["allocation_id"]
+        consumed = connection.execute(
+            """SELECT e.event_kind, l.layer_id, SUM(l.quantity) AS quantity
+               FROM fifo_cost_allocation_lines AS l
+               JOIN fifo_cost_events AS e ON e.event_id=l.event_id
+               WHERE l.allocation_id=? GROUP BY e.event_kind, l.layer_id""",
+            (allocation_id,),
+        ).fetchall()
+        for row in consumed:
+            if row["event_kind"] == "PHYSICAL_SALE":
+                if row["layer_id"] not in remaining or row["quantity"] is None:
+                    return None
+                remaining[row["layer_id"]] -= row["quantity"]
+        restored = connection.execute(
+            """SELECT b.layer_id, SUM(b.quantity) AS quantity
+               FROM fifo_cost_return_basis AS b
+               JOIN fifo_cost_events AS e ON e.event_id=b.return_event_id
+               WHERE e.stream_id=? AND e.event_kind='SALEABLE_RETURN_RESTOCK'
+                 AND b.layer_id IS NOT NULL
+               GROUP BY b.layer_id""",
+            (stream_id,),
+        ).fetchall()
+        for row in restored:
+            if row["layer_id"] not in remaining or row["quantity"] is None:
+                return None
+            remaining[row["layer_id"]] += row["quantity"]
+        outflows = connection.execute(
+            """SELECT layer_id, SUM(quantity) AS quantity
+               FROM fifo_cost_allocation_outflow_lines
+               WHERE allocation_id=? GROUP BY layer_id""",
+            (allocation_id,),
+        ).fetchall()
+        for row in outflows:
+            if row["layer_id"] not in remaining or row["quantity"] is None:
+                return None
+            remaining[row["layer_id"]] -= row["quantity"]
+        if any(quantity < 0 for quantity in remaining.values()):
+            return None
+        return [{
+            "sequence": row["layer_sequence"],
+            "recorded_quantity": row["quantity"],
+            "remaining_units": remaining[row["layer_id"]],
+            "unit_cost_rub": row["unit_cost_rub"],
+            "effective_date": row["effective_date"],
+            "provenance": row["provenance"],
+            "location": row["location_to"],
+        } for row in rows]
 
     def read_allocation_guard(self, *, store_id, product_id=None, offer_id=None, sku):
         """Return the current replay CAS token without exposing event payloads."""
@@ -1040,11 +1127,23 @@ class FifoCostRepository:
                     "error": False, "code": "FIFO_COST_MODE_LEGACY",
                     "active": False,
                 }
+            projection = connection.execute(
+                "SELECT inventory_cutoff FROM fifo_cost_projections WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()
+            cutoff_date = None if projection is None else projection["inventory_cutoff"]
+            if cutoff_date is None:
+                cutoff_date = connection.execute(
+                    """SELECT MIN(inventory_cutoff) FROM fifo_cost_events
+                       WHERE stream_id=? AND event_kind='OPENING_FIFO_ANCHOR'""",
+                    (stream_id,),
+                ).fetchone()[0]
             return {
                 "error": False, "code": "FIFO_COST_MODE_FIFO",
                 "active": True,
                 "stream_state": stream["state"],
                 "stream_revision": stream["revision"],
+                "cutoff_date": cutoff_date,
             }
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
             code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_IDENTITY_INVALID"
@@ -2900,9 +2999,10 @@ class FifoCostRepository:
                         """INSERT INTO fifo_cost_projections (
                             stream_id, revision, state, known_quantity,
                             known_cost_rub, next_unit_cost_rub, queue_complete,
-                            cutoff_status, source_set_fingerprint, last_event_id,
+                            cutoff_status, inventory_cutoff,
+                            source_set_fingerprint, last_event_id,
                             updated_at
-                        ) VALUES (?, ?, 'FIFO_READY', ?, ?, ?, 1, ?, ?, ?, ?)
+                        ) VALUES (?, ?, 'FIFO_READY', ?, ?, ?, 1, ?, ?, ?, ?, ?)
                         ON CONFLICT(stream_id) DO UPDATE SET
                             revision=excluded.revision,
                             state=excluded.state,
@@ -2911,6 +3011,7 @@ class FifoCostRepository:
                             next_unit_cost_rub=excluded.next_unit_cost_rub,
                             queue_complete=excluded.queue_complete,
                             cutoff_status=excluded.cutoff_status,
+                            inventory_cutoff=excluded.inventory_cutoff,
                             source_set_fingerprint=excluded.source_set_fingerprint,
                             last_event_id=excluded.last_event_id,
                             updated_at=excluded.updated_at""",
@@ -2918,6 +3019,7 @@ class FifoCostRepository:
                             normalized["stream_id"], next_revision, known_quantity,
                             format(known_cost, ".2f"), next_unit_cost,
                             "INVENTORY_CUTOFF_UNRECONCILED",
+                            normalized["events"][0]["inventory_cutoff"],
                             normalized["source"]["source_fingerprint"],
                             event_ids[-1], self._iso(now),
                         ),
@@ -3739,12 +3841,15 @@ class FifoCostRepository:
                         """INSERT INTO fifo_cost_projections (
                             stream_id, revision, state, known_quantity, known_cost_rub,
                             next_unit_cost_rub, queue_complete, cutoff_status,
-                            source_set_fingerprint, last_event_id, updated_at
-                        ) VALUES (?, ?, 'FIFO_PARTIAL', 0, '0.00', ?, 0, ?, ?, NULL, ?)""",
+                            inventory_cutoff, source_set_fingerprint,
+                            last_event_id, updated_at
+                        ) VALUES (?, ?, 'FIFO_PARTIAL', 0, '0.00', ?, 0, ?, ?, ?, NULL, ?)""",
                         (
                             normalized["stream_id"], next_revision,
                             payload["unit_cost_rub"],
-                            "INVENTORY_CUTOFF_UNRECONCILED", combined_source_set,
+                            "INVENTORY_CUTOFF_UNRECONCILED",
+                            normalized["zero_stock_source"]["source"]["captured_at"][:10],
+                            combined_source_set,
                             self._iso(now),
                         ),
                     )
@@ -4684,6 +4789,84 @@ class FifoCostRepository:
                     """ALTER TABLE fifo_cost_allocations
                        ADD COLUMN stream_revision INTEGER NOT NULL DEFAULT 0
                        CHECK(stream_revision >= 0)"""
+                )
+        if version < 12:
+            columns = {
+                str(row[1]) for row in
+                connection.execute("PRAGMA table_info(fifo_cost_projections)")
+            }
+            if "inventory_cutoff" not in columns:
+                connection.execute(
+                    """ALTER TABLE fifo_cost_projections
+                       ADD COLUMN inventory_cutoff TEXT"""
+                )
+            cls._backfill_zero_stock_inventory_cutoffs(connection)
+
+    @classmethod
+    def _backfill_zero_stock_inventory_cutoffs(cls, connection):
+        """Recover only a zero-stock cutoff proven by its complete source chain."""
+        projections = connection.execute(
+            """SELECT p.stream_id, s.store_id, p.source_set_fingerprint
+               FROM fifo_cost_projections AS p
+               JOIN fifo_cost_streams AS s ON s.stream_id=p.stream_id
+               WHERE p.inventory_cutoff IS NULL
+                 AND p.source_set_fingerprint IS NOT NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM fifo_cost_events AS e
+                     WHERE e.stream_id=p.stream_id
+                       AND e.event_kind='OPENING_FIFO_ANCHOR'
+                 )"""
+        ).fetchall()
+        for projection in projections:
+            rates = connection.execute(
+                """SELECT r.rate_sequence, s.source_fingerprint
+                   FROM fifo_cost_rate_changes AS r
+                   JOIN fifo_cost_sources AS s ON s.source_id=r.source_id
+                   WHERE r.stream_id=? ORDER BY r.rate_sequence LIMIT 257""",
+                (projection["stream_id"],),
+            ).fetchall()
+            if (
+                not rates or len(rates) > 256
+                or [row["rate_sequence"] for row in rates]
+                != list(range(1, len(rates) + 1))
+            ):
+                continue
+            stock_sources = connection.execute(
+                """SELECT source_fingerprint, captured_at
+                   FROM fifo_cost_sources
+                   WHERE store_id=? AND source_method='FIFO_PRODUCT_STOCKS'
+                     AND source_status='COMPLETE' AND captured_at IS NOT NULL
+                   LIMIT 1001""",
+                (projection["store_id"],),
+            ).fetchall()
+            if len(stock_sources) > 1000:
+                continue
+            matching_cutoffs = set()
+            for stock_source in stock_sources:
+                source_set = cls._sha256({
+                    "zero_stock": stock_source["source_fingerprint"],
+                    "rate": rates[0]["source_fingerprint"],
+                })
+                for rate in rates[1:]:
+                    source_set = cls._sha256({
+                        "previous": source_set,
+                        "rate": rate["source_fingerprint"],
+                    })
+                captured_at = stock_source["captured_at"]
+                if (
+                    source_set == projection["source_set_fingerprint"]
+                    and isinstance(captured_at, str)
+                    and len(captured_at) >= 10
+                ):
+                    try:
+                        cutoff = date.fromisoformat(captured_at[:10]).isoformat()
+                    except ValueError:
+                        continue
+                    matching_cutoffs.add(cutoff)
+            if len(matching_cutoffs) == 1:
+                connection.execute(
+                    "UPDATE fifo_cost_projections SET inventory_cutoff=? WHERE stream_id=?",
+                    (next(iter(matching_cutoffs)), projection["stream_id"]),
                 )
 
     @classmethod
@@ -5626,6 +5809,7 @@ class FifoCostRepository:
                 next_unit_cost_rub TEXT,
                 queue_complete INTEGER NOT NULL CHECK(queue_complete IN (0, 1)),
                 cutoff_status TEXT NOT NULL,
+                inventory_cutoff TEXT,
                 source_set_fingerprint TEXT,
                 last_event_id TEXT REFERENCES fifo_cost_events(event_id),
                 updated_at TEXT NOT NULL

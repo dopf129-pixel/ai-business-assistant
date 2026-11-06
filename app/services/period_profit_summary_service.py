@@ -112,7 +112,11 @@ class PeriodProfitSummaryService:
                         "Режим FIFO-себестоимости недоступен",
                     )
                 try:
-                    fifo_mode = mode_getter(product)
+                    fifo_mode = mode_getter(
+                        product,
+                        date_from=start.isoformat(),
+                        date_to=end.isoformat(),
+                    )
                 except Exception:
                     fifo_mode = None
                 if not isinstance(fifo_mode, dict) or fifo_mode.get("error") is not False:
@@ -124,6 +128,15 @@ class PeriodProfitSummaryService:
                         "Не удалось безопасно определить режим себестоимости SKU",
                     )
                     error["fifo_reason_code"] = code
+                    return error
+                if fifo_mode.get("period_cutover_overlap") is True:
+                    error = self._error(
+                        "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE",
+                        "Период пересекает дату начальной FIFO-отсечки. "
+                        "Разделите его на периоды до и после отсечки.",
+                    )
+                    error["fifo_reason_code"] = "FIFO_PERIOD_SPANS_COST_CUTOFF"
+                    error["fifo_cutoff_date"] = fifo_mode.get("cutoff_date")
                     return error
             fifo_active = fifo_mode.get("active") is True
             if fifo_active:

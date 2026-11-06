@@ -1,3 +1,12 @@
+# 2026-11-07 — FIFO review regressions (PR #726)
+
+- `tests/test_fifo_cost_period_profit_source_service.py` проверяет, что период до cutoff остаётся legacy, диапазон через cutoff отказывается, а период после него выбирает FIFO. `tests/test_period_profit_fifo_cost_integration.py` проверяет публичный Period Profit: исторический dated legacy результат доступен, пересекающий cutoff период блокируется.
+- `tests/test_fifo_current_unit_cost_adapter.py` покрывает persisted zero-stock cutoff, согласованный старый rate как конечный слой перед открытой ставкой, и восстановление следующей стоимости/остатка по свежему полному replay без допуска в factual COGS.
+- `tests/test_fifo_cost_allocation_repository.py` проверяет remaining units после replay; `tests/test_fifo_cost_repository.py` покрывает additive v11→v12 миграцию и единственный подтверждённый backfill zero-stock cutoff по fingerprint-цепочке.
+- `tests/test_telegram_fifo_cost_history.py` покрывает end-to-end Telegram начальный FIFO-якорь, нулевой старт по полной подтверждённой выборке Ozon, доступность планирования открытой ставки, отказ на частичном ответе и переключение между SKU/legacy/FIFO черновиками. `app/tests/test_seller_cost_confirmation_flow.py` запрещает старой форме записывать себестоимость для активного FIFO SKU.
+- `tests/test_fifo_cost_source_collection_service.py` проверяет, что ноль принимается только при явном подтверждении identity/семантики и полного нулевого транзита; запрос read-only и ограничен одной HTTP-попыткой.
+- Финальные проверки: затронутый профиль **113 passed in 3.49s**; полный `pytest -q` **4,807 passed in 50.16s**; `compileall -q app tests` и `git diff --check` PASS. Полный suite запускается без глобального storage-root override, иначе multi-tenant tests намеренно получают другой contract.
+
 # 2026-11-06 — FC35: review handoff
 
 - Пакет независимого review: `project_brain/FIFO_COST_REVIEW_HANDOFF_2026-11-06.md`. В нём зафиксированы full suite 4,792 passed, compileall/diff PASS, data manifest 6/6 и границы доверия к синтетическим источникам.

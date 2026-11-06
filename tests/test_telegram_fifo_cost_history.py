@@ -1,13 +1,16 @@
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
 from services.fifo_cost_rate_cancellation_service import FifoCostRateCancellationService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_repository import FifoCostRepository
 from services.ozon_account_repository import make_store_tenant_scope
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateEntryService
+from services.telegram_fifo_cost_anchor_entry_service import TelegramFifoCostAnchorEntryService
 from services.telegram_seller_cost_update_service import TelegramSellerCostUpdateService
 from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -47,7 +50,9 @@ def _anchored_history(tmp_path):
         idempotency_key="telegram-fifo-anchor01",
     )
     assert committed["error"] is False
-    return repository, FifoCostHistoryService(repository)
+    return repository, FifoCostHistoryService(
+        repository, date_provider=lambda: date(2026, 11, 6),
+    )
 
 
 def _commit_planned_rate(
@@ -610,6 +615,257 @@ def test_seller_cost_adapter_routes_fifo_actions_to_explicit_services():
     assert text_result["message"] == "assistant fallback"
     assert confirmed["message"] == "Сохранено."
     assert rate_entry.callbacks == [(101, "fifo_rate:confirm:opaque-draft")]
+
+
+def test_initial_anchor_is_reachable_and_confirmed_through_telegram_adapter(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "telegram-first-anchor.sqlite",
+            now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: date(2026, 11, 6),
+        )
+        ui = TelegramFifoCostHistoryService(history)
+        anchor_entry = TelegramFifoCostAnchorEntryService(
+            history, FifoCostAnchorService(repository),
+            date_provider=lambda: date(2026, 11, 6),
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=_Assistant(), keyboard_service=None,
+            button_handler=_ButtonHandler(), fifo_history_service=ui,
+            fifo_anchor_entry_service=anchor_entry,
+        )
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = adapter.handle_button(ticket["callback"], user_id=101)
+        anchor_callback = card["keyboard"]["buttons"][0]["callback"]
+        started = adapter.handle_button(anchor_callback, user_id=101)
+        assert "Укажите дату" in started["message"]
+
+        steps = [
+            "2026-11-05", "1", "120,50; 4; 2; 3", "ДА", "ДА",
+        ]
+        for text in steps[:-1]:
+            response = adapter.handle_text(text, user_id=101)
+            assert response["error"] is False, response
+        confirmation = adapter.handle_text(steps[-1], user_id=101)
+        assert confirmation["fifo_anchor_confirmation_pending"] is True
+        assert confirmation["keyboard"]["buttons"][0]["callback"].startswith(
+            "fifo_anchor:confirm:"
+        )
+        saved = adapter.handle_button(
+            confirmation["keyboard"]["buttons"][0]["callback"], user_id=101,
+        )
+        snapshot = history.get_sku_history(**IDENTITY)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert saved["fifo_anchor_saved"] is True
+    assert "не включена" in saved["message"]
+    assert snapshot["queue_initialized"] is True
+    assert snapshot["cutoff_date"] == "2026-11-05"
+    assert snapshot["layers"][0]["recorded_quantity"] == 4
+    assert snapshot["layers"][1]["recorded_quantity"] == 2
+    assert snapshot["layers"][2]["recorded_quantity"] == 3
+
+
+def test_initial_zero_stock_rate_is_owner_confirmed_persisted_and_plannable(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "telegram-fifo-zero-start.sqlite",
+            now_provider=lambda: datetime(2026, 11, 7, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: date(2026, 11, 7),
+        )
+        ui = TelegramFifoCostHistoryService(history)
+        zero_snapshot = SimpleNamespace(
+            status="CONFIRMED_ZERO", source_status="COMPLETE",
+            store_id="store-a", product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+            captured_at="2026-11-07T12:00:00Z", pagination_complete=True,
+            fbo_units=0, reserved_units=0, transit_units=0,
+            transit_status="DISJOINT_CONFIRMED", source_fingerprint="a" * 64,
+        )
+
+        class Sources:
+            calls = []
+
+            @classmethod
+            def collect_stock_snapshot(cls, **kwargs):
+                cls.calls.append(kwargs)
+                return SimpleNamespace(
+                    status="CONFIRMED_ZERO", source_status="COMPLETE",
+                    actual_http_attempts=1, http_attempt_cap=1,
+                    stock_snapshot=zero_snapshot,
+                )
+
+        entry = TelegramFifoCostRateEntryService(
+            history, FifoCostRateService(repository),
+            date_provider=lambda: date(2026, 11, 7),
+            source_collection_service=Sources(),
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=_Assistant(), keyboard_service=None,
+            button_handler=_ButtonHandler(), fifo_history_service=ui,
+            fifo_rate_entry_service=entry,
+        )
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = adapter.handle_button(ticket["callback"], user_id=101)
+        zero_button = next(
+            item for item in card["keyboard"]["buttons"]
+            if "zero_rate" in item["callback"]
+        )
+        started = adapter.handle_button(zero_button["callback"], user_id=101)
+        assert "нет дома, на FBS-складе и в пути" in started["message"]
+        assert adapter.handle_text("ДА", user_id=101)["error"] is False
+        adapter.handle_text("20", user_id=101)
+        adapter.handle_text("2", user_id=101)
+        preview = adapter.handle_text("1", user_id=101)
+        assert preview["fifo_rate_confirmation_pending"] is True
+        assert "Ozon подтвердил FBO/резерв = 0" in preview["message"]
+        assert Sources.calls[0]["owner_confirmed_stock_semantics"] is True
+        assert Sources.calls[0]["owner_confirmed_zero_transit"] is True
+        saved = adapter.handle_button(
+            preview["keyboard"]["buttons"][0]["callback"], user_id=101,
+        )
+        snapshot = history.get_sku_history(**IDENTITY)
+        current = FifoCurrentUnitCostAdapter(
+            _LegacySellerCostService(), history,
+        ).resolve_current_cost(
+            IDENTITY, store_id="store-a", as_of_date="2026-11-07",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert saved["fifo_rate_saved"] is True
+    assert snapshot["queue_initialized"] is True
+    assert snapshot["cutoff_date"] == "2026-11-07"
+    assert snapshot["projection"]["known_quantity"] == 0
+    assert snapshot["projection"]["next_unit_cost_rub"] == "23.00"
+    basis = current["cost_basis"]["quantity_allocation_basis"]
+    assert basis["status"] == "AVAILABLE"
+    assert basis["layers"] == []
+    assert basis["open_rate"] == {
+        "unit_cost_rub": "23.00", "effective_date": "2026-11-07",
+    }
+    assert basis["factual_period_profit_eligible"] is False
+
+
+def test_incomplete_zero_stock_source_cannot_initialize_fifo_from_telegram(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "telegram-fifo-zero-partial.sqlite",
+            now_provider=lambda: datetime(2026, 11, 7, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: date(2026, 11, 7),
+        )
+        ui = TelegramFifoCostHistoryService(history)
+
+        class Sources:
+            def collect_stock_snapshot(self, **_kwargs):
+                return SimpleNamespace(
+                    status="PARTIAL", source_status="PARTIAL",
+                    actual_http_attempts=1, http_attempt_cap=1,
+                    stock_snapshot=SimpleNamespace(status="PARTIAL"),
+                )
+
+        entry = TelegramFifoCostRateEntryService(
+            history, FifoCostRateService(repository),
+            date_provider=lambda: date(2026, 11, 7),
+            source_collection_service=Sources(),
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=_Assistant(), keyboard_service=None,
+            button_handler=_ButtonHandler(), fifo_history_service=ui,
+            fifo_rate_entry_service=entry,
+        )
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = adapter.handle_button(ticket["callback"], user_id=101)
+        zero_button = next(
+            item for item in card["keyboard"]["buttons"]
+            if "zero_rate" in item["callback"]
+        )
+        adapter.handle_button(zero_button["callback"], user_id=101)
+        adapter.handle_text("ДА", user_id=101)
+        adapter.handle_text("20", user_id=101)
+        adapter.handle_text("2", user_id=101)
+        rejected = adapter.handle_text("1", user_id=101)
+        snapshot = history.get_sku_history(**IDENTITY)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert rejected["error"] is True
+    assert "не подтвердил полный нулевой остаток" in rejected["message"]
+    assert snapshot["queue_initialized"] is False
+    assert snapshot["revision"] == 0
+
+
+def test_switching_sku_clears_the_other_cost_input_draft():
+    class StatefulLegacy(_LegacySellerCostService):
+        def __init__(self):
+            self.pending = False
+
+        def select_sku(self, _user_id, sku):
+            self.pending = True
+            return {"error": False, "handled": True, "sku": sku}
+
+        def handle_text(self, _user_id, text):
+            if not self.pending:
+                return {"error": False, "handled": False}
+            return {"error": False, "handled": True, "message": "legacy:" + text}
+
+        def clear_pending(self, _user_id):
+            self.pending = False
+
+    class StatefulRate(_RateEntryCallbackStub):
+        def __init__(self):
+            super().__init__()
+            self.pending = False
+            self.texts = []
+
+        def start(self, *args):
+            self.pending = True
+            return super().start(*args)
+
+        def handle_text(self, _user_id, text):
+            if not self.pending:
+                return {"error": False, "handled": False}
+            self.texts.append(text)
+            return {"error": False, "handled": True, "message": "fifo:" + text}
+
+        def clear_pending(self, _user_id):
+            self.pending = False
+
+    legacy = StatefulLegacy()
+    rate = StatefulRate()
+    adapter = SellerCostTelegramAdapter(
+        assistant=_Assistant(), keyboard_service=None,
+        button_handler=_ButtonHandler(), seller_cost_service=legacy,
+        fifo_history_service=_HistoryCallbackStub(),
+        fifo_rate_entry_service=rate,
+    )
+
+    adapter.handle_button("seller_cost:sku-1", user_id=101)
+    fifo_started = adapter.handle_button("fifo_history:new:opaque-token", user_id=101)
+    fifo_text = adapter.handle_text("120", user_id=101)
+    adapter.handle_button("seller_cost:sku-2", user_id=101)
+    legacy_text = adapter.handle_text("99", user_id=101)
+
+    assert fifo_started["message"] == "Введите закупку."
+    assert fifo_text["message"] == "fifo:120"
+    assert rate.texts == ["120"]
+    assert legacy_text["message"] == "legacy:99"
 
 
 class _Products:

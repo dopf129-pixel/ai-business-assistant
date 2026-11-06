@@ -40,20 +40,43 @@ class _Cost:
 
 
 class _FifoSource:
-    def __init__(self, active_skus, *, incomplete_skus=()):
+    def __init__(self, active_skus, *, incomplete_skus=(), cutoff_dates=None):
         self.active_skus = set(active_skus)
         self.incomplete_skus = set(incomplete_skus)
+        self.cutoff_dates = dict(cutoff_dates or {})
         self.periods = []
         self.sale_counts = []
 
-    def get_scope_mode(self, product):
+    def get_scope_mode(self, product, *, date_from=None, date_to=None):
         active = product.get("sku") in self.active_skus
+        cutoff = self.cutoff_dates.get(product.get("sku"))
+        if active and cutoff and date_from and date_to:
+            if date_to <= cutoff:
+                return {"error": False, "active": False, "code": "FIFO_COST_MODE_PRE_CUTOFF"}
+            if date_from <= cutoff:
+                return {
+                    "error": False, "active": True,
+                    "period_cutover_overlap": True,
+                    "code": "FIFO_PERIOD_SPANS_COST_CUTOFF",
+                    "cutoff_date": cutoff,
+                }
         return {"error": False, "active": active}
 
     def reconcile_period_sales(self, *, product, sales, **_kwargs):
         self.periods.append((_kwargs.get("date_from"), _kwargs.get("date_to")))
         self.sale_counts.append(len(sales))
         sku = product.get("sku")
+        cutoff = self.cutoff_dates.get(sku)
+        start = _kwargs.get("date_from")
+        end = _kwargs.get("date_to")
+        if cutoff and start and end:
+            if end <= cutoff:
+                return {"error": False, "active": False, "code": "FIFO_COST_MODE_PRE_CUTOFF"}
+            if start <= cutoff:
+                return {
+                    "error": False, "active": True, "complete": False,
+                    "reason_code": "FIFO_PERIOD_SPANS_COST_CUTOFF",
+                }
         if sku not in self.active_skus:
             return {"error": False, "active": False}
         if sku in self.incomplete_skus:
@@ -95,6 +118,18 @@ class _MixedCostService(PeriodProfitEffectiveCostSaleQuantitySummaryService):
             "historical_cost_confirmed": True,
             "cost_price": 30.0, "effective_from": accrual_date,
             "effective_through": accrual_date, "history_id": "legacy-history",
+            "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
+            "source": "SELLER_CONFIRMED_OPERATIONAL_HISTORY",
+        }
+
+
+class _LegacyForCutoverCostService(_MixedCostService):
+    def _effective_cost_evidence(self, row, accrual_date):
+        return {
+            "error": False, "effective_cost_confirmed": True,
+            "historical_cost_confirmed": True,
+            "cost_price": 30.0, "effective_from": "2026-10-01",
+            "effective_through": "2026-11-05", "history_id": "legacy-before-cutoff",
             "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
             "source": "SELLER_CONFIRMED_OPERATIONAL_HISTORY",
         }
@@ -178,3 +213,44 @@ def test_period_profit_active_fifo_gap_is_incomplete_and_does_not_use_legacy():
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE"
     assert result["fifo_reason_code"] == "FIFO_ALLOCATION_STALE_OR_MISSING"
+
+
+def test_period_profit_before_fifo_cutoff_keeps_dated_legacy_cost():
+    fifo = _FifoSource(
+        ["sku-fifo"], cutoff_dates={"sku-fifo": "2026-11-05"},
+    )
+    class LegacyCost(_Cost):
+        def get_cost(self, product_id):
+            return 30.0
+
+    service = _LegacyForCutoverCostService(
+        finance_service=_Finance(["sku-fifo"]), cost_service=LegacyCost(),
+        tax_rate=0.06, fifo_cost_source_service=fifo,
+    )
+    service._load_period_skus = lambda *_args, **_kwargs: {
+        "map": {}, "expected": set(), "fatal": None,
+    }
+
+    result = service.calculate(
+        "2026-10-01", "2026-11-05", _products(["sku-fifo"]),
+    )
+
+    assert result["error"] is False, result
+    assert result["products"][0]["cost_source"] == "LEGACY_DATED_COST"
+    assert result["fifo_cost_source_counts"] == {"fifo": 0, "legacy": 1}
+
+
+def test_period_profit_refuses_period_spanning_fifo_cutoff():
+    service = _service(
+        ["sku-fifo"],
+        _FifoSource(["sku-fifo"], cutoff_dates={"sku-fifo": "2026-11-05"}),
+    )
+
+    result = service.calculate(
+        "2026-11-05", "2026-11-06", _products(["sku-fifo"]),
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE"
+    assert result["fifo_reason_code"] == "FIFO_PERIOD_SPANS_COST_CUTOFF"
+    assert result["fifo_cutoff_date"] == "2026-11-05"

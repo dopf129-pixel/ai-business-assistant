@@ -1,6 +1,8 @@
 import os
 import sys
 import unittest
+from pathlib import Path
+import tempfile
 from datetime import date
 from threading import Event, Thread
 
@@ -12,6 +14,8 @@ if APP_ROOT not in sys.path:
 from services.telegram_seller_cost_update_service import (  # noqa: E402
     TelegramSellerCostUpdateService,
 )
+from services.fifo_cost_anchor_service import FifoCostAnchorService  # noqa: E402
+from services.fifo_cost_repository import FifoCostRepository  # noqa: E402
 from services.tenant_context import (  # noqa: E402
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
@@ -89,6 +93,49 @@ def _store_name():
 
 
 class SellerCostConfirmationFlowTests(unittest.TestCase):
+    def test_legacy_cost_confirmation_cannot_write_after_fifo_activation(self):
+        token = set_current_tenant_user_id("user::ozon::store-a")
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                repository = FifoCostRepository(
+                    db_path=Path(temporary) / "fifo.sqlite",
+                )
+                anchor = FifoCostAnchorService(repository)
+                preview = anchor.preview_opening_anchor(
+                    store_id="store-a", product_id="p1", offer_id="Offer 1",
+                    sku="sku-1", inventory_cutoff="2026-11-06",
+                    cost_layers=[{
+                        "sequence": 1, "unit_cost_rub": "10.00", "ozon_units": 2,
+                        "transit_units": 0, "home_units": 0,
+                    }],
+                    ozon_units_include_reserved_confirmed=True,
+                    transit_not_in_ozon_confirmed=True,
+                )
+                self.assertFalse(preview["error"])
+                self.assertFalse(anchor.commit_opening_anchor(
+                    preview_id=preview["preview_id"],
+                    active_preview_id=preview["preview_id"],
+                    idempotency_key="legacy-form-fifo-anchor",
+                )["error"])
+
+                costs = Costs()
+                flow = TelegramSellerCostUpdateService(
+                    Products(), costs, date_provider=lambda: date(2026, 11, 6),
+                    store_name_provider=_store_name, fifo_cost_repository=repository,
+                )
+                flow.select_sku("user", "sku-1")
+                draft = flow.handle_text("user", "50")
+                result = flow.handle_button(
+                    "user", draft["keyboard"]["buttons"][0]["callback"],
+                )
+        finally:
+            reset_current_tenant_user_id(token)
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["code"], "SELLER_COST_FIFO_MODE_CONFLICT")
+        self.assertEqual(costs.recorded, [])
+        self.assertEqual(costs.bulk_recorded, [])
+
     def test_unit_economics_cost_action_returns_once_to_same_sku_and_store(self):
         costs = Costs()
         flow = TelegramSellerCostUpdateService(

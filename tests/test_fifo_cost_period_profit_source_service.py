@@ -8,19 +8,25 @@ from services.ozon_account_repository import make_store_tenant_scope
 
 
 class _Repository:
-    def __init__(self, *, active=True, complete=True, allocations=None):
+    def __init__(
+        self, *, active=True, complete=True, allocations=None, cutoff_date=None,
+    ):
         self.active = active
         self.complete = complete
         self.allocations = allocations or []
+        self.cutoff_date = cutoff_date
+        self.summary_calls = 0
 
     def read_cost_mode_status(self, **_kwargs):
         return {
             "error": False, "active": self.active,
             "code": "FIFO_COST_MODE_FIFO" if self.active else "FIFO_COST_MODE_LEGACY",
             "stream_state": "FIFO_READY", "stream_revision": 4,
+            "cutoff_date": self.cutoff_date,
         }
 
     def read_period_allocation_summary(self, **_kwargs):
+        self.summary_calls += 1
         return {
             "error": False, "active": self.active,
             "complete": self.complete,
@@ -178,6 +184,51 @@ def test_uninitialized_scope_stays_on_legacy_cost_mode():
     result = service.get_scope_mode(_product())
     assert result["error"] is False
     assert result["active"] is False
+
+
+def test_pre_cutoff_period_uses_legacy_mode_after_fifo_was_activated():
+    repository = _Repository(active=True, cutoff_date="2026-11-05")
+    service = _service(repository)
+
+    mode = service.get_scope_mode(
+        _product(), date_from="2026-10-01", date_to="2026-11-05",
+    )
+    result = service.reconcile_period_sales(
+        product=_product(), finance_sku="sku-1",
+        date_from="2026-10-01", date_to="2026-11-05",
+        sales=[{"posting_number": "opaque-posting", "quantity": 2}],
+    )
+
+    assert mode["error"] is False
+    assert mode["active"] is False
+    assert mode["code"] == "FIFO_COST_MODE_PRE_CUTOFF"
+    assert result == {"error": False, "active": False, "code": "FIFO_COST_MODE_PRE_CUTOFF"}
+    assert repository.summary_calls == 0
+
+
+def test_period_spanning_fifo_cutoff_fails_closed_and_post_cutoff_uses_fifo():
+    repository = _Repository(active=True, cutoff_date="2026-11-05")
+    service = _service(repository)
+    sales = [{"posting_number": "opaque-posting", "quantity": 2}]
+
+    overlap_mode = service.get_scope_mode(
+        _product(), date_from="2026-11-05", date_to="2026-11-06",
+    )
+    overlap = service.reconcile_period_sales(
+        product=_product(), finance_sku="sku-1",
+        date_from="2026-11-05", date_to="2026-11-06", sales=sales,
+    )
+    post_cutoff = service.get_scope_mode(
+        _product(), date_from="2026-11-06", date_to="2026-11-06",
+    )
+
+    assert overlap_mode["period_cutover_overlap"] is True
+    assert overlap_mode["code"] == "FIFO_PERIOD_SPANS_COST_CUTOFF"
+    assert overlap["active"] is True
+    assert overlap["complete"] is False
+    assert overlap["reason_code"] == "FIFO_PERIOD_SPANS_COST_CUTOFF"
+    assert repository.summary_calls == 0
+    assert post_cutoff["active"] is True
 
 
 def test_fifo_scope_requires_active_store_and_stable_product_identity():

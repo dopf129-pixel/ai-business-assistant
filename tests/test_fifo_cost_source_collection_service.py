@@ -159,6 +159,36 @@ def test_stock_collection_is_explicit_bounded_and_fail_closed():
     assert client.request_options[0]["total_timeout"] <= 10
 
 
+def test_stock_collection_confirms_zero_only_with_explicit_owner_scope_flags():
+    client = _FakeOzonClient()
+    client.stock_response = {
+        "total_items": 1,
+        "items": [{
+            "product_id": 101,
+            "stocks": [
+                {"type": "fbo", "present": 0, "reserved": 0},
+                {"type": "fbs", "present": 0, "reserved": 0},
+            ],
+        }],
+    }
+    result = _service(client).collect_stock_snapshot(
+        identity=IDENTITY,
+        store_id="store-a",
+        tenant_scope="owner:1",
+        identity_mapping_confirmed=True,
+        owner_confirmed_stock_semantics=True,
+        owner_confirmed_zero_transit=True,
+    )
+
+    assert result.status == "CONFIRMED_ZERO"
+    assert result.source_status == "COMPLETE"
+    assert result.stock_snapshot.fbo_units == 0
+    assert result.stock_snapshot.reserved_units == 0
+    assert result.stock_snapshot.transit_units == 0
+    assert result.stock_snapshot.transit_status == "DISJOINT_CONFIRMED"
+    assert "INVENTORY_CUTOFF_UNRECONCILED" in result.stock_snapshot.issue_codes
+
+
 def test_stock_page_gap_is_not_reported_as_complete():
     client = _FakeOzonClient()
     client.stock_response["total_items"] = 2

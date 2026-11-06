@@ -5,6 +5,8 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 from services.fifo_cost_repository import FifoCostRepository
+from datetime import date
+
 from services.fifo_cost_sale_evidence_normalizer import (
     FifoCostSaleEvidenceNormalizer,
 )
@@ -25,7 +27,7 @@ class FifoCostPeriodProfitSourceService:
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self.normalizer = FifoCostSaleEvidenceNormalizer()
 
-    def get_scope_mode(self, product):
+    def get_scope_mode(self, product, *, date_from=None, date_to=None):
         scope = self._identity_and_store(product)
         if scope.get("error") is True:
             return scope
@@ -39,6 +41,24 @@ class FifoCostPeriodProfitSourceService:
             return self._error("FIFO_COST_MODE_UNAVAILABLE")
         if result.get("active") is not True:
             return {"error": False, "active": False, "code": result.get("code")}
+        cutoff_date = result.get("cutoff_date")
+        start = self._date_text(date_from)
+        end = self._date_text(date_to)
+        if cutoff_date and start and end:
+            if end <= cutoff_date:
+                return {
+                    "error": False, "active": False,
+                    "code": "FIFO_COST_MODE_PRE_CUTOFF",
+                    "cutoff_date": cutoff_date,
+                }
+            if start <= cutoff_date:
+                return {
+                    "error": False, "active": True,
+                    "period_cutover_overlap": True,
+                    "code": "FIFO_PERIOD_SPANS_COST_CUTOFF",
+                    "cutoff_date": cutoff_date,
+                    **scope,
+                }
         return {
             "error": False,
             "active": True,
@@ -48,12 +68,45 @@ class FifoCostPeriodProfitSourceService:
             **scope,
         }
 
+    @staticmethod
+    def _date_text(value):
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed.isoformat() if parsed.isoformat() == value else None
+
     def reconcile_period_sales(
         self, *, product, finance_sku, date_from, date_to, sales,
     ):
         scope = self._identity_and_store(product)
         if scope.get("error") is True:
             return scope
+        mode = self.repository.read_cost_mode_status(
+            store_id=scope["store_id"],
+            product_id=scope["product_id"],
+            offer_id=scope["offer_id"],
+            sku=scope["sku"],
+        )
+        if not isinstance(mode, dict) or mode.get("error") is not False:
+            return self._error("FIFO_COST_MODE_UNAVAILABLE")
+        if mode.get("active") is not True:
+            return {"error": False, "active": False}
+        cutoff = mode.get("cutoff_date")
+        start = self._date_text(date_from)
+        end = self._date_text(date_to)
+        if cutoff and start and end:
+            if end <= cutoff:
+                return {"error": False, "active": False, "code": "FIFO_COST_MODE_PRE_CUTOFF"}
+            if start <= cutoff:
+                return {
+                    "error": False, "active": True, "complete": False,
+                    "reason_code": "FIFO_PERIOD_SPANS_COST_CUTOFF",
+                }
         result = self.repository.read_period_allocation_summary(
             store_id=scope["store_id"],
             product_id=scope["product_id"],

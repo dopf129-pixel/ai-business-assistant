@@ -72,7 +72,7 @@ class TelegramFifoCostHistoryService:
         _prefix, action, token = parts
         if action not in {
             "open", "history", "new", "late", "correct", "sku",
-            "cancel_rate", "confirm_rate_cancel", "export",
+            "anchor", "zero_rate", "cancel_rate", "confirm_rate_cancel", "export",
         }:
             return {"error": False, "handled": False, "read_only_ozon": True}
         ticket = self._validated_ticket(owner, token)
@@ -89,6 +89,30 @@ class TelegramFifoCostHistoryService:
                 "error": False,
                 "handled": True,
                 "action": "start_new_rate",
+                "identity": ticket["identity"],
+                "display_name": ticket["display_name"],
+                "expected_revision": ticket["revision"],
+                "read_only_ozon": True,
+            }
+        if action == "anchor":
+            if ticket["queue_initialized"] is True:
+                return self._render_sku_card(ticket)
+            return {
+                "error": False,
+                "handled": True,
+                "action": "start_initial_anchor",
+                "identity": ticket["identity"],
+                "display_name": ticket["display_name"],
+                "expected_revision": ticket["revision"],
+                "read_only_ozon": True,
+            }
+        if action == "zero_rate":
+            if ticket["queue_initialized"] is True:
+                return self._render_sku_card(ticket)
+            return {
+                "error": False,
+                "handled": True,
+                "action": "start_initial_zero_rate",
                 "identity": ticket["identity"],
                 "display_name": ticket["display_name"],
                 "expected_revision": ticket["revision"],
@@ -170,7 +194,10 @@ class TelegramFifoCostHistoryService:
             "error": False,
             "handled": True,
             "message": message,
-            "keyboard": self._sku_keyboard(ticket["token"]),
+            "keyboard": self._sku_keyboard(
+                ticket["token"],
+                queue_initialized=snapshot["queue_initialized"],
+            ),
             "read_only_ozon": True,
         }
 
@@ -525,7 +552,14 @@ class TelegramFifoCostHistoryService:
         return "\n".join(lines)
 
     @classmethod
-    def _sku_keyboard(cls, token):
+    def _sku_keyboard(cls, token, *, queue_initialized=True):
+        if not queue_initialized:
+            buttons = [
+                {"text": "📦 Зафиксировать начальный остаток", "callback": f"{cls.CALLBACK_PREFIX}:anchor:{token}"},
+                {"text": "🆕 Начать с нулевого остатка", "callback": f"{cls.CALLBACK_PREFIX}:zero_rate:{token}"},
+                {"text": "↩️ К SKU", "callback": f"{cls.CALLBACK_PREFIX}:sku:{token}"},
+            ]
+            return {"error": False, "type": "inline_keyboard", "buttons": buttons}
         return {
             "error": False,
             "type": "inline_keyboard",
