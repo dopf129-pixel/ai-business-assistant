@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC32: независимая числовая матрица
+
+- Added replay permutation and repeated period-query regressions: six input orders produce the same exact layer allocations/170.00 ₽ total, and reading day/range summaries in a different order does not consume stock or change the published revision.
+- Linked synthetic FC32 profile: **406 passed in 12.25s** across FIFO suites, Period Profit, current unit economics, target planning, exports, and saved-plan persistence. `compileall` and `git diff --check` PASS; all **6** worktree `data/` files match SHA-256 and length before/after.
+- Matrix cases N01–N24 are covered by the linked profiles and prior stage tests. Positive factual FIFO COGS remains blocked by the unresolved physical inventory cutoff; unsupported source/movement paths are counted only as refusal/safety evidence, not as accepted production functionality.
+
 # 2026-11-06 — FIFO FC31: проверка backup/restore и миграций
 
 - Added an isolated round-trip regression through the existing backup service: FIFO anchors/rates, supply links, saved planning document, allocation revision and late-correction audit survive restore into a new storage root and fresh repository/services. Replayed allocation COGS is unchanged; current-cost/history and read-only CSV export reopen successfully.
