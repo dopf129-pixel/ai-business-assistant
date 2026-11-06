@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC15 — устойчивая идентичность sale evidence
+
+- `tests/test_fifo_cost_sale_evidence_normalizer.py`: ключ не меняется при SKU rewrite для того же подтверждённого seller offer; ключ разделён по store/posting/product; повторные финансовые даты дедуплицируются и не становятся physical date; unsupported order-status authority, неизвестный product mapping, некорректное количество и даты отклоняются; без подтверждения effective-date semantics и cutoff bridge FIFO event не разрешён.
+- Вместе с `tests/test_period_profit_selected_posting_offer_identity.py`, `tests/test_period_profit_selected_quantity_scope.py`, `tests/test_finance_service_accrual_fee_breakdown.py`: **33 passed in 1.21s**; `compileall` и `git diff --check` PASS.
+- Интеграция намеренно не вызывает Ozon и не создаёт sale event: дата/общий cutoff требуют owner-response validation.
+
 ## FC14 — повторные смены ставки и сверка конечных слоёв
 
 - `tests/test_fifo_cost_rate_service.py`: третья/четвёртая цены, распределение старых и предыдущей открытой ставки, reserved как subset FBO, неполный/неверный снимок, конфликт общего остатка, падение количества между сверками без переназначения на продажи, запрет переписывания старых слоёв, append-only source evidence.

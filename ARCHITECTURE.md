@@ -338,6 +338,16 @@ the source is incomplete, or totals conflict with prior evidence, the preview
 fails closed. This remains separate from the legacy `ProductCostService` and
 does not feed factual Period Profit while the cutoff bridge is unresolved.
 
+### FIFO physical sale evidence
+
+`FifoCostSaleEvidenceNormalizer` produces a domain-separated digest from the
+tenant store, Ozon posting number, and confirmed stable seller offer/product
+identity. The catalog SKU and financial accrual dates are not part of that
+identity. It keeps accrual dates separate from the physical effective date and
+only marks an event eligible when physical-date semantics and the shared
+inventory/finance cutoff bridge are explicitly confirmed. It does not call
+Ozon or write an event.
+
 ---
 
 ## ProfitService

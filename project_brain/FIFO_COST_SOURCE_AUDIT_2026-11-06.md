@@ -85,13 +85,27 @@ FC02 was completed as a source proof, not as a claim that every source is suffic
 - Not supported as an accounting fact yet: crossdock effective receipt time; v4 present/reserved meaning until validated against a sanitized current response; whether transit and FBO quantities are disjoint; stock-to-finance watermark; physical sale timestamp/late accrual bridge; complete historic movement replay.
 - Consequence for FC03 onward: implement a guarded `INVENTORY_CUTOFF_UNRECONCILED` status. Do not inject synthetic allocations into factual Period Profit. Provide an explicit model/simulation path only if distinctly labeled and isolated from saved financial results. Keep the implementation PR's owner-acceptance checklist for safe read-only validation outside this development run.
 
-## 7. Official references
+## 7. FC15 physical-sale source check
+
+The existing Period Profit quantity path groups positive financial sale evidence by `(posting_number, finance SKU)` and deduplicates reaccrual dates before multiplying quantity. It obtains item quantity from the monthly realization report first, then bounded FBO list/detail fallbacks. The money recognition date remains `accrual_date`; the current service does not prove that it is the physical stock-exit date. Do not reuse this historical costing date as FIFO event time.
+
+Ozon for Developers' moderator response says factual buyouts are supplied in reports for the preceding month and points to `/v2/finance/realization` or `/v1/finance/realization/posting`. In the same official developer-community question, the seller reports that `sale_date` in the posting-level report is almost always empty and that order-list/posting-status methods do not establish a financial buyout. This is useful authority for the source family and reporting delay, but not proof that every row has a physical timestamp or a common inventory/finance cutoff. The updated monthly realization API was released to align its data with the Seller cabinet; this also does not document a shared physical stock watermark. [Ozon response on factual buyouts](https://dev.ozon.ru/community/1809-API-metod-dlia-fakticheskikh-vykupov/), [Ozon v2 realization report release](https://dev.ozon.ru/news/333-Novaia-versiia-metoda-otcheta-o-realizatsii-v-Seller-API/).
+
+The previously supplied `Отчет о реализации товара_20260831 (1).xlsx` was inspected locally by headers only; no item values were emitted. It is product/quantity-level and does not contain a per-posting identity or physical sale-date column. Its worksheet line count cannot be substituted for sold units. It therefore cannot validate the join needed for FIFO.
+
+`app/services/fifo_cost_sale_evidence_normalizer.py` now produces a stable, redacted sale identity from store + posting + confirmed offer/product identity. A catalog SKU rewrite on the same confirmed offer keeps the same digest. Financial dates are deduplicated as recognition metadata only. If the physical date or cutoff confirmation is absent, output is explicitly ineligible for a FIFO event. This is not yet connected to the repository, does not make API calls, and does not affect Period Profit. Synthetic regression profile: **33 passed in 1.21s**; compileall and diff checks pass.
+
+**FC15 blocker:** no current source evidence proves physical sale effective-date coverage and the stock-to-finance cutoff bridge for this seller. FC16 replay and all dependent factual allocation/integration stages must remain blocked until a safe, anonymized realization response confirms field types/presence and date coverage, or Ozon provides a stronger official contract. Never fall back to `accrual_date`, order status, a row count, Analytics daily aggregate, or user-entered date as a factual physical sale timestamp.
+
+## 8. Official references
 
 - [Ozon: replacement of `total` by `total_items` in v4 product stocks](https://dev.ozon.ru/news/801-Otkaz-ot-polia-total-v-metodakh-Seller-API/) (24 Sep 2026; announced effective date 23 Nov 2026).
 - [Ozon: live FBO stock status fields, including `inbound_replenishment`](https://dev.ozon.ru/news/792-Izmeneniia-v-metodakh-analitiki-po-stokam-v-Seller-API/) (11 Sep 2026).
 - [Ozon: crossdock `arrival_date` always null in supply methods](https://dev.ozon.ru/news/647-Izmeneniia-v-metodakh-Seller-API-pri-rabote-s-postavkami-FBO/) (19 Jan 2026).
 - [Ozon: switch supply order integrations to v3 because old versions can return incorrect statuses](https://dev.ozon.ru/news/643-Izmeneniia-v-metodakh-dlia-zaiavok-na-postavku-v-Seller-API/) (20 Nov 2025).
 - [Ozon: current finance accrual endpoints, sequential calls, possible mismatch from Seller Cabinet](https://dev.ozon.ru/news/783-Izmeneniia-v-metodakh-dlia-raboty-s-finansovymi-otchetami-v-Seller-API/) (24 Aug 2026).
+- [Ozon for Developers moderator: actual buyouts are available in previous-month realization reports](https://dev.ozon.ru/community/1809-API-metod-dlia-fakticheskikh-vykupov/) (1 Dec 2025).
+- [Ozon: v2 realization report aligned to the current Seller cabinet report](https://dev.ozon.ru/news/333-Novaia-versiia-metoda-otcheta-o-realizatsii-v-Seller-API/) (2 May 2024).
 
 No owner decision was needed for FC02. It used official documentation and existing sanitized diagnostics only. Exact semantics that cannot be proven without live owner validation remain explicitly blocked rather than inferred.
 

@@ -76,6 +76,12 @@ FC14 upgrades FIFO schema v4→v5 with append-only `fifo_cost_rate_reconciliatio
 
 The production source collector remains unable to produce an accepted complete reconciliation while FC02's v4 field semantics and common inventory/finance cutoff are unproven. FC14's repository/service path is verified with synthetic snapshots only; a Telegram owner-facing failure message keeps the new rate unsaved. This gate does not alter factual Period Profit or claim that recorded rates are physical receipts.
 
+## FC15 — stable sale identity with a separate physical-time gate
+
+`FifoCostSaleEvidenceNormalizer` computes a domain-separated `source_identity_digest` from the exact store, Ozon `posting_number`, and a confirmed stable seller `offer_id` (preferred) or `product_id`. The catalog SKU is validated as source evidence but is not part of the digest when the stable seller identity is confirmed, so a SKU rewrite does not create a second sale identity. Raw posting numbers, SKUs, product IDs, and offer IDs are not returned by the normalizer. Financial accrual dates are separately normalized/deduplicated and never promoted to `physical_effective_date`.
+
+An event remains ineligible for FIFO unless the physical sale authority, physical-date semantics, and common inventory/finance cutoff bridge are all explicitly confirmed. Order/return status, monthly row count, and finance accrual date alone are not enough. The current normalizer is a pure boundary and is not wired to event storage; FC15 is `DONE_WITH_GAP` until a sanitized owner response confirms the actual realization row shape, sale-date coverage, and shared cutoff. Factual Period Profit remains untouched.
+
 ## 6. Anchor, layers, and FIFO allocation
 
 An anchor is a frozen preview containing `(store, exact SKU identity, captured interval, old layers/cost provenance, FBO observation, transit not already present at Ozon, old home remainder, reserve treatment, exclusions, current stream revision, source fingerprints)`. The seller separately confirms old-at-home remainder; blank is not zero. The preview does not write. Commit rechecks owner/store/SKU, expected revision, captured source fingerprints, idempotency key and current cutoff state atomically.
