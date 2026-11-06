@@ -360,7 +360,16 @@ fingerprint and stream/allocation revisions. Allocation headers and finite/open
 rate lines are append-only; a changed ledger makes the prior projection stale.
 This protects persistence from a modified preview even if its caller recomputes
 the preview hash. Physical sale/cutoff evidence remains owner-validation gated,
-so this backend does not yet feed production Period Profit.
+so the replay backend can produce production Period Profit COGS only after the
+source ledger itself is complete and its cutoff is reconciled. FC17 connects the
+canonical Period Profit summary to the latest immutable allocation revision:
+each finance sale must join by exact store, stable seller product identity,
+posting digest and quantity. For an active exact-SKU FIFO cutover, a missing,
+stale or mismatched allocation fails the affected report scope closed and never
+falls back to today's mutable cost. SKUs without a FIFO cutover keep their
+existing dated-cost path. Ozon finance amounts and the canonical tax policy stay
+authoritative. Synthetic ready-branch tests do not validate live sale timing or
+the stock/finance cutoff, so current production FIFO COGS remains unavailable.
 
 ---
 

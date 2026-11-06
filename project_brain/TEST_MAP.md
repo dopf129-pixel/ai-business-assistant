@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC17 — FIFO COGS в Period Profit
+
+- `tests/test_fifo_cost_period_profit_source_service.py` проверяет exact store/SKU identity, tenant scope, redacted sale digest join, allocation completeness, stale/mismatched coverage и legacy-mode lookup.
+- `tests/test_period_profit_fifo_cost_integration.py` покрывает FIFO без current-cost fallback, смешанный FIFO/dated-legacy набор, период с date-object (нормализация к ISO), повторное начисление одной продажи без повторного списания и блокировку неполного FIFO allocation. `tests/test_fifo_cost_allocation_repository.py` дополнен чтением последней revision по полному и точному однодневному интервалу; `tests/test_period_profit_factory.py` проверяет production wiring.
+- Связанный профиль: все `test_fifo_cost*.py` и `test_period_profit*.py` в `tests/` и `app/tests/` — **906 passed in 25.87s**; `compileall` и `git diff --check` PASS. Synthetic inputs/temporary SQLite only; live API, bot startup and owner data не использовались. Производственный cutoff остаётся заблокированным до source validation.
+
 ## FC16 — deterministic FIFO replay and immutable allocation revisions
 
 - `tests/test_fifo_cost_replay_service.py` checks chronological query-order independence, same-day ambiguity, required physical/cutoff evidence, unsupported events, duplicate digest/timestamp, oversell, event caps, and effective-date handling for an open rate.
