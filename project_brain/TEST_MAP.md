@@ -1,9 +1,15 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC20 — поздний ввод уже отправленной FIFO-партии
+
+- `tests/test_telegram_fifo_cost_late_entry_service.py`: безопасный диалог ввода цены/расходов/остатка старой партии/даты перехода; точные tenant/store/SKU и revision-bound draft; сбор только принятого односоставного акта, отклонение другого SKU/store, незавершённой/неполной/неоднозначной поставки; bounded continuation и callbacks; черновик не пишет FIFO-события или слои.
+- `tests/test_fifo_cost_supply_evidence_service.py`, `tests/test_fifo_cost_repository.py`, FIFO history/anchor/rate/replay tests и cross-docking/act diagnostic regressions проверяют совместимость сборщика и аддитивную миграцию schema v8→v9.
+- FC20 linked profile: **269 passed in 8.25s**; focused post-cleanup profile **36 passed in 1.47s**; `compileall` и `git diff --check` PASS. Только synthetic services и temporary SQLite; live Ozon/Telegram и запуск бота не выполнялись.
+
 ## FC19 — explicit non-sale movement and separate estimated value
 
 - `tests/test_fifo_cost_movement_evidence_normalizer.py` covers redacted movement digests, exact owner source shape, dates/cutoff, non-outflow acceptance-shortfall discrepancy, pool-neutral transfer, and invalid quantities. `tests/test_fifo_cost_non_sale_movement_service.py` covers no-write preview, estimated FIFO finite-layer value, commit/replay, sale COGS separation, and append-only valuation rows.
-- `tests/test_fifo_cost_allocation_service.py` covers FIFO reduction/value of an outflow without adding it to total sales COGS and blocks valuation from unknown open-rate units. `tests/test_fifo_cost_replay_service.py` covers physical time, cutoff, explicit reason confirmation, and insufficient finite basis. Repository regressions include v6→v8 additive migration, old data preservation and the new append-only valuation table.
+- `tests/test_fifo_cost_allocation_service.py` covers FIFO reduction/value of an outflow without adding it to total sales COGS and blocks valuation from unknown open-rate units. `tests/test_fifo_cost_replay_service.py` covers physical time, cutoff, explicit reason confirmation, and insufficient finite basis. FC19 originally added schema v8; FC20 regression coverage now exercises the cumulative v6→v9 additive migration and preservation of old data and append-only tables.
 - FC19 linked profile: **111 passed in 3.49s**; full project pytest: **4,676 passed in 46.45s**. Synthetic fixtures/temp SQLite only. All 59 user-data files matched baseline hashes after reverting the test-created `data/tasks.json` change and removing its lock file.
 
 ## FC18 — return recovery and exact prior cost basis
