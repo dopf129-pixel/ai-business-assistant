@@ -1,7 +1,13 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+# 2026-11-06 — FC08 FIFO stock/supply evidence normalization
+
+- `tests/test_fifo_cost_source_normalizer.py` covers allowlisted exact product/SKU identity, `total_items` and explicit page completeness, strict integer counts, `present` vs reserved semantics, non-overlapping transit evidence, and distinct invalid/partial/empty/confirmed-zero/conflict/unavailable outcomes.
+- Supply tests reconcile `fact_quantity` SKU lines with accepted-act summaries without summing both views, deduplicate repeated representations by hashed supply/act identity, allow multiple partial accepted acts only for one SKU, and block mismatches, unidentified units, unknown act states, incomplete responses and multi-SKU supplies. Stock evidence also requires an explicit catalog product-to-SKU mapping confirmation before exposing counts as complete.
+- Synthetic Windows profile: **25 passed**; module compilation and `git diff --check` PASS. No live Ozon/Telegram calls or owner data.
+
 - Baseline for the FIFO implementation branch: full Windows `python -m pytest` at spec head `b842e4a812334938e5178de8f4ae158d2b36735c` — **4,442 passed in 45.02s**.
-- The run is baseline evidence only; no FIFO behavior or tests have been implemented yet. FC01 will add isolated SQLite regressions for the dated/current projection defects. FC04 onward will register the pure FIFO core and lifecycle coverage as each responsibility is added.
+- The run is baseline evidence only, not FIFO verification. Subsequent FIFO regression profiles are listed under their stage headings below; FC01 added isolated SQLite reproductions for the dated/current projection defects.
 - Local `data/`, `.runtime-data/`, and root database hashes were captured before the run and matched after restoring only test-created changes.
 
 # 2026-11-06 — FC04 pure FIFO allocation kernel

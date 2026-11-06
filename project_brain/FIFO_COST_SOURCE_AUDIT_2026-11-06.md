@@ -95,3 +95,11 @@ FC02 was completed as a source proof, not as a claim that every source is suffic
 
 No owner decision was needed for FC02. It used official documentation and existing sanitized diagnostics only. Exact semantics that cannot be proven without live owner validation remain explicitly blocked rather than inferred.
 
+## FC08 normalization boundary
+
+`app/services/fifo_cost_source_normalizer.py` is a pure normalizer; it is not connected to an Ozon client and does not prove the current fields' business semantics. It requires the caller to supply explicit page completeness, capture time and a catalog identity `(product_id, offer_id, sku)`. A returned stock `total_items` greater than the rows received marks the snapshot partial; fewer items than returned rows is a conflict. The normalizer does not invent `source_as_of`.
+
+`present` is kept as the FBO layer quantity and `reserved` as its subset; `available_units` is an auxiliary `present - reserved` value only when field semantics are explicitly confirmed. Transit remains unknown unless both its source read is complete and non-overlap is explicitly confirmed. Even then `anchor_eligible` remains false because FC02 has not validated a shared physical-sale cutoff.
+
+Supply act SKU `fact_quantity` lines are reconciled against the accepted-act summary. Identical repeated representations are deduplicated by stable SHA-256 references; conflicting duplicates, unmatched accepted acts, unidentified units, incomplete reads and multi-SKU supplies fail closed. Act `created_date`, parent `state_updated_date`, local capture time and crossdock `arrival_date` are not written as physical receipt time. Synthetic verification is in `tests/test_fifo_cost_source_normalizer.py`; no live responses were used.
+
