@@ -1,3 +1,11 @@
+# 2026-11-06 — FIFO FC26: заданный объём продаж
+
+- `tests/test_fifo_planning_quantity_allocation_service.py`: N01/N03/N20/N21, exact Decimal total, rounded display average, quantity exhaustion, incomplete/movement basis, caps and allowlisted persisted basis.
+- `tests/test_fifo_current_unit_cost_adapter.py`: current finite layers + reconciled rate quantities + active open rate projection; movement/replay blocks quantity basis.
+- `tests/test_sales_mix_planning_service.py`: exact total through one aggregate TaxService call for NONE/USN income/USN income-expenses, minimum tax, manual override, mixed FIFO/legacy SKU, and partial unknown allocation.
+- `tests/test_planning_workspace_repository.py` and `tests/test_unit_price_scenario_source.py`: frozen basis projection, bounded allowlisted persistence and round-trip.
+- `tests/test_saved_planning_plan_telegram_flow.py`: saved-plan FIFO preview shows exact layer split and explanatory average; saved plan source remains frozen. Linked FC26 profile: **256 passed in 5.67s**; `compileall -q app tests`, `git diff --check`, 59/59 data manifest PASS.
+
 # 2026-11-06 — FIFO FC24 cost adapter and current-economics cache profile
 
 - `tests/test_fifo_current_unit_cost_adapter.py` checks legacy dated fallback, exact store/SKU FIFO resolution, old finite layer before a future rate, fail-closed movement replay and full history fingerprint changes after a restore-like content change.
