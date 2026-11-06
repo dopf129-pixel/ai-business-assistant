@@ -23,7 +23,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -60,6 +60,7 @@ class FifoCostRepository:
     })
     _PREVIEW_LOCK = threading.RLock()
     _ACTIVE_PREVIEWS = {}
+    _ACTIVE_RATE_PREVIEWS = {}
 
     _TABLES = (
         "fifo_cost_schema",
@@ -75,6 +76,7 @@ class FifoCostRepository:
         "fifo_cost_idempotency",
         "fifo_cost_commands",
         "fifo_cost_command_events",
+        "fifo_cost_rate_changes",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -88,6 +90,7 @@ class FifoCostRepository:
         "fifo_cost_idempotency",
         "fifo_cost_commands",
         "fifo_cost_command_events",
+        "fifo_cost_rate_changes",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -514,6 +517,453 @@ class FifoCostRepository:
                 if connection is not None:
                     connection.close()
 
+    def preview_cost_rate_change(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+        effective_date, purchase_cost_rub, delivery_cost_rub,
+        packaging_cost_rub, owner_old_home_units, expected_revision,
+        zero_stock_evidence=None,
+    ):
+        """Preview an owner-reported open rate without adding inventory units."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            identity = self._normalize_identity(
+                store_id, product_id, offer_id, sku, 1,
+            )
+            if (
+                not isinstance(effective_date, str)
+                or len(effective_date) != 10
+                or self._normalize_date(effective_date) != effective_date
+            ):
+                return self._error("FIFO_RATE_EFFECTIVE_DATE_INVALID")
+            components = {
+                "purchase_cost_rub": self._normalize_money(purchase_cost_rub),
+                "delivery_cost_rub": self._normalize_money(delivery_cost_rub),
+                "packaging_cost_rub": self._normalize_money(packaging_cost_rub),
+            }
+            if any(value is None for value in components.values()):
+                return self._error("FIFO_RATE_COMPONENTS_REQUIRED")
+            unit_cost = sum(
+                (Decimal(value) for value in components.values()), Decimal("0.00"),
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if unit_cost > Decimal("1000000000"):
+                return self._error("FIFO_MONEY_INPUT_INVALID")
+            if type(owner_old_home_units) is not int or not 0 <= owner_old_home_units <= self.MAX_COMMAND_UNITS:
+                return self._error("FIFO_RATE_OLD_HOME_QUANTITY_INVALID")
+            if type(expected_revision) is not int or expected_revision < 0:
+                return self._error("FIFO_REVISION_CONFLICT")
+            normalized_zero_stock = None
+            if zero_stock_evidence is not None:
+                normalized_zero_stock = self._normalize_zero_stock_evidence(
+                    zero_stock_evidence, identity,
+                )
+                if isinstance(normalized_zero_stock, str):
+                    return self._error(normalized_zero_stock)
+                if owner_old_home_units != 0:
+                    return self._error("FIFO_ZERO_ANCHOR_HOME_MUST_BE_ZERO")
+
+            now = self._now()
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            connection = self.get_connection()
+            stream = connection.execute(
+                "SELECT state, revision FROM fifo_cost_streams WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()
+            projection = connection.execute(
+                """SELECT revision, state, known_quantity, known_cost_rub,
+                          next_unit_cost_rub, queue_complete, cutoff_status,
+                          source_set_fingerprint
+                   FROM fifo_cost_projections WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()
+            if stream is None:
+                if normalized_zero_stock is None or expected_revision != 0:
+                    return self._error("FIFO_ANCHOR_REQUIRED")
+                stream_snapshot = {
+                    "state": "FIFO_PENDING_ANCHOR",
+                    "revision": 0,
+                    "known_quantity": 0,
+                    "known_cost_rub": "0.00",
+                    "next_unit_cost_rub": None,
+                    "queue_complete": False,
+                    "cutoff_status": "INVENTORY_CUTOFF_UNRECONCILED",
+                    "source_set_fingerprint": None,
+                    "rate_sequence": 1,
+                    "prior_rate_unit_cost_rub": None,
+                    "zero_stock_anchor": True,
+                }
+            else:
+                if normalized_zero_stock is not None:
+                    return self._error("FIFO_ZERO_ANCHOR_STREAM_ALREADY_EXISTS")
+                if projection is None:
+                    return self._error("FIFO_PROJECTION_MISSING")
+                if stream["state"] not in {"FIFO_READY", "FIFO_PARTIAL"}:
+                    return self._error("FIFO_STREAM_NOT_READY")
+                if type(stream["revision"]) is not int or stream["revision"] != expected_revision:
+                    return self._error("FIFO_REVISION_CONFLICT")
+                if projection["revision"] != stream["revision"]:
+                    return self._error("FIFO_PROJECTION_STALE")
+                stream_snapshot = {
+                    "state": stream["state"],
+                    "revision": stream["revision"],
+                    "known_quantity": projection["known_quantity"],
+                    "known_cost_rub": projection["known_cost_rub"],
+                    "next_unit_cost_rub": projection["next_unit_cost_rub"],
+                    "queue_complete": bool(projection["queue_complete"]),
+                    "cutoff_status": projection["cutoff_status"],
+                    "source_set_fingerprint": projection["source_set_fingerprint"],
+                    "zero_stock_anchor": False,
+                }
+            previous = connection.execute(
+                """SELECT rate_sequence, effective_date, unit_cost_rub
+                   FROM fifo_cost_rate_changes WHERE stream_id=?
+                   ORDER BY rate_sequence DESC LIMIT 1""",
+                (stream_id,),
+            ).fetchone()
+            latest_layer = connection.execute(
+                """SELECT MAX(effective_date) FROM fifo_cost_layers
+                   WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()[0]
+            latest_effective_date = max(
+                date_value for date_value in (
+                    previous["effective_date"] if previous is not None else None,
+                    latest_layer,
+                ) if date_value is not None
+            ) if previous is not None or latest_layer is not None else None
+            if latest_effective_date is not None and effective_date < latest_effective_date:
+                return self._error("FIFO_RATE_DATE_ORDER_UNRESOLVED")
+            if previous is None and normalized_zero_stock is None:
+                prior_layer = connection.execute(
+                    """SELECT unit_cost_rub FROM fifo_cost_layers WHERE stream_id=?
+                       ORDER BY layer_sequence DESC LIMIT 1""",
+                    (stream_id,),
+                ).fetchone()
+                stream_snapshot["prior_rate_unit_cost_rub"] = (
+                    prior_layer["unit_cost_rub"] if prior_layer else projection["next_unit_cost_rub"]
+                )
+
+            normalized_identity = {
+                "store_id": identity["store_id"],
+                "product_id": identity["product_id"],
+                "offer_id": identity["offer_id"],
+                "sku": identity["sku"],
+                "policy_version": identity["policy_version"],
+            }
+            payload = {
+                "identity_fingerprint": identity_fingerprint,
+                "effective_date": effective_date,
+                **components,
+                "unit_cost_rub": format(unit_cost, ".2f"),
+                "owner_old_home_units": owner_old_home_units,
+                "expected_revision": expected_revision,
+                "prior_rate_sequence": previous["rate_sequence"] if previous else 0,
+                "zero_stock_fingerprint": (
+                    normalized_zero_stock["source_fingerprint"]
+                    if normalized_zero_stock else None
+                ),
+            }
+            payload_fingerprint = self._sha256(payload)
+            source_fingerprint = self._sha256({
+                "source_method": "OWNER_CONFIRMED_NEW_COST_RATE",
+                "payload_fingerprint": payload_fingerprint,
+                "captured_at": self._iso(now),
+            })
+            source = self._normalize_source({
+                "kind": "OWNER_CONFIRMATION",
+                "method": "OWNER_CONFIRMED_NEW_COST_RATE",
+                "status": "OWNER_CONFIRMED",
+                "completeness": "OWNER_CONFIRMED",
+                "provenance": "OWNER_CONFIRMED",
+                "coverage_status": "OWNER_CONFIRMED",
+                "fingerprint": source_fingerprint,
+                "captured_at": self._iso(now),
+                "references": ([{
+                    "kind": "OTHER",
+                    "digest": normalized_zero_stock["source_fingerprint"],
+                }] if normalized_zero_stock else []),
+            })
+            source_id = "src_" + self._sha256({
+                "store_id": identity["store_id"],
+                "source_fingerprint": source_fingerprint,
+            })[:40]
+            stream_snapshot["rate_sequence"] = (
+                previous["rate_sequence"] + 1 if previous else 1
+            )
+            if previous is not None:
+                stream_snapshot["prior_rate_unit_cost_rub"] = previous["unit_cost_rub"]
+            normalized = {
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "identity": normalized_identity,
+                "stream_id": stream_id,
+                "identity_fingerprint": identity_fingerprint,
+                "payload": payload,
+                "payload_fingerprint": payload_fingerprint,
+                "source": source,
+                "source_id": source_id,
+                "zero_stock_source": normalized_zero_stock,
+                "stream_snapshot": stream_snapshot,
+            }
+            preview_id = "rate_preview_" + uuid4().hex
+            ticket = {
+                "preview_id": preview_id,
+                "expires_at": now.timestamp() + self.PREVIEW_TTL_SECONDS,
+                "normalized": normalized,
+            }
+            with self._PREVIEW_LOCK:
+                self._purge_expired_rate_previews(now)
+                if (
+                    len(self._ACTIVE_RATE_PREVIEWS) >= self.MAX_PREVIEWS
+                    and scope["owner_fingerprint"] not in self._ACTIVE_RATE_PREVIEWS
+                ):
+                    return self._error("FIFO_PREVIEW_CAPACITY_EXCEEDED")
+                self._ACTIVE_RATE_PREVIEWS[scope["owner_fingerprint"]] = ticket
+            return {
+                "error": False,
+                "code": "FIFO_RATE_PREVIEW_READY",
+                "preview_id": preview_id,
+                "expected_revision": stream_snapshot["revision"],
+                "next_revision": stream_snapshot["revision"] + 1,
+                "rate_sequence": stream_snapshot["rate_sequence"],
+                "effective_date": effective_date,
+                "unit_cost_rub": format(unit_cost, ".2f"),
+                **components,
+                "owner_old_home_units": owner_old_home_units,
+                "finite_units_at_anchor": stream_snapshot["known_quantity"],
+                "prior_rate_unit_cost_rub": stream_snapshot["prior_rate_unit_cost_rub"],
+                "threshold_status": stream_snapshot["cutoff_status"],
+                "inventory_units_added": 0,
+                "new_batch_quantity": None,
+                "zero_old_inventory_anchor": stream_snapshot["zero_stock_anchor"],
+                "expires_in_seconds": self.PREVIEW_TTL_SECONDS,
+            }
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_RATE_INPUT_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def commit_cost_rate_change(self, *, preview_id, active_preview_id, idempotency_key):
+        """Append a cost-rate record atomically, without creating inventory."""
+        key = str(idempotency_key or "")
+        if not self._IDEMPOTENCY_KEY.fullmatch(key):
+            return self._error("FIFO_IDEMPOTENCY_KEY_INVALID")
+        try:
+            now = self._now()
+        except ValueError as exc:
+            return self._error(str(exc))
+        connection = None
+        with self._PREVIEW_LOCK:
+            self._purge_expired_rate_previews(now)
+            tenant_id = str(get_current_tenant_user_id() or "").strip()
+            owner_id, _ = split_store_tenant_scope(tenant_id)
+            owner_fingerprint = self._sha256_text(owner_id) if owner_id else ""
+            ticket = self._ACTIVE_RATE_PREVIEWS.get(owner_fingerprint)
+            if (
+                ticket is None or not preview_id or preview_id != active_preview_id
+                or ticket["preview_id"] != preview_id
+            ):
+                return self._error("FIFO_PREVIEW_STALE")
+            normalized = ticket["normalized"]
+            scope = self._tenant_scope(normalized["identity"]["store_id"])
+            if (
+                scope.get("error")
+                or scope["tenant_fingerprint"] != normalized["tenant_fingerprint"]
+            ):
+                return self._error("FIFO_STORE_SCOPE_MISMATCH")
+            try:
+                connection = self.get_connection()
+                connection.execute("BEGIN IMMEDIATE")
+                previous = connection.execute(
+                    """SELECT payload_fingerprint, stream_revision, rate_sequence,
+                              unit_cost_rub, owner_old_home_units
+                       FROM fifo_cost_rate_changes
+                       WHERE stream_id=? AND idempotency_key=?""",
+                    (normalized["stream_id"], key),
+                ).fetchone()
+                if previous is not None:
+                    if previous["payload_fingerprint"] != normalized["payload_fingerprint"]:
+                        connection.rollback()
+                        return self._error("FIFO_IDEMPOTENCY_CONFLICT")
+                    result = {
+                        "revision": previous["stream_revision"],
+                        "rate_sequence": previous["rate_sequence"],
+                        "unit_cost_rub": previous["unit_cost_rub"],
+                        "owner_old_home_units": previous["owner_old_home_units"],
+                    }
+                    connection.rollback()
+                    return {
+                        "error": False, "code": "FIFO_RATE_COMMITTED",
+                        "idempotent": True, **result,
+                    }
+
+                stream = connection.execute(
+                    "SELECT state, revision FROM fifo_cost_streams WHERE stream_id=?",
+                    (normalized["stream_id"],),
+                ).fetchone()
+                projection = connection.execute(
+                    "SELECT revision, state, source_set_fingerprint "
+                    "FROM fifo_cost_projections WHERE stream_id=?",
+                    (normalized["stream_id"],),
+                ).fetchone()
+                expected_revision = normalized["stream_snapshot"]["revision"]
+                zero_anchor = normalized["stream_snapshot"]["zero_stock_anchor"]
+                if zero_anchor:
+                    if stream is not None or projection is not None or expected_revision != 0:
+                        connection.rollback()
+                        return self._error("FIFO_REVISION_CONFLICT")
+                    identity = normalized["identity"]
+                    connection.execute(
+                        """INSERT INTO fifo_cost_streams (
+                            stream_id, store_id, product_id, offer_id, sku,
+                            identity_fingerprint, policy_version, state, revision,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'FIFO_PENDING_ANCHOR', 0, ?, ?)""",
+                        (
+                            normalized["stream_id"], identity["store_id"],
+                            identity["product_id"], identity["offer_id"],
+                            identity["sku"], normalized["identity_fingerprint"],
+                            identity["policy_version"], self._iso(now), self._iso(now),
+                        ),
+                    )
+                    self._ensure_policy_revision(connection, {
+                        "identity": identity,
+                        "stream_id": normalized["stream_id"],
+                    }, now)
+                else:
+                    if stream is None or projection is None:
+                        connection.rollback()
+                        return self._error("FIFO_ANCHOR_REQUIRED")
+                    if stream["revision"] != expected_revision:
+                        connection.rollback()
+                        return self._error("FIFO_REVISION_CONFLICT")
+                    if projection["revision"] != expected_revision:
+                        connection.rollback()
+                        return self._error("FIFO_PROJECTION_STALE")
+                latest = connection.execute(
+                    "SELECT COALESCE(MAX(rate_sequence), 0) FROM fifo_cost_rate_changes "
+                    "WHERE stream_id=?", (normalized["stream_id"],),
+                ).fetchone()[0]
+                if latest != normalized["stream_snapshot"]["rate_sequence"] - 1:
+                    connection.rollback()
+                    return self._error("FIFO_RATE_REVISION_CONFLICT")
+
+                if zero_anchor:
+                    self._ensure_source(connection, {
+                        "identity": normalized["identity"],
+                        "source": normalized["zero_stock_source"]["source"],
+                        "source_id": normalized["zero_stock_source"]["source_id"],
+                    })
+                self._ensure_source(connection, {
+                    "identity": normalized["identity"],
+                    "source": normalized["source"],
+                    "source_id": normalized["source_id"],
+                })
+                payload = normalized["payload"]
+                next_revision = expected_revision + 1
+                rate_change_id = "rate_" + uuid4().hex
+                connection.execute(
+                    """INSERT INTO fifo_cost_rate_changes (
+                        rate_change_id, stream_id, stream_revision, rate_sequence,
+                        effective_date, unit_cost_rub, purchase_cost_rub,
+                        delivery_cost_rub, packaging_cost_rub,
+                        owner_old_home_units, source_id, source_fingerprint,
+                        payload_fingerprint, idempotency_key, recorded_at,
+                        captured_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        rate_change_id, normalized["stream_id"], next_revision,
+                        normalized["stream_snapshot"]["rate_sequence"],
+                        payload["effective_date"], payload["unit_cost_rub"],
+                        payload["purchase_cost_rub"], payload["delivery_cost_rub"],
+                        payload["packaging_cost_rub"], payload["owner_old_home_units"],
+                        normalized["source_id"], normalized["source"]["source_fingerprint"],
+                        normalized["payload_fingerprint"], key,
+                        self._iso(now), normalized["source"]["captured_at"],
+                    ),
+                )
+                connection.execute(
+                    "UPDATE fifo_cost_streams SET state='FIFO_PARTIAL', revision=?, updated_at=? "
+                    "WHERE stream_id=?",
+                    (next_revision, self._iso(now), normalized["stream_id"]),
+                )
+                if zero_anchor:
+                    combined_source_set = self._sha256({
+                        "zero_stock": normalized["zero_stock_source"]["source_fingerprint"],
+                        "rate": normalized["source"]["source_fingerprint"],
+                    })
+                    connection.execute(
+                        """INSERT INTO fifo_cost_projections (
+                            stream_id, revision, state, known_quantity, known_cost_rub,
+                            next_unit_cost_rub, queue_complete, cutoff_status,
+                            source_set_fingerprint, last_event_id, updated_at
+                        ) VALUES (?, ?, 'FIFO_PARTIAL', 0, '0.00', ?, 0, ?, ?, NULL, ?)""",
+                        (
+                            normalized["stream_id"], next_revision,
+                            payload["unit_cost_rub"],
+                            "INVENTORY_CUTOFF_UNRECONCILED", combined_source_set,
+                            self._iso(now),
+                        ),
+                    )
+                else:
+                    combined_source_set = self._sha256({
+                        "previous": projection["source_set_fingerprint"],
+                        "rate": normalized["source"]["source_fingerprint"],
+                    })
+                    connection.execute(
+                        """UPDATE fifo_cost_projections
+                           SET revision=?, state='FIFO_PARTIAL', queue_complete=0,
+                               source_set_fingerprint=?, updated_at=?
+                           WHERE stream_id=?""",
+                        (
+                            next_revision, combined_source_set, self._iso(now),
+                            normalized["stream_id"],
+                        ),
+                    )
+                result = {
+                    "revision": next_revision,
+                    "rate_sequence": normalized["stream_snapshot"]["rate_sequence"],
+                    "unit_cost_rub": payload["unit_cost_rub"],
+                    "owner_old_home_units": payload["owner_old_home_units"],
+                }
+                connection.commit()
+                return {
+                    "error": False, "code": "FIFO_RATE_COMMITTED",
+                    "idempotent": False, **result,
+                }
+            except ValueError as exc:
+                if connection is not None and connection.in_transaction:
+                    connection.rollback()
+                code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_RATE_INPUT_INVALID"
+                return self._error(code)
+            except sqlite3.IntegrityError:
+                if connection is not None and connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_RATE_REVISION_CONFLICT")
+            except (sqlite3.Error, OSError):
+                if connection is not None and connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_STORAGE_UNAVAILABLE")
+            finally:
+                if connection is not None:
+                    connection.close()
+
+    def _purge_expired_rate_previews(self, now):
+        cutoff = now.timestamp()
+        expired = [
+            owner for owner, ticket in self._ACTIVE_RATE_PREVIEWS.items()
+            if ticket["expires_at"] <= cutoff
+        ]
+        for owner in expired:
+            self._ACTIVE_RATE_PREVIEWS.pop(owner, None)
+
     def _tenant_scope(self, store_id):
         tenant_id = str(get_current_tenant_user_id() or "").strip()
         if not tenant_id:
@@ -565,6 +1015,66 @@ class FifoCostRepository:
         if value is None or str(value).strip() == "":
             return None
         return cls._safe_identity_part(value, name, max_length)
+
+    @classmethod
+    def _normalize_zero_stock_evidence(cls, evidence, identity):
+        required = {
+            "status", "source_status", "store_id", "product_id", "offer_id",
+            "sku", "captured_at", "pagination_complete", "fbo_units",
+            "reserved_units", "transit_units", "transit_status",
+            "source_fingerprint",
+        }
+        if not isinstance(evidence, dict) or set(evidence) != required:
+            return "FIFO_ZERO_ANCHOR_SOURCE_INVALID"
+        if (
+            evidence["status"] != "CONFIRMED_ZERO"
+            or evidence["source_status"] != "COMPLETE"
+            or evidence["pagination_complete"] is not True
+            or type(evidence["fbo_units"]) is not int or evidence["fbo_units"] != 0
+            or type(evidence["reserved_units"]) is not int or evidence["reserved_units"] != 0
+            or type(evidence["transit_units"]) is not int or evidence["transit_units"] != 0
+            or evidence["transit_status"] != "DISJOINT_CONFIRMED"
+            or not cls._valid_digest(evidence["source_fingerprint"])
+        ):
+            return "FIFO_ZERO_ANCHOR_SOURCE_UNCONFIRMED"
+        try:
+            store_id = cls._safe_identity_part(evidence["store_id"], "store_id", 128)
+            product_id = cls._safe_identity_part(evidence["product_id"], "product_id", 128)
+            offer_id = cls._optional_identity_part(evidence["offer_id"], "offer_id", 128)
+            sku = cls._safe_identity_part(evidence["sku"], "sku", 64)
+            captured_at = cls._normalize_timestamp(evidence["captured_at"])
+        except (TypeError, ValueError):
+            return "FIFO_ZERO_ANCHOR_SOURCE_INVALID"
+        if (
+            store_id != identity["store_id"]
+            or product_id != identity["product_id"]
+            or offer_id != identity["offer_id"]
+            or sku != identity["sku"]
+            or captured_at is None
+        ):
+            return "FIFO_ZERO_ANCHOR_SCOPE_MISMATCH"
+        source = cls._normalize_source({
+            "kind": "OZON_API",
+            "method": "FIFO_PRODUCT_STOCKS",
+            "status": "COMPLETE",
+            "completeness": "COMPLETE",
+            "provenance": "OZON_CONFIRMED_FIELD",
+            "coverage_status": "COMPLETE",
+            "fingerprint": evidence["source_fingerprint"],
+            "captured_at": captured_at,
+            "record_count": 1,
+            "page_count": 1,
+            "references": [],
+        })
+        source_id = "src_" + cls._sha256({
+            "store_id": store_id,
+            "source_fingerprint": source["source_fingerprint"],
+        })[:40]
+        return {
+            "source": source,
+            "source_id": source_id,
+            "source_fingerprint": source["source_fingerprint"],
+        }
 
     @classmethod
     def _normalize_source(cls, source):
@@ -974,7 +1484,7 @@ class FifoCostRepository:
             version = self._read_schema_version(connection)
             if version > self.SCHEMA_VERSION:
                 raise sqlite3.DatabaseError("unsupported FIFO cost schema version")
-            if version not in (0, 1, self.SCHEMA_VERSION):
+            if version not in range(0, self.SCHEMA_VERSION + 1):
                 raise sqlite3.DatabaseError("unsupported FIFO cost schema version")
 
             self._create_tables(connection)
@@ -1167,6 +1677,29 @@ class FifoCostRepository:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_rate_changes (
+                rate_change_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 1),
+                rate_sequence INTEGER NOT NULL CHECK(rate_sequence >= 1),
+                effective_date TEXT NOT NULL,
+                unit_cost_rub TEXT NOT NULL,
+                purchase_cost_rub TEXT NOT NULL,
+                delivery_cost_rub TEXT NOT NULL,
+                packaging_cost_rub TEXT NOT NULL,
+                owner_old_home_units INTEGER NOT NULL CHECK(
+                    owner_old_home_units >= 0 AND owner_old_home_units <= 1000000
+                ),
+                source_id TEXT NOT NULL REFERENCES fifo_cost_sources(source_id),
+                source_fingerprint TEXT NOT NULL,
+                payload_fingerprint TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                UNIQUE(stream_id, rate_sequence),
+                UNIQUE(stream_id, idempotency_key)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_allocations (
                 allocation_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -1240,6 +1773,8 @@ class FifoCostRepository:
                 ON fifo_cost_commands(stream_id, stream_revision);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_source_refs_digest
                 ON fifo_cost_source_refs(reference_kind, reference_digest);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_rate_changes_order
+                ON fifo_cost_rate_changes(stream_id, effective_date, rate_sequence);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;
