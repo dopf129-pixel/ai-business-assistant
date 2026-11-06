@@ -4,7 +4,7 @@
 - `CONFIRMED_REPLAY_MODEL_ONLY` признан полной себестоимостью для плановых расчётов, кэша и текущей карточки; factual Period Profit по-прежнему закрыт.
 - FIFO-история теперь доступна для всех SKU постранично, включая уже настроенные SKU при наличии товаров без себестоимости.
 - Ввод цены партии использует `ROUND_HALF_UP`; добавлены регрессии на конфликт остатков, статус replay, навигацию FIFO и границу округления.
-- Проверки: целевой профиль **74 passed**, полный Windows `pytest -q` **4,812 passed**; `compileall`, `git diff --check` и восстановление `data/` по 5/5 исходным хешам прошли. Новый SHA/CI ожидает публикации изменений.
+- Проверки: целевой профиль **74 passed**, полный Windows `pytest -q` **4,812 passed**; `compileall`, `git diff --check` и восстановление `data/` по 5/5 исходным хешам прошли. Коммит `0511922d8073e9d5a915e95d7693260f0a0a0b4e` прошёл exact-head CI run [42312193535](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42312193535): Windows, Linux, production Docker build и runtime smoke — success.
 
 # 2026-11-07 — исправления независимого review FIFO (PR #726)
 
