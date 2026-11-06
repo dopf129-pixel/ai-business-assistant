@@ -21,7 +21,7 @@ class TelegramSellerCostUpdateService:
     UNIT_ECONOMICS_RETURN_TTL_SECONDS = 15 * 60
     UNIT_ECONOMICS_RETURN_MAX_ENTRIES = 128
 
-    def __init__(self, product_service, cost_service, date_provider=None, table_service=None, store_name_provider=None):
+    def __init__(self, product_service, cost_service, date_provider=None, table_service=None, store_name_provider=None, fifo_history_service=None):
         self.product_service = product_service
         self.cost_service = cost_service
         self.date_provider = date_provider or date.today
@@ -29,11 +29,12 @@ class TelegramSellerCostUpdateService:
             product_service, cost_service, date_provider=self.date_provider
         )
         self.store_name_provider = store_name_provider
+        self.fifo_history_service = fifo_history_service
         self._pending = {}
         self._pending_lock = RLock()
         self._unit_economics_returns = {}
 
-    def open_menu(self):
+    def open_menu(self, user_id=None):
         products = self._products()
         if isinstance(products, dict):
             return products
@@ -52,6 +53,7 @@ class TelegramSellerCostUpdateService:
             )
             buttons = [{"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"}]
             buttons += [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
+            buttons += self._fifo_history_buttons(user_id, shown)
             if len(missing) > len(shown):
                 message += f"\n\nПоказаны первые {len(shown)} позиций."
         else:
@@ -61,7 +63,39 @@ class TelegramSellerCostUpdateService:
                 "Если придёт новая партия по другой цене — выберите товар ниже и обновите стоимость."
             )
             buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in products[:20]]
+            buttons += self._fifo_history_buttons(user_id, products[:20])
         return {"error": False, "message": message, "cost_coverage": {"configured": configured, "total": len(products), "missing": len(missing)}, "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons}, "read_only_ozon": True}
+
+    def _fifo_history_buttons(self, user_id, products):
+        service = self.fifo_history_service
+        if service is None or user_id is None:
+            return []
+        try:
+            from services.ozon_account_repository import split_store_tenant_scope
+
+            _owner, store_id = split_store_tenant_scope(self._tenant_scope())
+        except Exception:
+            return []
+        if not store_id:
+            return []
+        buttons = []
+        for display_name, sku, product_id, offer_id in products:
+            try:
+                ticket = service.create_sku_callback(
+                    user_id=user_id,
+                    store_id=store_id,
+                    product_id=product_id,
+                    offer_id=offer_id,
+                    sku=sku,
+                    display_name=display_name,
+                )
+            except Exception:
+                continue
+            callback = ticket.get("callback") if isinstance(ticket, dict) and ticket.get("error") is False else None
+            if callback:
+                label = " ".join(str(display_name or "Товар").split())[:40]
+                buttons.append({"text": "📚 FIFO · " + (label or "Товар"), "callback": callback})
+        return buttons
 
     def export_table(self):
         return self.table_service.export_csv()

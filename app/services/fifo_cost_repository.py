@@ -117,6 +117,155 @@ class FifoCostRepository:
             raise
         return connection
 
+    def read_cost_history_snapshot(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+    ):
+        """Read one exact tenant/store/SKU history without exposing opaque IDs."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            identity = self._normalize_identity(
+                store_id, product_id, offer_id, sku, 1,
+            )
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            connection = self.get_connection()
+            stream = connection.execute(
+                """SELECT state, revision FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchone()
+            if stream is None:
+                return {
+                    "error": False,
+                    "code": "FIFO_HISTORY_NOT_INITIALIZED",
+                    "revision": 0,
+                    "stream_state": "FIFO_PENDING_ANCHOR",
+                    "projection": None,
+                    "layers": [],
+                    "rates": [],
+                    "event_counts": {},
+                    "movement_count": 0,
+                    "latest_allocation": None,
+                    "cutoff_date": None,
+                }
+
+            projection_row = connection.execute(
+                """SELECT revision, state, known_quantity, known_cost_rub,
+                          next_unit_cost_rub, queue_complete, cutoff_status,
+                          updated_at
+                   FROM fifo_cost_projections WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()
+            projection = None if projection_row is None else {
+                "revision": projection_row["revision"],
+                "state": projection_row["state"],
+                "known_quantity": projection_row["known_quantity"],
+                "known_cost_rub": projection_row["known_cost_rub"],
+                "next_unit_cost_rub": projection_row["next_unit_cost_rub"],
+                "queue_complete": bool(projection_row["queue_complete"]),
+                "cutoff_status": projection_row["cutoff_status"],
+                "updated_at": projection_row["updated_at"],
+            }
+            layer_rows = connection.execute(
+                """SELECT l.layer_sequence, l.quantity, l.unit_cost_rub,
+                          l.effective_date, l.provenance, e.location_to,
+                          s.source_status, s.coverage_status
+                   FROM fifo_cost_layers AS l
+                   JOIN fifo_cost_events AS e ON e.event_id=l.event_id
+                   LEFT JOIN fifo_cost_sources AS s ON s.source_id=l.source_id
+                   WHERE l.stream_id=?
+                   ORDER BY l.layer_sequence""",
+                (stream_id,),
+            ).fetchall()
+            layers = [{
+                "sequence": row["layer_sequence"],
+                "recorded_quantity": row["quantity"],
+                "unit_cost_rub": row["unit_cost_rub"],
+                "effective_date": row["effective_date"],
+                "provenance": row["provenance"],
+                "location": row["location_to"],
+                "source_status": row["source_status"],
+                "coverage_status": row["coverage_status"],
+            } for row in layer_rows]
+            rate_rows = connection.execute(
+                """SELECT r.rate_sequence, r.effective_date, r.unit_cost_rub,
+                          r.purchase_cost_rub, r.delivery_cost_rub,
+                          r.packaging_cost_rub, r.owner_old_home_units,
+                          r.recorded_at, r.captured_at, s.provenance,
+                          s.source_status, s.coverage_status
+                   FROM fifo_cost_rate_changes AS r
+                   LEFT JOIN fifo_cost_sources AS s ON s.source_id=r.source_id
+                   WHERE r.stream_id=?
+                   ORDER BY r.rate_sequence""",
+                (stream_id,),
+            ).fetchall()
+            rates = [{
+                "sequence": row["rate_sequence"],
+                "effective_date": row["effective_date"],
+                "unit_cost_rub": row["unit_cost_rub"],
+                "purchase_cost_rub": row["purchase_cost_rub"],
+                "delivery_cost_rub": row["delivery_cost_rub"],
+                "packaging_cost_rub": row["packaging_cost_rub"],
+                "owner_old_home_units": row["owner_old_home_units"],
+                "recorded_at": row["recorded_at"],
+                "captured_at": row["captured_at"],
+                "provenance": row["provenance"],
+                "source_status": row["source_status"],
+                "coverage_status": row["coverage_status"],
+            } for row in rate_rows]
+            event_rows = connection.execute(
+                """SELECT event_kind, COUNT(*) AS event_count
+                   FROM fifo_cost_events WHERE stream_id=?
+                   GROUP BY event_kind""",
+                (stream_id,),
+            ).fetchall()
+            event_counts = {row["event_kind"]: row["event_count"] for row in event_rows}
+            movement_count = sum(
+                count for kind, count in event_counts.items()
+                if kind not in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}
+            )
+            allocation = connection.execute(
+                """SELECT revision, status, cutoff_status, created_at
+                   FROM fifo_cost_allocations WHERE stream_id=?
+                   ORDER BY revision DESC LIMIT 1""",
+                (stream_id,),
+            ).fetchone()
+            latest_allocation = None if allocation is None else {
+                "revision": allocation["revision"],
+                "status": allocation["status"],
+                "cutoff_status": allocation["cutoff_status"],
+                "created_at": allocation["created_at"],
+            }
+            cutoff_date = connection.execute(
+                """SELECT MIN(inventory_cutoff) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='OPENING_FIFO_ANCHOR'""",
+                (stream_id,),
+            ).fetchone()[0]
+            return {
+                "error": False,
+                "code": "FIFO_HISTORY_READY",
+                "revision": stream["revision"],
+                "stream_state": stream["state"],
+                "projection": projection,
+                "layers": layers,
+                "rates": rates,
+                "event_counts": event_counts,
+                "movement_count": movement_count,
+                "latest_allocation": latest_allocation,
+                "cutoff_date": cutoff_date,
+            }
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_IDENTITY_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
     def preview_command(
         self, *, store_id, product_id=None, offer_id=None, sku,
         policy_version=1, events, source, expected_revision=None,
