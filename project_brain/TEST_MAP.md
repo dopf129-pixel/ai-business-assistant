@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC13 — linked supply evidence and partial acceptance
+
+- `tests/test_fifo_cost_source_normalizer.py` covers strict separate declared/approved/fact values, document-date parsing, accepted-act grouping, and stable content fingerprint across identical refreshes with a different local capture time.
+- `tests/test_fifo_cost_supply_evidence_service.py` covers exact owner/store/SKU linking, idempotent identical refresh, a changed act appended as a new evidence snapshot, immutable prior evidence, redacted order/supply/act references, and no FIFO event/layer/revision or physical date created by evidence collection.
+- `tests/test_fifo_cost_repository.py` verifies v3→v4 SQLite migration and append-only source evidence; the linked collector, normalizer, repository, evidence service, anchor/rate/allocation, and cross-docking/act-diagnostic profile: **188 passed in 3.63s**. `compileall` and `git diff --check` pass. API responses are synthetic; stateful checks use pytest temporary SQLite.
+
 ## FC12 — FIFO history and Telegram rate-entry
 
 - `tests/test_fifo_cost_history_service.py` covers empty queues, confirmed next finite layer, planned versus effective rate, provenance labels, and refusal to report remaining/current next-unit cost after an unreplayed movement.
