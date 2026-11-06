@@ -40,6 +40,12 @@
 
 Не ослаблять эти запреты ради прохождения CI или демонстрации прибыли. Дальнейшее решение по продуктовой готовности требует review, подключения Telegram начального якоря, подтверждённых источников/cutoff и отдельной безопасной приёмки владельцем.
 
+## Проверки GitHub Actions
+
+- Run `42278932818` (workflow Verify, run 3371) завершился `success` на точном PR SHA `cd39a679a92fdef70f89db8effc8534a6c2ef697`.
+- Windows job: compile и полный pytest — PASS. Ubuntu job: compile, полный pytest, production Docker build, runtime health check и import smoke — PASS.
+- После записи этих результатов в журнал создаётся документационный commit; итоговую рекомендацию давать только после нового зелёного run для его актуального SHA на PR #726. См. текущее состояние Checks в GitHub PR.
+
 ## Приоритеты независимого review
 
 - **P1 — `fifo_cost_repository.py` (около 6 тыс. строк):** сериализация на owner/store/SKU, транзакционные границы, CAS/idempotency, append-only и миграции v1–v11; отказ по версии/частичному DDL; взаимодействие с существующей tenant DB.
