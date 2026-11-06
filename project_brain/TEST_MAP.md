@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC18 — return recovery and exact prior cost basis
+
+- `tests/test_fifo_cost_return_evidence_normalizer.py` covers exact return type/SKU/posting/quantity matching, complete source, exact supported Ozon return state, explicit non-compensated state, owner-confirmed saleable restoration, date and cutoff gates, redacted identities, and rejection of forged candidates.
+- `tests/test_fifo_cost_replay_service.py` covers full multi-layer restoration, recovery/date/cutoff/digest requirements, duplicate return identity and over-restoration. `tests/test_fifo_cost_return_repository.py` covers schema v6→v7 additive migration, multi-layer basis pinning, ambiguous partial split rejection, repeat partial single-layer returns, over-restoration, service preview/commit/retry and allocation publication.
+- Linked synthetic Windows profile: **131 passed in 3.91s** across return normalizer/replay/repository, core allocation/repository, source/anchor/rate/period-profit services and adjacent Return COGS gates. `compileall` and `git diff --check` PASS. Temporary SQLite/synthetic fixtures only; no live Ozon/Telegram calls or owner data. Cutoff remains production-gated.
+
 ## FC17 — FIFO COGS в Period Profit
 
 - `tests/test_fifo_cost_period_profit_source_service.py` проверяет exact store/SKU identity, tenant scope, redacted sale digest join, allocation completeness, stale/mismatched coverage и legacy-mode lookup.

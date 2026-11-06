@@ -809,3 +809,7 @@ finalized snapshot. User reports may contain the owner's business figures,
 while support diagnostics remain a separate strict allowlist. Missing values
 remain nullable with their status/reason, and historical inputs are never
 presented as fresh Ozon data.
+
+## FIFO return recovery (FC18)
+
+`FifoCostReturnEvidenceNormalizer` admits only a complete, exact-SKU customer-return record plus an explicit owner confirmation that the same quantity is saleable again. Ozon status and document timestamps do not establish the physical recovery date. `FifoCostReturnRestockService` previews the source/cutoff checks and submits one immutable return event; `FifoCostRepository` schema v7 pins that event to the prior full allocation revision and its exact original sale allocation lines. `FifoCostReplayService` restores only those pinned layer quantities, and duplicate return identities cannot restore stock twice. An ambiguous partial return across multiple cost layers or a return against an unsupported open-rate basis fails closed. This ledger path does not bypass or change the independent monetary Return COGS authorization gates, and factual Period Profit remains unavailable until the shared inventory/finance cutoff is validated.
