@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC28: объяснение и детализация себестоимости периода
+
+- Period Profit now includes a consistent FIFO explanation: exact period units/COGS by allocation layer, opaque source references, effective dates, provenance, cost mode, cutoff/completeness and current correction revision. Append-only correction snapshots show prior versus current COGS, tax and profit while preserving access to the prior result.
+- Telegram compact output and analytics exports use the same allowlisted projection. Long details use Telegram's message splitter; exports report the existing bounded serializer failure instead of silently dropping layer rows. No raw database identifiers or source digests are exposed.
+- FC28 linked profile: **49 passed in 2.05s**; `compileall -q app tests` and `git diff --check` PASS. Synthetic fixtures/temporary SQLite only; factual cutoff remains unchanged and production-gated.
+
 # 2026-11-06 — FIFO FC27: immutable cost basis in saved plans
 
 - Confirmed sales-mix revisions now persist a versioned, allowlisted FIFO cost snapshot beside the saved plan revision: opaque basis reference, source revision/method, requested quantity, per-layer allocation, known partial amount and incompleteness reason. The snapshot is model-only and cannot enter factual Period Profit.

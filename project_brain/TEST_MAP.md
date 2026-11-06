@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC28: отчёт периода и история коррекций
+
+- `tests/test_fifo_cost_period_explanation_service.py` covers safe basis references/provenance, exact layer and open-rate sums, period/partial completeness, and aligned versus unknown correction history with before/after COGS/tax/profit.
+- `app/tests/test_period_profit_compact_fifo_explanation.py` verifies shared compact/full Telegram projection, source/revision detail, multi-chunk output and that no content is silently truncated.
+- `tests/test_fifo_cost_allocation_repository.py` and `tests/test_fifo_cost_period_profit_source_service.py` verify persisted layer basis, exact sum reconciliation, correction history joins, and the zero-sale empty projection. `tests/test_analytics_export_service.py` verifies equivalent export rows/ref, safe fields and bounded failure behavior; runtime snapshot tests confirm no extra source calls.
+- Linked Windows profile: **49 passed in 2.05s**. `compileall -q app tests` and `git diff --check` PASS. Temporary SQLite/synthetic fixtures only; no live API or bot startup.
+
 # 2026-11-06 — FIFO FC27: frozen plans and comparisons
 
 - `tests/test_planning_sales_mix_cost_snapshot_adapter.py` verifies versioned allowlisted snapshot creation, exact FIFO re-allocation validation, redacted `basis_ref`, quantity/revision binding, and visible partial known cost when the confirmed quantity exhausts finite layers.
