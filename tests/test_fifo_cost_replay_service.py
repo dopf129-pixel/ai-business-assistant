@@ -5,6 +5,8 @@ import pytest
 from services.fifo_cost_allocation_service import (
     FifoCostLayer,
     FifoOpenCostRate,
+    FifoRestoreSlice,
+    FifoRestockEvent,
     FifoSaleEvent,
 )
 from services.fifo_cost_replay_service import (
@@ -26,6 +28,20 @@ def _sale(event_id, quantity, sale_date, digest, **overrides):
         "source_identity_digest": digest,
         "physical_time_confirmed": True,
         "cutoff_bridge_confirmed": True,
+    }
+    values.update(overrides)
+    return FifoDatedAllocationEvent(**values)
+
+
+def _return(event_id, quantity, return_date, digest, restores, **overrides):
+    values = {
+        "event": FifoRestockEvent(event_id, quantity, tuple(restores)),
+        "effective_at": None,
+        "effective_date": return_date,
+        "source_identity_digest": digest,
+        "physical_time_confirmed": True,
+        "cutoff_bridge_confirmed": True,
+        "saleable_recovery_confirmed": True,
     }
     values.update(overrides)
     return FifoDatedAllocationEvent(**values)
@@ -166,3 +182,75 @@ def test_fc16_open_rate_does_not_cost_events_before_its_effective_date(service):
     assert later["complete"] is True
     assert later["total_cogs_rub"] == "40.00"
     assert later["allocations"][0]["lines"][1]["rate_change_id"] == "rate-1"
+
+
+def test_fc18_exact_full_return_restores_original_multi_layer_basis(service):
+    sale = _sale("sale-a", 5, "2026-11-02", "1" * 64)
+    returned = _return(
+        "return-a", 5, "2026-11-03", "a" * 64,
+        [
+                FifoRestoreSlice("sale-a", "layer-1", 3),
+                FifoRestoreSlice("sale-a", "layer-2", 2),
+        ],
+    )
+    result = _preview(
+        service, [returned, sale],
+        layers=[FifoCostLayer("layer-1", "20.00", 3),
+                FifoCostLayer("layer-2", "25.00", 2)],
+    )
+
+    assert result["complete"] is True
+    assert result["total_cogs_rub"] == "110.00"
+    assert result["restored_units"] == 5
+    assert result["remaining_confirmed_units"] == 5
+    assert result["allocations"][0]["event_id"] == "sale-a"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"saleable_recovery_confirmed": False}, "FIFO_RETURN_SALEABLE_RECOVERY_UNCONFIRMED"),
+        ({"physical_time_confirmed": False}, "FIFO_RETURN_EFFECTIVE_DATE_UNAVAILABLE"),
+        ({"cutoff_bridge_confirmed": False}, "INVENTORY_CUTOFF_UNRECONCILED"),
+        ({"source_identity_digest": None}, "FIFO_RETURN_IDENTITY_UNCONFIRMED"),
+    ],
+)
+def test_fc18_return_requires_exact_recovery_time_and_cutoff_evidence(
+    service, overrides, reason,
+):
+    result = _preview(service, [
+        _sale("sale-a", 1, "2026-11-02", "1" * 64),
+        _return(
+            "return-a", 1, "2026-11-03", "a" * 64,
+            [FifoRestoreSlice("sale-a", "layer-1", 1)],
+            **overrides,
+        ),
+    ])
+
+    assert result["complete"] is False
+    assert result["reason_code"] == reason
+    assert result["allocations"] == []
+
+
+def test_fc18_duplicate_return_identity_and_over_restoration_fail_closed(service):
+    sale = _sale("sale-a", 2, "2026-11-02", "1" * 64)
+    first = _return(
+        "return-a", 1, "2026-11-03", "a" * 64,
+        [FifoRestoreSlice("sale-a", "layer-1", 1)],
+    )
+    duplicate = _return(
+        "return-b", 1, "2026-11-04", "a" * 64,
+        [FifoRestoreSlice("sale-a", "layer-1", 1)],
+    )
+    excessive = _return(
+        "return-c", 2, "2026-11-04", "c" * 64,
+        [FifoRestoreSlice("sale-a", "layer-1", 2)],
+    )
+
+    duplicate_result = _preview(service, [sale, first, duplicate])
+    excessive_result = _preview(service, [sale, first, excessive])
+
+    assert duplicate_result["reason_code"] == "FIFO_RETURN_IDENTITY_DUPLICATE"
+    assert duplicate_result["allocations"] == []
+    assert excessive_result["reason_code"] == "FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN"
+    assert excessive_result["allocations"] == []

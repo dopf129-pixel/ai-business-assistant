@@ -34,6 +34,7 @@ class FifoDatedAllocationEvent:
     source_identity_digest: str | None = None
     physical_time_confirmed: bool = False
     cutoff_bridge_confirmed: bool = False
+    saleable_recovery_confirmed: bool = False
 
 
 class FifoCostReplayService:
@@ -151,6 +152,7 @@ class FifoCostReplayService:
             return None, "FIFO_EVENT_INVALID"
         ids = []
         sale_digests = []
+        return_digests = []
         normalized = []
         for item in events:
             event = item.event
@@ -172,8 +174,15 @@ class FifoCostReplayService:
                     return None, "INVENTORY_CUTOFF_UNRECONCILED"
                 sale_digests.append(item.source_identity_digest)
             elif isinstance(event, FifoRestockEvent):
-                if item.source_identity_digest is not None:
-                    return None, "FIFO_SOURCE_IDENTITY_INVALID"
+                if not self._valid_digest(item.source_identity_digest):
+                    return None, "FIFO_RETURN_IDENTITY_UNCONFIRMED"
+                if item.saleable_recovery_confirmed is not True:
+                    return None, "FIFO_RETURN_SALEABLE_RECOVERY_UNCONFIRMED"
+                if item.physical_time_confirmed is not True:
+                    return None, "FIFO_RETURN_EFFECTIVE_DATE_UNAVAILABLE"
+                if item.cutoff_bridge_confirmed is not True:
+                    return None, "INVENTORY_CUTOFF_UNRECONCILED"
+                return_digests.append(item.source_identity_digest)
             else:
                 return None, "FIFO_EVENT_INVALID"
             normalized.append((position, event_id, item))
@@ -182,6 +191,8 @@ class FifoCostReplayService:
             return None, "FIFO_EVENT_ID_DUPLICATE"
         if len(set(sale_digests)) != len(sale_digests):
             return None, "FIFO_SALE_IDENTITY_DUPLICATE"
+        if len(set(return_digests)) != len(return_digests):
+            return None, "FIFO_RETURN_IDENTITY_DUPLICATE"
 
         # Date-only evidence cannot order multiple events on the same date.
         # Equal instants are also ambiguous for per-sale layer attribution.
