@@ -3364,6 +3364,14 @@ class FifoCostRepository:
             if latest_layer is not None and effective_date == latest_layer:
                 return self._error("FIFO_RATE_DATE_ORDER_UNRESOLVED")
             if previous is None and normalized_zero_stock is None:
+                known_old_units = projection["known_quantity"]
+                if (
+                    type(known_old_units) is not int
+                    or known_old_units < 0
+                ):
+                    return self._error("FIFO_PROJECTION_STALE")
+                if owner_old_home_units > known_old_units:
+                    return self._error("FIFO_RATE_RECONCILIATION_CONFLICT")
                 prior_layer = connection.execute(
                     """SELECT unit_cost_rub FROM fifo_cost_layers WHERE stream_id=?
                        ORDER BY layer_sequence DESC LIMIT 1""",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from threading import RLock
 from time import monotonic
@@ -302,7 +302,9 @@ class TelegramFifoCostAnchorEntryService:
         if any(item is None for item in quantities) or sum(quantities) <= 0:
             return None
         return {
-            "unit_cost_rub": format(cost.quantize(Decimal("0.01")), ".2f"),
+            "unit_cost_rub": format(
+                cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f",
+            ),
             "ozon_units": quantities[0],
             "transit_units": quantities[1],
             "home_units": quantities[2],

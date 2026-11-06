@@ -869,13 +869,21 @@ def test_switching_sku_clears_the_other_cost_input_draft():
 
 
 class _Products:
+    def __init__(self, rows=None):
+        self.rows = rows if rows is not None else [
+            ("product-101", "hook-2", "3921245627"),
+        ]
+
     def load_products(self):
-        return [("product-101", "hook-2", "3921245627")]
+        return self.rows
 
 
 class _Costs:
+    def __init__(self, skus=None):
+        self.skus = skus if skus is not None else {"3921245627"}
+
     def get_all_costs(self):
-        return [{"sku": "3921245627"}]
+        return [{"sku": sku} for sku in self.skus]
 
 
 class _MenuHistoryStub:
@@ -903,3 +911,55 @@ def test_seller_cost_menu_adds_fifo_history_entry_without_removing_legacy_entry(
     assert "fifo_history:open:abc123" in callbacks
     assert history.calls[0]["store_id"] == "store-a"
     assert history.calls[0]["sku"] == IDENTITY["sku"]
+
+
+def test_fifo_sku_menu_pages_include_configured_products_when_costs_are_missing():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        products = [
+            (f"product-{index:02d}", f"offer-{index:02d}", f"sku-{index:02d}")
+            for index in range(25)
+        ]
+        history = _MenuHistoryStub()
+        service = TelegramSellerCostUpdateService(
+            _Products(products),
+            _Costs({"sku-00"}),
+            fifo_history_service=history,
+        )
+        first_page = service.open_menu(user_id=101)
+        page_adapter = SellerCostTelegramAdapter(
+            assistant=_Assistant(),
+            keyboard_service=None,
+            button_handler=_ButtonHandler(),
+            seller_cost_service=service,
+            fifo_history_service=history,
+        )
+        second_page = page_adapter.handle_button(
+            "seller_cost_fifo_page:1",
+            user_id=101,
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    first_page_skus = [call["sku"] for call in history.calls[:20]]
+    second_page_skus = [call["sku"] for call in history.calls[20:]]
+    first_callbacks = [button["callback"] for button in first_page["keyboard"]["buttons"]]
+    second_callbacks = [button["callback"] for button in second_page["keyboard"]["buttons"]]
+    assert first_page["cost_coverage"] == {
+        "configured": 1, "total": 25, "missing": 24,
+    }
+    assert "seller_cost:sku-00" not in first_callbacks
+    assert "seller_cost_fifo_page:1" in first_callbacks
+    assert first_page_skus == [f"sku-{index:02d}" for index in range(20)]
+    assert second_page_skus == [f"sku-{index:02d}" for index in range(20, 25)]
+    assert "seller_cost_fifo_page:0" in second_callbacks
+    assert "История FIFO: страница 2 из 2." in second_page["message"]
+
+
+def test_fifo_anchor_entry_rounds_half_up_to_currency_cent():
+    assert TelegramFifoCostAnchorEntryService._parse_layer(
+        "1.005; 100; 0; 0",
+    )["unit_cost_rub"] == "1.01"
+    assert TelegramFifoCostAnchorEntryService._parse_layer(
+        "1.004; 100; 0; 0",
+    )["unit_cost_rub"] == "1.00"

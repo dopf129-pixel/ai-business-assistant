@@ -139,6 +139,29 @@ def test_new_rate_preview_keeps_unknown_quantity_separate_and_does_not_write(
         connection.close()
 
 
+def test_first_rate_rejects_old_home_count_larger_than_confirmed_finite_stock(
+    scoped_rate_service,
+):
+    repository, service = scoped_rate_service
+
+    preview = _preview(service, old_home_units=18)
+
+    assert preview == {
+        "error": True,
+        "code": "FIFO_RATE_RECONCILIATION_CONFLICT",
+    }
+    connection = repository.get_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_rate_changes"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT revision FROM fifo_cost_streams"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
 def test_confirmed_rate_is_append_only_idempotent_and_not_a_stock_layer(
     scoped_rate_service,
 ):

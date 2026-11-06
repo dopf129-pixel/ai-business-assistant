@@ -20,6 +20,7 @@ class TelegramSellerCostUpdateService:
     TABLE_CONFIRM_ALL_HISTORY_CALLBACK = "seller_cost_table_confirm_all_history"
     UNIT_ECONOMICS_RETURN_TTL_SECONDS = 15 * 60
     UNIT_ECONOMICS_RETURN_MAX_ENTRIES = 128
+    FIFO_HISTORY_PAGE_SIZE = 20
 
     def __init__(self, product_service, cost_service, date_provider=None, table_service=None, store_name_provider=None, fifo_history_service=None, fifo_cost_repository=None):
         self.product_service = product_service
@@ -36,7 +37,9 @@ class TelegramSellerCostUpdateService:
         self._pending_lock = RLock()
         self._unit_economics_returns = {}
 
-    def open_menu(self, user_id=None):
+    def open_menu(self, user_id=None, *, fifo_page=0):
+        if type(fifo_page) is not int or fifo_page < 0:
+            return self._error("SELLER_COST_FIFO_PAGE_INVALID")
         products = self._products()
         if isinstance(products, dict):
             return products
@@ -58,7 +61,6 @@ class TelegramSellerCostUpdateService:
                 {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
             ]
             buttons += [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
-            buttons += self._fifo_history_buttons(user_id, shown)
             if len(missing) > len(shown):
                 message += f"\n\nПоказаны первые {len(shown)} позиций."
         else:
@@ -71,7 +73,28 @@ class TelegramSellerCostUpdateService:
                 {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
             ]
             buttons += [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in products[:20]]
-            buttons += self._fifo_history_buttons(user_id, products[:20])
+        fifo_page_count = max(
+            1,
+            (len(products) + self.FIFO_HISTORY_PAGE_SIZE - 1)
+            // self.FIFO_HISTORY_PAGE_SIZE,
+        )
+        fifo_page = min(fifo_page, fifo_page_count - 1)
+        if self.fifo_history_service is not None and user_id is not None:
+            start = fifo_page * self.FIFO_HISTORY_PAGE_SIZE
+            fifo_products = products[start:start + self.FIFO_HISTORY_PAGE_SIZE]
+            buttons += self._fifo_history_buttons(user_id, fifo_products)
+            if fifo_page_count > 1:
+                if fifo_page > 0:
+                    buttons.append({
+                        "text": "⬅️ FIFO SKU",
+                        "callback": f"seller_cost_fifo_page:{fifo_page - 1}",
+                    })
+                if fifo_page + 1 < fifo_page_count:
+                    buttons.append({
+                        "text": "FIFO SKU ➡️",
+                        "callback": f"seller_cost_fifo_page:{fifo_page + 1}",
+                    })
+                message += f"\n\nИстория FIFO: страница {fifo_page + 1} из {fifo_page_count}."
         return {"error": False, "message": message, "cost_coverage": {"configured": configured, "total": len(products), "missing": len(missing)}, "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons}, "read_only_ozon": True}
 
     def _fifo_history_buttons(self, user_id, products):

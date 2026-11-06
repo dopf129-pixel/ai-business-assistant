@@ -747,6 +747,7 @@ class UnitPriceScenarioSource:
             cost is not None
             and cost_basis.get("completeness") in {
                 "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+                "CONFIRMED_REPLAY_MODEL_ONLY",
                 "LEGACY_EFFECTIVE_COST_CONFIRMED",
             }
         )

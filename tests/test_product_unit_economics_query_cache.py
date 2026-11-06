@@ -90,9 +90,15 @@ class FakeCostService:
 
 
 class FakeCostAdapter:
-    def __init__(self, amount="20.00", revision="rev-1"):
+    def __init__(
+        self,
+        amount="20.00",
+        revision="rev-1",
+        completeness="CONFIRMED_SNAPSHOT_MODEL_ONLY",
+    ):
         self.amount = amount
         self.revision = revision
+        self.completeness = completeness
         self.calls = []
 
     def get_current_cost_date(self):
@@ -102,7 +108,7 @@ class FakeCostAdapter:
         self.calls.append((dict(product), store_id, as_of_date))
         basis = {
             "method": "FIFO_FINITE_LAYER",
-            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "completeness": self.completeness,
             "reason_code": None,
             "as_of_date": as_of_date,
             "cutoff_date": "2026-10-31",
@@ -312,6 +318,32 @@ def test_fifo_cost_revision_invalidates_current_economics_cache_immediately():
     assert "Следующая ставка: 24.00 ₽/шт." in formatted
     assert "Точка фактической отсечки FIFO: 2026-10-31." in formatted
     assert "Полнота себестоимости: подтверждена" in formatted
+    assert "только для плановой оценки" in formatted
+
+
+def test_replayed_fifo_cost_is_displayed_as_confirmed_and_cached_for_planning():
+    clock = FakeClock()
+    service, source = _service([_success(), _success()], clock)
+    adapter = FakeCostAdapter(
+        revision="replayed-rev-5",
+        completeness="CONFIRMED_REPLAY_MODEL_ONLY",
+    )
+    service.cost_adapter = adapter
+    token = set_current_tenant_user_id("user-1::ozon::store-A")
+    try:
+        first = service.query("hook-2")
+        cached = service.query("hook-2")
+        formatted = service.format_response(first)
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["cost"] == 20.0
+    assert first["cost_basis"]["completeness"] == "CONFIRMED_REPLAY_MODEL_ONLY"
+    assert first["cost_basis"]["factual_period_profit_eligible"] is False
+    assert cached["cache"]["status"] == "hit"
+    assert source.calls == 1
+    assert "Полнота себестоимости: подтверждена" in formatted
+    assert "себестоимость не подставлена" not in formatted
     assert "только для плановой оценки" in formatted
 
 

@@ -125,6 +125,30 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                     (user_id,),
                     (),
                 )
+            if callback_text.startswith("seller_cost_fifo_page:"):
+                page_text = callback_text.split(":", 1)[1]
+                if (
+                    not page_text.isascii()
+                    or not page_text.isdecimal()
+                    or str(int(page_text)) != page_text
+                ):
+                    return {
+                        "error": True,
+                        "message": "Страница списка FIFO устарела. Откройте себестоимость заново.",
+                        "code": "SELLER_COST_FIFO_PAGE_INVALID",
+                        "read_only_ozon": True,
+                    }
+                self.seller_cost_service.clear_pending(user_id)
+                if self.fifo_rate_entry_service is not None:
+                    self.fifo_rate_entry_service.clear_pending(user_id)
+                if self.fifo_late_entry_service is not None:
+                    self.fifo_late_entry_service.clear_pending(user_id)
+                if self.fifo_anchor_entry_service is not None:
+                    self.fifo_anchor_entry_service.clear_pending(user_id)
+                return self.seller_cost_service.open_menu(
+                    user_id,
+                    fifo_page=int(page_text),
+                )
             if callback_text == "seller_cost_table":
                 self.seller_cost_service.clear_pending(user_id)
                 if self.fifo_rate_entry_service is not None:

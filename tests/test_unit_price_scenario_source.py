@@ -653,6 +653,35 @@ def test_fifo_cost_revision_refreshes_cached_scenario_and_preserves_layer_detail
     assert all(call[1:] == ("store-1", "2026-10-14") for call in adapter.calls)
 
 
+def test_confirmed_fifo_replay_cost_is_complete_for_planning_and_cacheable():
+    current = _CurrentSource()
+    adapter = _RevisionCostAdapter(
+        amount="42.00",
+        revision="fifo-replayed-5",
+        completeness="CONFIRMED_REPLAY_MODEL_ONLY",
+    )
+    source = _source(
+        _SnapshotFinance({}),
+        current=current,
+        cost_adapter=adapter,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first = source.load_snapshot("sku-1", user_id="user-1")
+        cached = source.load_snapshot("sku-1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["suggested_inputs"]["cost"] == 42.0
+    assert first["source_completeness"]["cost"]["completeness"] == (
+        "CONFIRMED_REPLAY_MODEL_ONLY"
+    )
+    assert first["source_completeness"]["cost"]["complete"] is True
+    assert first["source_completeness"]["cost"]["factual_period_profit_eligible"] is False
+    assert cached["cache"]["status"] == "hit"
+    assert len(current.calls) == 1
+
+
 def test_unreplayed_fifo_cost_is_unknown_and_scenario_snapshot_is_not_cached():
     current = _CurrentSource()
     adapter = _RevisionCostAdapter(

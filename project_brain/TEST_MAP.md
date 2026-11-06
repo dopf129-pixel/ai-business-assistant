@@ -1,3 +1,11 @@
+# 2026-11-07 — follow-up regression coverage для FIFO review R1–R4
+
+- `tests/test_fifo_cost_rate_service.py::test_first_rate_rejects_old_home_count_larger_than_confirmed_finite_stock` проверяет отказ до записи для несовместимого остатка при первой новой ставке.
+- `tests/test_unit_price_scenario_source.py::test_confirmed_fifo_replay_cost_is_complete_for_planning_and_cacheable` проверяет полноту replay-себестоимости для планирования и кэша, сохраняя `factual_period_profit_eligible=False`.
+- `tests/test_product_unit_economics_query_cache.py::test_replayed_fifo_cost_is_displayed_as_confirmed_and_cached_for_planning` проверяет текущую карточку, кэширование и отсутствие ложного сообщения о неподставленной себестоимости.
+- `tests/test_telegram_fifo_cost_history.py` проверяет страницы FIFO для настроенных и ненастроенных SKU, callback-навигацию и округление `1.005` → `1.01` по `ROUND_HALF_UP`.
+- Проверки: связанные модули **74 passed in 3.45s**; полный Windows `pytest -q` **4,812 passed in 50.98s**; compileall/diff-check PASS; исходные хеши 5/5 файлов `data/` совпадают.
+
 # 2026-11-07 — FIFO review regressions (PR #726)
 
 - `tests/test_fifo_cost_period_profit_source_service.py` проверяет, что период до cutoff остаётся legacy, диапазон через cutoff отказывается, а период после него выбирает FIFO. `tests/test_period_profit_fifo_cost_integration.py` проверяет публичный Period Profit: исторический dated legacy результат доступен, пересекающий cutoff период блокируется.

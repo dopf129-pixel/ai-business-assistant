@@ -316,6 +316,7 @@ class ProductUnitEconomicsQueryService:
             and isinstance(cost_basis, dict)
             and cost_basis.get("completeness") not in {
                 "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+                "CONFIRMED_REPLAY_MODEL_ONLY",
                 "LEGACY_EFFECTIVE_COST_CONFIRMED",
             }
         ):
@@ -1191,6 +1192,7 @@ class ProductUnitEconomicsQueryService:
         completeness = str(basis.get("completeness") or "")
         if completeness in {
             "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "CONFIRMED_REPLAY_MODEL_ONLY",
             "LEGACY_EFFECTIVE_COST_CONFIRMED",
         }:
             lines.append("Полнота себестоимости: подтверждена для текущей плановой оценки.")
