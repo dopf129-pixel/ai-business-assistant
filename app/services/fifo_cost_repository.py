@@ -756,6 +756,10 @@ class FifoCostRepository:
                     "allocation_revision": 0,
                     "cutoff_date": anchor_cutoff,
                     "allocations": [],
+                    "layers": [],
+                    "period_units": 0,
+                    "period_cogs_rub": "0.00",
+                    "layer_breakdown_complete": True,
                 }
             if (
                 allocation is None
@@ -793,17 +797,37 @@ class FifoCostRepository:
                 source_by_id[row["event_id"]] = row
 
             line_rows = connection.execute(
-                """SELECT event_id, layer_id AS basis_id, quantity,
-                          unit_cost_rub, total_cost_rub, 'LAYER' AS basis_kind
-                   FROM fifo_cost_allocation_lines WHERE allocation_id=?
+                """SELECT l.event_id, l.layer_id AS basis_id, l.quantity,
+                          l.unit_cost_rub, l.total_cost_rub,
+                          'LAYER' AS basis_kind, b.layer_sequence,
+                          b.effective_date AS basis_effective_date,
+                          b.provenance AS basis_provenance,
+                          s.source_method AS basis_source_method,
+                          s.source_status AS basis_source_status,
+                          s.coverage_status AS basis_coverage_status
+                   FROM fifo_cost_allocation_lines AS l
+                   JOIN fifo_cost_layers AS b ON b.layer_id=l.layer_id
+                   LEFT JOIN fifo_cost_sources AS s ON s.source_id=b.source_id
+                   WHERE l.allocation_id=?
                    UNION ALL
-                   SELECT event_id, rate_change_id AS basis_id, quantity,
-                          unit_cost_rub, total_cost_rub, 'RATE' AS basis_kind
-                   FROM fifo_cost_allocation_rate_lines WHERE allocation_id=?
-                   ORDER BY event_id, basis_kind, basis_id""",
+                   SELECT l.event_id, l.rate_change_id AS basis_id, l.quantity,
+                          l.unit_cost_rub, l.total_cost_rub,
+                          'RATE' AS basis_kind, b.rate_sequence AS layer_sequence,
+                          b.effective_date AS basis_effective_date,
+                          s.provenance AS basis_provenance,
+                          s.source_method AS basis_source_method,
+                          s.source_status AS basis_source_status,
+                          s.coverage_status AS basis_coverage_status
+                   FROM fifo_cost_allocation_rate_lines AS l
+                   JOIN fifo_cost_rate_changes AS b
+                     ON b.rate_change_id=l.rate_change_id
+                   LEFT JOIN fifo_cost_sources AS s ON s.source_id=b.source_id
+                   WHERE l.allocation_id=?
+                   ORDER BY event_id, basis_kind, layer_sequence, basis_id""",
                 (allocation["allocation_id"], allocation["allocation_id"]),
             ).fetchall()
             by_event = {}
+            period_layers = {}
             for line in line_rows:
                 quantity = line["quantity"]
                 unit_cost = self._normalize_money(line["unit_cost_rub"])
@@ -851,6 +875,52 @@ class FifoCostRepository:
                 })
                 group["quantity"] += quantity
                 group["total"] += Decimal(total_cost)
+                sale = source_by_id[line["event_id"]]
+                if start <= sale["effective_date"] <= end:
+                    sequence = line["layer_sequence"]
+                    effective_date = self._normalize_date(
+                        line["basis_effective_date"]
+                    )
+                    provenance = line["basis_provenance"]
+                    source_method = line["basis_source_method"]
+                    source_status = line["basis_source_status"]
+                    coverage_status = line["basis_coverage_status"]
+                    basis_ref = "fifo-basis-" + self._sha256({
+                        "schema": 1,
+                        "stream_id": stream_id,
+                        "basis_kind": line["basis_kind"],
+                        "sequence": sequence,
+                        "basis_id": line["basis_id"],
+                    })[:20]
+                    layer = period_layers.setdefault(basis_ref, {
+                        "basis_ref": basis_ref,
+                        "basis_kind": line["basis_kind"],
+                        "sequence": sequence,
+                        "effective_date": effective_date,
+                        "provenance": provenance,
+                        "source_method": source_method,
+                        "source_status": source_status,
+                        "coverage_status": coverage_status,
+                        "quantity": 0,
+                        "unit_cost_rub": unit_cost,
+                        "total_cogs_rub": Decimal("0.00"),
+                    })
+                    if (
+                        layer["effective_date"] != effective_date
+                        or layer["provenance"] != provenance
+                        or layer["source_method"] != source_method
+                        or layer["source_status"] != source_status
+                        or layer["coverage_status"] != coverage_status
+                        or layer["unit_cost_rub"] != unit_cost
+                    ):
+                        connection.rollback()
+                        return {
+                            "error": False, "code": "FIFO_COST_SCOPE_INCOMPLETE",
+                            "active": True, "complete": False,
+                            "reason_code": "FIFO_ALLOCATION_BASIS_INVALID",
+                        }
+                    layer["quantity"] += quantity
+                    layer["total_cogs_rub"] += Decimal(total_cost)
             if set(by_event) != set(source_by_id):
                 connection.rollback()
                 return {
@@ -860,6 +930,8 @@ class FifoCostRepository:
                 }
 
             allocations = []
+            period_cogs = Decimal("0.00")
+            period_units = 0
             digests = set()
             for event_id, row in source_by_id.items():
                 group = by_event[event_id]
@@ -879,6 +951,8 @@ class FifoCostRepository:
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 )
                 if start <= row["effective_date"] <= end:
+                    period_cogs += total
+                    period_units += row["quantity"]
                     allocations.append({
                         "source_identity_digest": digest,
                         "effective_date": row["effective_date"],
@@ -888,6 +962,33 @@ class FifoCostRepository:
             allocations.sort(key=lambda item: (
                 item["effective_date"], item["source_identity_digest"],
             ))
+            layers = []
+            for layer in sorted(
+                period_layers.values(),
+                key=lambda item: (
+                    item["effective_date"] or "",
+                    item["sequence"], item["basis_ref"],
+                ),
+            ):
+                amount = layer["total_cogs_rub"].quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP,
+                )
+                layers.append({
+                    **layer,
+                    "total_cogs_rub": format(amount, ".2f"),
+                })
+            layer_units = sum(layer["quantity"] for layer in layers)
+            layer_cogs = sum(
+                (Decimal(layer["total_cogs_rub"]) for layer in layers),
+                Decimal("0.00"),
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if layer_units != period_units or layer_cogs != period_cogs:
+                connection.rollback()
+                return {
+                    "error": False, "code": "FIFO_COST_SCOPE_INCOMPLETE",
+                    "active": True, "complete": False,
+                    "reason_code": "FIFO_ALLOCATION_LINE_INVALID",
+                }
             connection.commit()
             return {
                 "error": False, "code": "FIFO_COST_PERIOD_READY",
@@ -896,6 +997,10 @@ class FifoCostRepository:
                 "allocation_revision": allocation["revision"],
                 "cutoff_date": anchor_cutoff,
                 "allocations": allocations,
+                "layers": layers,
+                "period_units": period_units,
+                "period_cogs_rub": format(period_cogs, ".2f"),
+                "layer_breakdown_complete": True,
             }
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
             if connection is not None and connection.in_transaction:

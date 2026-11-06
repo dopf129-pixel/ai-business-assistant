@@ -57,6 +57,79 @@ def test_period_export_preserves_comparison_bridge_and_top_k_coverage_semantics(
     assert any(row["sku"] == "SKU-1" and row["semantic"] == "top_k_reference_not_additive" for row in rows)
 
 
+def test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_versions():
+    fifo = {
+        "schema_version": 1,
+        "cost_mode": "FIFO",
+        "status": "CONFIRMED",
+        "reason_codes": [],
+        "total_cogs_rub": "20.00",
+        "fifo_cogs_rub": "20.00",
+        "legacy_cogs_rub": "0.00",
+        "fifo_sku_count": 1,
+        "confirmed_fifo_sku_count": 1,
+        "cutoff_dates": ["2026-07-31"],
+        "products": [{
+            "sku": "SKU-1", "cost_mode": "FIFO", "status": "CONFIRMED",
+            "reason_code": None, "units_sold": 2,
+            "product_cost_rub": "20.00", "cutoff_date": "2026-07-31",
+            "stream_revision": 8, "allocation_revision": 3,
+            "layers": [{
+                "basis_ref": "fifo-basis-00000000000000000001",
+                "basis_kind": "FIFO_LAYER", "sequence": 1,
+                "effective_date": "2026-07-01", "confirmation": "OWNER_CONFIRMED",
+                "source_method": "OWNER_CONFIRMED_FIFO_CUTOFF",
+                "source_status": "OWNER_CONFIRMED", "coverage_status": "OWNER_CONFIRMED",
+                "quantity": 2, "unit_cost_rub": "10.00", "total_cogs_rub": "20.00",
+            }],
+            "corrections": {
+                "status": "AVAILABLE", "reason_code": None, "revisions": [{
+                    "correction_ref": "fifo-correction-00000000000000000001",
+                    "correction_revision": 8, "previous_allocation_revision": 2,
+                    "period": "2026-07", "status": "CURRENT_RESULT",
+                    "before_sku_cogs_rub": "18.00", "after_sku_cogs_rub": "20.00",
+                    "delta_cogs_rub": "2.00", "before_total_cogs_rub": "30.00",
+                    "after_total_cogs_rub": "32.00",
+                    "before_tax_rub": "5.00", "after_tax_rub": "5.00",
+                    "delta_tax_rub": "0.00",
+                    "before_profit_rub": "15.00", "after_profit_rub": "13.00",
+                    "delta_profit_rub": "-2.00",
+                }],
+            },
+        }],
+        "read_only": True, "executed": False,
+    }
+    snapshot = {"schema_version": 1, "fifo_cost_explanation": fifo}
+
+    json_document = _json(AnalyticsExportService().export_period_profit(snapshot, "json"))
+    csv_result = AnalyticsExportService().export_period_profit(snapshot, "csv")
+    csv_rows = list(csv.reader(
+        io.StringIO(csv_result["file_content"].decode("utf-8-sig")), delimiter=";",
+    ))
+    csv_metadata = json.loads(csv_rows[3][1])
+
+    assert json_document["metadata"]["fifo_cost_explanation"] == fifo
+    assert csv_metadata["fifo_cost_explanation"] == fifo
+    layer = next(row for row in json_document["rows"] if row["section"] == "fifo_cost_layer")
+    assert layer["reference"] == "fifo-basis-00000000000000000001"
+    assert layer["effective_date"] == "2026-07-01"
+    assert layer["count"] == 2
+    assert layer["current_value"] == "10.00"
+    assert layer["value"] == "20.00"
+    correction = next(row for row in json_document["rows"] if row["section"] == "fifo_cost_correction")
+    assert correction["previous_value"] == "18.00"
+    assert correction["current_value"] == "20.00"
+    assert correction["delta"] == "2.00"
+    assert correction["reference"] == "fifo-correction-00000000000000000001"
+    profit_correction = next(
+        row for row in json_document["rows"]
+        if row["section"] == "fifo_cost_correction" and row["name"] == "2026-07.profit"
+    )
+    assert profit_correction["previous_value"] == "15.00"
+    assert profit_correction["current_value"] == "13.00"
+    assert profit_correction["delta"] == "-2.00"
+
+
 def test_period_export_carries_only_allowlisted_cached_completeness_reasons():
     snapshot = {
         "schema_version": 1,

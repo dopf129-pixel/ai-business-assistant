@@ -133,7 +133,7 @@ class FifoCostPeriodProfitSourceService:
 
         if expected != actual:
             return self._incomplete("FIFO_ALLOCATION_SALE_COVERAGE_MISMATCH")
-        return {
+        response = {
             "error": False,
             "active": True,
             "complete": True,
@@ -144,6 +144,25 @@ class FifoCostPeriodProfitSourceService:
             "units_sold": total_units,
             "product_cost": format(total_cogs.quantize(Decimal("0.01")), ".2f"),
         }
+        if isinstance(result.get("layers"), list):
+            from services.fifo_cost_period_explanation_service import (
+                FifoCostPeriodExplanationService,
+            )
+
+            response["fifo_cost_explanation"] = (
+                FifoCostPeriodExplanationService().build(
+                    allocation_result=result,
+                    repository=self.repository,
+                    store_id=scope["store_id"],
+                    product=product,
+                    sku=scope["sku"],
+                    date_from=date_from,
+                    date_to=date_to,
+                    units=total_units,
+                    product_cost=total_cogs,
+                )
+            )
+        return response
 
     def _identity_and_store(self, product):
         if not isinstance(product, dict):

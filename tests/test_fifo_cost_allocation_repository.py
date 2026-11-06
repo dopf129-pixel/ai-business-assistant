@@ -183,6 +183,73 @@ def _two_sale_fixture(tmp_path, *, quantities=(2, 2)):
     return repository, token, guard, preview
 
 
+def test_fc28_period_summary_reconciles_layer_amounts_without_exposing_internal_ids(tmp_path):
+    repository, token, _guard, preview = _two_sale_fixture(tmp_path)
+    try:
+        committed = repository.append_allocation_revision(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", preview=preview,
+            idempotency_key="fc28-layer-summary",
+        )
+        assert committed["error"] is False
+
+        result = repository.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-03",
+        )
+
+        assert result["error"] is False
+        assert result["complete"] is True
+        assert result["period_units"] == 4
+        assert result["period_cogs_rub"] == "60.00"
+        assert result["layer_breakdown_complete"] is True
+        assert [
+            (item["quantity"], item["unit_cost_rub"], item["total_cogs_rub"])
+            for item in result["layers"]
+        ] == [(2, "10.00", "20.00"), (2, "20.00", "40.00")]
+        assert {item["effective_date"] for item in result["layers"]} == {"2026-11-01"}
+        assert {item["provenance"] for item in result["layers"]} == {"OWNER_CONFIRMED"}
+        assert {item["source_method"] for item in result["layers"]} == {
+            "OWNER_CONFIRMED_FIFO_CUTOFF",
+        }
+        assert all(item["basis_ref"].startswith("fifo-basis-") for item in result["layers"])
+        serialized = str(result["layers"])
+        assert "layer_id" not in serialized
+        assert "event_id" not in serialized
+        assert "source_identity_digest" not in serialized
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fc28_zero_sale_period_is_complete_with_empty_layers_and_zero_cogs(tmp_path):
+    repository = FifoCostRepository(db_path=tmp_path / "zero-sale.sqlite")
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-1", "store-a"))
+    try:
+        _command(repository, events=[_event("OPENING_FIFO_ANCHOR", 5)])
+        connection = repository.get_connection()
+        try:
+            connection.execute(
+                "UPDATE fifo_cost_projections SET cutoff_status='RECONCILED'"
+            )
+        finally:
+            connection.close()
+
+        result = repository.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-30",
+        )
+
+        assert result["error"] is False
+        assert result["complete"] is True
+        assert result["allocation_revision"] == 0
+        assert result["layers"] == []
+        assert result["period_units"] == 0
+        assert result["period_cogs_rub"] == "0.00"
+        assert result["layer_breakdown_complete"] is True
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_fc16_guard_exposes_unreconciled_cutoff_and_never_claims_publication_ready(tmp_path):
     repository = FifoCostRepository(db_path=tmp_path / "blocked.sqlite")
     token = set_current_tenant_user_id(make_store_tenant_scope("owner-1", "store-a"))
@@ -553,5 +620,22 @@ def test_fc16_rate_only_units_are_persisted_separately_from_finite_layers(tmp_pa
             assert tuple(rate_line) == (1, "15.00", "15.00")
         finally:
             connection.close()
+        report = repository.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-04", date_to="2026-11-04",
+        )
+        assert report["complete"] is True
+        assert report["period_units"] == 2
+        assert report["period_cogs_rub"] == "25.00"
+        assert [(row["basis_kind"], row["quantity"], row["unit_cost_rub"])
+                for row in report["layers"]] == [
+            ("LAYER", 1, "10.00"), ("RATE", 1, "15.00"),
+        ]
+        assert [row["effective_date"] for row in report["layers"]] == [
+            "2026-11-01", "2026-11-03",
+        ]
+        assert all(row["source_method"] in {
+            "OWNER_CONFIRMED_FIFO_CUTOFF", "OWNER_CONFIRMED_NEW_COST_RATE",
+        } for row in report["layers"])
     finally:
         reset_current_tenant_user_id(token)

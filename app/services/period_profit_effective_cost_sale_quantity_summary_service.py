@@ -8,6 +8,9 @@ from services.period_profit_sale_quantity_summary_service import (
     PeriodProfitSaleQuantitySummaryService,
 )
 from services.period_profit_cost_exclusion_context import cost_excluded
+from services.period_profit_fifo_explanation_view_service import (
+    PeriodProfitFifoExplanationViewService,
+)
 
 
 class PeriodProfitEffectiveCostSaleQuantitySummaryService(
@@ -382,6 +385,10 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                         "allocation_revision"
                     )
                     next_row["fifo_cutoff_date"] = fifo.get("cutoff_date")
+                    if isinstance(fifo.get("fifo_cost_explanation"), dict):
+                        next_row["fifo_cost_explanation"] = fifo[
+                            "fifo_cost_explanation"
+                        ]
                     next_rows.append(next_row)
                     covered_skus.add(finance_sku)
                     total_units += units
@@ -501,6 +508,9 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         )
         enriched["historical_cost_bucket_count"] = historical_bucket_count
         enriched["legacy_current_cost_bucket_count"] = 0
+        fifo_explanation = PeriodProfitFifoExplanationViewService().build(enriched)
+        if isinstance(fifo_explanation, dict):
+            enriched["fifo_cost_explanation"] = fifo_explanation
         return enriched
 
     def _quantity_from_identity_map(
