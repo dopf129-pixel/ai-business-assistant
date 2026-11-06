@@ -32,6 +32,7 @@ class FifoCostRateService:
         zero_stock_snapshot=None,
         stock_snapshot=None,
         owner_confirms_reconciliation_scope=False,
+        late_entry_correction_preview=None,
     ):
         """Build a no-write preview for the next open FIFO rate."""
         zero_stock_evidence = None
@@ -62,13 +63,18 @@ class FifoCostRateService:
             zero_stock_evidence=zero_stock_evidence,
             stock_snapshot=stock_snapshot,
             owner_confirms_reconciliation_scope=owner_confirms_reconciliation_scope,
+            late_entry_correction_preview=late_entry_correction_preview,
         )
 
-    def confirm_new_cost(self, *, preview_id, active_preview_id, idempotency_key):
+    def confirm_new_cost(
+        self, *, preview_id, active_preview_id, idempotency_key,
+        late_entry_correction=None,
+    ):
         """Commit the selected preview once through the repository CAS boundary."""
 
         return self.repository.commit_cost_rate_change(
             preview_id=preview_id,
             active_preview_id=active_preview_id,
             idempotency_key=idempotency_key,
+            late_entry_correction=late_entry_correction,
         )

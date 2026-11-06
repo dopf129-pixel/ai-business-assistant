@@ -2418,3 +2418,8 @@ Summary Report теперь включает:
 - Added chronological, bounded FIFO replay with explicit date/time, source identity, inventory cutoff and revision evidence. Query order cannot change the allocation; ambiguous same-day events, missing source bridge, unsupported movement, exhausted confirmed units, duplicate identity and rate timing conflicts fail closed.
 - Added schema v5→v6 immutable allocation revisions, finite-layer and separate open-rate lines, stream-revision/source fingerprint CAS, idempotent atomic publication, and deterministic replay verification at the repository boundary. A validly rehashed but non-FIFO preview is rejected.
 - Linked FIFO profile: **175 passed in 5.18s**; `compileall` and `git diff --check` pass. Synthetic inputs and temporary SQLite only. FC16 is `DONE_WITH_GAP`: owner validation of physical sale date and shared stock/finance cutoff is still required; return and non-sale movement replay are deferred to FC18–FC19.
+# 2026-11-06 — FIFO FC22 late-entry impact and correction audit
+
+- Added a read-only before/after impact preview for late FIFO cost entry, including unit allocation by layer/rate, period COGS, tax and profit through the existing tax service.
+- Added atomic, append-only correction persistence with revision/fingerprint checks and projection invalidation. A correction does not immediately rewrite historical Period Profit; a complete allocation replay remains required.
+- The supported correction is deliberately narrow: one missing rate, complete cutoff/source history, no linked returns or non-sale outflows. Synthetic linked profile: 65 passed; production cutoff remains unreconciled.

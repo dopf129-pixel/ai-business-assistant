@@ -5299,3 +5299,8 @@ Completed:
 - Проекция подписывает неполный expense scope и не считает неизвестные расходы нулём. Существующий cross-docking denominator guard и цель after-ad оптимизации сохранены.
 - Новый `advertising_tax_bridge` v1 разделяет T0/T1, рекламный расход и налоговый эффект; формула `after = before − ad + (T0−T1)` сверяется. TaxService unchanged, SalesMix по-прежнему считает налог один раз на группу.
 - Linked scenario/current-card/Telegram profile: **315 passed in 4.97s**. Полный suite/current-head CI pending; live Ozon/Telegram и запуск бота не выполнялись.
+# 2026-11-06 — FIFO FC22 correction impact and commit
+
+- FC22 `DONE_WITH_GAP`: a read-only before/after service now reports FIFO units/COGS by basis and recalculates period tax/profit through the existing `TaxService`. Owner confirmation is bound to exact store/SKU/draft and source, stream, allocation, tax and impact fingerprints.
+- FIFO schema v9→v10 appends a correction audit snapshot atomically with the new rate. The former allocation projection is invalidated; Period Profit is not changed until complete replay. The synthetic path supports only one missing rate and no linked returns/non-sale outflows; production remains blocked by unreconciled historical stock/finance cutoff.
+- Linked FC22 profile: **65 passed in 3.25s**. All data used were synthetic or in pytest temporary SQLite; no live Ozon/Telegram requests or bot startup.

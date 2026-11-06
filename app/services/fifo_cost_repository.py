@@ -28,7 +28,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -93,6 +93,7 @@ class FifoCostRepository:
         "fifo_cost_return_basis",
         "fifo_cost_allocation_outflow_lines",
         "fifo_cost_late_entry_drafts",
+        "fifo_cost_late_entry_corrections",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -113,6 +114,7 @@ class FifoCostRepository:
         "fifo_cost_return_basis",
         "fifo_cost_allocation_outflow_lines",
         "fifo_cost_late_entry_drafts",
+        "fifo_cost_late_entry_corrections",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -1562,9 +1564,12 @@ class FifoCostRepository:
                           d.owner_old_home_units, d.accepted_units, d.purchase_cost_rub,
                           d.delivery_cost_rub, d.packaging_cost_rub, d.unit_cost_rub,
                           d.order_digest, d.supply_digest, d.source_fingerprint,
-                          d.evidence_fingerprint, d.payload_fingerprint, d.recorded_at
+                          d.evidence_fingerprint, d.payload_fingerprint, d.recorded_at,
+                          c.correction_id, c.preview_fingerprint AS correction_fingerprint
                    FROM fifo_cost_late_entry_drafts AS d
                    JOIN fifo_cost_streams AS s ON s.stream_id=d.stream_id
+                   LEFT JOIN fifo_cost_late_entry_corrections AS c
+                     ON c.stream_id=d.stream_id AND c.draft_id=d.draft_id
                    WHERE d.stream_id=? AND s.store_id=? AND s.identity_fingerprint=?
                    ORDER BY d.recorded_at, d.draft_id""",
                 (stream_id, identity["store_id"], identity_fingerprint),
@@ -1790,6 +1795,28 @@ class FifoCostRepository:
                     after.get("reason_code") if isinstance(after, dict) else "HISTORY_GAP",
                 )
 
+            before = self._preview_allocation_from_connection(
+                connection, stream_id, **common,
+            )
+            event_dates = {
+                row["event_id"]: row["effective_date"]
+                for row in connection.execute(
+                    """SELECT event_id, effective_date FROM fifo_cost_events
+                       WHERE stream_id=? AND event_kind='PHYSICAL_SALE'""",
+                    (stream_id,),
+                ).fetchall()
+            }
+            related_returns = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='SALEABLE_RETURN_RESTOCK'""",
+                (stream_id,),
+            ).fetchone()[0]
+            non_sale_outflows = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='NON_SALE_OUTFLOW'""",
+                (stream_id,),
+            ).fetchone()[0]
+
             sales_before = connection.execute(
                 """SELECT COUNT(*) FROM fifo_cost_events
                    WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
@@ -1820,6 +1847,7 @@ class FifoCostRepository:
             return {
                 "error": False,
                 "code": "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+                "draft_id": draft_id,
                 "complete": True,
                 "preview_fingerprint": fingerprint,
                 "stream_revision": stream["revision"],
@@ -1837,6 +1865,23 @@ class FifoCostRepository:
                 "candidate_rate_units": candidate_rate_units,
                 "candidate_total_cogs_rub": after["total_cogs_rub"],
                 "candidate_allocations": after["allocations"],
+                "before_complete": bool(before and before.get("complete") is True),
+                "before_reason_code": (
+                    before.get("reason_code") if isinstance(before, dict) else "HISTORY_GAP"
+                ),
+                "before_total_cogs_rub": (
+                    before.get("total_cogs_rub")
+                    if isinstance(before, dict) and before.get("complete") is True
+                    else None
+                ),
+                "before_allocations": (
+                    before.get("allocations")
+                    if isinstance(before, dict) and before.get("complete") is True
+                    else []
+                ),
+                "sale_effective_dates": event_dates,
+                "related_return_count": related_returns,
+                "non_sale_outflow_count": non_sale_outflows,
                 "period_profit_changed": False,
                 "read_only": True,
             }
@@ -1848,6 +1893,64 @@ class FifoCostRepository:
         except (sqlite3.Error, OSError):
             if connection is not None and connection.in_transaction:
                 connection.rollback()
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_late_entry_corrections(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+    ):
+        """Read immutable correction snapshots for one exact tenant/SKU stream."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + fingerprint[:40]
+            connection = self.get_connection()
+            rows = connection.execute(
+                """SELECT c.correction_id, c.stream_revision, c.draft_id,
+                          c.effective_date, c.unit_cost_rub, c.reason_code,
+                          c.preview_fingerprint, c.reconstruction_fingerprint,
+                          c.source_set_fingerprint, c.allocation_revision,
+                          c.tax_policy_fingerprint,
+                          c.period_source_fingerprints_json, c.impact_json,
+                          c.idempotency_key, c.recorded_at
+                   FROM fifo_cost_late_entry_corrections AS c
+                   JOIN fifo_cost_streams AS s ON s.stream_id=c.stream_id
+                   WHERE c.stream_id=? AND s.store_id=?
+                     AND s.identity_fingerprint=?
+                   ORDER BY c.stream_revision, c.correction_id LIMIT 201""",
+                (stream_id, identity["store_id"], fingerprint),
+            ).fetchall()
+            if len(rows) > 200:
+                return self._error("FIFO_LATE_ENTRY_HISTORY_LIMIT")
+            result = []
+            for row in rows:
+                try:
+                    impact = json.loads(row["impact_json"])
+                    period_sources = json.loads(row["period_source_fingerprints_json"])
+                except (TypeError, json.JSONDecodeError):
+                    return self._error("FIFO_LATE_ENTRY_HISTORY_INVALID")
+                if not isinstance(impact, dict) or not isinstance(period_sources, list):
+                    return self._error("FIFO_LATE_ENTRY_HISTORY_INVALID")
+                item = dict(row)
+                item.pop("impact_json")
+                item.pop("period_source_fingerprints_json")
+                item["impact"] = impact
+                item["period_source_fingerprints"] = period_sources
+                result.append(item)
+            return {
+                "error": False,
+                "code": "FIFO_LATE_ENTRY_CORRECTIONS_READY",
+                "corrections": result,
+            }
+        except (TypeError, ValueError):
+            return self._error("FIFO_IDENTITY_INVALID")
+        except (sqlite3.Error, OSError):
             return self._error("FIFO_STORAGE_UNAVAILABLE")
         finally:
             if connection is not None:
@@ -2373,11 +2476,18 @@ class FifoCostRepository:
         packaging_cost_rub, owner_old_home_units, expected_revision,
         zero_stock_evidence=None, stock_snapshot=None,
         owner_confirms_reconciliation_scope=False,
+        late_entry_correction_preview=None,
     ):
         """Preview an owner-reported open rate without adding inventory units."""
         scope = self._tenant_scope(store_id)
         if scope.get("error"):
             return scope
+        correction_preview = (
+            self._normalize_late_entry_correction(late_entry_correction_preview)
+            if late_entry_correction_preview is not None else None
+        )
+        if isinstance(correction_preview, str):
+            return self._error(correction_preview)
         connection = None
         try:
             identity = self._normalize_identity(
@@ -2420,7 +2530,7 @@ class FifoCostRepository:
             stream_id = "fifo_" + identity_fingerprint[:40]
             connection = self.get_connection()
             stream = connection.execute(
-                "SELECT state, revision FROM fifo_cost_streams WHERE stream_id=?",
+                "SELECT state, revision, policy_version FROM fifo_cost_streams WHERE stream_id=?",
                 (stream_id,),
             ).fetchone()
             projection = connection.execute(
@@ -2456,7 +2566,53 @@ class FifoCostRepository:
                 if type(stream["revision"]) is not int or stream["revision"] != expected_revision:
                     return self._error("FIFO_REVISION_CONFLICT")
                 if projection["revision"] != stream["revision"]:
-                    return self._error("FIFO_PROJECTION_STALE")
+                    if correction_preview is None:
+                        return self._error("FIFO_PROJECTION_STALE")
+                    if (
+                        correction_preview["stream_revision"] != expected_revision
+                        or projection["cutoff_status"] != "RECONCILED"
+                        or projection["queue_complete"] != 1
+                    ):
+                        return self._error("FIFO_LATE_ENTRY_PREVIEW_STALE")
+                    draft = connection.execute(
+                        """SELECT expected_revision, owner_effective_date,
+                                  owner_old_home_units, unit_cost_rub,
+                                  purchase_cost_rub, delivery_cost_rub,
+                                  packaging_cost_rub
+                           FROM fifo_cost_late_entry_drafts
+                           WHERE draft_id=? AND stream_id=?""",
+                        (correction_preview["draft_id"], stream_id),
+                    ).fetchone()
+                    if (
+                        draft is None or draft["expected_revision"] != expected_revision
+                        or draft["owner_effective_date"] != effective_date
+                        or draft["owner_old_home_units"] != owner_old_home_units
+                        or draft["unit_cost_rub"] != format(unit_cost, ".2f")
+                        or draft["purchase_cost_rub"] != components["purchase_cost_rub"]
+                        or draft["delivery_cost_rub"] != components["delivery_cost_rub"]
+                        or draft["packaging_cost_rub"] != components["packaging_cost_rub"]
+                    ):
+                        return self._error("FIFO_LATE_ENTRY_DRAFT_MISMATCH")
+                    current_source_set = self._allocation_source_fingerprint(
+                        connection, stream_id, expected_revision,
+                        stream["policy_version"], projection["cutoff_status"],
+                    )
+                    current_allocation_revision = connection.execute(
+                        """SELECT COALESCE(MAX(revision), 0)
+                           FROM fifo_cost_allocations WHERE stream_id=?""",
+                        (stream_id,),
+                    ).fetchone()[0]
+                    if (
+                        current_source_set != correction_preview["source_set_fingerprint"]
+                        or current_allocation_revision
+                        != correction_preview["allocation_revision"]
+                    ):
+                        return self._error("FIFO_LATE_ENTRY_SOURCE_STALE")
+                    if connection.execute(
+                        "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                        (stream_id,),
+                    ).fetchone()[0]:
+                        return self._error("FIFO_LATE_ENTRY_REPLAY_REQUIRED")
                 stream_snapshot = {
                     "state": stream["state"],
                     "revision": stream["revision"],
@@ -2648,6 +2804,7 @@ class FifoCostRepository:
                 "source_id": source_id,
                 "zero_stock_source": normalized_zero_stock,
                 "stream_snapshot": stream_snapshot,
+                "late_entry_correction": correction_preview,
             }
             preview_id = "rate_preview_" + uuid4().hex
             ticket = {
@@ -2680,6 +2837,10 @@ class FifoCostRepository:
                 "inventory_units_added": 0,
                 "new_batch_quantity": None,
                 "zero_old_inventory_anchor": stream_snapshot["zero_stock_anchor"],
+                "late_entry_correction_fingerprint": (
+                    correction_preview["preview_fingerprint"]
+                    if correction_preview else None
+                ),
                 "rate_reconciliation": ({
                     "reconciled_rate_sequence": reconciliation["reconciled_rate_sequence"],
                     "reconciled_total_units": reconciliation["reconciled_total_units"],
@@ -2702,11 +2863,19 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
-    def commit_cost_rate_change(self, *, preview_id, active_preview_id, idempotency_key):
+    def commit_cost_rate_change(
+        self, *, preview_id, active_preview_id, idempotency_key,
+        late_entry_correction=None,
+    ):
         """Append a cost-rate record atomically, without creating inventory."""
         key = str(idempotency_key or "")
         if not self._IDEMPOTENCY_KEY.fullmatch(key):
             return self._error("FIFO_IDEMPOTENCY_KEY_INVALID")
+        normalized_correction = self._normalize_late_entry_correction(
+            late_entry_correction,
+        ) if late_entry_correction is not None else None
+        if isinstance(normalized_correction, str):
+            return self._error(normalized_correction)
         try:
             now = self._now()
         except ValueError as exc:
@@ -2724,6 +2893,19 @@ class FifoCostRepository:
             ):
                 return self._error("FIFO_PREVIEW_STALE")
             normalized = ticket["normalized"]
+            ticket_correction = normalized.get("late_entry_correction")
+            if (
+                (normalized_correction is None) != (ticket_correction is None)
+                or (
+                    normalized_correction is not None
+                    and (
+                        normalized_correction["preview_fingerprint"]
+                        != ticket_correction["preview_fingerprint"]
+                        or normalized_correction["draft_id"] != ticket_correction["draft_id"]
+                    )
+                )
+            ):
+                return self._error("FIFO_LATE_ENTRY_PREVIEW_STALE")
             scope = self._tenant_scope(normalized["identity"]["store_id"])
             if (
                 scope.get("error")
@@ -2734,7 +2916,7 @@ class FifoCostRepository:
                 connection = self.get_connection()
                 connection.execute("BEGIN IMMEDIATE")
                 previous = connection.execute(
-                    """SELECT payload_fingerprint, stream_revision, rate_sequence,
+                    """SELECT rate_change_id, payload_fingerprint, stream_revision, rate_sequence,
                               unit_cost_rub, owner_old_home_units
                        FROM fifo_cost_rate_changes
                        WHERE stream_id=? AND idempotency_key=?""",
@@ -2744,12 +2926,29 @@ class FifoCostRepository:
                     if previous["payload_fingerprint"] != normalized["payload_fingerprint"]:
                         connection.rollback()
                         return self._error("FIFO_IDEMPOTENCY_CONFLICT")
+                    correction_row = connection.execute(
+                        """SELECT correction_id, preview_fingerprint
+                           FROM fifo_cost_late_entry_corrections
+                           WHERE stream_id=? AND rate_change_id=?""",
+                        (normalized["stream_id"], previous["rate_change_id"]),
+                    ).fetchone()
+                    if normalized_correction is not None and (
+                        correction_row is None
+                        or correction_row["preview_fingerprint"]
+                        != normalized_correction["preview_fingerprint"]
+                        or correction_row["correction_id"]
+                        != normalized_correction["correction_id"]
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_IDEMPOTENCY_CONFLICT")
                     result = {
                         "revision": previous["stream_revision"],
                         "rate_sequence": previous["rate_sequence"],
                         "unit_cost_rub": previous["unit_cost_rub"],
                         "owner_old_home_units": previous["owner_old_home_units"],
                     }
+                    if correction_row is not None:
+                        result["correction_id"] = correction_row["correction_id"]
                     connection.rollback()
                     return {
                         "error": False, "code": "FIFO_RATE_COMMITTED",
@@ -2757,12 +2956,12 @@ class FifoCostRepository:
                     }
 
                 stream = connection.execute(
-                    "SELECT state, revision FROM fifo_cost_streams WHERE stream_id=?",
+                    "SELECT state, revision, policy_version FROM fifo_cost_streams WHERE stream_id=?",
                     (normalized["stream_id"],),
                 ).fetchone()
                 projection = connection.execute(
                     "SELECT revision, state, known_quantity, known_cost_rub, "
-                    "next_unit_cost_rub, source_set_fingerprint "
+                    "next_unit_cost_rub, source_set_fingerprint, queue_complete, cutoff_status "
                     "FROM fifo_cost_projections WHERE stream_id=?",
                     (normalized["stream_id"],),
                 ).fetchone()
@@ -2797,7 +2996,10 @@ class FifoCostRepository:
                     if stream["revision"] != expected_revision:
                         connection.rollback()
                         return self._error("FIFO_REVISION_CONFLICT")
-                    if projection["revision"] != expected_revision:
+                    if (
+                        projection["revision"] != expected_revision
+                        and normalized_correction is None
+                    ):
                         connection.rollback()
                         return self._error("FIFO_PROJECTION_STALE")
                 latest = connection.execute(
@@ -2807,6 +3009,85 @@ class FifoCostRepository:
                 if latest != normalized["stream_snapshot"]["rate_sequence"] - 1:
                     connection.rollback()
                     return self._error("FIFO_RATE_REVISION_CONFLICT")
+
+                correction_draft = None
+                if normalized_correction is not None:
+                    if zero_anchor:
+                        connection.rollback()
+                        return self._error("FIFO_LATE_ENTRY_ANCHOR_MISMATCH")
+                    correction_draft = connection.execute(
+                        """SELECT d.draft_id, d.expected_revision,
+                                  d.evidence_fingerprint, d.source_fingerprint,
+                                  d.owner_effective_date, d.unit_cost_rub,
+                                  d.purchase_cost_rub, d.delivery_cost_rub,
+                                  d.packaging_cost_rub, d.owner_old_home_units,
+                                  d.payload_fingerprint, e.source_status,
+                                  e.source_fingerprint AS evidence_source_fingerprint
+                           FROM fifo_cost_late_entry_drafts AS d
+                           JOIN fifo_cost_supply_evidence AS e
+                             ON e.stream_id=d.stream_id
+                            AND e.evidence_fingerprint=d.evidence_fingerprint
+                           WHERE d.stream_id=? AND d.draft_id=?""",
+                        (normalized["stream_id"], normalized_correction["draft_id"]),
+                    ).fetchone()
+                    if correction_draft is None:
+                        connection.rollback()
+                        return self._error("FIFO_LATE_ENTRY_DRAFT_NOT_FOUND")
+                    if (
+                        correction_draft["expected_revision"] != expected_revision
+                        or correction_draft["owner_effective_date"]
+                        != normalized["payload"]["effective_date"]
+                        or correction_draft["unit_cost_rub"]
+                        != normalized["payload"]["unit_cost_rub"]
+                        or correction_draft["purchase_cost_rub"]
+                        != normalized["payload"]["purchase_cost_rub"]
+                        or correction_draft["delivery_cost_rub"]
+                        != normalized["payload"]["delivery_cost_rub"]
+                        or correction_draft["packaging_cost_rub"]
+                        != normalized["payload"]["packaging_cost_rub"]
+                        or correction_draft["owner_old_home_units"]
+                        != normalized["payload"]["owner_old_home_units"]
+                        or correction_draft["source_status"] != "COMPLETE"
+                        or correction_draft["source_fingerprint"]
+                        != correction_draft["evidence_source_fingerprint"]
+                        or normalized_correction["stream_revision"] != expected_revision
+                        or projection["cutoff_status"] != "RECONCILED"
+                        or projection["queue_complete"] != 1
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_LATE_ENTRY_PREVIEW_STALE")
+                    current_allocation_revision = connection.execute(
+                        """SELECT COALESCE(MAX(revision), 0)
+                           FROM fifo_cost_allocations WHERE stream_id=?""",
+                        (normalized["stream_id"],),
+                    ).fetchone()[0]
+                    current_source_set = self._allocation_source_fingerprint(
+                        connection, normalized["stream_id"], expected_revision,
+                        stream["policy_version"], projection["cutoff_status"],
+                    )
+                    if (
+                        current_allocation_revision
+                        != normalized_correction["allocation_revision"]
+                        or current_source_set
+                        != normalized_correction["source_set_fingerprint"]
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_LATE_ENTRY_SOURCE_STALE")
+                    existing_rates = connection.execute(
+                        "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                        (normalized["stream_id"],),
+                    ).fetchone()[0]
+                    if existing_rates:
+                        connection.rollback()
+                        return self._error("FIFO_LATE_ENTRY_REPLAY_REQUIRED")
+                    existing_correction = connection.execute(
+                        """SELECT correction_id FROM fifo_cost_late_entry_corrections
+                           WHERE stream_id=? AND draft_id=?""",
+                        (normalized["stream_id"], normalized_correction["draft_id"]),
+                    ).fetchone()
+                    if existing_correction is not None:
+                        connection.rollback()
+                        return self._error("FIFO_LATE_ENTRY_ALREADY_CORRECTED")
 
                 if zero_anchor:
                     self._ensure_source(connection, {
@@ -2842,6 +3123,34 @@ class FifoCostRepository:
                         self._iso(now), normalized["source"]["captured_at"],
                     ),
                 )
+                if normalized_correction is not None:
+                    impact_json = normalized_correction["impact_json"]
+                    connection.execute(
+                        """INSERT INTO fifo_cost_late_entry_corrections (
+                            correction_id, stream_id, stream_revision, draft_id,
+                            rate_change_id, effective_date, unit_cost_rub,
+                            reason_code, preview_fingerprint,
+                            reconstruction_fingerprint, source_set_fingerprint,
+                            allocation_revision, tax_policy_fingerprint,
+                            period_source_fingerprints_json, impact_json,
+                            idempotency_key, recorded_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'OWNER_REPORTED_LATE',
+                                  ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            normalized_correction["correction_id"],
+                            normalized["stream_id"], next_revision,
+                            normalized_correction["draft_id"], rate_change_id,
+                            normalized["payload"]["effective_date"],
+                            normalized["payload"]["unit_cost_rub"],
+                            normalized_correction["preview_fingerprint"],
+                            normalized_correction["reconstruction_fingerprint"],
+                            normalized_correction["source_set_fingerprint"],
+                            normalized_correction["allocation_revision"],
+                            normalized_correction["tax_policy_fingerprint"],
+                            normalized_correction["period_source_fingerprints_json"],
+                            impact_json, key, self._iso(now),
+                        ),
+                    )
                 reconciliation = normalized["payload"]["rate_reconciliation"]
                 if reconciliation is not None:
                     reconciliation_id = "rate_recon_" + self._sha256({
@@ -2956,6 +3265,8 @@ class FifoCostRepository:
                     **({"reconciled_previous_rate_units": reconciliation["prior_rate_units"]}
                        if reconciliation else {}),
                 }
+                if normalized_correction is not None:
+                    result["correction_id"] = normalized_correction["correction_id"]
                 connection.commit()
                 return {
                     "error": False, "code": "FIFO_RATE_COMMITTED",
@@ -2969,7 +3280,11 @@ class FifoCostRepository:
             except sqlite3.IntegrityError:
                 if connection is not None and connection.in_transaction:
                     connection.rollback()
-                return self._error("FIFO_RATE_REVISION_CONFLICT")
+                return self._error(
+                    "FIFO_LATE_ENTRY_COMMIT_CONFLICT"
+                    if normalized_correction is not None
+                    else "FIFO_RATE_REVISION_CONFLICT"
+                )
             except (sqlite3.Error, OSError):
                 if connection is not None and connection.in_transaction:
                     connection.rollback()
@@ -3688,6 +4003,89 @@ class FifoCostRepository:
         if not isinstance(value, str) or not re.fullmatch(r"[A-Z0-9_./-]{1," + str(max_length) + r"}", value):
             raise ValueError(code)
         return value
+
+    @classmethod
+    def _normalize_late_entry_correction(cls, value):
+        """Validate and freeze a complete, read-only FC22 impact preview."""
+        if not isinstance(value, dict) or value.get("error") is not False:
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        if (
+            value.get("code") != "FIFO_LATE_ENTRY_IMPACT_READY"
+            or value.get("complete") is not True
+            or value.get("read_only") is not True
+            or value.get("related_return_count") != 0
+        ):
+            return "FIFO_LATE_ENTRY_IMPACT_INCOMPLETE"
+        digest_fields = (
+            "preview_fingerprint", "source_set_fingerprint",
+            "reconstruction_fingerprint", "tax_policy_fingerprint",
+        )
+        if any(not cls._valid_digest(value.get(field)) for field in digest_fields):
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        draft_id = value.get("draft_id")
+        if not isinstance(draft_id, str) or not re.fullmatch(
+            r"late_[0-9a-f]{40}", draft_id,
+        ):
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        stream_revision = value.get("stream_revision")
+        allocation_revision = value.get("allocation_revision")
+        if (
+            type(stream_revision) is not int or stream_revision < 1
+            or type(allocation_revision) is not int or allocation_revision < 0
+        ):
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        material = {
+            key: item for key, item in value.items()
+            if key not in {"preview_fingerprint", "code", "error"}
+        }
+        if cls._sha256(material) != value["preview_fingerprint"]:
+            return "FIFO_LATE_ENTRY_IMPACT_FINGERPRINT_INVALID"
+        periods = value.get("periods")
+        if not isinstance(periods, list) or not periods or len(periods) > 200:
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        fingerprints = []
+        seen_periods = set()
+        for row in periods:
+            if not isinstance(row, dict):
+                return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+            period = row.get("period")
+            fingerprint = row.get("source_fingerprint")
+            if (
+                not isinstance(period, str)
+                or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", period)
+                or period in seen_periods
+                or not cls._valid_digest(fingerprint)
+                or row.get("completeness") != "COMPLETE"
+                or row.get("linked_return_count") != 0
+            ):
+                return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+            seen_periods.add(period)
+            fingerprints.append({"period": period, "fingerprint": fingerprint})
+        try:
+            impact_json = cls._canonical_json(value)
+            period_fingerprints_json = cls._canonical_json(
+                sorted(fingerprints, key=lambda item: item["period"]),
+            )
+        except (TypeError, ValueError, OverflowError):
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        if len(impact_json.encode("utf-8")) > cls.MAX_PAYLOAD_BYTES:
+            return "FIFO_LATE_ENTRY_IMPACT_TOO_LARGE"
+        correction_id = "latecorr_" + cls._sha256({
+            "draft_id": draft_id,
+            "preview_fingerprint": value["preview_fingerprint"],
+        })[:40]
+        return {
+            "correction_id": correction_id,
+            "draft_id": draft_id,
+            "stream_revision": stream_revision,
+            "allocation_revision": allocation_revision,
+            "source_set_fingerprint": value["source_set_fingerprint"],
+            "preview_fingerprint": value["preview_fingerprint"],
+            "reconstruction_fingerprint": value["reconstruction_fingerprint"],
+            "tax_policy_fingerprint": value["tax_policy_fingerprint"],
+            "period_source_fingerprints_json": period_fingerprints_json,
+            "impact_json": impact_json,
+        }
 
     @classmethod
     def _valid_digest(cls, value):
@@ -4793,6 +5191,34 @@ class FifoCostRepository:
                     REFERENCES fifo_cost_supply_evidence(stream_id, evidence_fingerprint)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_late_entry_corrections (
+                correction_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 1),
+                draft_id TEXT NOT NULL REFERENCES fifo_cost_late_entry_drafts(draft_id),
+                rate_change_id TEXT NOT NULL UNIQUE
+                    REFERENCES fifo_cost_rate_changes(rate_change_id),
+                effective_date TEXT NOT NULL,
+                unit_cost_rub TEXT NOT NULL,
+                reason_code TEXT NOT NULL CHECK(reason_code='OWNER_REPORTED_LATE'),
+                preview_fingerprint TEXT NOT NULL CHECK(length(preview_fingerprint) = 64),
+                reconstruction_fingerprint TEXT NOT NULL
+                    CHECK(length(reconstruction_fingerprint) = 64),
+                source_set_fingerprint TEXT NOT NULL
+                    CHECK(length(source_set_fingerprint) = 64),
+                allocation_revision INTEGER NOT NULL CHECK(allocation_revision >= 0),
+                tax_policy_fingerprint TEXT NOT NULL
+                    CHECK(length(tax_policy_fingerprint) = 64),
+                period_source_fingerprints_json TEXT NOT NULL CHECK(
+                    length(period_source_fingerprints_json) <= 65536
+                ),
+                impact_json TEXT NOT NULL CHECK(length(impact_json) <= 65536),
+                idempotency_key TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                UNIQUE(stream_id, draft_id),
+                UNIQUE(stream_id, idempotency_key)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_allocations (
                 allocation_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -4955,6 +5381,12 @@ class FifoCostRepository:
                 "PRAGMA table_info(fifo_cost_late_entry_drafts)"
             )
         }
+        correction_columns = {
+            str(item[1])
+            for item in connection.execute(
+                "PRAGMA table_info(fifo_cost_late_entry_corrections)"
+            )
+        }
         if "stream_revision" not in allocation_columns or not {
             "allocation_id", "line_number", "event_id", "rate_change_id",
             "quantity", "unit_cost_rub", "total_cost_rub",
@@ -4962,6 +5394,13 @@ class FifoCostRepository:
             "draft_id", "stream_id", "expected_revision", "evidence_fingerprint",
             "owner_effective_date", "accepted_units", "unit_cost_rub",
             "payload_fingerprint", "recorded_at",
-        } <= late_entry_columns:
+        } <= late_entry_columns or not {
+            "correction_id", "stream_id", "stream_revision", "draft_id",
+            "rate_change_id", "effective_date", "unit_cost_rub", "reason_code",
+            "preview_fingerprint", "reconstruction_fingerprint",
+            "source_set_fingerprint", "allocation_revision",
+            "tax_policy_fingerprint", "period_source_fingerprints_json",
+            "impact_json", "idempotency_key", "recorded_at",
+        } <= correction_columns:
             raise sqlite3.DatabaseError("invalid FIFO repository schema")
 

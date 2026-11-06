@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC22 — late-entry impact and correction commit
+
+- `tests/test_fifo_cost_late_entry_impact_service.py` checks period coverage/fingerprints, exact sale and allocation quantity/cost reconciliation, layer-by-layer units and COGS, tax/profit deltas through the existing `TaxService`, and fail-closed behavior for returns, non-sale outflows, incomplete periods and invalid policy inputs.
+- `tests/test_fifo_cost_late_entry_correction_service.py` checks zero COGS delta when old finite layers cover all affected sales, changed source/tax snapshots and changed stream revisions, owner/store/SKU isolation, idempotent confirmation and conflicting retries. Repository regressions cover schema v9→v10 migration, append-only correction data, transaction rollback, stale preview checks, and invalidated allocation projection.
+- Linked profile: `python -m pytest -q tests/test_fifo_cost_late_entry_impact_service.py tests/test_fifo_cost_late_entry_correction_service.py tests/test_fifo_cost_late_entry_reconstruction_service.py tests/test_fifo_cost_rate_service.py tests/test_fifo_cost_repository.py` — **65 passed in 3.25s**. Tests use synthetic evidence and temporary SQLite only; no external requests or persistent user data.
+
 ## FC21 — read-only reconstruction of a late FIFO cost transition
 
 - `tests/test_fifo_cost_late_entry_reconstruction_service.py` verifies the production cutoff blocker/evidence request; a complete synthetic cutoff replay; preservation of unsold old finite layers; documentary-only accepted-act quantity; no writes to FIFO revisions/rates or Period Profit; stale revision rejection; same-day date-only ambiguity; and tenant/store isolation.

@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import re
 
+from services.fifo_cost_late_entry_impact_service import (
+    FifoCostLateEntryImpactService,
+)
+
 
 class FifoCostLateEntryReconstructionService:
     """Replay an exact-SKU stream with one hypothetical historical open rate."""
 
     _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
-    def __init__(self, repository):
+    def __init__(self, repository, impact_service=None):
         self.repository = repository
+        self.impact_service = impact_service or FifoCostLateEntryImpactService()
 
     def preview(self, *, store_id, product_id=None, offer_id=None, sku, draft_id):
         result = self.repository.preview_late_entry_reconstruction(
@@ -45,6 +50,33 @@ class FifoCostLateEntryReconstructionService:
         ):
             return self._error("FIFO_RECONSTRUCTION_RESULT_INVALID")
         return result
+
+    def preview_impact(
+        self, *, store_id, product_id=None, offer_id=None, sku, draft_id,
+        period_summaries, tax_policy_result,
+    ):
+        reconstruction = self.preview(
+            store_id=store_id,
+            product_id=product_id,
+            offer_id=offer_id,
+            sku=sku,
+            draft_id=draft_id,
+        )
+        if not isinstance(reconstruction, dict) or reconstruction.get("error") is True:
+            return self._error("FIFO_RECONSTRUCTION_RESULT_INVALID")
+        if reconstruction.get("code") != "FIFO_LATE_ENTRY_RECONSTRUCTION_READY":
+            return reconstruction
+        try:
+            impact = self.impact_service.preview(
+                reconstruction=reconstruction,
+                period_summaries=period_summaries,
+                tax_policy_result=tax_policy_result,
+            )
+        except Exception:
+            return self._error("FIFO_LATE_ENTRY_IMPACT_UNAVAILABLE")
+        if not isinstance(impact, dict) or impact.get("read_only") is not True:
+            return self._error("FIFO_LATE_ENTRY_IMPACT_INVALID")
+        return impact
 
     @staticmethod
     def _error(code):
