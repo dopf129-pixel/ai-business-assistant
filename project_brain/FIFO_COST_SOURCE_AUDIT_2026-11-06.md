@@ -125,3 +125,11 @@ The first-rate/no-opening-anchor case has a narrow confirmed-zero branch: exact 
 
 FC11 schema v2→v3 and revision-bound preview/confirm were verified with temporary SQLite and synthetic sources: **127 passed in 2.79s** across rate service, repository, allocator, source normalizer/collector, client contract and anchor tests; compileall and final `git diff --check` PASS. No live Ozon/Telegram request, owner database, or bot startup was used.
 
+## FC12 owner-facing history projection
+
+`FifoCostHistoryService` is a read-only view over locally confirmed FIFO evidence. It does not collect Ozon source data, establish new quantity, or resolve the FC02 stock-to-physical-sale cutoff. If any post-anchor movement exists, recorded layer quantities stay visible only as historical recorded amounts; current remaining quantities and the next unit cost are withheld until replay. Planned/effective rates are date-classified without implying an unknown purchase quantity is stock.
+
+The Telegram history menu exposes only exact catalog SKU labels and owner-entered values. Callback payloads contain an opaque random token and are scoped to current Telegram user, tenant/store and stream revision; no database IDs, source IDs, fingerprints, or internal state labels are rendered. A confirmed new rate is an owner report of unit-cost components plus old-at-home reconciliation evidence, not Ozon proof of a new receipt. It never increments inventory; finance and Period Profit remain unchanged and the unresolved factual cutoff remains blocked.
+
+FC12 verification: **108 passed in 2.91s** across temporary FIFO databases, synthetic callbacks and existing seller-cost regressions; no source API or real bot was exercised. No FC02 evidence gap was closed in this stage.
+

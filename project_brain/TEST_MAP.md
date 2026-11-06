@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC12 — FIFO history and Telegram rate-entry
+
+- `tests/test_fifo_cost_history_service.py` covers empty queues, confirmed next finite layer, planned versus effective rate, provenance labels, and refusal to report remaining/current next-unit cost after an unreplayed movement.
+- `tests/test_telegram_fifo_cost_history.py` covers opaque callback generation/length, user/store/revision/TTL binding, safe visible labels, exact-SKU return actions, menu compatibility, Decimal component entry, explicit home-zero/quantity input, no invented new-batch quantity, idempotent confirmation, stale store rejection, and unchanged finite layers/cutoff after an actual temporary-SQLite rate commit.
+- Linked Windows profile also includes existing FIFO anchor/rate/repository/allocation/source tests, guided legacy seller-cost menu, seller-cost confirmation/switch/display tests, and unit-price navigation regression: **108 passed in 2.91s**. `compileall` and `git diff --check` PASS. No live Ozon/Telegram calls, bot startup, or persistent owner data.
+
 # 2026-11-06 — FC11 timely new cost rate
 
 - `tests/test_fifo_cost_rate_service.py` covers no-write rate preview, all-in cost components, explicit home remainder, unchanged finite FIFO layers, atomic append-only rate commit, idempotent confirmation, stale draft replacement, owner/store scope, date ordering, and stale stock/cost revision rejection. N02 covers the narrow confirmed-zero first-rate path versus unknown transit; it asserts that no fake receipt/event/layer is created and the factual cutoff stays blocked.
