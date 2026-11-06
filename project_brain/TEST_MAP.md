@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC31: backup/restore round-trip и migration rollback
+
+- `tests/test_fifo_cost_backup_restore.py` uses the existing `BotBackupService` with isolated project/storage roots and a synthetic tenant DB. It saves an opening layer, dated cost rate, linked accepted supply evidence, a planning document, allocation revision and late-correction audit; restores to a new root and reopens new FIFO/planning repositories, history/current-cost adapter and Telegram CSV exporter. A fresh replay returns identical allocation lines and COGS (`14.00 ₽`).
+- The same test verifies `.env` and runtime-cache omission, revision/process-local ticket behavior, old callback rejection and read-only history export. `tests/test_fifo_cost_repository.py` covers legacy/planning preservation, old-schema additive migration, successful upgrade, rollback after partial DDL failure and future-schema rejection; `tests/test_bot_backup_service.py` covers the surrounding established archive contract.
+- FC31 linked profile: **103 passed in 5.77s**; `compileall` and `git diff --check` PASS. All test state is under pytest temporary roots; the 6 files in the worktree `data/` tree are SHA-256/length-identical before and after.
+
 # 2026-11-06 — FIFO FC30: конкуренция запросов и границы операций
 
 - `tests/test_fifo_cost_source_collection_service.py::test_duplicate_concurrent_stock_collection_is_singleflight` verifies duplicate same-scope requests produce one actual source call and a bounded in-progress response. `test_concurrent_stock_collection_does_not_block_independent_scope` verifies a blocked request does not serialize a different store or exact SKU; incomplete synthetic stock evidence remains `PARTIAL`.

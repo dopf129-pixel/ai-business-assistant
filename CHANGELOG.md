@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC31: проверка backup/restore и миграций
+
+- Added an isolated round-trip regression through the existing backup service: FIFO anchors/rates, supply links, saved planning document, allocation revision and late-correction audit survive restore into a new storage root and fresh repository/services. Replayed allocation COGS is unchanged; current-cost/history and read-only CSV export reopen successfully.
+- The archive excludes `.env`, runtime cache files and process-local confirmation tickets; restored stale confirmations are rejected. Existing migration tests verify legacy/planning data preservation, old-schema upgrade, rollback on partial DDL failure and rejection of a future schema.
+- FC31 linked Windows profile: **103 passed in 5.77s**; changed-test `compileall` and `git diff --check` PASS. All **6** files under the worktree `data/` tree match SHA-256 and length before/after. Temporary roots, synthetic fixture data, and test-only backup archive; no live API or bot startup.
+
 # 2026-11-06 — FIFO FC30: конкурентность и bounded source work
 
 - Added a deterministic concurrency regression proving same-scope stock collection is single-flight while different stores and different exact SKU identities can collect independently. Both source results remain partial when the synthetic evidence does not establish the full inventory cutoff.
