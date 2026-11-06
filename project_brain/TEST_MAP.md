@@ -7,7 +7,7 @@
 
 - Полная Windows команда `python -m pytest -q` (Python 3.12.10, pytest 8.4.2): **4,792 passed in 50.14s**. Предшествующая регрессия меню исправлена добавлением ожидаемой кнопки экспорта истории; реализация не изменялась.
 - `python -m compileall -q app tests` и `git diff --check` PASS. До/после сравнение точного снимка `data/`: 6/6 файлов одинаковы по размеру и SHA-256, 0 лишних файлов.
-- GitHub Actions run 42278932818 (SHA `cd39a679a92fdef70f89db8effc8534a6c2ef697`) завершился success: Windows/Python 3.12 full suite, Ubuntu/Python 3.11 full suite, production Docker build, runtime/import smoke. Финальный документационный SHA обязан пройти тот же workflow; его статус — в PR #726.
+- GitHub Actions run 42279830501 (exact SHA `18ee4e6e459d2aa6a324ae0ef7d5a40e6828baa5`) завершился success: Windows/Python 3.12 full suite, Ubuntu/Python 3.11 full suite, production Docker build, runtime/import smoke. Финальное обновление статуса документации запускает workflow ещё раз на новом PR head; проверяйте результат в PR #726.
 
 # 2026-11-06 — FIFO FC33: документация и owner acceptance
 

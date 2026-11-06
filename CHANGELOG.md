@@ -8,7 +8,7 @@
 - Исправлено устаревшее ожидание клавиатуры в регрессионном тесте меню себестоимости: теперь он учитывает уже существующую кнопку экспорта истории; продуктовый контракт не менялся.
 - Полный Windows прогон `pytest -q`: **4,792 passed in 50.14s**. `compileall -q app tests` и `git diff --check` прошли.
 - Все 6 файлов `data/` после теста побайтно восстановлены по предварительному снимку и повторно сверены по размеру/SHA-256; незапланированных файлов нет. Локальный Docker не установлен; production image build/smoke выполняются CI на Ubuntu для точного SHA.
-- На PR SHA `cd39a679a92fdef70f89db8effc8534a6c2ef697` run 42278932818 завершился успешно: Windows/Linux full verification и Ubuntu production Docker build/runtime smoke PASS. После этой фиксации результата следует проверить тот же workflow на финальном документационном SHA.
+- На PR SHA `18ee4e6e459d2aa6a324ae0ef7d5a40e6828baa5` run 42279830501 прошёл полностью: Windows/Linux full verification и Ubuntu production Docker build/runtime smoke PASS. PR #726 переведён из draft в ready-for-review без слияния. Новый коммит фиксирует только финальный статус; его актуальная голова также должна быть зелёной в CI.
 
 # 2026-11-06 — FIFO FC33: руководство владельца и статус готовности
 

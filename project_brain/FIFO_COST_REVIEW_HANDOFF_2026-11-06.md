@@ -44,7 +44,7 @@
 
 - Run `42278932818` (workflow Verify, run 3371) завершился `success` на точном PR SHA `cd39a679a92fdef70f89db8effc8534a6c2ef697`.
 - Windows job: compile и полный pytest — PASS. Ubuntu job: compile, полный pytest, production Docker build, runtime health check и import smoke — PASS.
-- После записи этих результатов в журнал создаётся документационный commit; итоговую рекомендацию давать только после нового зелёного run для его актуального SHA на PR #726. См. текущее состояние Checks в GitHub PR.
+- PR #726 переведён в ready-for-review после всех успешных job. Точный SHA `18ee4e6e459d2aa6a324ae0ef7d5a40e6828baa5`, run `42279830501`, conclusion `success`. Финальный статусный commit этого handoff — docs-only и запускает тот же workflow; точная актуальная голова и результат проверяются по GitHub PR #726. Слияния не было.
 
 ## Приоритеты независимого review
 
