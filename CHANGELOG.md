@@ -2389,3 +2389,8 @@ Summary Report теперь включает:
 
 - Одиночная и пакетная смена себестоимости обновляют совместимую текущую проекцию только значением, действующим сегодня. Будущая ставка не заменяет текущую, а поздно внесённая старая ставка не откатывает её. Текущая карточка и калькулятор разрешают цену по текущей effective date и обновляют кэш после смены даты без перезапуска.
 - Неоднозначная старая строка, совпадающая по сумме и timestamp с будущей сменой, теперь fail-closed: её нельзя выдать за подтверждённую сегодняшнюю стоимость. Подтверждённые интервалы и legacy timestamp с различимой provenance сохранены.
+# 2026-11-06 — FC16 bounded FIFO allocation replay
+
+- Added chronological, bounded FIFO replay with explicit date/time, source identity, inventory cutoff and revision evidence. Query order cannot change the allocation; ambiguous same-day events, missing source bridge, unsupported movement, exhausted confirmed units, duplicate identity and rate timing conflicts fail closed.
+- Added schema v5→v6 immutable allocation revisions, finite-layer and separate open-rate lines, stream-revision/source fingerprint CAS, idempotent atomic publication, and deterministic replay verification at the repository boundary. A validly rehashed but non-FIFO preview is rejected.
+- Linked FIFO profile: **175 passed in 5.18s**; `compileall` and `git diff --check` pass. Synthetic inputs and temporary SQLite only. FC16 is `DONE_WITH_GAP`: owner validation of physical sale date and shared stock/finance cutoff is still required; return and non-sale movement replay are deferred to FC18–FC19.

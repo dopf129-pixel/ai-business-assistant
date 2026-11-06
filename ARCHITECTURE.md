@@ -348,6 +348,20 @@ only marks an event eligible when physical-date semantics and the shared
 inventory/finance cutoff bridge are explicitly confirmed. It does not call
 Ozon or write an event.
 
+### FIFO replay and allocation publication
+
+`FifoCostReplayService` is a pure bounded coordinator over the deterministic
+`FifoCostAllocationService`. It sorts only evidence that establishes causal
+order and refuses ambiguous time, duplicate sale identity, unsupported
+movement, incomplete coverage or an exhausted confirmed queue. `FifoCostRepository`
+rebuilds the expected allocation from immutable source rows and compares the
+whole preview inside the same `BEGIN IMMEDIATE` transaction that checks source
+fingerprint and stream/allocation revisions. Allocation headers and finite/open
+rate lines are append-only; a changed ledger makes the prior projection stale.
+This protects persistence from a modified preview even if its caller recomputes
+the preview hash. Physical sale/cutoff evidence remains owner-validation gated,
+so this backend does not yet feed production Period Profit.
+
 ---
 
 ## ProfitService

@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC16 — deterministic FIFO replay and immutable allocation revisions
+
+- `tests/test_fifo_cost_replay_service.py` checks chronological query-order independence, same-day ambiguity, required physical/cutoff evidence, unsupported events, duplicate digest/timestamp, oversell, event caps, and effective-date handling for an open rate.
+- `tests/test_fifo_cost_allocation_repository.py` checks cutoff guard, schema v5→v6 migration, immutable/idempotent publication, stale revisions, complete sale coverage, source-rate integrity, separate rate-line storage, validly rehashed FIFO reordering, and confirmed-quantity exhaustion.
+- Linked profile across 13 FIFO/Telegram FIFO test files: **175 passed in 5.18s**. Compilation and `git diff --check` PASS. Tests use synthetic inputs and temporary SQLite; no live API, bot startup or owner data.
+
 ## FC15 — устойчивая идентичность sale evidence
 
 - `tests/test_fifo_cost_sale_evidence_normalizer.py`: ключ не меняется при SKU rewrite для того же подтверждённого seller offer; ключ разделён по store/posting/product; повторные финансовые даты дедуплицируются и не становятся physical date; unsupported order-status authority, неизвестный product mapping, некорректное количество и даты отклоняются; без подтверждения effective-date semantics и cutoff bridge FIFO event не разрешён.
