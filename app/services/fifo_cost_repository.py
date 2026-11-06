@@ -28,7 +28,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 10
+    SCHEMA_VERSION = 11
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -71,6 +71,7 @@ class FifoCostRepository:
     _PREVIEW_LOCK = threading.RLock()
     _ACTIVE_PREVIEWS = {}
     _ACTIVE_RATE_PREVIEWS = {}
+    _ACTIVE_RATE_CANCELLATION_PREVIEWS = {}
 
     _TABLES = (
         "fifo_cost_schema",
@@ -94,6 +95,7 @@ class FifoCostRepository:
         "fifo_cost_allocation_outflow_lines",
         "fifo_cost_late_entry_drafts",
         "fifo_cost_late_entry_corrections",
+        "fifo_cost_rate_cancellations",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -115,6 +117,7 @@ class FifoCostRepository:
         "fifo_cost_allocation_outflow_lines",
         "fifo_cost_late_entry_drafts",
         "fifo_cost_late_entry_corrections",
+        "fifo_cost_rate_cancellations",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -171,6 +174,7 @@ class FifoCostRepository:
                     "layers": [],
                     "rates": [],
                     "rate_reconciliations": [],
+                    "rate_cancellations": [],
                     "event_counts": {},
                     "movement_count": 0,
                     "latest_allocation": None,
@@ -216,7 +220,7 @@ class FifoCostRepository:
                 "coverage_status": row["coverage_status"],
             } for row in layer_rows]
             rate_rows = connection.execute(
-                """SELECT r.rate_sequence, r.effective_date, r.unit_cost_rub,
+                """SELECT r.rate_change_id, r.rate_sequence, r.effective_date, r.unit_cost_rub,
                           r.purchase_cost_rub, r.delivery_cost_rub,
                           r.packaging_cost_rub, r.owner_old_home_units,
                           r.recorded_at, r.captured_at, s.provenance,
@@ -227,6 +231,18 @@ class FifoCostRepository:
                    ORDER BY r.rate_sequence""",
                 (stream_id,),
             ).fetchall()
+            cancellation_rows = connection.execute(
+                """SELECT c.rate_change_id, r.rate_sequence,
+                          c.reason_code, c.recorded_at
+                   FROM fifo_cost_rate_cancellations AS c
+                   JOIN fifo_cost_rate_changes AS r
+                     ON r.rate_change_id=c.rate_change_id
+                   WHERE c.stream_id=? ORDER BY r.rate_sequence""",
+                (stream_id,),
+            ).fetchall()
+            cancellations_by_rate = {
+                row["rate_change_id"]: row for row in cancellation_rows
+            }
             rates = [{
                 "sequence": row["rate_sequence"],
                 "effective_date": row["effective_date"],
@@ -240,7 +256,21 @@ class FifoCostRepository:
                 "provenance": row["provenance"],
                 "source_status": row["source_status"],
                 "coverage_status": row["coverage_status"],
+                "cancelled": row["rate_change_id"] in cancellations_by_rate,
+                "cancellation_reason_code": (
+                    cancellations_by_rate[row["rate_change_id"]]["reason_code"]
+                    if row["rate_change_id"] in cancellations_by_rate else None
+                ),
+                "cancelled_at": (
+                    cancellations_by_rate[row["rate_change_id"]]["recorded_at"]
+                    if row["rate_change_id"] in cancellations_by_rate else None
+                ),
             } for row in rate_rows]
+            rate_cancellations = [{
+                "rate_sequence": row["rate_sequence"],
+                "reason_code": row["reason_code"],
+                "recorded_at": row["recorded_at"],
+            } for row in cancellation_rows]
             reconciliation_rows = connection.execute(
                 """SELECT transition_rate_sequence, reconciled_rate_sequence,
                           reconciled_total_units, older_finite_units,
@@ -301,6 +331,7 @@ class FifoCostRepository:
                 "layers": layers,
                 "rates": rates,
                 "rate_reconciliations": rate_reconciliations,
+                "rate_cancellations": rate_cancellations,
                 "event_counts": event_counts,
                 "movement_count": movement_count,
                 "latest_allocation": latest_allocation,
@@ -388,7 +419,16 @@ class FifoCostRepository:
                 (stream_id,),
             ).fetchone()[0]
             rate_count = connection.execute(
-                "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                   WHERE r.stream_id=? AND NOT EXISTS (
+                       SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                       WHERE c.stream_id=r.stream_id
+                         AND c.rate_change_id=r.rate_change_id
+                   )""",
+                (stream_id,),
+            ).fetchone()[0]
+            rate_cancellation_count = connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_rate_cancellations WHERE stream_id=?",
                 (stream_id,),
             ).fetchone()[0]
             cutoff_mismatch_sale_count = connection.execute(
@@ -432,6 +472,7 @@ class FifoCostRepository:
                 "anchor_cutoff_date": anchor_cutoff_date,
                 "unsupported_event_count": unsupported_event_count,
                 "unsupported_rate_transition_count": max(0, rate_count - 1),
+                "rate_cancellation_count": rate_cancellation_count,
                 "cutoff_mismatch_sale_count": cutoff_mismatch_sale_count,
                 "replay_reason_code": (
                     None if replay_ready else
@@ -790,7 +831,12 @@ class FifoCostRepository:
                 else:
                     basis = connection.execute(
                         """SELECT r.unit_cost_rub FROM fifo_cost_rate_changes AS r
-                           WHERE r.stream_id=? AND r.rate_change_id=?""",
+                           WHERE r.stream_id=? AND r.rate_change_id=?
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                                 WHERE c.stream_id=r.stream_id
+                                   AND c.rate_change_id=r.rate_change_id
+                             )""",
                         (stream_id, line["basis_id"]),
                     ).fetchone()
                 if basis is None or self._normalize_money(basis[0]) != unit_cost:
@@ -1740,7 +1786,12 @@ class FifoCostRepository:
                 connection.rollback()
                 return self._late_entry_reconstruction_blocked("EVENT_ORDER_UNRESOLVED")
             if connection.execute(
-                "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                   WHERE r.stream_id=? AND NOT EXISTS (
+                       SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                       WHERE c.stream_id=r.stream_id
+                         AND c.rate_change_id=r.rate_change_id
+                   )""",
                 (stream_id,),
             ).fetchone()[0]:
                 connection.rollback()
@@ -1951,6 +2002,359 @@ class FifoCostRepository:
         except (TypeError, ValueError):
             return self._error("FIFO_IDENTITY_INVALID")
         except (sqlite3.Error, OSError):
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def preview_cancel_future_rate(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+        rate_sequence, expected_revision,
+    ):
+        """Preview cancellation of one unused, future-dated latest rate."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if type(rate_sequence) is not int or rate_sequence < 1:
+            return self._error("FIFO_RATE_SEQUENCE_INVALID")
+        if type(expected_revision) is not int or expected_revision < 1:
+            return self._error("FIFO_REVISION_CONFLICT")
+        connection = None
+        try:
+            now = self._now()
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            connection = self.get_connection()
+            connection.execute("BEGIN")
+            stream = connection.execute(
+                """SELECT state, revision, policy_version FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchone()
+            projection = connection.execute(
+                """SELECT revision, state, cutoff_status, source_set_fingerprint
+                   FROM fifo_cost_projections WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()
+            if stream is None or projection is None:
+                connection.rollback()
+                return self._error("FIFO_HISTORY_NOT_INITIALIZED")
+            if stream["revision"] != expected_revision or projection["revision"] != stream["revision"]:
+                connection.rollback()
+                return self._error("FIFO_REVISION_CONFLICT")
+            rate = connection.execute(
+                """SELECT r.rate_change_id, r.rate_sequence, r.effective_date
+                   FROM fifo_cost_rate_changes AS r
+                   WHERE r.stream_id=? AND r.rate_sequence=?
+                     AND NOT EXISTS (
+                         SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                         WHERE c.stream_id=r.stream_id
+                           AND c.rate_change_id=r.rate_change_id
+                     )""",
+                (stream_id, rate_sequence),
+            ).fetchone()
+            latest = connection.execute(
+                """SELECT COALESCE(MAX(r.rate_sequence), 0)
+                   FROM fifo_cost_rate_changes AS r WHERE r.stream_id=?
+                     AND NOT EXISTS (
+                         SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                         WHERE c.stream_id=r.stream_id
+                           AND c.rate_change_id=r.rate_change_id
+                     )""",
+                (stream_id,),
+            ).fetchone()[0]
+            if rate is None or latest != rate_sequence:
+                connection.rollback()
+                return self._error("FIFO_RATE_CANCELLATION_NOT_LATEST")
+            if rate["effective_date"] <= now.date().isoformat():
+                connection.rollback()
+                return self._error("FIFO_RATE_CANCELLATION_NOT_FUTURE")
+            anchor = connection.execute(
+                """SELECT COUNT(*) AS count, COUNT(DISTINCT inventory_cutoff) AS cutoffs,
+                          MIN(inventory_cutoff) AS cutoff
+                   FROM fifo_cost_events WHERE stream_id=?
+                     AND event_kind='OPENING_FIFO_ANCHOR'
+                     AND provenance='OWNER_CONFIRMED'
+                     AND completeness='OWNER_CONFIRMED'""",
+                (stream_id,),
+            ).fetchone()
+            if anchor["count"] < 1 or anchor["cutoffs"] != 1 or self._normalize_date(anchor["cutoff"]) is None:
+                connection.rollback()
+                return self._error("FIFO_ANCHOR_UNCONFIRMED")
+            future_event_count = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events WHERE stream_id=?
+                   AND event_kind<>'OPENING_FIFO_ANCHOR'
+                   AND (effective_date IS NULL OR effective_date>=?)""",
+                (stream_id, rate["effective_date"]),
+            ).fetchone()[0]
+            allocated_rate = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_allocation_rate_lines
+                   WHERE rate_change_id=?""",
+                (rate["rate_change_id"],),
+            ).fetchone()[0]
+            if future_event_count or allocated_rate:
+                connection.rollback()
+                return self._error("FIFO_RATE_FUTURE_EVENT_ALREADY_USED")
+            if connection.execute(
+                """SELECT 1 FROM fifo_cost_rate_reconciliations
+                   WHERE stream_id=? AND transition_rate_sequence=? LIMIT 1""",
+                (stream_id, rate_sequence),
+            ).fetchone() is not None:
+                connection.rollback()
+                return self._error("FIFO_RATE_RECONCILIATION_ALREADY_EXISTS")
+            source_fingerprint = self._allocation_source_fingerprint(
+                connection, stream_id, stream["revision"],
+                stream["policy_version"], projection["cutoff_status"],
+            )
+            material = {
+                "stream_id": stream_id,
+                "identity_fingerprint": identity_fingerprint,
+                "stream_revision": stream["revision"],
+                "rate_sequence": rate_sequence,
+                "effective_date": rate["effective_date"],
+                "source_set_fingerprint": source_fingerprint,
+                "anchor_cutoff_date": anchor["cutoff"],
+                "reason_code": "CANCELLED_FUTURE_CHANGE",
+            }
+            preview_fingerprint = self._sha256(material)
+            preview_id = "rate_cancel_" + preview_fingerprint
+            ticket_key = scope["owner_fingerprint"]
+            ticket = {
+                **material,
+                "preview_fingerprint": preview_fingerprint,
+                "preview_id": preview_id,
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "identity": identity,
+                "expires_at": now.timestamp() + self.PREVIEW_TTL_SECONDS,
+            }
+            with self._PREVIEW_LOCK:
+                for key in [
+                    key for key, item in self._ACTIVE_RATE_CANCELLATION_PREVIEWS.items()
+                    if item["expires_at"] <= now.timestamp()
+                ]:
+                    self._ACTIVE_RATE_CANCELLATION_PREVIEWS.pop(key, None)
+                self._ACTIVE_RATE_CANCELLATION_PREVIEWS[ticket_key] = ticket
+            connection.commit()
+            return {
+                "error": False,
+                "code": "FIFO_RATE_CANCELLATION_PREVIEW_READY",
+                "preview_id": preview_id,
+                "active_preview_id": preview_id,
+                "preview_fingerprint": preview_fingerprint,
+                "stream_revision": stream["revision"],
+                "rate_sequence": rate_sequence,
+                "effective_date": rate["effective_date"],
+                "current_date": now.date().isoformat(),
+                "reason_code": "CANCELLED_FUTURE_CHANGE",
+                "read_only": True,
+                "expires_in_seconds": self.PREVIEW_TTL_SECONDS,
+            }
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_RATE_CANCELLATION_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def commit_cancel_future_rate(
+        self, *, preview_id, active_preview_id, idempotency_key,
+        store_id, product_id=None, offer_id=None, sku,
+    ):
+        """Append a cancellation record; never delete or edit the scheduled rate."""
+        key = str(idempotency_key or "")
+        if not self._IDEMPOTENCY_KEY.fullmatch(key):
+            return self._error("FIFO_IDEMPOTENCY_KEY_INVALID")
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not isinstance(preview_id, str)
+            or preview_id != active_preview_id
+            or not re.fullmatch(r"rate_cancel_[0-9a-f]{64}", preview_id)
+        ):
+            return self._error("FIFO_PREVIEW_STALE")
+        connection = None
+        try:
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            expected_fingerprint = preview_id.removeprefix("rate_cancel_")
+            now = self._now()
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                """SELECT cancellation_id, stream_revision, rate_sequence,
+                          effective_date, preview_fingerprint
+                   FROM fifo_cost_rate_cancellations
+                   WHERE stream_id=? AND idempotency_key=?""",
+                (stream_id, key),
+            ).fetchone()
+            if prior is not None:
+                if prior["preview_fingerprint"] != expected_fingerprint:
+                    connection.rollback()
+                    return self._error("FIFO_IDEMPOTENCY_CONFLICT")
+                connection.rollback()
+                return {
+                    "error": False,
+                    "code": "FIFO_RATE_CANCELLATION_COMMITTED",
+                    "idempotent": True,
+                    "stream_revision": prior["stream_revision"],
+                    "rate_sequence": prior["rate_sequence"],
+                    "effective_date": prior["effective_date"],
+                    "replay_required": True,
+                    "projection_complete": False,
+                }
+            ticket_key = scope["owner_fingerprint"]
+            with self._PREVIEW_LOCK:
+                ticket = self._ACTIVE_RATE_CANCELLATION_PREVIEWS.get(ticket_key)
+                if (
+                    ticket is None or ticket["preview_id"] != preview_id
+                    or ticket["identity"] != identity
+                    or ticket["tenant_fingerprint"] != scope["tenant_fingerprint"]
+                    or ticket["preview_fingerprint"] != expected_fingerprint
+                    or ticket["expires_at"] <= now.timestamp()
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_PREVIEW_STALE")
+            stream = connection.execute(
+                """SELECT revision, policy_version FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchone()
+            projection = connection.execute(
+                """SELECT revision, cutoff_status, source_set_fingerprint
+                   FROM fifo_cost_projections WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()
+            rate = connection.execute(
+                """SELECT r.rate_change_id, r.rate_sequence, r.effective_date
+                   FROM fifo_cost_rate_changes AS r
+                   WHERE r.stream_id=? AND r.rate_sequence=?
+                     AND NOT EXISTS (
+                         SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                         WHERE c.stream_id=r.stream_id
+                           AND c.rate_change_id=r.rate_change_id
+                     )""",
+                (stream_id, ticket["rate_sequence"]),
+            ).fetchone()
+            latest = connection.execute(
+                """SELECT COALESCE(MAX(r.rate_sequence), 0)
+                   FROM fifo_cost_rate_changes AS r WHERE r.stream_id=?
+                     AND NOT EXISTS (
+                         SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                         WHERE c.stream_id=r.stream_id
+                           AND c.rate_change_id=r.rate_change_id
+                     )""",
+                (stream_id,),
+            ).fetchone()[0]
+            if (
+                stream is None or projection is None or rate is None
+                or stream["revision"] != ticket["stream_revision"]
+                or projection["revision"] != stream["revision"]
+                or latest != ticket["rate_sequence"]
+                or rate["effective_date"] != ticket["effective_date"]
+                or rate["effective_date"] <= now.date().isoformat()
+            ):
+                connection.rollback()
+                return self._error("FIFO_RATE_CANCELLATION_STALE")
+            current_source = self._allocation_source_fingerprint(
+                connection, stream_id, stream["revision"],
+                stream["policy_version"], projection["cutoff_status"],
+            )
+            if current_source != ticket["source_set_fingerprint"]:
+                connection.rollback()
+                return self._error("FIFO_RATE_CANCELLATION_STALE")
+            future_event_count = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events WHERE stream_id=?
+                   AND event_kind<>'OPENING_FIFO_ANCHOR'
+                   AND (effective_date IS NULL OR effective_date>=?)""",
+                (stream_id, rate["effective_date"]),
+            ).fetchone()[0]
+            allocated_rate = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_allocation_rate_lines
+                   WHERE rate_change_id=?""",
+                (rate["rate_change_id"],),
+            ).fetchone()[0]
+            if future_event_count or allocated_rate:
+                connection.rollback()
+                return self._error("FIFO_RATE_FUTURE_EVENT_ALREADY_USED")
+            if connection.execute(
+                """SELECT 1 FROM fifo_cost_rate_reconciliations
+                   WHERE stream_id=? AND transition_rate_sequence=? LIMIT 1""",
+                (stream_id, rate["rate_sequence"]),
+            ).fetchone() is not None:
+                connection.rollback()
+                return self._error("FIFO_RATE_RECONCILIATION_ALREADY_EXISTS")
+            next_revision = stream["revision"] + 1
+            cancellation_id = "rate_cancelled_" + uuid4().hex
+            connection.execute(
+                """INSERT INTO fifo_cost_rate_cancellations (
+                       cancellation_id, stream_id, stream_revision, rate_change_id,
+                       rate_sequence, effective_date, reason_code,
+                       preview_fingerprint, source_set_fingerprint,
+                       idempotency_key, recorded_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, 'CANCELLED_FUTURE_CHANGE', ?, ?, ?, ?)""",
+                (
+                    cancellation_id, stream_id, next_revision, rate["rate_change_id"],
+                    rate["rate_sequence"], rate["effective_date"],
+                    ticket["preview_fingerprint"], ticket["source_set_fingerprint"],
+                    key, self._iso(now),
+                ),
+            )
+            connection.execute(
+                "UPDATE fifo_cost_streams SET state='FIFO_PARTIAL', revision=?, updated_at=? "
+                "WHERE stream_id=? AND revision=?",
+                (next_revision, self._iso(now), stream_id, stream["revision"]),
+            )
+            connection.execute(
+                """UPDATE fifo_cost_projections
+                   SET revision=?, state='FIFO_PARTIAL', queue_complete=0,
+                       source_set_fingerprint=?, updated_at=?
+                   WHERE stream_id=? AND revision=?""",
+                (
+                    next_revision,
+                    self._sha256({
+                        "previous": projection["source_set_fingerprint"],
+                        "rate_cancellation": ticket["preview_fingerprint"],
+                    }),
+                    self._iso(now), stream_id, stream["revision"],
+                ),
+            )
+            connection.commit()
+            with self._PREVIEW_LOCK:
+                current = self._ACTIVE_RATE_CANCELLATION_PREVIEWS.get(ticket_key)
+                if current is not None and current["preview_id"] == preview_id:
+                    self._ACTIVE_RATE_CANCELLATION_PREVIEWS.pop(ticket_key, None)
+            return {
+                "error": False,
+                "code": "FIFO_RATE_CANCELLATION_COMMITTED",
+                "idempotent": False,
+                "stream_revision": next_revision,
+                "rate_sequence": rate["rate_sequence"],
+                "effective_date": rate["effective_date"],
+                "reason_code": "CANCELLED_FUTURE_CHANGE",
+                "replay_required": True,
+                "projection_complete": False,
+            }
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_RATE_CANCELLATION_INVALID"
+            return self._error(code)
+        except sqlite3.IntegrityError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_RATE_CANCELLATION_CONFLICT")
+        except (sqlite3.Error, OSError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
             return self._error("FIFO_STORAGE_UNAVAILABLE")
         finally:
             if connection is not None:
@@ -2609,7 +3013,12 @@ class FifoCostRepository:
                     ):
                         return self._error("FIFO_LATE_ENTRY_SOURCE_STALE")
                     if connection.execute(
-                        "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                   WHERE r.stream_id=? AND NOT EXISTS (
+                       SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                       WHERE c.stream_id=r.stream_id
+                         AND c.rate_change_id=r.rate_change_id
+                   )""",
                         (stream_id,),
                     ).fetchone()[0]:
                         return self._error("FIFO_LATE_ENTRY_REPLAY_REQUIRED")
@@ -2625,13 +3034,23 @@ class FifoCostRepository:
                     "zero_stock_anchor": False,
                 }
             previous = connection.execute(
-                """SELECT rate_sequence, effective_date, unit_cost_rub
-                   FROM fifo_cost_rate_changes WHERE stream_id=?
-                   ORDER BY rate_sequence DESC LIMIT 1""",
+                """SELECT r.rate_sequence, r.effective_date, r.unit_cost_rub
+                   FROM fifo_cost_rate_changes AS r WHERE r.stream_id=?
+                     AND NOT EXISTS (
+                         SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                         WHERE c.stream_id=r.stream_id
+                           AND c.rate_change_id=r.rate_change_id
+                     )
+                   ORDER BY r.rate_sequence DESC LIMIT 1""",
                 (stream_id,),
             ).fetchone()
-            if previous is not None and effective_date < previous["effective_date"]:
+            if previous is not None and effective_date <= previous["effective_date"]:
                 return self._error("FIFO_RATE_DATE_ORDER_UNRESOLVED")
+            next_rate_sequence = connection.execute(
+                "SELECT COALESCE(MAX(rate_sequence), 0) + 1 "
+                "FROM fifo_cost_rate_changes WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()[0]
             reconciliation = None
             if previous is not None:
                 if stock_snapshot is None:
@@ -2640,6 +3059,7 @@ class FifoCostRepository:
                     return self._error("FIFO_RATE_RECONCILIATION_SCOPE_UNCONFIRMED")
                 stock = self._normalize_rate_reconciliation_snapshot(
                     stock_snapshot, identity, effective_date,
+                    as_of_date=now.date().isoformat(),
                 )
                 if isinstance(stock, str):
                     return self._error(stock)
@@ -2661,7 +3081,17 @@ class FifoCostRepository:
                        WHERE stream_id=? AND reconciled_rate_sequence < ?""",
                     (stream_id, previous_rate_sequence),
                 ).fetchone()[0]
-                if prior_reconciliation_count != previous_rate_sequence - 1:
+                expected_prior_reconciliations = connection.execute(
+                    """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                       WHERE r.stream_id=? AND r.rate_sequence<?
+                         AND NOT EXISTS (
+                             SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                             WHERE c.stream_id=r.stream_id
+                               AND c.rate_change_id=r.rate_change_id
+                         )""",
+                    (stream_id, previous_rate_sequence),
+                ).fetchone()[0]
+                if prior_reconciliation_count != expected_prior_reconciliations:
                     return self._error("FIFO_RATE_HISTORY_GAP")
                 already_reconciled = connection.execute(
                     """SELECT 1 FROM fifo_cost_rate_reconciliations
@@ -2693,7 +3123,7 @@ class FifoCostRepository:
                 if owner_old_home_units > previous_rate_units:
                     return self._error("FIFO_RATE_RECONCILIATION_CONFLICT")
                 reconciliation = {
-                    "transition_rate_sequence": previous_rate_sequence + 1,
+                    "transition_rate_sequence": next_rate_sequence,
                     "reconciled_rate_sequence": previous_rate_sequence,
                     "effective_date": effective_date,
                     "reconciled_total_units": total_units,
@@ -2723,6 +3153,8 @@ class FifoCostRepository:
                 ) if date_value is not None
             ) if previous is not None or latest_layer is not None else None
             if latest_effective_date is not None and effective_date < latest_effective_date:
+                return self._error("FIFO_RATE_DATE_ORDER_UNRESOLVED")
+            if latest_layer is not None and effective_date == latest_layer:
                 return self._error("FIFO_RATE_DATE_ORDER_UNRESOLVED")
             if previous is None and normalized_zero_stock is None:
                 prior_layer = connection.execute(
@@ -2787,9 +3219,7 @@ class FifoCostRepository:
                 "store_id": identity["store_id"],
                 "source_fingerprint": source_fingerprint,
             })[:40]
-            stream_snapshot["rate_sequence"] = (
-                previous["rate_sequence"] + 1 if previous else 1
-            )
+            stream_snapshot["rate_sequence"] = next_rate_sequence
             if previous is not None:
                 stream_snapshot["prior_rate_unit_cost_rub"] = previous["unit_cost_rub"]
             normalized = {
@@ -3074,7 +3504,12 @@ class FifoCostRepository:
                         connection.rollback()
                         return self._error("FIFO_LATE_ENTRY_SOURCE_STALE")
                     existing_rates = connection.execute(
-                        "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+                        """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                           WHERE r.stream_id=? AND NOT EXISTS (
+                               SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                               WHERE c.stream_id=r.stream_id
+                                 AND c.rate_change_id=r.rate_change_id
+                           )""",
                         (normalized["stream_id"],),
                     ).fetchone()[0]
                     if existing_rates:
@@ -3356,7 +3791,7 @@ class FifoCostRepository:
 
     @classmethod
     def _normalize_rate_reconciliation_snapshot(
-        cls, snapshot, identity, effective_date,
+        cls, snapshot, identity, effective_date, *, as_of_date=None,
     ):
         """Accept only a complete exact-SKU snapshot on the chosen date."""
         fields = (
@@ -3403,6 +3838,11 @@ class FifoCostRepository:
             or sku != identity["sku"]
         ):
             return "FIFO_RATE_RECONCILIATION_SCOPE_MISMATCH"
+        if (
+            captured_at is not None and as_of_date is not None
+            and captured_at[:10] > as_of_date
+        ):
+            return "FIFO_RATE_RECONCILIATION_FUTURE_SNAPSHOT"
         if captured_at is None or captured_at[:10] != effective_date:
             return "FIFO_RATE_RECONCILIATION_DATE_MISMATCH"
         total = evidence["fbo_units"] + evidence["transit_units"]
@@ -4386,7 +4826,12 @@ class FifoCostRepository:
         if unsupported_events:
             raise ValueError("FIFO_REPLAY_UNSUPPORTED_EVENT")
         rate_count = connection.execute(
-            "SELECT COUNT(*) FROM fifo_cost_rate_changes WHERE stream_id=?",
+            """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+               WHERE r.stream_id=? AND NOT EXISTS (
+                   SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                   WHERE c.stream_id=r.stream_id
+                     AND c.rate_change_id=r.rate_change_id
+               )""",
             (stream_id,),
         ).fetchone()[0]
         if rate_count > 1:
@@ -4455,8 +4900,14 @@ class FifoCostRepository:
                         raise ValueError("FIFO_ALLOCATION_RATE_MISMATCH")
                 else:
                     rate = connection.execute(
-                        """SELECT unit_cost_rub, effective_date FROM fifo_cost_rate_changes
-                           WHERE stream_id=? AND rate_change_id=?""",
+                        """SELECT r.unit_cost_rub, r.effective_date
+                           FROM fifo_cost_rate_changes AS r
+                           WHERE r.stream_id=? AND r.rate_change_id=?
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                                 WHERE c.stream_id=r.stream_id
+                                   AND c.rate_change_id=r.rate_change_id
+                             )""",
                         (stream_id, line["rate_change_id"]),
                     ).fetchone()
                     if rate is None:
@@ -4782,9 +5233,14 @@ class FifoCostRepository:
                 movement_reason_confirmed=True,
             ))
         rate_rows = connection.execute(
-            """SELECT rate_change_id, effective_date, unit_cost_rub
-               FROM fifo_cost_rate_changes
-               WHERE stream_id=? ORDER BY rate_sequence LIMIT 2""",
+            """SELECT r.rate_change_id, r.effective_date, r.unit_cost_rub
+               FROM fifo_cost_rate_changes AS r
+               WHERE r.stream_id=? AND NOT EXISTS (
+                   SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                   WHERE c.stream_id=r.stream_id
+                     AND c.rate_change_id=r.rate_change_id
+               )
+               ORDER BY r.rate_sequence LIMIT 2""",
             (stream_id,),
         ).fetchall()
         if hypothetical_open_rate is not None and rate_rows:
@@ -4837,6 +5293,10 @@ class FifoCostRepository:
             "rates": "SELECT rate_change_id, rate_sequence, effective_date, unit_cost_rub, purchase_cost_rub, "
                 "delivery_cost_rub, packaging_cost_rub, payload_fingerprint "
                 "FROM fifo_cost_rate_changes WHERE stream_id=? ORDER BY rate_sequence",
+            "rate_cancellations": "SELECT cancellation_id, stream_revision, rate_change_id, "
+                "rate_sequence, effective_date, reason_code, preview_fingerprint, "
+                "source_set_fingerprint, idempotency_key FROM fifo_cost_rate_cancellations "
+                "WHERE stream_id=? ORDER BY stream_revision, cancellation_id",
             "reconciliations": "SELECT transition_rate_sequence, reconciled_rate_sequence, "
                 "effective_date, reconciled_total_units, older_finite_units, "
                 "prior_rate_units, source_fingerprint FROM fifo_cost_rate_reconciliations "
@@ -5219,6 +5679,22 @@ class FifoCostRepository:
                 UNIQUE(stream_id, idempotency_key)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_rate_cancellations (
+                cancellation_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 1),
+                rate_change_id TEXT NOT NULL REFERENCES fifo_cost_rate_changes(rate_change_id),
+                rate_sequence INTEGER NOT NULL CHECK(rate_sequence >= 1),
+                effective_date TEXT NOT NULL,
+                reason_code TEXT NOT NULL CHECK(reason_code='CANCELLED_FUTURE_CHANGE'),
+                preview_fingerprint TEXT NOT NULL CHECK(length(preview_fingerprint) = 64),
+                source_set_fingerprint TEXT NOT NULL CHECK(length(source_set_fingerprint) = 64),
+                idempotency_key TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                UNIQUE(stream_id, rate_change_id),
+                UNIQUE(stream_id, idempotency_key)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_allocations (
                 allocation_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -5329,6 +5805,8 @@ class FifoCostRepository:
                 ON fifo_cost_supply_evidence(stream_id, snapshot_sequence);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_late_entry_drafts_order
                 ON fifo_cost_late_entry_drafts(stream_id, recorded_at, draft_id);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_rate_cancellations_stream
+                ON fifo_cost_rate_cancellations(stream_id, stream_revision);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;
@@ -5387,6 +5865,12 @@ class FifoCostRepository:
                 "PRAGMA table_info(fifo_cost_late_entry_corrections)"
             )
         }
+        cancellation_columns = {
+            str(item[1])
+            for item in connection.execute(
+                "PRAGMA table_info(fifo_cost_rate_cancellations)"
+            )
+        }
         if "stream_revision" not in allocation_columns or not {
             "allocation_id", "line_number", "event_id", "rate_change_id",
             "quantity", "unit_cost_rub", "total_cost_rub",
@@ -5401,6 +5885,10 @@ class FifoCostRepository:
             "source_set_fingerprint", "allocation_revision",
             "tax_policy_fingerprint", "period_source_fingerprints_json",
             "impact_json", "idempotency_key", "recorded_at",
-        } <= correction_columns:
+        } <= correction_columns or not {
+            "cancellation_id", "stream_id", "stream_revision", "rate_change_id",
+            "rate_sequence", "effective_date", "reason_code", "preview_fingerprint",
+            "source_set_fingerprint", "idempotency_key", "recorded_at",
+        } <= cancellation_columns:
             raise sqlite3.DatabaseError("invalid FIFO repository schema")
 

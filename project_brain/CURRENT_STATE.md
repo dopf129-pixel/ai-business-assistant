@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC23: безопасные границы ставок и отмена будущего плана
+
+- FIFO schema v10→v11 добавляет append-only журнал отмены неиспользованной будущей ставки. Оригинальная ставка и порядок истории сохраняются; history показывает её как отменённую. Подтверждение ограничено владельцем/магазином/SKU, ревизией и неизменившимся источником; событие на границе, allocation или reconciliation запрещают отмену.
+- Равные date-only границы между новой ставкой и предыдущей ставкой/конечным слоем отклоняются как неоднозначные. Снимок остатков с датой позже даты текущего запроса не подтверждает переход. Поздняя реконструкция с уже активной multi-rate историей по-прежнему fail-closed; production cutoff, возвраты и несбытовые движения остаются нерешёнными.
+- Telegram показывает отмену только для запланированной ставки, требует отдельного подтверждения, сохраняет короткий opaque callback и сразу обновляет журнал; устаревшая кнопка после изменения данных ничего не записывает.
+- Связанный FC23 профиль: **89 passed in 4.00s**; compileall и `git diff --check` PASS. Только синтетические данные и временная SQLite; реальные Ozon/Telegram запросы, бот и deploy не выполнялись. Next: FC24 current-economics cost adapter/cache invalidation.
+
 # 2026-11-06 — FIFO late-entry reconstruction, FC21
 
 - `FifoCostLateEntryReconstructionService` now creates a read-only exact-SKU replay preview bound to the saved late-entry draft, accepted-supply evidence fingerprint, stream revision, allocation revision and source-set fingerprint. A complete synthetic path applies one hypothetical rate only after its owner-confirmed historical boundary; the act's accepted quantity remains documentary and contributes zero inventory.

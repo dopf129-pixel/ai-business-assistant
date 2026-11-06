@@ -72,6 +72,7 @@ from services.period_profit_effective_cost_service import (
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
+from services.fifo_cost_rate_cancellation_service import FifoCostRateCancellationService
 from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
 from services.fifo_cost_supply_evidence_service import FifoCostSupplyEvidenceService
 from services.fifo_cost_late_entry_reconstruction_service import (
@@ -597,6 +598,7 @@ def create_telegram_assistant():
     fifo_cost_history_service = FifoCostHistoryService(fifo_cost_repository)
     telegram_fifo_cost_history_service = TelegramFifoCostHistoryService(
         fifo_cost_history_service,
+        FifoCostRateCancellationService(fifo_cost_repository),
     )
     telegram_fifo_cost_rate_entry_service = TelegramFifoCostRateEntryService(
         fifo_cost_history_service,

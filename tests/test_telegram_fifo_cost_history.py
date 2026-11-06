@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_cost_rate_cancellation_service import FifoCostRateCancellationService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_repository import FifoCostRepository
 from services.ozon_account_repository import make_store_tenant_scope
@@ -39,7 +40,7 @@ def _anchored_history(tmp_path):
         ozon_units_include_reserved_confirmed=True,
         transit_not_in_ozon_confirmed=True,
     )
-    assert preview["error"] is False
+    assert preview["error"] is False, preview
     committed = anchor_service.commit_opening_anchor(
         preview_id=preview["preview_id"],
         active_preview_id=preview["preview_id"],
@@ -47,6 +48,30 @@ def _anchored_history(tmp_path):
     )
     assert committed["error"] is False
     return repository, FifoCostHistoryService(repository)
+
+
+def _commit_planned_rate(
+    repository, *, expected_revision=1, effective_date="2026-11-07",
+    purchase_cost_rub="12.00",
+):
+    rates = FifoCostRateService(repository)
+    preview = rates.preview_new_cost(
+        **IDENTITY,
+        effective_date=effective_date,
+        purchase_cost_rub=purchase_cost_rub,
+        delivery_cost_rub="2.00",
+        packaging_cost_rub="1.00",
+        old_home_units=0,
+        expected_revision=expected_revision,
+    )
+    assert preview["error"] is False, preview
+    result = rates.confirm_new_cost(
+        preview_id=preview["preview_id"],
+        active_preview_id=preview["preview_id"],
+        idempotency_key=f"telegram-future-rate{expected_revision:02d}",
+    )
+    assert result["error"] is False
+    return result
 
 
 def test_history_callback_is_opaque_revision_bound_and_user_facing(tmp_path):
@@ -137,6 +162,153 @@ def test_history_buttons_fail_closed_after_stream_revision_changes(tmp_path):
     assert result["error"] is True
     assert "устарела" in result["message"]
     assert "revision" not in result["message"].lower()
+
+
+def test_owner_can_cancel_future_rate_and_history_refreshes_with_audit_status(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history = _anchored_history(tmp_path)
+        _commit_planned_rate(repository)
+        ui = TelegramFifoCostHistoryService(
+            history,
+            FifoCostRateCancellationService(repository),
+        )
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки для дома",
+        )
+        card = ui.handle_callback(101, ticket["callback"])
+        history_callback = next(
+            item["callback"] for item in card["keyboard"]["buttons"]
+            if item["callback"].split(":")[1] == "history"
+        )
+        report = ui.handle_callback(101, history_callback)
+        cancel_callback = next(
+            item["callback"] for item in report["keyboard"]["buttons"]
+            if item["callback"].split(":")[1] == "cancel_rate"
+        )
+        assert len(cancel_callback.encode("utf-8")) <= 64
+
+        confirmation = ui.handle_callback(101, cancel_callback)
+        assert confirmation["error"] is False
+        assert "Отменить запланированную ставку 15.00 ₽/шт." in confirmation["message"]
+        confirm_callback = next(
+            item["callback"] for item in confirmation["keyboard"]["buttons"]
+            if item["callback"].split(":")[1] == "confirm_rate_cancel"
+        )
+        assert len(confirm_callback.encode("utf-8")) <= 64
+
+        result = ui.handle_callback(101, confirm_callback)
+        assert result["error"] is False
+        assert result["fifo_rate_cancelled"] is True
+        assert "отменена" in result["message"]
+        assert "отменена, запись сохранена" in result["message"]
+        assert not any(
+            item["callback"].split(":")[1] == "cancel_rate"
+            for item in result["keyboard"]["buttons"]
+        )
+        updated = history.get_sku_history(**IDENTITY)
+        assert updated["rates"][0]["status"] == "CANCELLED"
+        assert len(updated["rate_cancellations"]) == 1
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_rate_cancellation_confirmation_is_rejected_after_stream_changes(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history = _anchored_history(tmp_path)
+        _commit_planned_rate(repository)
+        ui = TelegramFifoCostHistoryService(
+            history,
+            FifoCostRateCancellationService(repository),
+        )
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Товар",
+        )
+        card = ui.handle_callback(101, ticket["callback"])
+        report = ui.handle_callback(
+            101,
+            next(item["callback"] for item in card["keyboard"]["buttons"]
+                 if item["callback"].split(":")[1] == "history"),
+        )
+        confirmation = ui.handle_callback(
+            101,
+            next(item["callback"] for item in report["keyboard"]["buttons"]
+                 if item["callback"].split(":")[1] == "cancel_rate"),
+        )
+        confirm_callback = next(
+            item["callback"] for item in confirmation["keyboard"]["buttons"]
+            if item["callback"].split(":")[1] == "confirm_rate_cancel"
+        )
+        movement = repository.preview_command(
+            **IDENTITY,
+            events=[{
+                "kind": "INVENTORY_TRANSFER",
+                "quantity": 1,
+                "effective_date": "2026-11-06",
+                "location_from": "HOME",
+                "location_to": "TRANSIT",
+            }],
+            source={
+                "kind": "OWNER_CONFIRMATION",
+                "method": "OWNER_CONFIRMED_TEST_MOVEMENT",
+                "status": "OWNER_CONFIRMED",
+                "completeness": "OWNER_CONFIRMED",
+                "provenance": "OWNER_CONFIRMED",
+                "coverage_status": "OWNER_CONFIRMED",
+                "captured_at": "2026-11-06T11:00:00Z",
+                "references": [],
+            },
+            expected_revision=2,
+        )
+        assert movement["error"] is False
+        committed = repository.commit_command(
+            preview_id=movement["preview_id"],
+            active_preview_id=movement["preview_id"],
+            idempotency_key="telegram-cancel-stale-move01",
+        )
+        assert committed["error"] is False
+
+        result = ui.handle_callback(101, confirm_callback)
+        assert result["error"] is True
+        assert result["code"] == "FIFO_HISTORY_CALLBACK_STALE"
+        updated = history.get_sku_history(**IDENTITY)
+        assert updated["rates"][0]["status"] == "PLANNED"
+        assert updated["rate_cancellations"] == []
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_cancellation_preview_selects_latest_of_multiple_planned_rates():
+    class _CancellationStub:
+        rate_sequence = None
+
+        def preview(self, **payload):
+            self.rate_sequence = payload["rate_sequence"]
+            return {"error": False, "preview_id": "rate_cancel_" + "a" * 64}
+
+    cancellation = _CancellationStub()
+    ui = TelegramFifoCostHistoryService(rate_cancellation_service=cancellation)
+    owner = "101"
+    token = "opaque123"
+    ui._tickets[(owner, token)] = {"revision": 3}
+    ticket = {
+        "token": token,
+        "revision": 3,
+        "identity": IDENTITY,
+        "snapshot": {
+            "rates": [
+                {"sequence": 1, "status": "PLANNED", "unit_cost_rub": "15.00",
+                 "effective_date": "2026-11-07"},
+                {"sequence": 2, "status": "PLANNED", "unit_cost_rub": "19.00",
+                 "effective_date": "2026-11-08"},
+            ],
+        },
+    }
+    confirmation = ui._preview_rate_cancellation(owner, ticket)
+
+    assert cancellation.rate_sequence == 2
+    assert "Отменить запланированную ставку 19.00 ₽/шт. с 2026-11-08?" in confirmation["message"]
 
 
 def test_history_button_expires_and_store_switch_invalidates_ticket(tmp_path, monkeypatch):

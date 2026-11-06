@@ -54,7 +54,10 @@ class FifoCostHistoryService:
             reconciliation = reconciliations_by_rate.get(row["sequence"])
             rates.append({
                 **row,
-                "status": "EFFECTIVE" if effective_date <= as_of else "PLANNED",
+                "status": (
+                    "CANCELLED" if row.get("cancelled") is True else
+                    "EFFECTIVE" if effective_date <= as_of else "PLANNED"
+                ),
                 "provenance_label": self._provenance_label(row.get("provenance")),
                 "reconciled_quantity": (
                     reconciliation["prior_rate_units"] if reconciliation else None
@@ -110,6 +113,7 @@ class FifoCostHistoryService:
             "layers": layers,
             "rates": rates,
             "rate_reconciliations": rate_reconciliations,
+            "rate_cancellations": list(snapshot.get("rate_cancellations", ())),
             "active_rate": active_rate,
             "next_planned_rate": next_planned_rate,
             "next_unit_cost_rub": next_unit_cost,

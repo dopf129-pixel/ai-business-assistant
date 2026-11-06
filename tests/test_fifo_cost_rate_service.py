@@ -225,7 +225,7 @@ def test_invalid_rate_inputs_fail_before_write(scoped_rate_service, overrides, c
 
 
 def test_later_rate_preserves_fifo_order_and_rejects_old_effective_date(scoped_rate_service):
-    _repository, service = scoped_rate_service
+    repository, service = scoped_rate_service
     first = _preview(service)
     first_result = service.confirm_new_cost(
         preview_id=first["preview_id"],
@@ -233,6 +233,7 @@ def test_later_rate_preserves_fifo_order_and_rejects_old_effective_date(scoped_r
         idempotency_key="first-rate-change01",
     )
     assert first_result["error"] is False
+    repository._now_provider = lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
     later = _preview(
         service,
         effective_date="2026-11-08",
@@ -252,6 +253,50 @@ def test_later_rate_preserves_fifo_order_and_rejects_old_effective_date(scoped_r
         expected_revision=2,
     )
     assert earlier == {"error": True, "code": "FIFO_RATE_DATE_ORDER_UNRESOLVED"}
+    same_day = _preview(
+        service,
+        effective_date="2026-11-07",
+        expected_revision=2,
+    )
+    assert same_day == {"error": True, "code": "FIFO_RATE_DATE_ORDER_UNRESOLVED"}
+
+
+def test_fc23_equal_date_with_last_finite_layer_is_unresolved(scoped_rate_service):
+    _repository, service = scoped_rate_service
+    same_day = _preview(service, effective_date="2026-11-05")
+    assert same_day == {"error": True, "code": "FIFO_RATE_DATE_ORDER_UNRESOLVED"}
+
+
+def test_fc23_future_stock_snapshot_cannot_activate_rate_automatically(
+    scoped_rate_service,
+):
+    repository, service = scoped_rate_service
+    first = _preview(service)
+    committed = service.confirm_new_cost(
+        preview_id=first["preview_id"],
+        active_preview_id=first["preview_id"],
+        idempotency_key="future-anchor-base01",
+    )
+    assert committed["error"] is False
+
+    future = _preview(
+        service,
+        effective_date="2026-11-08",
+        expected_revision=2,
+        stock_snapshot=_stock_snapshot(
+            date="2026-11-08", fbo=20, reserved=4,
+        ),
+        owner_confirms_reconciliation_scope=True,
+    )
+
+    assert future == {
+        "error": True,
+        "code": "FIFO_RATE_RECONCILIATION_FUTURE_SNAPSHOT",
+    }
+    snapshot = repository.read_cost_history_snapshot(**IDENTITY)
+    assert snapshot["revision"] == 2
+    assert len(snapshot["rates"]) == 1
+    assert snapshot["rate_reconciliations"] == []
 
 
 def test_fc14_third_and_fourth_prices_reconcile_only_the_previous_open_rate(tmp_path):
@@ -298,6 +343,10 @@ def test_fc14_third_and_fourth_prices_reconcile_only_the_previous_open_rate(tmp_
         )
         assert second_saved["error"] is False
 
+        repository._now_provider = lambda: datetime(
+            2026, 11, 7, 12, tzinfo=timezone.utc,
+        )
+
         third_price = rate_service.preview_new_cost(
             **IDENTITY, effective_date="2026-11-07",
             purchase_cost_rub="30.00", delivery_cost_rub="0.00",
@@ -318,6 +367,10 @@ def test_fc14_third_and_fourth_prices_reconcile_only_the_previous_open_rate(tmp_
         )
         assert third_saved["error"] is False
         assert third_saved["reconciled_previous_rate_units"] == 200
+
+        repository._now_provider = lambda: datetime(
+            2026, 11, 8, 12, tzinfo=timezone.utc,
+        )
 
         unexplained_lower_count = rate_service.preview_new_cost(
             **IDENTITY, effective_date="2026-11-08",
@@ -450,6 +503,7 @@ def test_fc14_lower_total_is_conflict_and_does_not_shrink_older_layer(scoped_rat
         idempotency_key="first-rate-change01",
     )
     assert committed["error"] is False
+    repository._now_provider = lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
     too_low = _preview(
         service,
         effective_date="2026-11-08",

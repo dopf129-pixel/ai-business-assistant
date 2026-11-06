@@ -15,8 +15,9 @@ class TelegramFifoCostHistoryService:
     TTL_SECONDS = 15 * 60
     MAX_TICKETS = 1024
 
-    def __init__(self, history_service=None):
+    def __init__(self, history_service=None, rate_cancellation_service=None):
         self.history_service = history_service or FifoCostHistoryService()
+        self.rate_cancellation_service = rate_cancellation_service
         self._tickets = {}
         self._lock = RLock()
 
@@ -65,7 +66,10 @@ class TelegramFifoCostHistoryService:
         if len(parts) != 3 or parts[0] != self.CALLBACK_PREFIX:
             return {"error": False, "handled": False, "read_only_ozon": True}
         _prefix, action, token = parts
-        if action not in {"open", "history", "new", "late", "correct", "sku"}:
+        if action not in {
+            "open", "history", "new", "late", "correct", "sku",
+            "cancel_rate", "confirm_rate_cancel",
+        }:
             return {"error": False, "handled": False, "read_only_ozon": True}
         ticket = self._validated_ticket(owner, token)
         if isinstance(ticket, dict) and ticket.get("error") is True:
@@ -108,6 +112,10 @@ class TelegramFifoCostHistoryService:
                 "поверх: сначала нужен просмотр влияния и отдельное подтверждение. Данные не изменены.",
                 ticket["token"],
             )
+        if action == "cancel_rate":
+            return self._preview_rate_cancellation(owner, ticket)
+        if action == "confirm_rate_cancel":
+            return self._confirm_rate_cancellation(owner, ticket)
         if action == "history":
             return self._render_history(ticket)
         if action == "sku":
@@ -196,7 +204,11 @@ class TelegramFifoCostHistoryService:
             lines.append("• Новые ставки ещё не записывались.")
         else:
             for rate in snapshot["rates"][-30:]:
-                status = "действует для новых поступлений" if rate["status"] == "EFFECTIVE" else "запланирована"
+                status = {
+                    "EFFECTIVE": "действует для новых поступлений",
+                    "PLANNED": "запланирована",
+                    "CANCELLED": "отменена, запись сохранена",
+                }.get(rate["status"], "статус не подтверждён")
                 captured = str(rate.get("captured_at") or "")[:10]
                 components = (
                     f"закупка {rate['purchase_cost_rub']} + доставка {rate['delivery_cost_rub']} "
@@ -225,9 +237,109 @@ class TelegramFifoCostHistoryService:
             "error": False,
             "handled": True,
             "message": "\n".join(lines),
-            "keyboard": self._history_keyboard(ticket["token"]),
+            "keyboard": self._history_keyboard(
+                ticket["token"],
+                allow_cancel=(
+                    self.rate_cancellation_service is not None
+                    and any(rate["status"] == "PLANNED" for rate in snapshot["rates"])
+                ),
+            ),
             "read_only_ozon": True,
         }
+
+    def _preview_rate_cancellation(self, owner, ticket):
+        planned_rate = next(
+            (
+                rate for rate in reversed(ticket["snapshot"].get("rates", ()))
+                if rate["status"] == "PLANNED"
+            ),
+            None,
+        )
+        if self.rate_cancellation_service is None or planned_rate is None:
+            return self._message_result(
+                "Нет будущей ставки, которую можно отменить. История не изменена.",
+                ticket["token"],
+            )
+        preview = self.rate_cancellation_service.preview(
+            **ticket["identity"],
+            rate_sequence=planned_rate["sequence"],
+            expected_revision=ticket["revision"],
+        )
+        if not isinstance(preview, dict) or preview.get("error") is not False:
+            return self._message_result(
+                "Не удалось подготовить отмену: после запланированной даты уже есть "
+                "события или сверка либо данные устарели. Ничего не изменено; "
+                "обновите историю товара.",
+                ticket["token"],
+            )
+        cancellation = {
+            "preview_id": preview["preview_id"],
+            "idempotency_key": "hist-cancel-" + uuid4().hex,
+            "rate_sequence": planned_rate["sequence"],
+            "effective_date": planned_rate["effective_date"],
+            "unit_cost_rub": planned_rate["unit_cost_rub"],
+        }
+        with self._lock:
+            stored = self._tickets.get((owner, ticket["token"]))
+            if stored is None or stored.get("revision") != ticket["revision"]:
+                return self._stale_ticket()
+            stored["rate_cancel_preview"] = cancellation
+        return {
+            "error": False,
+            "handled": True,
+            "message": (
+                f"Отменить запланированную ставку {planned_rate['unit_cost_rub']} ₽/шт. "
+                f"с {planned_rate['effective_date']}?\n\n"
+                "Запись останется в истории со статусом «отменена». FIFO-остатки и "
+                "фактический расчёт прибыли не меняются. Подтвердите только если "
+                "переход ещё не состоялся."
+            ),
+            "keyboard": self._rate_cancellation_confirmation_keyboard(ticket["token"]),
+            "read_only_ozon": True,
+        }
+
+    def _confirm_rate_cancellation(self, owner, ticket):
+        cancellation = ticket.get("rate_cancel_preview")
+        if self.rate_cancellation_service is None or not isinstance(cancellation, dict):
+            return self._stale_ticket()
+        result = self.rate_cancellation_service.confirm(
+            preview_id=cancellation["preview_id"],
+            active_preview_id=cancellation["preview_id"],
+            idempotency_key=cancellation["idempotency_key"],
+            **ticket["identity"],
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._message_result(
+                "Ставка не отменена: данные изменились или переход уже использован. "
+                "Откройте SKU и проверьте актуальную историю.",
+                ticket["token"],
+            )
+        refreshed = self.history_service.get_sku_history(**ticket["identity"])
+        if not isinstance(refreshed, dict) or refreshed.get("error") is not False:
+            return self._message_result(
+                "Ставка отменена и запись сохранена. Не удалось обновить экран истории; "
+                "откройте SKU заново.",
+                ticket["token"],
+            )
+        with self._lock:
+            stored = self._tickets.get((owner, ticket["token"]))
+            if stored is None:
+                return self._stale_ticket()
+            stored["revision"] = refreshed["revision"]
+            stored.pop("rate_cancel_preview", None)
+        updated_ticket = {
+            **ticket,
+            "revision": refreshed["revision"],
+            "snapshot": refreshed,
+        }
+        history = self._render_history(updated_ticket)
+        history["message"] = (
+            f"✅ Ставка {result['rate_sequence']} с {result['effective_date']} отменена. "
+            "Исходная запись сохранена в аудите; FIFO-остатки и фактическая прибыль "
+            "не изменялись.\n\n" + history["message"]
+        )
+        history["fifo_rate_cancelled"] = True
+        return history
 
     def _summary_lines(self, snapshot):
         if not snapshot["queue_initialized"]:
@@ -296,12 +408,32 @@ class TelegramFifoCostHistoryService:
         }
 
     @classmethod
-    def _history_keyboard(cls, token):
+    def _history_keyboard(cls, token, *, allow_cancel=False):
+        buttons = [
+            {"text": "➕ Новая себестоимость", "callback": f"{cls.CALLBACK_PREFIX}:new:{token}"},
+        ]
+        if allow_cancel:
+            buttons.append({
+                "text": "✖️ Отменить будущую ставку",
+                "callback": f"{cls.CALLBACK_PREFIX}:cancel_rate:{token}",
+            })
+        buttons.append({"text": "↩️ К SKU", "callback": f"{cls.CALLBACK_PREFIX}:sku:{token}"})
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
+
+    @classmethod
+    def _rate_cancellation_confirmation_keyboard(cls, token):
         return {
             "error": False,
             "type": "inline_keyboard",
             "buttons": [
-                {"text": "➕ Новая себестоимость", "callback": f"{cls.CALLBACK_PREFIX}:new:{token}"},
+                {
+                    "text": "✅ Подтвердить отмену",
+                    "callback": f"{cls.CALLBACK_PREFIX}:confirm_rate_cancel:{token}",
+                },
                 {"text": "↩️ К SKU", "callback": f"{cls.CALLBACK_PREFIX}:sku:{token}"},
             ],
         }

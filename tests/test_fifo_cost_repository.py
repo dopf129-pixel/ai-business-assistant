@@ -297,6 +297,45 @@ def test_fc22_v9_schema_upgrade_adds_append_only_late_entry_corrections(tmp_path
         upgraded.close()
 
 
+def test_fc23_v10_schema_upgrade_adds_append_only_rate_cancellations(tmp_path):
+    db = tmp_path / "schema-v10.sqlite"
+    repo = FifoCostRepository(db_path=db)
+    connection = repo.get_connection()
+    try:
+        connection.execute("CREATE TABLE legacy_marker(value TEXT NOT NULL)")
+        connection.execute("INSERT INTO legacy_marker VALUES ('preserved')")
+        connection.execute("DROP TRIGGER trg_fifo_cost_rate_cancellations_no_update")
+        connection.execute("DROP TRIGGER trg_fifo_cost_rate_cancellations_no_delete")
+        connection.execute("DROP INDEX idx_fifo_cost_rate_cancellations_stream")
+        connection.execute("DROP TABLE fifo_cost_rate_cancellations")
+        connection.execute("UPDATE fifo_cost_schema SET version=10 WHERE singleton=1")
+    finally:
+        connection.close()
+
+    upgraded = repo.get_connection()
+    try:
+        assert upgraded.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION
+        assert upgraded.execute(
+            "SELECT value FROM legacy_marker"
+        ).fetchone()[0] == "preserved"
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='fifo_cost_rate_cancellations'"
+        ).fetchone()[0] == 1
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
+            "AND name='trg_fifo_cost_rate_cancellations_no_update'"
+        ).fetchone()[0] == 1
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
+            "AND name='trg_fifo_cost_rate_cancellations_no_delete'"
+        ).fetchone()[0] == 1
+    finally:
+        upgraded.close()
+
+
 def test_fc11_schema_v2_upgrade_adds_rate_history_without_changing_other_data(tmp_path):
     db = tmp_path / "schema-v2.sqlite"
     repo = FifoCostRepository(db_path=db)

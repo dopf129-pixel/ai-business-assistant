@@ -1,5 +1,12 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC23 — rate boundary and future cancellation regression profile
+
+- `tests/test_fifo_cost_rate_cancellation_service.py` covers owner/store/SKU-bound preview/confirm, append-only v10→v11 migration, idempotency, stale source/revision, refusal after a boundary event, status/history reporting, preservation of old finite layers, and replacement with a later planned rate.
+- `tests/test_telegram_fifo_cost_history.py` covers conditional cancellation controls, opaque callback bounds, explicit confirmation, refreshed audit history, stale Telegram confirmation, and selecting the newest planned rate.
+- `tests/test_fifo_cost_rate_service.py` covers same-date ambiguity against a prior rate and finite layer, and rejects future-dated stock snapshots; existing transition tests advance the synthetic request clock to the snapshot date.
+- Linked profile: `python -m pytest -q tests/test_fifo_cost_rate_cancellation_service.py tests/test_fifo_cost_history_service.py tests/test_fifo_cost_rate_service.py tests/test_fifo_cost_repository.py tests/test_fifo_cost_late_entry_correction_service.py tests/test_fifo_cost_late_entry_impact_service.py tests/test_fifo_cost_late_entry_reconstruction_service.py tests/test_telegram_fifo_cost_history.py` — **89 passed in 4.00s**. Changed modules compile; `git diff --check` PASS. Synthetic evidence and temporary SQLite only.
+
 ## FC22 — late-entry impact and correction commit
 
 - `tests/test_fifo_cost_late_entry_impact_service.py` checks period coverage/fingerprints, exact sale and allocation quantity/cost reconciliation, layer-by-layer units and COGS, tax/profit deltas through the existing `TaxService`, and fail-closed behavior for returns, non-sale outflows, incomplete periods and invalid policy inputs.

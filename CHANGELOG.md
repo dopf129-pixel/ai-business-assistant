@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC23: cancellation audit and date-boundary safety
+
+- Added an append-only v11 cancellation record for an unused future FIFO rate, preserving the original rate and monotonic sequence history. Owner/store/SKU/revision/source-bound previews reject stale confirmations and refuse rates already used by events, allocations or reconciliations.
+- Date-only equal boundaries are treated as unresolved; future-dated stock snapshots cannot confirm a transition. Cancelled rates are excluded from active rate selection. Multi-rate late correction, production cutoff, return and non-sale movement replay remain explicitly unsupported.
+- Added owner-facing Telegram preview/confirmation for cancelling a future rate; successful confirmation refreshes the history, while stale callbacks remain write-free.
+- Linked FC23 verification: **89 passed in 4.00s**; changed modules compile and `git diff --check` passes. Synthetic data only; no live Ozon/Telegram calls or bot startup.
+
 # 2026-11-06 — FC20: поздний ввод уже отправленной партии FIFO
 
 - Добавлен отдельный сценарий «Уже отправил новую партию»: бот связывает введённую стоимость и расходы партии, остаток старой партии дома, поставку и принятый акт Ozon с точным SKU и магазином; владелец отдельно указывает фактическую дату перехода.
