@@ -129,6 +129,3 @@ def test_movement_preview_commit_keeps_loss_value_out_of_sales_cogs(tmp_path):
             connection.close()
     finally:
         reset_current_tenant_user_id(token)
-
-
-

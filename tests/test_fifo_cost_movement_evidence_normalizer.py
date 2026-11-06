@@ -66,4 +66,3 @@ def test_transfer_is_pool_neutral_and_does_not_create_outflow():
     assert result["status"] == "FIFO_MOVEMENT_POOL_NEUTRAL"
     assert result["inventory_change"] is False
     assert result["cost_impact_rub"] is None
-
