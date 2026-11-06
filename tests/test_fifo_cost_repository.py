@@ -1,4 +1,6 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import pytest
 
@@ -18,6 +20,53 @@ def _insert_stream(connection, *, stream_id, store_id, sku):
             created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, 1, 'LEGACY', 0, 'now', 'now')""",
         (stream_id, store_id, "product", "offer", sku, f"identity-{sku}"),
+    )
+
+
+def _tenant(store_id="store-a", owner="owner-1"):
+    return make_store_tenant_scope(owner, store_id)
+
+
+def _source(**overrides):
+    source = {
+        "kind": "OWNER_CONFIRMATION",
+        "method": "TELEGRAM_COST_ENTRY",
+        "status": "OWNER_CONFIRMED",
+        "provenance": "OWNER_CONFIRMED",
+        "coverage_status": "OWNER_CONFIRMED",
+    }
+    source.update(overrides)
+    return source
+
+
+def _event(*, kind="OPENING_FIFO_ANCHOR", quantity=5, unit_cost="10.00", **overrides):
+    event = {
+        "kind": kind,
+        "quantity": quantity,
+        "effective_date": "2026-11-01",
+    }
+    if kind in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}:
+        event["unit_cost_rub"] = unit_cost
+    event.update(overrides)
+    return event
+
+
+def _preview(repo, *, sku="sku-1", events=None, source=None, store_id="store-a"):
+    return repo.preview_command(
+        store_id=store_id,
+        product_id="product-1",
+        offer_id="offer-1",
+        sku=sku,
+        events=events or [_event()],
+        source=source or _source(),
+    )
+
+
+def _commit(repo, preview, *, key="fifo-confirm-0001"):
+    return repo.commit_command(
+        preview_id=preview["preview_id"],
+        active_preview_id=preview["preview_id"],
+        idempotency_key=key,
     )
 
 
@@ -131,6 +180,40 @@ def test_repeated_initialization_is_idempotent_and_evidence_is_append_only(tmp_p
         reopened.close()
 
 
+def test_fc06_schema_upgrades_atomically_to_fc07_without_losing_existing_events(tmp_path):
+    db = tmp_path / "schema-v1.sqlite"
+    repo = FifoCostRepository(db_path=db)
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        preview = _preview(repo)
+        committed = _commit(repo, preview, key="schema-v1-anchor")
+        assert committed["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+    connection = sqlite3.connect(db)
+    try:
+        connection.execute("DROP TABLE fifo_cost_command_events")
+        connection.execute("DROP TABLE fifo_cost_commands")
+        connection.execute("UPDATE fifo_cost_schema SET version=1 WHERE singleton=1")
+        connection.commit()
+    finally:
+        connection.close()
+
+    upgraded = FifoCostRepository(db_path=db).get_connection()
+    try:
+        assert upgraded.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == 2
+        assert upgraded.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 1
+        assert upgraded.execute("SELECT COUNT(*) FROM fifo_cost_layers").fetchone()[0] == 1
+        assert upgraded.execute("SELECT COUNT(*) FROM fifo_cost_idempotency").fetchone()[0] == 1
+        assert upgraded.execute("SELECT COUNT(*) FROM fifo_cost_commands").fetchone()[0] == 0
+        assert upgraded.execute("SELECT COUNT(*) FROM fifo_cost_command_events").fetchone()[0] == 0
+    finally:
+        upgraded.close()
+
+
 def test_mid_migration_failure_rolls_back_all_new_objects(tmp_path):
     db = tmp_path / "migration-failure.sqlite"
     connection = sqlite3.connect(db)
@@ -234,3 +317,304 @@ def test_database_isolated_by_tenant_and_store_scope(tmp_path, monkeypatch):
                 connection.close()
         finally:
             reset_current_tenant_user_id(token)
+
+
+def test_preview_is_read_only_and_commit_is_atomic_and_idempotent(tmp_path):
+    db = tmp_path / "command.sqlite"
+    repo = FifoCostRepository(db_path=db)
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        preview = _preview(repo)
+        assert preview["error"] is False
+        assert preview["code"] == "FIFO_PREVIEW_READY"
+        assert preview["expected_revision"] == 0
+
+        connection = sqlite3.connect(db)
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_streams").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_sources").fetchone()[0] == 0
+        finally:
+            connection.close()
+
+        committed = _commit(repo, preview)
+        assert committed["error"] is False
+        assert committed["idempotent"] is False
+        assert committed["revision"] == 1
+        replayed = _commit(repo, preview)
+        assert replayed["error"] is False
+        assert replayed["idempotent"] is True
+        assert replayed["event_ids"] == committed["event_ids"]
+        assert replayed["command_id"] == committed["command_id"]
+
+        connection = sqlite3.connect(db)
+        try:
+            assert connection.execute("SELECT revision FROM fifo_cost_streams").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_layers").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_commands").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_command_events").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_idempotency").fetchone()[0] == 1
+            event_source = connection.execute(
+                "SELECT provenance, source_fingerprint FROM fifo_cost_events"
+            ).fetchone()
+            assert event_source[0] == "OWNER_CONFIRMED"
+            assert len(event_source[1]) == 64
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_equivalent_preview_payload_has_stable_fingerprint(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "stable-hash.sqlite")
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        first = _preview(repo)
+        second = _preview(repo)
+        assert first["preview_id"] != second["preview_id"]
+        assert first["payload_fingerprint"] == second["payload_fingerprint"]
+        committed = _commit(repo, second, key="stable-payload-key1")
+        assert committed["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_idempotency_key_cannot_replay_a_different_payload(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "idempotency.sqlite")
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        first = _preview(repo)
+        result = _commit(repo, first, key="same-confirm-key")
+        assert result["error"] is False
+        changed = _preview(repo, events=[_event(quantity=6)])
+        conflict = _commit(repo, changed, key="same-confirm-key")
+        assert conflict == {"error": True, "code": "FIFO_IDEMPOTENCY_CONFLICT"}
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 1
+            assert connection.execute("SELECT revision FROM fifo_cost_streams").fetchone()[0] == 1
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_reused_source_fingerprint_cannot_change_its_reference_set(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "source-fingerprint.sqlite")
+    token = set_current_tenant_user_id(_tenant())
+    fingerprint = "a" * 64
+    try:
+        first = _preview(repo, source=_source(
+            fingerprint=fingerprint,
+            references=[{"kind": "SUPPLY", "digest": "b" * 64}],
+        ))
+        assert _commit(repo, first, key="source-fingerprint1")["error"] is False
+
+        changed = _preview(repo, events=[_event(quantity=2)], source=_source(
+            fingerprint=fingerprint,
+            references=[{"kind": "SUPPLY", "digest": "c" * 64}],
+        ))
+        result = _commit(repo, changed, key="source-fingerprint2")
+        assert result == {"error": True, "code": "FIFO_SOURCE_FINGERPRINT_CONFLICT"}
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 1
+            assert connection.execute("SELECT revision FROM fifo_cost_streams").fetchone()[0] == 1
+            refs = connection.execute(
+                "SELECT reference_digest FROM fifo_cost_source_refs"
+            ).fetchall()
+            assert [row[0] for row in refs] == ["b" * 64]
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_stale_preview_from_another_product_cannot_commit(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "stale-preview.sqlite")
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        old = _preview(repo, sku="sku-1")
+        current = _preview(repo, sku="sku-2")
+        rejected = _commit(repo, old, key="stale-callback-01")
+        assert rejected == {"error": True, "code": "FIFO_PREVIEW_STALE"}
+        accepted = _commit(repo, current, key="current-callback1")
+        assert accepted["error"] is False
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_streams").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 1
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_commit_rejects_preview_after_owner_or_store_context_changes(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "context.sqlite")
+    token = set_current_tenant_user_id(_tenant("store-a"))
+    try:
+        preview = _preview(repo, store_id="store-a")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = set_current_tenant_user_id(_tenant("store-b"))
+    try:
+        rejected = repo.commit_command(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="wrong-store-key1",
+        )
+        assert rejected["error"] is True
+    finally:
+        reset_current_tenant_user_id(token)
+
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_concurrent_commands_with_same_expected_revision_have_one_winner(tmp_path):
+    db = tmp_path / "concurrent.sqlite"
+    first_repo = FifoCostRepository(db_path=db)
+    second_repo = FifoCostRepository(db_path=db)
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        first_preview = _preview(first_repo)
+        assert first_preview["expected_revision"] == 0
+    finally:
+        reset_current_tenant_user_id(token)
+
+    def commit(repo, preview, key):
+        context_token = set_current_tenant_user_id(_tenant())
+        try:
+            return _commit(repo, preview, key=key)
+        finally:
+            reset_current_tenant_user_id(context_token)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda values: commit(*values),
+            [
+                (first_repo, first_preview, "concurrent-a-key"),
+                (second_repo, first_preview, "concurrent-b-key"),
+            ],
+        ))
+    assert sum(result["error"] is False for result in results) == 1
+    assert sum(result["code"] == "FIFO_REVISION_CONFLICT" for result in results) == 1
+    connection = sqlite3.connect(db)
+    try:
+        assert connection.execute("SELECT revision FROM fifo_cost_streams").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_new_store_draft_invalidates_old_store_callback_for_same_owner(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "owner-store-draft.sqlite")
+    token = set_current_tenant_user_id(_tenant("store-a"))
+    try:
+        old_store = _preview(repo, store_id="store-a")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = set_current_tenant_user_id(_tenant("store-b"))
+    try:
+        _preview(repo, store_id="store-b")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = set_current_tenant_user_id(_tenant("store-a"))
+    try:
+        result = _commit(repo, old_store, key="old-store-callback")
+        assert result == {"error": True, "code": "FIFO_PREVIEW_STALE"}
+    finally:
+        reset_current_tenant_user_id(token)
+
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_invalid_batch_target_rolls_back_all_command_writes(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "atomic-command.sqlite")
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        batch = [
+            _event(kind="COST_LAYER_RECEIPT", quantity=7, unit_cost="20.00"),
+            _event(
+                kind="CORRECTION", quantity=7,
+                supersedes_event_id="evt_" + "f" * 32,
+                reason_code="QUANTITY_CORRECTION",
+            ),
+        ]
+        preview = _preview(repo, events=batch)
+        assert preview["error"] is False
+        result = _commit(repo, preview, key="atomic-command01")
+        assert result == {"error": True, "code": "FIFO_EVENT_TARGET_INVALID"}
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            for table in (
+                "fifo_cost_streams", "fifo_cost_sources", "fifo_cost_events",
+                "fifo_cost_layers", "fifo_cost_commands", "fifo_cost_idempotency",
+            ):
+                assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_preview_validates_decimal_components_dates_and_source_reference_digests(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "validation.sqlite")
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        bad_amount = _preview(repo, events=[_event(unit_cost=1.1)])
+        assert bad_amount == {"error": True, "code": "FIFO_MONEY_INPUT_INVALID"}
+        incomplete_cost = _preview(repo, events=[_event(
+            unit_cost="12.00", purchase_cost_rub="10.00",
+        )])
+        assert incomplete_cost == {"error": True, "code": "FIFO_COST_COMPONENTS_INCOMPLETE"}
+        null_component = _preview(repo, events=[_event(
+            unit_cost="12.00", purchase_cost_rub="10.00",
+            delivery_cost_rub=None, packaging_cost_rub="2.00",
+        )])
+        assert null_component == {"error": True, "code": "FIFO_MONEY_INPUT_INVALID"}
+        naive_date = _preview(repo, events=[_event(
+            kind="COST_LAYER_RECEIPT", effective_date=None,
+            effective_at="2026-11-01T12:00:00",
+        )])
+        assert naive_date == {"error": True, "code": "FIFO_TIMESTAMP_INVALID"}
+        utc_and_store_date = _preview(repo, events=[_event(
+            kind="COST_LAYER_RECEIPT", effective_at="2026-11-01T21:30:00Z",
+            effective_date="2026-11-02",
+        )])
+        assert utc_and_store_date["error"] is False
+        raw_reference = _preview(repo, source=_source(
+            references=[{"kind": "SUPPLY", "digest": "2000070135564"}],
+        ))
+        assert raw_reference == {"error": True, "code": "FIFO_SOURCE_REFERENCE_INVALID"}
+        model = _preview(repo, source=_source(
+            provenance="MODEL_ASSUMPTION", status="MODEL_ONLY",
+        ))
+        assert model == {"error": True, "code": "FIFO_MODEL_SOURCE_NOT_PERSISTABLE"}
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_preview_expiration_uses_injected_aware_clock(tmp_path):
+    now = [datetime(2026, 11, 6, 12, tzinfo=timezone.utc)]
+    repo = FifoCostRepository(db_path=tmp_path / "expires.sqlite", now_provider=lambda: now[0])
+    token = set_current_tenant_user_id(_tenant())
+    try:
+        preview = _preview(repo)
+        now[0] = datetime(2026, 11, 6, 13, tzinfo=timezone.utc)
+        result = _commit(repo, preview, key="expired-confirm1")
+        assert result == {"error": True, "code": "FIFO_PREVIEW_STALE"}
+    finally:
+        reset_current_tenant_user_id(token)

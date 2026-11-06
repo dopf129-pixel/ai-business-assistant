@@ -7,14 +7,59 @@ Planning Workspace schema metadata.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 import sqlite3
+import threading
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from uuid import uuid4
 
+from services.ozon_account_repository import split_store_tenant_scope
+from services.tenant_context import get_current_tenant_user_id
 from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
+    MAX_COMMAND_EVENTS = 100
+    MAX_REFERENCES_PER_SOURCE = 100
+    MAX_EVENT_QUANTITY = 100_000
+    MAX_COMMAND_UNITS = 1_000_000
+    MAX_PAYLOAD_BYTES = 64 * 1024
+    PREVIEW_TTL_SECONDS = 600
+    MAX_PREVIEWS = 5000
+    _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+    _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
+    _EVENT_KINDS = frozenset({
+        "OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT", "INVENTORY_TRANSFER",
+        "PHYSICAL_SALE", "SALE_CANCELLATION", "SALEABLE_RETURN_RESTOCK",
+        "NON_SALE_OUTFLOW", "CORRECTION",
+    })
+    _SOURCE_STATUSES = frozenset({
+        "COMPLETE", "PARTIAL", "UNAVAILABLE", "STALE", "CONFLICT",
+        "NOT_REQUESTED", "OWNER_CONFIRMED", "MODEL_ONLY",
+    })
+    _PROVENANCE = frozenset({
+        "OWNER_CONFIRMED", "OZON_CONFIRMED_FIELD", "DOCUMENT_RECONCILED",
+        "LEGACY_DATED_COST", "MODEL_ASSUMPTION",
+    })
+    _REFERENCE_KINDS = frozenset({"SUPPLY", "ACT", "POSTING", "DOCUMENT", "OTHER"})
+    _LOCATIONS = frozenset({"HOME", "TRANSIT", "OZON", "UNKNOWN"})
+    _REASON_CODES = frozenset({
+        "HISTORY_GAP", "ANCHOR_UNCONFIRMED", "INVENTORY_CUTOFF_UNRECONCILED",
+        "PHYSICAL_SALE_IDENTITY_UNCONFIRMED", "STOCK_SEMANTICS_UNCONFIRMED",
+        "TRANSIT_OVERLAP_UNRESOLVED", "SUPPLY_COST_LINK_MISSING",
+        "EVENT_ORDER_UNRESOLVED", "RECONCILIATION_CONFLICT", "STALE_PREVIEW",
+        "REVISION_CONFLICT", "BUDGET_EXHAUSTED", "SOURCE_UNAVAILABLE",
+        "PERIOD_PROFIT_COST_LEGACY_PROVENANCE_AMBIGUOUS",
+        "OWNER_REPORTED_LATE", "COST_ENTRY_CORRECTION", "QUANTITY_CORRECTION",
+        "SUPPLY_LINK_CORRECTION", "CANCELLED_FUTURE_CHANGE",
+    })
+    _PREVIEW_LOCK = threading.RLock()
+    _ACTIVE_PREVIEWS = {}
 
     _TABLES = (
         "fifo_cost_schema",
@@ -28,6 +73,8 @@ class FifoCostRepository:
         "fifo_cost_allocations",
         "fifo_cost_allocation_lines",
         "fifo_cost_idempotency",
+        "fifo_cost_commands",
+        "fifo_cost_command_events",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -39,10 +86,13 @@ class FifoCostRepository:
         "fifo_cost_allocations",
         "fifo_cost_allocation_lines",
         "fifo_cost_idempotency",
+        "fifo_cost_commands",
+        "fifo_cost_command_events",
     )
 
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, *, now_provider=None):
         self._db_path = Path(db_path) if db_path is not None else None
+        self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
     @property
     def db_path(self):
@@ -64,6 +114,761 @@ class FifoCostRepository:
             raise
         return connection
 
+    def preview_command(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+        policy_version=1, events, source, expected_revision=None,
+    ):
+        """Create a short-lived, read-only ticket bound to tenant and SKU."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        try:
+            identity = self._normalize_identity(
+                store_id, product_id, offer_id, sku, policy_version,
+            )
+            normalized_source = self._normalize_source(source)
+            normalized_events = self._normalize_events(events, normalized_source)
+            total_units = sum(item["quantity"] for item in normalized_events)
+            if total_units > self.MAX_COMMAND_UNITS:
+                return self._error("FIFO_STREAM_QUANTITY_LIMIT")
+            stable_events = [
+                {key: value for key, value in event.items() if key != "event_id"}
+                for event in normalized_events
+            ]
+            source_fingerprint = normalized_source.get("source_fingerprint")
+            if not source_fingerprint:
+                source_fingerprint = self._sha256({
+                    "source": {
+                        key: value for key, value in normalized_source.items()
+                        if key != "source_fingerprint"
+                    },
+                    "events": stable_events,
+                })
+            normalized_source["source_fingerprint"] = source_fingerprint
+            source_id = "src_" + self._sha256({
+                "store_id": identity["store_id"],
+                "source_fingerprint": source_fingerprint,
+            })[:40]
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+
+            connection = self.get_connection()
+            try:
+                row = connection.execute(
+                    "SELECT revision, state FROM fifo_cost_streams WHERE stream_id=?",
+                    (stream_id,),
+                ).fetchone()
+                current_revision = int(row["revision"]) if row else 0
+                current_state = row["state"] if row else "FIFO_PENDING_ANCHOR"
+            finally:
+                connection.close()
+
+            if expected_revision is not None and (
+                type(expected_revision) is not int
+                or expected_revision < 0
+                or expected_revision != current_revision
+            ):
+                return self._error("FIFO_REVISION_CONFLICT")
+
+            now = self._now()
+            command_id = "cmd_" + uuid4().hex
+            normalized = {
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "identity": identity,
+                "identity_fingerprint": identity_fingerprint,
+                "stream_id": stream_id,
+                "source": normalized_source,
+                "source_id": source_id,
+                "events": normalized_events,
+                "expected_revision": current_revision,
+                "next_revision": current_revision + 1,
+                "current_state": current_state,
+                "command_id": command_id,
+            }
+            payload = {
+                key: value for key, value in normalized.items()
+                if key not in {"command_id"}
+            }
+            payload["events"] = stable_events
+            payload_fingerprint = self._sha256(payload)
+            normalized["payload_fingerprint"] = payload_fingerprint
+            if len(self._canonical_json(normalized).encode("utf-8")) > self.MAX_PAYLOAD_BYTES:
+                return self._error("FIFO_COMMAND_PAYLOAD_LIMIT")
+
+            preview_id = "preview_" + uuid4().hex
+            ticket = {
+                "preview_id": preview_id,
+                "expires_at": (now.timestamp() + self.PREVIEW_TTL_SECONDS),
+                "normalized": normalized,
+            }
+            preview_scope = scope["owner_fingerprint"]
+            with self._PREVIEW_LOCK:
+                self._purge_expired_previews(now)
+                if (len(self._ACTIVE_PREVIEWS) >= self.MAX_PREVIEWS
+                        and preview_scope not in self._ACTIVE_PREVIEWS):
+                    return self._error("FIFO_PREVIEW_CAPACITY_EXCEEDED")
+                self._ACTIVE_PREVIEWS[preview_scope] = ticket
+
+            return {
+                "error": False,
+                "code": "FIFO_PREVIEW_READY",
+                "preview_id": preview_id,
+                "expected_revision": current_revision,
+                "next_revision": current_revision + 1,
+                "event_count": len(normalized_events),
+                "total_units": total_units,
+                "source_fingerprint": source_fingerprint,
+                "payload_fingerprint": payload_fingerprint,
+                "expires_in_seconds": self.PREVIEW_TTL_SECONDS,
+                "state": current_state,
+            }
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_COMMAND_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+
+    def commit_command(self, *, preview_id, active_preview_id, idempotency_key):
+        """Atomically append a previewed command with revision and idempotency CAS."""
+        key = str(idempotency_key or "")
+        if not self._IDEMPOTENCY_KEY.fullmatch(key):
+            return self._error("FIFO_IDEMPOTENCY_KEY_INVALID")
+        try:
+            now = self._now()
+        except ValueError as exc:
+            return self._error(str(exc))
+        connection = None
+        with self._PREVIEW_LOCK:
+            self._purge_expired_previews(now)
+            tenant_id = str(get_current_tenant_user_id() or "").strip()
+            tenant_fingerprint = self._sha256_text(tenant_id) if tenant_id else ""
+            owner_id, _ = split_store_tenant_scope(tenant_id)
+            owner_fingerprint = self._sha256_text(owner_id) if owner_id else ""
+            ticket = self._ACTIVE_PREVIEWS.get(owner_fingerprint)
+            if (ticket is None or not preview_id or preview_id != active_preview_id
+                    or ticket["preview_id"] != preview_id):
+                return self._error("FIFO_PREVIEW_STALE")
+            normalized = ticket["normalized"]
+            scope = self._tenant_scope(normalized["identity"]["store_id"])
+            if (scope.get("error")
+                    or scope["tenant_fingerprint"] != normalized["tenant_fingerprint"]):
+                return self._error("FIFO_STORE_SCOPE_MISMATCH")
+
+            try:
+                connection = self.get_connection()
+                connection.execute("BEGIN IMMEDIATE")
+                previous = connection.execute(
+                    """SELECT payload_fingerprint, result_reference
+                       FROM fifo_cost_idempotency
+                       WHERE stream_id=? AND idempotency_key=?""",
+                    (normalized["stream_id"], key),
+                ).fetchone()
+                if previous is not None:
+                    if previous["payload_fingerprint"] != normalized["payload_fingerprint"]:
+                        connection.rollback()
+                        return self._error("FIFO_IDEMPOTENCY_CONFLICT")
+                    result = json.loads(previous["result_reference"])
+                    connection.rollback()
+                    return {
+                        "error": False,
+                        "code": "FIFO_COMMAND_COMMITTED",
+                        "idempotent": True,
+                        **result,
+                    }
+
+                stream = connection.execute(
+                    "SELECT revision, state FROM fifo_cost_streams WHERE stream_id=?",
+                    (normalized["stream_id"],),
+                ).fetchone()
+                if stream is None:
+                    if normalized["expected_revision"] != 0:
+                        connection.rollback()
+                        return self._error("FIFO_REVISION_CONFLICT")
+                    initial_state = "FIFO_PENDING_ANCHOR"
+                    identity = normalized["identity"]
+                    connection.execute(
+                        """INSERT INTO fifo_cost_streams (
+                            stream_id, store_id, product_id, offer_id, sku,
+                            identity_fingerprint, policy_version, state, revision,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)""",
+                        (
+                            normalized["stream_id"], identity["store_id"],
+                            identity["product_id"], identity["offer_id"],
+                            identity["sku"], normalized["identity_fingerprint"],
+                            identity["policy_version"], initial_state,
+                            self._iso(now), self._iso(now),
+                        ),
+                    )
+                    current_revision = 0
+                    current_state = initial_state
+                else:
+                    current_revision = int(stream["revision"])
+                    current_state = stream["state"]
+                if current_revision != normalized["expected_revision"]:
+                    connection.rollback()
+                    return self._error("FIFO_REVISION_CONFLICT")
+
+                self._ensure_source(connection, normalized)
+                self._ensure_policy_revision(connection, normalized, now)
+                command_id = normalized["command_id"]
+                next_revision = current_revision + 1
+                connection.execute(
+                    """INSERT INTO fifo_cost_commands (
+                        command_id, stream_id, stream_revision, payload_fingerprint,
+                        source_fingerprint, event_count, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        command_id, normalized["stream_id"], next_revision,
+                        normalized["payload_fingerprint"],
+                        normalized["source"]["source_fingerprint"],
+                        len(normalized["events"]), self._iso(now),
+                    ),
+                )
+                event_ids = []
+                for order, event in enumerate(normalized["events"], start=1):
+                    target_kind = self._validate_supersedes_target(
+                        connection, normalized["stream_id"], event,
+                        normalized["events"][:order - 1],
+                    )
+                    if event["kind"] == "SALE_CANCELLATION" and target_kind != "PHYSICAL_SALE":
+                        raise ValueError("FIFO_EVENT_TARGET_INVALID")
+                    if (event["kind"] == "SALEABLE_RETURN_RESTOCK"
+                            and target_kind != "PHYSICAL_SALE"):
+                        raise ValueError("FIFO_EVENT_TARGET_INVALID")
+                    if event["kind"] == "CORRECTION" and not event.get("reason_code"):
+                        raise ValueError("FIFO_EVENT_REASON_REQUIRED")
+                    event_id = event["event_id"]
+                    event_ids.append(event_id)
+                    connection.execute(
+                        """INSERT INTO fifo_cost_events (
+                            event_id, stream_id, event_kind, event_schema_version,
+                            effective_at, effective_date, recorded_at,
+                            captured_at, source_as_of, inventory_cutoff, quantity,
+                            unit_cost_rub, purchase_cost_rub, delivery_cost_rub,
+                            packaging_cost_rub, currency, location_from, location_to,
+                            source_id, source_fingerprint, provenance, completeness,
+                            source_identity_digest, supersedes_event_id, reason_code,
+                            created_at
+                        ) VALUES (
+                            ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUB',
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )""",
+                        (
+                            event_id, normalized["stream_id"], event["kind"],
+                            event["effective_at"], event["effective_date"],
+                            self._iso(now), normalized["source"]["captured_at"],
+                            normalized["source"]["source_as_of"], event["inventory_cutoff"],
+                            event["quantity"], event["unit_cost_rub"],
+                            event["purchase_cost_rub"], event["delivery_cost_rub"],
+                            event["packaging_cost_rub"], event["location_from"],
+                            event["location_to"], normalized["source_id"],
+                            normalized["source"]["source_fingerprint"],
+                            normalized["source"]["provenance"],
+                            normalized["source"]["completeness"],
+                            event["source_identity_digest"],
+                            event["supersedes_event_id"], event["reason_code"],
+                            self._iso(now),
+                        ),
+                    )
+                    if event["kind"] in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}:
+                        layer_sequence = connection.execute(
+                            "SELECT COALESCE(MAX(layer_sequence), 0) + 1 "
+                            "FROM fifo_cost_layers WHERE stream_id=?",
+                            (normalized["stream_id"],),
+                        ).fetchone()[0]
+                        connection.execute(
+                            """INSERT INTO fifo_cost_layers (
+                                layer_id, stream_id, event_id, layer_sequence,
+                                quantity, unit_cost_rub, currency, effective_at,
+                                effective_date, provenance, source_id, created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, 'RUB', ?, ?, ?, ?, ?)""",
+                            (
+                                "layer_" + uuid4().hex, normalized["stream_id"],
+                                event_id, layer_sequence, event["quantity"],
+                                event["unit_cost_rub"], event["effective_at"],
+                                event["effective_date"],
+                                normalized["source"]["provenance"],
+                                normalized["source_id"], self._iso(now),
+                            ),
+                        )
+                    connection.execute(
+                        """INSERT INTO fifo_cost_command_events (
+                            command_id, event_id, event_order
+                        ) VALUES (?, ?, ?)""",
+                        (command_id, event_id, order),
+                    )
+
+                new_state = current_state
+                if current_revision == 0 and not stream:
+                    new_state = "FIFO_PENDING_ANCHOR"
+                connection.execute(
+                    """UPDATE fifo_cost_streams
+                       SET revision=?, state=?, updated_at=? WHERE stream_id=?""",
+                    (next_revision, new_state, self._iso(now), normalized["stream_id"]),
+                )
+                result = {
+                    "command_id": command_id,
+                    "stream_id": normalized["stream_id"],
+                    "event_ids": event_ids,
+                    "revision": next_revision,
+                }
+                connection.execute(
+                    """INSERT INTO fifo_cost_idempotency (
+                        stream_id, idempotency_key, payload_fingerprint,
+                        result_reference, created_at
+                    ) VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        normalized["stream_id"], key,
+                        normalized["payload_fingerprint"],
+                        self._canonical_json(result), self._iso(now),
+                    ),
+                )
+                connection.commit()
+                return {
+                    "error": False,
+                    "code": "FIFO_COMMAND_COMMITTED",
+                    "idempotent": False,
+                    **result,
+                }
+            except ValueError as exc:
+                if connection is not None and connection.in_transaction:
+                    connection.rollback()
+                code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_COMMAND_INVALID"
+                return self._error(code)
+            except sqlite3.IntegrityError as exc:
+                if connection is not None and connection.in_transaction:
+                    connection.rollback()
+                detail = str(exc).lower()
+                code = (
+                    "FIFO_EVENT_IDENTITY_CONFLICT"
+                    if "fifo_cost_physical_sale_identity" in detail
+                    else "FIFO_REVISION_CONFLICT"
+                )
+                return self._error(code)
+            except (sqlite3.Error, OSError):
+                if connection is not None and connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_STORAGE_UNAVAILABLE")
+            finally:
+                if connection is not None:
+                    connection.close()
+
+    def _tenant_scope(self, store_id):
+        tenant_id = str(get_current_tenant_user_id() or "").strip()
+        if not tenant_id:
+            return self._error("FIFO_OWNER_SCOPE_REQUIRED")
+        owner_id, scoped_store = split_store_tenant_scope(tenant_id)
+        try:
+            normalized_store = self._safe_identity_part(store_id, "store_id", 128)
+        except ValueError:
+            return self._error("FIFO_IDENTITY_INVALID")
+        if not owner_id or not scoped_store:
+            return self._error("FIFO_STORE_SCOPE_REQUIRED")
+        if scoped_store != normalized_store:
+            return self._error("FIFO_STORE_SCOPE_MISMATCH")
+        return {
+            "error": False,
+            "owner_fingerprint": self._sha256_text(owner_id),
+            "tenant_fingerprint": self._sha256_text(tenant_id),
+        }
+
+    @classmethod
+    def _normalize_identity(cls, store_id, product_id, offer_id, sku, policy_version):
+        store = cls._safe_identity_part(store_id, "store_id", 128)
+        product = cls._optional_identity_part(product_id, "product_id", 128)
+        offer = cls._optional_identity_part(offer_id, "offer_id", 128)
+        normalized_sku = cls._safe_identity_part(sku, "sku", 64)
+        if not product and not offer:
+            raise ValueError("FIFO_PRODUCT_IDENTITY_REQUIRED")
+        if type(policy_version) is not int or not 1 <= policy_version <= 1000:
+            raise ValueError("FIFO_POLICY_VERSION_INVALID")
+        return {
+            "store_id": store,
+            "product_id": product,
+            "offer_id": offer,
+            "sku": normalized_sku,
+            "policy_version": policy_version,
+        }
+
+    @staticmethod
+    def _safe_identity_part(value, name, max_length):
+        if value is None or isinstance(value, bool):
+            raise ValueError("FIFO_IDENTITY_INVALID")
+        text = str(value).strip()
+        if not text or len(text) > max_length or any(ord(char) < 32 for char in text):
+            raise ValueError("FIFO_IDENTITY_INVALID")
+        return text
+
+    @classmethod
+    def _optional_identity_part(cls, value, name, max_length):
+        if value is None or str(value).strip() == "":
+            return None
+        return cls._safe_identity_part(value, name, max_length)
+
+    @classmethod
+    def _normalize_source(cls, source):
+        if not isinstance(source, dict):
+            raise ValueError("FIFO_SOURCE_INVALID")
+        allowed = {
+            "kind", "method", "status", "completeness", "provenance",
+            "coverage_status", "fingerprint", "captured_at", "source_as_of",
+            "record_count", "page_count", "inventory_cutoff", "references",
+        }
+        if set(source) - allowed:
+            raise ValueError("FIFO_SOURCE_FIELD_NOT_ALLOWED")
+        kind = cls._enum_text(source.get("kind"), "FIFO_SOURCE_KIND_INVALID", 48)
+        method = cls._enum_text(source.get("method"), "FIFO_SOURCE_METHOD_INVALID", 80)
+        status = source.get("status")
+        completeness = source.get("completeness", status)
+        provenance = source.get("provenance")
+        if status not in cls._SOURCE_STATUSES or completeness not in cls._SOURCE_STATUSES:
+            raise ValueError("FIFO_SOURCE_STATUS_INVALID")
+        if provenance not in cls._PROVENANCE:
+            raise ValueError("FIFO_SOURCE_PROVENANCE_INVALID")
+        if status == "MODEL_ONLY" or completeness == "MODEL_ONLY" or provenance == "MODEL_ASSUMPTION":
+            raise ValueError("FIFO_MODEL_SOURCE_NOT_PERSISTABLE")
+        coverage = source.get("coverage_status", "UNKNOWN")
+        if coverage not in {"COMPLETE", "PARTIAL", "UNKNOWN", "OWNER_CONFIRMED", "NOT_APPLICABLE"}:
+            raise ValueError("FIFO_SOURCE_COVERAGE_INVALID")
+        fingerprint = source.get("fingerprint")
+        if fingerprint is not None and not cls._valid_digest(fingerprint):
+            raise ValueError("FIFO_SOURCE_FINGERPRINT_INVALID")
+        refs = source.get("references", [])
+        if not isinstance(refs, list) or len(refs) > cls.MAX_REFERENCES_PER_SOURCE:
+            raise ValueError("FIFO_SOURCE_REFERENCE_LIMIT")
+        normalized_refs = []
+        for ref in refs:
+            if not isinstance(ref, dict) or set(ref) != {"kind", "digest"}:
+                raise ValueError("FIFO_SOURCE_REFERENCE_INVALID")
+            ref_kind = ref["kind"]
+            if ref_kind not in cls._REFERENCE_KINDS or not cls._valid_digest(ref["digest"]):
+                raise ValueError("FIFO_SOURCE_REFERENCE_INVALID")
+            normalized_refs.append({"kind": ref_kind, "digest": ref["digest"]})
+        if len({(item["kind"], item["digest"]) for item in normalized_refs}) != len(normalized_refs):
+            raise ValueError("FIFO_SOURCE_REFERENCE_DUPLICATE")
+        return {
+            "source_kind": kind,
+            "source_method": method,
+            "source_status": status,
+            "completeness": completeness,
+            "provenance": provenance,
+            "coverage_status": coverage,
+            "source_fingerprint": fingerprint,
+            "captured_at": cls._normalize_timestamp(source.get("captured_at")),
+            "source_as_of": cls._normalize_timestamp(source.get("source_as_of")),
+            "inventory_cutoff": cls._normalize_cutoff(source.get("inventory_cutoff")),
+            "record_count": cls._optional_count(source.get("record_count")),
+            "page_count": cls._optional_count(source.get("page_count")),
+            "references": sorted(normalized_refs, key=lambda item: (item["kind"], item["digest"])),
+        }
+
+    @classmethod
+    def _normalize_events(cls, events, source):
+        if not isinstance(events, list) or not 1 <= len(events) <= cls.MAX_COMMAND_EVENTS:
+            raise ValueError("FIFO_COMMAND_EVENT_LIMIT")
+        normalized = []
+        for item in events:
+            if not isinstance(item, dict):
+                raise ValueError("FIFO_EVENT_INVALID")
+            allowed = {
+                "kind", "quantity", "effective_at", "effective_date",
+                "inventory_cutoff", "unit_cost_rub", "purchase_cost_rub",
+                "delivery_cost_rub", "packaging_cost_rub", "currency",
+                "location_from", "location_to", "source_identity_digest",
+                "supersedes_event_id", "reason_code",
+            }
+            if set(item) - allowed:
+                raise ValueError("FIFO_EVENT_FIELD_NOT_ALLOWED")
+            kind = item.get("kind")
+            if kind not in cls._EVENT_KINDS:
+                raise ValueError("FIFO_EVENT_KIND_INVALID")
+            quantity = item.get("quantity")
+            if type(quantity) is not int or not 1 <= quantity <= cls.MAX_EVENT_QUANTITY:
+                raise ValueError("FIFO_EVENT_QUANTITY_INVALID")
+            effective_at = cls._normalize_timestamp(item.get("effective_at"))
+            effective_date = cls._normalize_date(item.get("effective_date"))
+            if effective_at is None and effective_date is None:
+                raise ValueError("FIFO_EVENT_EFFECTIVE_TIME_REQUIRED")
+            cutoff = cls._normalize_cutoff(
+                item.get("inventory_cutoff", source.get("inventory_cutoff")),
+            )
+            cost_fields = ("purchase_cost_rub", "delivery_cost_rub", "packaging_cost_rub")
+            supplied_components = [name in item for name in cost_fields]
+            components = {
+                name: cls._normalize_money(item.get(name)) if name in item else None
+                for name in cost_fields
+            }
+            if any(supplied_components) and not all(supplied_components):
+                raise ValueError("FIFO_COST_COMPONENTS_INCOMPLETE")
+            if all(supplied_components) and any(
+                components[name] is None for name in cost_fields
+            ):
+                raise ValueError("FIFO_MONEY_INPUT_INVALID")
+            unit_cost = cls._normalize_money(item.get("unit_cost_rub"))
+            is_layer = kind in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}
+            if is_layer and unit_cost is None:
+                raise ValueError("FIFO_LAYER_COST_REQUIRED")
+            if not is_layer and (unit_cost is not None or any(supplied_components)):
+                raise ValueError("FIFO_EVENT_COST_NOT_ALLOWED")
+            if all(supplied_components):
+                component_sum = sum(
+                    Decimal(components[name]) for name in cost_fields
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if component_sum != Decimal(unit_cost):
+                    raise ValueError("FIFO_COST_COMPONENT_TOTAL_MISMATCH")
+            if item.get("currency", "RUB") != "RUB":
+                raise ValueError("FIFO_CURRENCY_UNSUPPORTED")
+            from_location = item.get("location_from")
+            to_location = item.get("location_to")
+            if kind == "INVENTORY_TRANSFER":
+                if (from_location not in cls._LOCATIONS or to_location not in cls._LOCATIONS
+                        or from_location == to_location):
+                    raise ValueError("FIFO_TRANSFER_LOCATION_INVALID")
+            elif from_location is not None or to_location is not None:
+                raise ValueError("FIFO_EVENT_LOCATION_NOT_ALLOWED")
+            source_identity_digest = item.get("source_identity_digest")
+            if kind == "PHYSICAL_SALE":
+                if not cls._valid_digest(source_identity_digest):
+                    raise ValueError("FIFO_SALE_IDENTITY_REQUIRED")
+            elif source_identity_digest is not None and not cls._valid_digest(source_identity_digest):
+                raise ValueError("FIFO_SOURCE_IDENTITY_INVALID")
+            supersedes = item.get("supersedes_event_id")
+            if kind in {"CORRECTION", "SALE_CANCELLATION", "SALEABLE_RETURN_RESTOCK"}:
+                if not isinstance(supersedes, str) or not re.fullmatch(r"evt_[0-9a-f]{32}", supersedes):
+                    raise ValueError("FIFO_EVENT_TARGET_REQUIRED")
+            elif supersedes is not None:
+                raise ValueError("FIFO_EVENT_TARGET_NOT_ALLOWED")
+            reason = item.get("reason_code")
+            if reason is not None and reason not in cls._REASON_CODES:
+                raise ValueError("FIFO_EVENT_REASON_INVALID")
+            if kind in {"CORRECTION", "SALE_CANCELLATION", "NON_SALE_OUTFLOW"} and reason is None:
+                raise ValueError("FIFO_EVENT_REASON_REQUIRED")
+            normalized.append({
+                "event_id": "evt_" + uuid4().hex,
+                "kind": kind,
+                "quantity": quantity,
+                "effective_at": effective_at,
+                "effective_date": effective_date,
+                "inventory_cutoff": cutoff,
+                "unit_cost_rub": unit_cost,
+                **components,
+                "location_from": from_location,
+                "location_to": to_location,
+                "source_identity_digest": source_identity_digest,
+                "supersedes_event_id": supersedes,
+                "reason_code": reason,
+            })
+        return normalized
+
+    def _ensure_source(self, connection, normalized):
+        source = normalized["source"]
+        source_id = normalized["source_id"]
+        row = connection.execute(
+            """SELECT source_id, source_kind, source_method, source_status,
+                      provenance, captured_at, source_as_of, coverage_status,
+                      record_count, page_count
+               FROM fifo_cost_sources WHERE store_id=? AND source_fingerprint=?""",
+            (normalized["identity"]["store_id"], source["source_fingerprint"]),
+        ).fetchone()
+        is_new_source = row is None
+        expected = (
+            source_id, source["source_kind"], source["source_method"],
+            source["source_status"], source["provenance"], source["captured_at"],
+            source["source_as_of"], source["coverage_status"],
+            source["record_count"], source["page_count"],
+        )
+        if row is not None:
+            if tuple(row) != expected:
+                raise ValueError("FIFO_SOURCE_FINGERPRINT_CONFLICT")
+            existing_refs = {
+                (item["reference_kind"], item["reference_digest"])
+                for item in connection.execute(
+                    "SELECT reference_kind, reference_digest "
+                    "FROM fifo_cost_source_refs WHERE source_id=?",
+                    (source_id,),
+                ).fetchall()
+            }
+            requested_refs = {
+                (item["kind"], item["digest"]) for item in source["references"]
+            }
+            if existing_refs != requested_refs:
+                raise ValueError("FIFO_SOURCE_FINGERPRINT_CONFLICT")
+        else:
+            connection.execute(
+                """INSERT INTO fifo_cost_sources (
+                    source_id, store_id, source_kind, source_method, source_status,
+                    provenance, source_fingerprint, captured_at, source_as_of,
+                    coverage_status, record_count, page_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    source_id, normalized["identity"]["store_id"],
+                    source["source_kind"], source["source_method"],
+                    source["source_status"], source["provenance"],
+                    source["source_fingerprint"], source["captured_at"],
+                    source["source_as_of"], source["coverage_status"],
+                    source["record_count"], source["page_count"],
+                    self._iso(self._now()),
+                ),
+            )
+        for ref in (source["references"] if is_new_source else ()):
+            ref_id = "ref_" + self._sha256({
+                "source_id": source_id,
+                "kind": ref["kind"],
+                "digest": ref["digest"],
+            })[:40]
+            connection.execute(
+                """INSERT OR IGNORE INTO fifo_cost_source_refs (
+                    source_ref_id, source_id, reference_kind, reference_digest, created_at
+                ) VALUES (?, ?, ?, ?, ?)""",
+                (ref_id, source_id, ref["kind"], ref["digest"], self._iso(self._now())),
+            )
+
+    def _ensure_policy_revision(self, connection, normalized, now):
+        identity = normalized["identity"]
+        policy = {
+            "version": identity["policy_version"],
+            "allocation": "FIFO",
+            "currency": "RUB",
+            "quantity_unit": "SELLABLE_SKU_UNIT",
+        }
+        policy_json = self._canonical_json(policy)
+        fingerprint = self._sha256_text(policy_json)
+        row = connection.execute(
+            """SELECT policy_json, policy_fingerprint FROM fifo_cost_policy_revisions
+               WHERE stream_id=? AND policy_version=?""",
+            (normalized["stream_id"], identity["policy_version"]),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                """INSERT INTO fifo_cost_policy_revisions (
+                    stream_id, policy_version, policy_json, policy_fingerprint, created_at
+                ) VALUES (?, ?, ?, ?, ?)""",
+                (
+                    normalized["stream_id"], identity["policy_version"],
+                    policy_json, fingerprint, self._iso(now),
+                ),
+            )
+        elif tuple(row) != (policy_json, fingerprint):
+            raise ValueError("FIFO_POLICY_REVISION_CONFLICT")
+
+    @staticmethod
+    def _validate_supersedes_target(connection, stream_id, event, prior_events):
+        target_id = event["supersedes_event_id"]
+        if not target_id:
+            return None
+        for previous in prior_events:
+            if previous["event_id"] == target_id:
+                return previous["kind"]
+        row = connection.execute(
+            "SELECT event_kind FROM fifo_cost_events WHERE stream_id=? AND event_id=?",
+            (stream_id, target_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError("FIFO_EVENT_TARGET_INVALID")
+        return row["event_kind"]
+
+    @classmethod
+    def _normalize_money(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, bool) or isinstance(value, float):
+            raise ValueError("FIFO_MONEY_INPUT_INVALID")
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            raise ValueError("FIFO_MONEY_INPUT_INVALID") from None
+        if not amount.is_finite() or amount < 0 or amount > Decimal("1000000000"):
+            raise ValueError("FIFO_MONEY_INPUT_INVALID")
+        return format(amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f")
+
+    @classmethod
+    def _normalize_timestamp(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("FIFO_TIMESTAMP_INVALID")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("FIFO_TIMESTAMP_INVALID") from None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("FIFO_TIMESTAMP_INVALID")
+        return cls._iso(parsed)
+
+    @staticmethod
+    def _normalize_date(value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("FIFO_DATE_INVALID")
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError:
+            raise ValueError("FIFO_DATE_INVALID") from None
+
+    @classmethod
+    def _normalize_cutoff(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str) and "T" not in value and " " not in value:
+            return cls._normalize_date(value)
+        return cls._normalize_timestamp(value)
+
+    @staticmethod
+    def _optional_count(value):
+        if value is None:
+            return None
+        if type(value) is not int or not 0 <= value <= 10_000_000:
+            raise ValueError("FIFO_SOURCE_COUNT_INVALID")
+        return value
+
+    @staticmethod
+    def _enum_text(value, code, max_length):
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Z0-9_./-]{1," + str(max_length) + r"}", value):
+            raise ValueError(code)
+        return value
+
+    @classmethod
+    def _valid_digest(cls, value):
+        return isinstance(value, str) and cls._HEX_DIGEST.fullmatch(value) is not None
+
+    @staticmethod
+    def _canonical_json(value):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @classmethod
+    def _sha256(cls, value):
+        return cls._sha256_text(cls._canonical_json(value))
+
+    @staticmethod
+    def _sha256_text(value):
+        return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+    def _now(self):
+        value = self._now_provider()
+        if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("FIFO_CLOCK_INVALID")
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _iso(value):
+        return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+    def _purge_expired_previews(self, now):
+        cutoff = now.timestamp()
+        expired = [
+            scope for scope, ticket in self._ACTIVE_PREVIEWS.items()
+            if ticket["expires_at"] <= cutoff
+        ]
+        for scope in expired:
+            self._ACTIVE_PREVIEWS.pop(scope, None)
+
+    @staticmethod
+    def _error(code):
+        return {"error": True, "code": code}
+
+
     def _initialize_schema(self, connection):
         """Create the additive FIFO schema atomically and reject unknown versions."""
         connection.execute("BEGIN IMMEDIATE")
@@ -71,7 +876,7 @@ class FifoCostRepository:
             version = self._read_schema_version(connection)
             if version > self.SCHEMA_VERSION:
                 raise sqlite3.DatabaseError("unsupported FIFO cost schema version")
-            if version not in (0, self.SCHEMA_VERSION):
+            if version not in (0, 1, self.SCHEMA_VERSION):
                 raise sqlite3.DatabaseError("unsupported FIFO cost schema version")
 
             self._create_tables(connection)
@@ -81,6 +886,11 @@ class FifoCostRepository:
             if version == 0:
                 connection.execute(
                     "INSERT INTO fifo_cost_schema(singleton, version) VALUES (1, ?)",
+                    (self.SCHEMA_VERSION,),
+                )
+            elif version < self.SCHEMA_VERSION:
+                connection.execute(
+                    "UPDATE fifo_cost_schema SET version=? WHERE singleton=1",
                     (self.SCHEMA_VERSION,),
                 )
             self._validate_schema_metadata(connection)
@@ -238,7 +1048,7 @@ class FifoCostRepository:
                 )),
                 source_id TEXT REFERENCES fifo_cost_sources(source_id),
                 created_at TEXT NOT NULL,
-                UNIQUE(stream_id, event_id, layer_sequence)
+                UNIQUE(stream_id, layer_sequence)
             );
 
             CREATE TABLE IF NOT EXISTS fifo_cost_projections (
@@ -295,6 +1105,25 @@ class FifoCostRepository:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(stream_id, idempotency_key)
             );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_commands (
+                command_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 1),
+                payload_fingerprint TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                event_count INTEGER NOT NULL CHECK(event_count > 0 AND event_count <= 100),
+                created_at TEXT NOT NULL,
+                UNIQUE(stream_id, stream_revision)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_command_events (
+                command_id TEXT NOT NULL REFERENCES fifo_cost_commands(command_id),
+                event_id TEXT NOT NULL REFERENCES fifo_cost_events(event_id),
+                event_order INTEGER NOT NULL CHECK(event_order >= 1),
+                PRIMARY KEY(command_id, event_order),
+                UNIQUE(command_id, event_id)
+            );
             """
         for statement in statements.split(";"):
             if statement.strip():
@@ -309,6 +1138,8 @@ class FifoCostRepository:
                 ON fifo_cost_layers(stream_id, effective_date, layer_sequence, layer_id);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_allocations_stream_revision
                 ON fifo_cost_allocations(stream_id, revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_commands_stream_revision
+                ON fifo_cost_commands(stream_id, stream_revision);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_source_refs_digest
                 ON fifo_cost_source_refs(reference_kind, reference_digest);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
