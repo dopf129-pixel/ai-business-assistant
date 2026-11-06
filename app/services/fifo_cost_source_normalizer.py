@@ -48,6 +48,22 @@ class FifoSupplyActSnapshot:
     effective_at: None
     source_fingerprint: str | None
     issue_codes: tuple[str, ...]
+    order_ref: str | None = None
+    act_evidence: tuple["FifoSupplyActEvidence", ...] = ()
+    evidence_fingerprint: str | None = None
+
+
+@dataclass(frozen=True)
+class FifoSupplyActEvidence:
+    """Allowlisted, redacted per-act quantities; dates are documentary only."""
+
+    act_ref: str
+    act_type: str
+    act_state: str
+    created_date: str | None
+    declared_quantity: int | None
+    approved_quantity: int | None
+    fact_quantity: int
 
 
 class FifoCostSourceNormalizer:
@@ -298,6 +314,7 @@ class FifoCostSourceNormalizer:
         *,
         store_id: object,
         expected_supply_id: object,
+        expected_order_id: object = None,
         captured_at: object,
         products_complete: bool,
         summary_complete: bool,
@@ -306,10 +323,16 @@ class FifoCostSourceNormalizer:
 
         store = self._nonempty_text(store_id, 128)
         supply_id = self._identifier(expected_supply_id)
+        order_id = self._identifier(expected_order_id)
         captured = self._utc_timestamp(captured_at)
         if store is None or supply_id is None or captured is None:
             return self._supply_result(
                 "INVALID", store, None, (), None, captured, ["SUPPLY_SCOPE_INVALID"],
+            )
+        if expected_order_id is not None and order_id is None:
+            return self._supply_result(
+                "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
+                captured, ["SUPPLY_ORDER_ID_INVALID"],
             )
         if products_complete is not True or summary_complete is not True:
             return self._supply_result(
@@ -327,6 +350,11 @@ class FifoCostSourceNormalizer:
             return self._supply_result(
                 "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
                 captured, ["SUPPLY_RESPONSE_INVALID"],
+            )
+        if len(product_acts) > self.MAX_ITEMS or len(summary_groups) > self.MAX_ITEMS:
+            return self._supply_result(
+                "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
+                captured, ["SUPPLY_RESPONSE_LIMIT"],
             )
         groups = [
             group for group in summary_groups
@@ -380,6 +408,7 @@ class FifoCostSourceNormalizer:
         quantities_by_sku: dict[str, int] = {}
         seen_act_ids: set[str] = set()
         normalized_act_refs: list[str] = []
+        act_evidence: list[FifoSupplyActEvidence] = []
         unresolved_act_state = False
         for summary_act in summary_acts:
             if not isinstance(summary_act, dict):
@@ -423,6 +452,11 @@ class FifoCostSourceNormalizer:
                     "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
                     captured, ["SUPPLY_ACT_LINES_INVALID"],
                 )
+            if len(items) > self.MAX_ITEMS:
+                return self._supply_result(
+                    "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
+                    captured, ["SUPPLY_ACT_ITEM_LIMIT"],
+                )
             unidentified = self._bounded_int(summary.get("unidentified_quantity"), minimum=0, maximum=self.MAX_UNITS)
             summary_quantity = self._bounded_int(summary.get("fact_quantity"), minimum=0, maximum=self.MAX_UNITS)
             if unidentified is None or unidentified != 0:
@@ -436,6 +470,8 @@ class FifoCostSourceNormalizer:
                     captured, ["SUPPLY_SUMMARY_QUANTITY_INVALID"],
                 )
             act_quantities: dict[str, int] = {}
+            declared_values: list[int | None] = []
+            approved_values: list[int | None] = []
             for item in items:
                 if not isinstance(item, dict):
                     return self._supply_result(
@@ -458,6 +494,23 @@ class FifoCostSourceNormalizer:
                         "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
                         captured, ["SUPPLY_QUANTITY_LIMIT"],
                     )
+                for field, values in (
+                    ("declared_quantity", declared_values),
+                    ("approved_quantity", approved_values),
+                ):
+                    raw_count = item.get(field)
+                    if raw_count is None:
+                        values.append(None)
+                        continue
+                    count = self._bounded_int(
+                        raw_count, minimum=0, maximum=self.MAX_UNITS,
+                    )
+                    if count is None:
+                        return self._supply_result(
+                            "PARTIAL", store, self._digest("SUPPLY", supply_id), (), None,
+                            captured, ["SUPPLY_ITEM_COMPARISON_QUANTITY_INVALID"],
+                        )
+                    values.append(count)
             if len(act_quantities) != 1:
                 return self._supply_result(
                     "CONFLICT", store, self._digest("SUPPLY", supply_id), (), None,
@@ -471,7 +524,35 @@ class FifoCostSourceNormalizer:
                 )
             sku, quantity = next(iter(act_quantities.items()))
             quantities_by_sku[sku] = quantities_by_sku.get(sku, 0) + quantity
-            normalized_act_refs.append(self._digest("ACT", act_id))
+            act_ref = self._digest("ACT", act_id)
+            normalized_act_refs.append(act_ref)
+            created_date = self._date_only(summary_act.get("created_date"))
+            if summary_act.get("created_date") is not None and created_date is None:
+                return self._supply_result(
+                    "PARTIAL", store, self._digest("SUPPLY", supply_id), (), None,
+                    captured, ["SUPPLY_ACT_DOCUMENT_DATE_INVALID"],
+                )
+            declared_quantity = self._sum_optional_counts(declared_values)
+            approved_quantity = self._sum_optional_counts(approved_values)
+            if (
+                declared_values and all(value is not None for value in declared_values)
+                and declared_quantity is None
+                or approved_values and all(value is not None for value in approved_values)
+                and approved_quantity is None
+            ):
+                return self._supply_result(
+                    "PARTIAL", store, self._digest("SUPPLY", supply_id), (), None,
+                    captured, ["SUPPLY_ITEM_COMPARISON_QUANTITY_LIMIT"],
+                )
+            act_evidence.append(FifoSupplyActEvidence(
+                act_ref=act_ref,
+                act_type="ACCEPTANCE",
+                act_state="ACCEPTED",
+                created_date=created_date,
+                declared_quantity=declared_quantity,
+                approved_quantity=approved_quantity,
+                fact_quantity=quantity,
+            ))
             if quantities_by_sku[sku] > self.MAX_UNITS:
                 return self._supply_result(
                     "INVALID", store, self._digest("SUPPLY", supply_id), (), None,
@@ -512,6 +593,8 @@ class FifoCostSourceNormalizer:
             tuple(sorted(quantities_by_sku.items())),
             captured,
             [],
+            order_ref=self._digest("ORDER", order_id) if order_id else None,
+            act_evidence=tuple(sorted(act_evidence, key=lambda item: item.act_ref)),
         )
 
     @classmethod
@@ -567,19 +650,39 @@ class FifoCostSourceNormalizer:
         )
 
     @classmethod
-    def _supply_result(cls, status, store, supply_ref, act_refs, units_by_sku, captured, issues):
+    def _supply_result(
+        cls, status, store, supply_ref, act_refs, units_by_sku, captured, issues,
+        *, order_ref=None, act_evidence=(),
+    ):
         source_status = {
             "INVALID": "CONFLICT", "PARTIAL": "PARTIAL", "EMPTY": "COMPLETE",
             "UNAVAILABLE": "UNAVAILABLE", "CONFLICT": "CONFLICT",
             "CONFIRMED_ZERO": "COMPLETE", "COMPLETE": "COMPLETE",
         }[status]
-        fingerprint = cls._fingerprint({
+        evidence_payload = {
             "store_id": store,
+            "order_ref": order_ref,
             "supply_ref": supply_ref,
             "act_refs": list(act_refs),
+            "act_evidence": [
+                {
+                    "act_ref": item.act_ref,
+                    "act_type": item.act_type,
+                    "act_state": item.act_state,
+                    "created_date": item.created_date,
+                    "declared_quantity": item.declared_quantity,
+                    "approved_quantity": item.approved_quantity,
+                    "fact_quantity": item.fact_quantity,
+                }
+                for item in act_evidence
+            ],
             "units_by_sku": [list(row) for row in units_by_sku] if units_by_sku is not None else None,
-            "captured_at": captured,
             "status": status,
+        }
+        evidence_fingerprint = cls._fingerprint(evidence_payload) if store and supply_ref else None
+        fingerprint = cls._fingerprint({
+            **evidence_payload,
+            "captured_at": captured,
         }) if store and supply_ref and captured else None
         return FifoSupplyActSnapshot(
             status=status,
@@ -592,7 +695,27 @@ class FifoCostSourceNormalizer:
             effective_at=None,
             source_fingerprint=fingerprint,
             issue_codes=tuple(dict.fromkeys(issues)),
+            order_ref=order_ref,
+            act_evidence=tuple(act_evidence),
+            evidence_fingerprint=evidence_fingerprint,
         )
+
+    @classmethod
+    def _sum_optional_counts(cls, values):
+        if not values or any(value is None for value in values):
+            return None
+        result = sum(values)
+        return result if result <= cls.MAX_UNITS else None
+
+    @staticmethod
+    def _date_only(value):
+        if not isinstance(value, str) or len(value) != 10:
+            return None
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        return parsed.isoformat()
 
     @classmethod
     def _normalize_identity(cls, value):

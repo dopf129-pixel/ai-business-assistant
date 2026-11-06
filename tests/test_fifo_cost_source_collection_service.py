@@ -99,28 +99,33 @@ def _completed_order(order_id=11, supplies=None):
     }
 
 
-def _accepted_act(*, sku=3921245627, quantity=100):
+def _accepted_act(
+    *, sku=3921245627, quantity=100, declared_quantity=None,
+    approved_quantity=None, created_date=None,
+):
+    product_item = {"sku_info": {"sku": sku}, "fact_quantity": quantity,
+                    "unidentified_quantity": 0}
+    if declared_quantity is not None:
+        product_item["declared_quantity"] = declared_quantity
+    if approved_quantity is not None:
+        product_item["approved_quantity"] = approved_quantity
+    summary_act = {
+        "act_id": 3001,
+        "type": "ACCEPTANCE",
+        "act_state": "ACCEPTED",
+        "summary": {"fact_quantity": quantity, "unidentified_quantity": 0},
+    }
+    if created_date is not None:
+        summary_act["created_date"] = created_date
     summary = {"supplies_acts": [{
         "supply_id": 2001,
         "is_agreement_completed": True,
-        "supply_acts": [{
-            "act_id": 3001,
-            "type": "ACCEPTANCE",
-            "act_state": "ACCEPTED",
-            "summary": {
-                "fact_quantity": quantity,
-                "unidentified_quantity": 0,
-            },
-        }],
+        "supply_acts": [summary_act],
     }]}
     products = {"supply_acts": [{
         "act_id": 3001,
         "type": "ACCEPTANCE",
-        "items": [{
-            "sku_info": {"sku": sku},
-            "fact_quantity": quantity,
-            "unidentified_quantity": 0,
-        }],
+        "items": [product_item],
     }]}
     return summary, products
 
@@ -399,6 +404,8 @@ def test_found_supply_uses_fact_quantity_and_hides_raw_source_ids():
     assert result.status == "COMPLETE"
     assert result.supply_snapshot.units_by_sku == (("3921245627", 100),)
     assert result.supply_snapshot.effective_at is None
+    assert result.supply_snapshot.order_ref
+    assert result.supply_snapshot.order_ref != "11"
     assert result.actual_http_attempts == 4
     assert "2001" not in repr(result)
     assert "3001" not in repr(result)

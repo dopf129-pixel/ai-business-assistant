@@ -23,7 +23,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -46,7 +46,7 @@ class FifoCostRepository:
         "OWNER_CONFIRMED", "OZON_CONFIRMED_FIELD", "DOCUMENT_RECONCILED",
         "LEGACY_DATED_COST", "MODEL_ASSUMPTION",
     })
-    _REFERENCE_KINDS = frozenset({"SUPPLY", "ACT", "POSTING", "DOCUMENT", "OTHER"})
+    _REFERENCE_KINDS = frozenset({"ORDER", "SUPPLY", "ACT", "POSTING", "DOCUMENT", "OTHER"})
     _LOCATIONS = frozenset({"HOME", "TRANSIT", "OZON", "UNKNOWN"})
     _REASON_CODES = frozenset({
         "HISTORY_GAP", "ANCHOR_UNCONFIRMED", "INVENTORY_CUTOFF_UNRECONCILED",
@@ -77,6 +77,7 @@ class FifoCostRepository:
         "fifo_cost_commands",
         "fifo_cost_command_events",
         "fifo_cost_rate_changes",
+        "fifo_cost_supply_evidence",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -91,6 +92,7 @@ class FifoCostRepository:
         "fifo_cost_commands",
         "fifo_cost_command_events",
         "fifo_cost_rate_changes",
+        "fifo_cost_supply_evidence",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -260,6 +262,313 @@ class FifoCostRepository:
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
             code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_IDENTITY_INVALID"
             return self._error(code)
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def record_supply_evidence(
+        self, *, store_id, product_id=None, offer_id=None, sku, snapshot,
+    ):
+        """Append a reconciled supply-act snapshot without creating inventory."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            from services.fifo_cost_source_normalizer import (
+                FifoCostSourceNormalizer,
+                FifoSupplyActEvidence,
+                FifoSupplyActSnapshot,
+            )
+
+            if not isinstance(snapshot, FifoSupplyActSnapshot):
+                return self._error("FIFO_SUPPLY_SNAPSHOT_INVALID")
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            if (
+                snapshot.status not in {"COMPLETE", "CONFIRMED_ZERO"}
+                or snapshot.source_status != "COMPLETE"
+            ):
+                return self._error("FIFO_SUPPLY_SOURCE_NOT_COMPLETE")
+            if (
+                snapshot.store_id != identity["store_id"]
+                or snapshot.effective_at is not None
+                or snapshot.order_ref is None
+                or not self._valid_digest(snapshot.order_ref)
+                or snapshot.supply_ref is None
+                or not self._valid_digest(snapshot.supply_ref)
+                or snapshot.evidence_fingerprint is None
+                or not self._valid_digest(snapshot.evidence_fingerprint)
+                or snapshot.source_fingerprint is None
+                or not self._valid_digest(snapshot.source_fingerprint)
+                or self._normalize_timestamp(snapshot.captured_at) is None
+            ):
+                return self._error("FIFO_SUPPLY_SNAPSHOT_INVALID")
+            units_by_sku = snapshot.units_by_sku
+            if (
+                not isinstance(units_by_sku, tuple)
+                or len(units_by_sku) != 1
+                or not isinstance(units_by_sku[0], tuple)
+                or len(units_by_sku[0]) != 2
+                or units_by_sku[0][0] != identity["sku"]
+                or type(units_by_sku[0][1]) is not int
+                or not 0 <= units_by_sku[0][1] <= self.MAX_COMMAND_UNITS
+            ):
+                return self._error("FIFO_SUPPLY_SKU_IDENTITY_MISMATCH")
+            if (
+                not snapshot.act_evidence
+                or len(snapshot.act_evidence) > self.MAX_PAYLOAD_BYTES // 64
+                or not isinstance(snapshot.act_refs, tuple)
+                or len(snapshot.act_refs) != len(snapshot.act_evidence)
+            ):
+                return self._error("FIFO_SUPPLY_ACT_EVIDENCE_INVALID")
+
+            normalized_acts = []
+            seen_act_refs = set()
+            fact_total = 0
+            for item in snapshot.act_evidence:
+                if (
+                    not isinstance(item, FifoSupplyActEvidence)
+                    or not self._valid_digest(item.act_ref)
+                    or item.act_ref in seen_act_refs
+                    or item.act_type != "ACCEPTANCE"
+                    or item.act_state != "ACCEPTED"
+                    or type(item.fact_quantity) is not int
+                    or not 0 <= item.fact_quantity <= self.MAX_COMMAND_UNITS
+                ):
+                    return self._error("FIFO_SUPPLY_ACT_EVIDENCE_INVALID")
+                seen_act_refs.add(item.act_ref)
+                if item.created_date is not None:
+                    self._normalize_date(item.created_date)
+                quantities = {}
+                for field in ("declared_quantity", "approved_quantity"):
+                    value = getattr(item, field)
+                    if value is not None and (
+                        type(value) is not int or not 0 <= value <= self.MAX_COMMAND_UNITS
+                    ):
+                        return self._error("FIFO_SUPPLY_ACT_EVIDENCE_INVALID")
+                    quantities[field] = value
+                fact_total += item.fact_quantity
+                if fact_total > self.MAX_COMMAND_UNITS:
+                    return self._error("FIFO_SUPPLY_QUANTITY_LIMIT")
+                normalized_acts.append({
+                    "act_ref": item.act_ref,
+                    "act_type": item.act_type,
+                    "act_state": item.act_state,
+                    "created_date": item.created_date,
+                    "created_date_kind": "DOCUMENT_CREATED_DATE_ONLY",
+                    "declared_quantity": quantities["declared_quantity"],
+                    "approved_quantity": quantities["approved_quantity"],
+                    "fact_quantity": item.fact_quantity,
+                })
+            if (
+                seen_act_refs != set(snapshot.act_refs)
+                or fact_total != units_by_sku[0][1]
+                or (snapshot.status == "CONFIRMED_ZERO") != (fact_total == 0)
+            ):
+                return self._error("FIFO_SUPPLY_ACT_EVIDENCE_MISMATCH")
+
+            canonical_acts = sorted(normalized_acts, key=lambda row: row["act_ref"])
+            normalized_fingerprint_payload = {
+                "store_id": identity["store_id"],
+                "order_ref": snapshot.order_ref,
+                "supply_ref": snapshot.supply_ref,
+                "act_refs": sorted(snapshot.act_refs),
+                "act_evidence": [
+                    {key: row[key] for key in (
+                        "act_ref", "act_type", "act_state", "created_date",
+                        "declared_quantity", "approved_quantity", "fact_quantity",
+                    )}
+                    for row in canonical_acts
+                ],
+                "units_by_sku": [[identity["sku"], fact_total]],
+                "status": snapshot.status,
+            }
+            expected_evidence_fingerprint = FifoCostSourceNormalizer._fingerprint(
+                normalized_fingerprint_payload,
+            )
+            expected_source_fingerprint = FifoCostSourceNormalizer._fingerprint({
+                **normalized_fingerprint_payload,
+                "captured_at": snapshot.captured_at,
+            })
+            if (
+                expected_evidence_fingerprint != snapshot.evidence_fingerprint
+                or expected_source_fingerprint != snapshot.source_fingerprint
+            ):
+                return self._error("FIFO_SUPPLY_EVIDENCE_FINGERPRINT_CONFLICT")
+
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            normalized_payload = {
+                "status": snapshot.status,
+                "store_id": identity["store_id"],
+                "sku": identity["sku"],
+                "order_ref": snapshot.order_ref,
+                "supply_ref": snapshot.supply_ref,
+                "act_evidence": canonical_acts,
+                "fact_units": fact_total,
+                "source_as_of": None,
+                "physical_effective_at": None,
+                "physical_effective_date": None,
+            }
+            payload_json = self._canonical_json(normalized_payload)
+            if len(payload_json.encode("utf-8")) > self.MAX_PAYLOAD_BYTES:
+                return self._error("FIFO_SUPPLY_EVIDENCE_LIMIT")
+            source = self._normalize_source({
+                "kind": "OZON_API",
+                "method": "FIFO_SUPPLY_ACT_SNAPSHOT",
+                "status": "COMPLETE",
+                "completeness": "COMPLETE",
+                "provenance": "OZON_CONFIRMED_FIELD",
+                "coverage_status": "COMPLETE",
+                "fingerprint": snapshot.source_fingerprint,
+                "captured_at": snapshot.captured_at,
+                "record_count": len(normalized_acts),
+                "page_count": 1,
+                "references": [
+                    {"kind": "ORDER", "digest": snapshot.order_ref},
+                    {"kind": "SUPPLY", "digest": snapshot.supply_ref},
+                ],
+            })
+            source_id = "src_" + self._sha256({
+                "store_id": identity["store_id"],
+                "source_fingerprint": source["source_fingerprint"],
+            })[:40]
+            now = self._now()
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            stream = connection.execute(
+                """SELECT revision FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchone()
+            if stream is None:
+                connection.rollback()
+                return self._error("FIFO_HISTORY_NOT_INITIALIZED")
+            existing = connection.execute(
+                """SELECT evidence_id, source_id, snapshot_sequence, normalized_evidence_json
+                   FROM fifo_cost_supply_evidence
+                   WHERE stream_id=? AND evidence_fingerprint=?""",
+                (stream_id, snapshot.evidence_fingerprint),
+            ).fetchone()
+            if existing is not None:
+                expected_id = "supply_ev_" + self._sha256({
+                    "stream_id": stream_id,
+                    "evidence_fingerprint": snapshot.evidence_fingerprint,
+                })[:40]
+                if (
+                    existing["evidence_id"] != expected_id
+                    or existing["normalized_evidence_json"] != payload_json
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_SUPPLY_EVIDENCE_FINGERPRINT_CONFLICT")
+                connection.rollback()
+                return {
+                    "error": False,
+                    "code": "FIFO_SUPPLY_EVIDENCE_RECORDED",
+                    "idempotent": True,
+                    "evidence_sequence": existing["snapshot_sequence"],
+                    "stream_revision": stream["revision"],
+                    "accepted_units": fact_total,
+                    "act_count": len(normalized_acts),
+                }
+            snapshot_sequence = connection.execute(
+                "SELECT COALESCE(MAX(snapshot_sequence), 0) + 1 "
+                "FROM fifo_cost_supply_evidence WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()[0]
+            self._ensure_source(connection, {
+                "identity": identity,
+                "source": source,
+                "source_id": source_id,
+            })
+            evidence_id = "supply_ev_" + self._sha256({
+                "stream_id": stream_id,
+                "evidence_fingerprint": snapshot.evidence_fingerprint,
+            })[:40]
+            connection.execute(
+                """INSERT INTO fifo_cost_supply_evidence (
+                    evidence_id, stream_id, snapshot_sequence, stream_revision, source_id,
+                    source_fingerprint, evidence_fingerprint, order_digest,
+                    supply_digest, source_status, captured_at, source_as_of,
+                    physical_effective_at, physical_effective_date,
+                    normalized_evidence_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETE', ?, NULL, NULL, NULL, ?, ?)""",
+                (
+                    evidence_id, stream_id, snapshot_sequence, stream["revision"], source_id,
+                    snapshot.source_fingerprint, snapshot.evidence_fingerprint,
+                    snapshot.order_ref, snapshot.supply_ref,
+                    source["captured_at"], payload_json, self._iso(now),
+                ),
+            )
+            connection.commit()
+            return {
+                "error": False,
+                "code": "FIFO_SUPPLY_EVIDENCE_RECORDED",
+                "idempotent": False,
+                "evidence_sequence": snapshot_sequence,
+                "stream_revision": stream["revision"],
+                "accepted_units": fact_total,
+                "act_count": len(normalized_acts),
+            }
+        except (AttributeError, IndexError, TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_SUPPLY_SNAPSHOT_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            if connection is not None:
+                try:
+                    connection.rollback()
+                except sqlite3.Error:
+                    pass
+            return self._error("FIFO_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_supply_evidence_history(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+    ):
+        """Read redacted, date-provenance-aware supply evidence for one SKU."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            identity_fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + identity_fingerprint[:40]
+            connection = self.get_connection()
+            rows = connection.execute(
+                """SELECT e.snapshot_sequence, e.stream_revision, e.source_status, e.captured_at,
+                          e.source_as_of, e.physical_effective_at,
+                          e.physical_effective_date, e.normalized_evidence_json
+                   FROM fifo_cost_supply_evidence AS e
+                   JOIN fifo_cost_streams AS s ON s.stream_id=e.stream_id
+                   WHERE e.stream_id=? AND s.store_id=? AND s.identity_fingerprint=?
+                   ORDER BY e.snapshot_sequence""",
+                (stream_id, identity["store_id"], identity_fingerprint),
+            ).fetchall()
+            snapshots = []
+            for row in rows:
+                evidence = json.loads(row["normalized_evidence_json"])
+                snapshots.append({
+                    "evidence_sequence": row["snapshot_sequence"],
+                    "stream_revision": row["stream_revision"],
+                    "status": evidence["status"],
+                    "source_status": row["source_status"],
+                    "captured_at": row["captured_at"],
+                    "source_as_of": row["source_as_of"],
+                    "physical_effective_at": row["physical_effective_at"],
+                    "physical_effective_date": row["physical_effective_date"],
+                    "accepted_units": evidence["fact_units"],
+                    "order_ref": evidence["order_ref"],
+                    "supply_ref": evidence["supply_ref"],
+                    "acts": evidence["act_evidence"],
+                })
+            return {"error": False, "code": "FIFO_SUPPLY_EVIDENCE_READY", "snapshots": snapshots}
+        except (TypeError, ValueError):
+            return self._error("FIFO_IDENTITY_INVALID")
         except (sqlite3.Error, OSError):
             return self._error("FIFO_STORAGE_UNAVAILABLE")
         finally:
@@ -1849,6 +2158,29 @@ class FifoCostRepository:
                 UNIQUE(stream_id, idempotency_key)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_supply_evidence (
+                evidence_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                snapshot_sequence INTEGER NOT NULL CHECK(snapshot_sequence >= 1),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 0),
+                source_id TEXT NOT NULL REFERENCES fifo_cost_sources(source_id),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                evidence_fingerprint TEXT NOT NULL CHECK(length(evidence_fingerprint) = 64),
+                order_digest TEXT NOT NULL CHECK(length(order_digest) = 64),
+                supply_digest TEXT NOT NULL CHECK(length(supply_digest) = 64),
+                source_status TEXT NOT NULL CHECK(source_status = 'COMPLETE'),
+                captured_at TEXT NOT NULL,
+                source_as_of TEXT CHECK(source_as_of IS NULL),
+                physical_effective_at TEXT CHECK(physical_effective_at IS NULL),
+                physical_effective_date TEXT CHECK(physical_effective_date IS NULL),
+                normalized_evidence_json TEXT NOT NULL CHECK(
+                    length(normalized_evidence_json) <= 65536
+                ),
+                created_at TEXT NOT NULL,
+                UNIQUE(stream_id, evidence_fingerprint),
+                UNIQUE(stream_id, snapshot_sequence)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_allocations (
                 allocation_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -1924,6 +2256,8 @@ class FifoCostRepository:
                 ON fifo_cost_source_refs(reference_kind, reference_digest);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_rate_changes_order
                 ON fifo_cost_rate_changes(stream_id, effective_date, rate_sequence);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_supply_evidence_order
+                ON fifo_cost_supply_evidence(stream_id, snapshot_sequence);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;

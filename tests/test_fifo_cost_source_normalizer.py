@@ -32,6 +32,7 @@ def _act_payloads(*, acts=None, agreement=True):
             "type": "ACCEPTANCE",
             "act_state": "ACCEPTED",
             "act_id": act["act_id"],
+            **({"created_date": act["created_date"]} if "created_date" in act else {}),
             "summary": {
                 "fact_quantity": act["fact_quantity"],
                 "unidentified_quantity": 0,
@@ -42,6 +43,8 @@ def _act_payloads(*, acts=None, agreement=True):
             "act_id": act["act_id"],
             "items": [{
                 "sku_info": {"sku": act["sku"]},
+                **({"declared_quantity": act["declared_quantity"]} if "declared_quantity" in act else {}),
+                **({"approved_quantity": act["approved_quantity"]} if "approved_quantity" in act else {}),
                 "fact_quantity": act["fact_quantity"],
                 "unidentified_quantity": 0,
             }],
@@ -266,6 +269,55 @@ def test_multiple_partial_acts_for_one_supply_sum_by_same_exact_sku(normalizer):
     assert result.status == "COMPLETE"
     assert result.units_by_sku == (("3921245627", 100),)
     assert len(result.act_refs) == 2
+
+
+def test_partial_acceptance_preserves_declared_approved_fact_and_document_date_separately(normalizer):
+    products, summary = _act_payloads(acts=[{
+        "act_id": 7001,
+        "declared_quantity": 200,
+        "approved_quantity": 0,
+        "fact_quantity": 100,
+        "created_date": "2026-09-28",
+        "sku": 3921245627,
+    }])
+    result = normalizer.normalize_supply_act_snapshot(
+        products,
+        summary,
+        store_id="store-a",
+        expected_supply_id=2001,
+        expected_order_id=11,
+        captured_at=CAPTURED,
+        products_complete=True,
+        summary_complete=True,
+    )
+
+    assert result.status == "COMPLETE"
+    assert result.units_by_sku == (("3921245627", 100),)
+    assert result.act_evidence[0].declared_quantity == 200
+    assert result.act_evidence[0].approved_quantity == 0
+    assert result.act_evidence[0].fact_quantity == 100
+    assert result.act_evidence[0].created_date == "2026-09-28"
+    assert result.effective_at is None
+    assert result.order_ref != "11"
+    assert "7001" not in repr(result)
+
+
+def test_identical_supply_refresh_has_stable_evidence_fingerprint(normalizer):
+    products, summary = _act_payloads()
+    first = normalizer.normalize_supply_act_snapshot(
+        products, summary, store_id="store-a", expected_supply_id=2001,
+        expected_order_id=11, captured_at=CAPTURED,
+        products_complete=True, summary_complete=True,
+    )
+    refreshed = normalizer.normalize_supply_act_snapshot(
+        products, summary, store_id="store-a", expected_supply_id=2001,
+        expected_order_id=11,
+        captured_at=datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc),
+        products_complete=True, summary_complete=True,
+    )
+
+    assert first.evidence_fingerprint == refreshed.evidence_fingerprint
+    assert first.source_fingerprint != refreshed.source_fingerprint
 
 
 def test_multiple_acts_with_different_skus_require_explicit_split(normalizer):

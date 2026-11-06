@@ -492,6 +492,7 @@ class FifoCostSourceCollectionService:
                         summary,
                         store_id=normalized_store,
                         expected_supply_id=normalized_supply_id,
+                        expected_order_id=order_id,
                         captured_at=self._now_utc(),
                         products_complete=True,
                         summary_complete=True,
