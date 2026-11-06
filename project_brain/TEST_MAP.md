@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+# 2026-11-06 — FC11 timely new cost rate
+
+- `tests/test_fifo_cost_rate_service.py` covers no-write rate preview, all-in cost components, explicit home remainder, unchanged finite FIFO layers, atomic append-only rate commit, idempotent confirmation, stale draft replacement, owner/store scope, date ordering, and stale stock/cost revision rejection. N02 covers the narrow confirmed-zero first-rate path versus unknown transit; it asserts that no fake receipt/event/layer is created and the factual cutoff stays blocked.
+- `tests/test_fifo_cost_repository.py` verifies the additive atomic v2→v3 schema migration preserves prior streams and the append-only rate-history contract.
+- Linked Windows profile (`test_fifo_cost_rate_service.py`, repository, allocation, source normalizer/collector, client contract and anchor) at FC11 code checkpoint `1b138766`: **127 passed in 2.79s**. `compileall` and `git diff --check` PASS. Temporary SQLite and synthetic inputs only; no live API or bot.
+
 # 2026-11-06 — FC10 owner-confirmed opening anchor
 
 - `tests/test_fifo_cost_anchor_service.py` verifies a no-write preview, explicit multi-price FIFO ordering, per-layer Ozon/transit/home counts, explicit confirmed home zero, reserved-included Ozon count confirmation, non-overlapping transit confirmation, date-only cutoff, persisted digest references for zero zones, atomic commit, latest projection totals and repeated-anchor rejection.

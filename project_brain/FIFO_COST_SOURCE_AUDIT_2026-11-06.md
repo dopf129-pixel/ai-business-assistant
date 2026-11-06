@@ -117,3 +117,11 @@ FC10 synthetic profile: `tests/test_fifo_cost_anchor_service.py` plus repository
 
 The FC10 write boundary requires a normalized store/SKU identity plus at least one stable product identifier; any malformed supplied identifier is rejected instead of being silently discarded. Persisted anchor events require the exact owner-confirmation source method, capture timestamp, matching date-only cutoff/effective date, and no fabricated `effective_at`. This remains owner evidence and does not resolve the physical stock-to-sale source gap.
 
+## FC11 subsequent cost-rate records
+
+`FifoCostRateService` records the owner-entered acquisition rate separately from finite stock. Its amount is the exact sum of purchase + delivery to the owner + packaging; the old-at-home remainder is explicit and retained as owner reconciliation evidence only. It cannot increase known stock or create a new `COST_LAYER_RECEIPT` without independently confirmed quantity. An existing FIFO queue keeps its older finite layer amounts and FIFO next-unit amount; after a rate change the queue becomes partial because the new acquisition quantity is unknown. The factual Period Profit cutoff stays blocked.
+
+The first-rate/no-opening-anchor case has a narrow confirmed-zero branch: exact identity, full stock pagination, explicit confirmed source semantics, FBO/reserved/transit all zero, disjoint transit confirmation, and owner-confirmed home zero. It creates a zero-quantity projection and open rate but no inventory event or layer. Unknown, empty, partial or mismatched stock evidence cannot take this branch. This is a typed synthetic contract, not a claim that the deployed Ozon stock endpoint always supplies these semantics.
+
+FC11 schema v2→v3 and revision-bound preview/confirm were verified with temporary SQLite and synthetic sources: **127 passed in 2.79s** across rate service, repository, allocator, source normalizer/collector, client contract and anchor tests; compileall and final `git diff --check` PASS. No live Ozon/Telegram request, owner database, or bot startup was used.
+
