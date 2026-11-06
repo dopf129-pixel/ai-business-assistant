@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO FC27: immutable cost basis in saved plans
+
+- Confirmed sales-mix revisions now persist a versioned, allowlisted FIFO cost snapshot beside the saved plan revision: opaque basis reference, source revision/method, requested quantity, per-layer allocation, known partial amount and incompleteness reason. The snapshot is model-only and cannot enter factual Period Profit.
+- Plan comparisons and price-observation ranking now reject unknown or different FIFO bases. Copies/restarts preserve the exact snapshot; editing the quantity requires a newly calculated snapshot. Export includes the saved basis reference and allocation without another source read.
+- FC27 linked profile: **96 passed** across saved-plan, observation/ranking, comparison, export and snapshot-adapter regressions; `compileall -q app tests` and `git diff --check` PASS. Local data manifest: **59/59** hashes and sizes match. Code checkpoint: `8d905567`.
+
 # 2026-11-06 — FIFO FC26: точная себестоимость заданного объёма
 
 - План объёма продаж распределяет заданное Q по точным FIFO-слоям и считает общий COGS как сумму строк, сохраняя `TaxService` и агрегатный налоговый расчёт. Средняя себестоимость показывается только для чтения; она не используется для восстановления итога.

@@ -1,3 +1,10 @@
+# 2026-11-06 — FIFO FC27: frozen plans and comparisons
+
+- `tests/test_planning_sales_mix_cost_snapshot_adapter.py` verifies versioned allowlisted snapshot creation, exact FIFO re-allocation validation, redacted `basis_ref`, quantity/revision binding, and visible partial known cost when the confirmed quantity exhausts finite layers.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export` covers immutable save → restart/read → copy → updated quantity/new revision → export, rejects FIFO saves without a snapshot and rejects a stale snapshot, and confirms source calls do not increase.
+- `tests/test_planning_plan_comparison_service.py`, `tests/test_telegram_unit_price_observation_runtime.py`, and `tests/test_unit_price_observation_quality_service.py` reject mismatched/unknown FIFO bases while retaining comparability for an unchanged basis with a changed planned quantity.
+- `tests/test_analytics_export_service.py` verifies safe saved FIFO basis and allocation fields are exported. FC27 linked profile: **96 passed**; `compileall -q app tests` and `git diff --check` PASS; 59/59 baseline data files match.
+
 # 2026-11-06 — FIFO FC26: заданный объём продаж
 
 - `tests/test_fifo_planning_quantity_allocation_service.py`: N01/N03/N20/N21, exact Decimal total, rounded display average, quantity exhaustion, incomplete/movement basis, caps and allowlisted persisted basis.
