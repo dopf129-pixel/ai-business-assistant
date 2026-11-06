@@ -28,7 +28,7 @@
 - Попытка полного запуска с глобальным storage override дала 7 несвязанных падений multi-tenant fixtures, потому что тесты специально проверяют поведение без такого override; результат отозван, корректный повторный запуск прошёл.
 - Полный suite создал lock и временную tenant DB под `data/`; в wrapper были сохранены исходные байты 5 файлов `data/`. После выполнения два новых файла удалены только после проверки, что они разрешаются внутри `data/`; все 5 исходных файлов восстановлены с совпавшими SHA-256.
 - `python -m compileall -q app tests` и `git diff --check` PASS на финальном дереве.
-- Exact-head GitHub CI для `0511922d8073e9d5a915e95d7693260f0a0a0b4e` (run [42312193535](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42312193535)) прошёл: Windows и Linux full verification, production Docker build/runtime smoke. Текущий последующий коммит меняет только документационный статус и получит собственный CI.
+- Exact-head GitHub CI для `0511922d8073e9d5a915e95d7693260f0a0a0b4e` (run [42312193535](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42312193535)) прошёл: Windows и Linux full verification, production Docker build/runtime smoke. Документационный коммит `1e004ee38697eb9e0748ebf862c97bad338f31de` также прошёл full exact-head CI run [42312664968](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42312664968).
 
 ## Границы
 
