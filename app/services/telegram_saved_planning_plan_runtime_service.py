@@ -1260,9 +1260,22 @@ class TelegramSavedPlanningPlanRuntimeService:
                         "FIFO_PLANNING_COST_SOURCE_MISMATCH": "себестоимость сценария не совпадает с FIFO-снимком",
                         "FIFO_PLANNING_OPEN_RATE_ORDER_AMBIGUOUS": "порядок конечных слоёв и текущей ставки неоднозначен",
                     }.get(cost_reason, "нельзя подтвердить полную себестоимость по FIFO")
-                    detail_lines.append(
-                        f"Исключено · {excluded.get('label')}: {message}."
-                    )
+                    allocation = excluded.get("cost_allocation")
+                    if isinstance(allocation, dict) and allocation.get("status") == "PARTIAL":
+                        breakdown = " + ".join(
+                            f"{part.get('quantity')}×{part.get('unit_cost_rub')} ₽"
+                            for part in allocation.get("lines", [])[:20]
+                        )
+                        detail_lines.append(
+                            f"Исключено · {excluded.get('label')}: {message}; "
+                            f"подтверждённая часть {allocation.get('allocated_quantity')}/"
+                            f"{allocation.get('quantity')} шт. = {allocation.get('known_cost_rub')} ₽ "
+                            f"({breakdown}). Строка не включена в прибыль."
+                        )
+                    else:
+                        detail_lines.append(
+                            f"Исключено · {excluded.get('label')}: {message}."
+                        )
                 else:
                     detail_lines.append(
                         f"Исключено · {excluded.get('label')}: {excluded.get('reason')}."

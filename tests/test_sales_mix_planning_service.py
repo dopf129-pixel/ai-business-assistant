@@ -253,6 +253,10 @@ def test_fc26_unallocatable_fifo_quantity_makes_mix_partial_instead_of_using_nex
     assert result["profit"] is None
     assert result["tax"] is None
     assert result["excluded_rows"][0]["reason"] == "FIFO_QUANTITY_ALLOCATION_INCOMPLETE"
+    partial_cost = result["excluded_rows"][0]["cost_allocation"]
+    assert partial_cost["status"] == "PARTIAL"
+    assert partial_cost["allocated_quantity"] == 80
+    assert partial_cost["known_cost_rub"] == "1600.00"
     assert len(tax.calls) == 0
 
 

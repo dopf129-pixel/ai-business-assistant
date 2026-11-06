@@ -117,6 +117,9 @@ class SalesMixPlanningService:
                     "label": label,
                     "reason": "FIFO_QUANTITY_ALLOCATION_INCOMPLETE",
                     "cost_reason": fifo_cost_error,
+                    **({"cost_allocation": cost_allocation}
+                       if isinstance(cost_allocation, dict)
+                       and cost_allocation.get("status") == "PARTIAL" else {}),
                 })
                 continue
             pre_ad_unit_profit = self._decimal(unit.get("pre_ad_profit_before_tax"))
@@ -711,7 +714,8 @@ class SalesMixPlanningService:
             return None, Decimal("0.00"), "FIFO_PLANNING_BASIS_UNAVAILABLE"
         allocation = self.fifo_allocator.allocate(quantity=quantity, basis=basis)
         if allocation.get("status") != "COMPLETE":
-            return None, Decimal("0.00"), allocation.get("reason_code") or "FIFO_PLANNING_ALLOCATION_INCOMPLETE"
+            partial = allocation if allocation.get("status") == "PARTIAL" else None
+            return partial, Decimal("0.00"), allocation.get("reason_code") or "FIFO_PLANNING_ALLOCATION_INCOMPLETE"
         baseline_cost = self._decimal(unit.get("cost"))
         if baseline_cost is None:
             return None, Decimal("0.00"), "FIFO_PLANNING_UNIT_COST_MISSING"
