@@ -328,6 +328,16 @@ app/services/cost_service.py
 
 Себестоимость сохраняется в SQLite.
 
+### FIFO cost rate reconciliation
+
+Subsequent owner-confirmed rates are append-only revisions in the FIFO-owned
+tables in the same tenant-local SQLite database. A later rate cannot rewrite
+older finite layers: a complete exact-SKU stock snapshot and explicit owner
+confirmation reconcile the prior open rate only. If movements require replay,
+the source is incomplete, or totals conflict with prior evidence, the preview
+fails closed. This remains separate from the legacy `ProductCostService` and
+does not feed factual Period Profit while the cutoff bridge is unresolved.
+
 ---
 
 ## ProfitService

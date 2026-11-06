@@ -1,5 +1,12 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC14 — повторные смены ставки и сверка конечных слоёв
+
+- `tests/test_fifo_cost_rate_service.py`: третья/четвёртая цены, распределение старых и предыдущей открытой ставки, reserved как subset FBO, неполный/неверный снимок, конфликт общего остатка, падение количества между сверками без переназначения на продажи, запрет переписывания старых слоёв, append-only source evidence.
+- `tests/test_fifo_cost_repository.py`: миграция v4→v5, создание таблицы сверок и запрет UPDATE/DELETE.
+- `tests/test_fifo_cost_history_service.py` и `tests/test_telegram_fifo_cost_history.py`: показ сохранённых количеств в истории и безопасное сообщение владельцу при невозможности полной сверки.
+- Связанный профиль: `tests/test_fifo_cost_rate_service.py tests/test_fifo_cost_repository.py tests/test_fifo_cost_history_service.py tests/test_telegram_fifo_cost_history.py tests/test_fifo_cost_allocation_service.py tests/test_fifo_cost_supply_evidence_service.py` — **84 passed in 2.62s**; `compileall` и `git diff --check` PASS.
+
 ## FC13 — linked supply evidence and partial acceptance
 
 - `tests/test_fifo_cost_source_normalizer.py` covers strict separate declared/approved/fact values, document-date parsing, accepted-act grouping, and stable content fingerprint across identical refreshes with a different local capture time.
