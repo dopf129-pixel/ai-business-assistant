@@ -238,7 +238,7 @@ def test_fc11_schema_v2_upgrade_adds_rate_history_without_changing_other_data(tm
     try:
         assert upgraded.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 5
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION
         assert tuple(upgraded.execute(
             "SELECT state, revision FROM fifo_cost_streams WHERE stream_id='stream-v2'"
         ).fetchone()) == ("FIFO_READY", 1)
@@ -274,7 +274,7 @@ def test_fc13_schema_v3_upgrade_adds_append_only_supply_evidence(tmp_path):
     try:
         assert upgraded.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 5
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION
         assert tuple(upgraded.execute(
             "SELECT state, revision FROM fifo_cost_streams WHERE stream_id='stream-v3'"
         ).fetchone()) == ("FIFO_READY", 1)
