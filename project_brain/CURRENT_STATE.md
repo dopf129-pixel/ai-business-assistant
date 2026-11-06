@@ -1,3 +1,9 @@
+# 2026-11-06 — FIFO late-entry reconstruction, FC21
+
+- `FifoCostLateEntryReconstructionService` now creates a read-only exact-SKU replay preview bound to the saved late-entry draft, accepted-supply evidence fingerprint, stream revision, allocation revision and source-set fingerprint. A complete synthetic path applies one hypothetical rate only after its owner-confirmed historical boundary; the act's accepted quantity remains documentary and contributes zero inventory.
+- Missing/reconciled-cutoff evidence, incomplete/unsupported movement history, stale drafts, untrusted sales, unresolved same-day ordering, and unsupported existing rate transitions fail closed. The Telegram reply requests the required evidence and explicitly says current stock was not used as historical stock. No event, rate, layer, allocation, tax, or Period Profit is changed.
+- Linked profile: **261 passed in 8.81s**; `compileall -q app tests` and `git diff --check` PASS. Code commit: `b1e6a0fe`. Synthetic fixtures and temporary SQLite only; no live API/Telegram request or bot startup. `DONE_WITH_GAP`: production historical cutoff is still unreconciled. Next: FC22 impact preview and append-only correction commit.
+
 # 2026-11-06 — статус реализации FIFO себестоимости
 
 - FC20 `DONE_WITH_GAP`: добавлен owner-confirmed Telegram-сценарий позднего ввода уже отправленной партии. Черновик содержит стоимость/расходы, остаток старой партии дома, дату фактического перехода, количество из принятого односоставного акта Ozon и ревизию FIFO; IDs остаются только в памяти запроса, в хранилище идут digest-ссылки. Запись не меняет FIFO-слои/остатки, Period Profit, налог или прибыль. Целевой профиль: **269 passed in 8.25s**, после cleanup — **36 passed in 1.47s**; compileall и `git diff --check` PASS. Реконструкция и preview ожидаются в FC21–22; production cutoff остаётся заблокированным.

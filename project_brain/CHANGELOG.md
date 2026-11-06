@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-06 — FIFO: read-only reconstruction of late cost transition (FC21)
+
+- Added a revision- and evidence-bound reconstruction preview for a late cost change. It replays only supported complete movement history and keeps the accepted supply-act quantity documentary; no FIFO stock, allocation, tax, or Period Profit is changed.
+- Historical reconstruction fails closed without a reconciled stock/finance cutoff, complete event history, trusted sale evidence, or an unambiguous event order. Telegram now explains the missing evidence and confirms that current Ozon stock was not substituted for historical stock.
+- Linked synthetic profile: **261 passed in 8.81s**; compileall and `git diff --check` PASS. Production cutoff remains blocked pending owner/source validation.
+
 ## 2026-10-31 — связанная проверка маржи до рекламы, MA26
 
 - Связанный профиль проверяет offline-путь карточки, price planner, history, tariff, saved plans, returns/expenses, observations/experiments, exports и restore: **981 passed in 28.81s across 70 modules**.

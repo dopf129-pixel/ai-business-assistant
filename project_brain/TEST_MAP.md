@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+## FC21 — read-only reconstruction of a late FIFO cost transition
+
+- `tests/test_fifo_cost_late_entry_reconstruction_service.py` verifies the production cutoff blocker/evidence request; a complete synthetic cutoff replay; preservation of unsold old finite layers; documentary-only accepted-act quantity; no writes to FIFO revisions/rates or Period Profit; stale revision rejection; same-day date-only ambiguity; and tenant/store isolation.
+- `tests/test_telegram_fifo_cost_late_entry_service.py` verifies the public late-entry flow explains the specific historical cutoff gap, says current Ozon stock was not used as historical inventory, and identifies the owner evidence needed.
+- Linked profile: all `tests/test_fifo_cost*.py`, Telegram FIFO history/late-entry, Period Profit FIFO integration/factory and Return COGS compatibility gates: **261 passed in 8.81s**. `compileall -q app tests` and `git diff --check` PASS. Synthetic services and temporary SQLite only; production cutoff remains blocked.
+
 ## FC20 — поздний ввод уже отправленной FIFO-партии
 
 - `tests/test_telegram_fifo_cost_late_entry_service.py`: безопасный диалог ввода цены/расходов/остатка старой партии/даты перехода; точные tenant/store/SKU и revision-bound draft; сбор только принятого односоставного акта, отклонение другого SKU/store, незавершённой/неполной/неоднозначной поставки; bounded continuation и callbacks; черновик не пишет FIFO-события или слои.
