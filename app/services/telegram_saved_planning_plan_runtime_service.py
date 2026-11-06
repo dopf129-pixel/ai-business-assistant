@@ -1176,6 +1176,23 @@ class TelegramSavedPlanningPlanRuntimeService:
                 f"реклама {advertising_text}; "
                 f"fees {components.get('fees')} ₽; "
             )
+            allocation = row.get("cost_allocation")
+            if isinstance(allocation, dict) and allocation.get("status") in {
+                "COMPLETE", "MANUAL_SCENARIO_OVERRIDE",
+            }:
+                if allocation.get("method") == "MANUAL_SCENARIO_COST":
+                    row_line += (
+                        f"себестоимость по ручному сценарию {allocation.get('average_cost_rub')} ₽/шт.; "
+                    )
+                else:
+                    breakdown = " + ".join(
+                        f"{part.get('quantity')}×{part.get('unit_cost_rub')} ₽"
+                        for part in allocation.get("lines", [])[:20]
+                    )
+                    row_line += (
+                        f"FIFO {breakdown or 'слои не раскрыты'}; "
+                        f"среднее {allocation.get('average_cost_rub')} ₽/шт.; "
+                    )
             if "cross_docking" in components:
                 row_line += f"кросс-докинг {components.get('cross_docking')} ₽; "
             contribution = row.get("profit_before_tax_contribution")
@@ -1233,7 +1250,23 @@ class TelegramSavedPlanningPlanRuntimeService:
             else:
                 lines.append("Частичный подтверждённый subtotal; налог, итоговая прибыль и маржа всего выбранного набора недоступны.")
             for excluded in result.get("excluded_rows", [])[:10]:
-                detail_lines.append(f"Исключено · {excluded.get('label')}: {excluded.get('reason')}.")
+                if excluded.get("reason") == "FIFO_QUANTITY_ALLOCATION_INCOMPLETE":
+                    cost_reason = excluded.get("cost_reason")
+                    message = {
+                        "FIFO_PLANNING_CONFIRMED_QUANTITY_EXHAUSTED": (
+                            "подтверждённых слоёв не хватает на весь объём, а стоимость остатка неизвестна"
+                        ),
+                        "FIFO_PLANNING_BASIS_UNAVAILABLE": "снимок FIFO недоступен",
+                        "FIFO_PLANNING_COST_SOURCE_MISMATCH": "себестоимость сценария не совпадает с FIFO-снимком",
+                        "FIFO_PLANNING_OPEN_RATE_ORDER_AMBIGUOUS": "порядок конечных слоёв и текущей ставки неоднозначен",
+                    }.get(cost_reason, "нельзя подтвердить полную себестоимость по FIFO")
+                    detail_lines.append(
+                        f"Исключено · {excluded.get('label')}: {message}."
+                    )
+                else:
+                    detail_lines.append(
+                        f"Исключено · {excluded.get('label')}: {excluded.get('reason')}."
+                    )
         self._append_sales_mix_pre_ad_summary(lines, result.get("pre_ad_margin") or {})
         if result.get("coverage_complete") is True:
             self._append_sales_mix_advertising_cap(lines, payload, result)

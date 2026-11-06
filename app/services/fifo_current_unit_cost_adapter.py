@@ -9,6 +9,9 @@ from decimal import Decimal, InvalidOperation
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
+from services.fifo_planning_quantity_allocation_service import (
+    FifoPlanningQuantityAllocationService,
+)
 
 
 class FifoCurrentUnitCostAdapter:
@@ -189,6 +192,9 @@ class FifoCurrentUnitCostAdapter:
             },
         }
         revision = self._fingerprint(material)
+        quantity_allocation_basis = self._quantity_allocation_basis(
+            history, current_date, revision,
+        )
         cost_method = (
             "FIFO_FINITE_LAYER" if next_basis == "FINITE_FIFO_LAYER"
             and cost is not None else
@@ -217,8 +223,174 @@ class FifoCurrentUnitCostAdapter:
                 "model_only": True,
                 "factual_period_profit_eligible": False,
                 "cache_revision": revision,
+                "quantity_allocation_basis": quantity_allocation_basis,
             },
         }
+
+    @classmethod
+    def _quantity_allocation_basis(cls, history, current_date, revision):
+        def unavailable(reason):
+            return {
+                "schema_version": FifoPlanningQuantityAllocationService.SCHEMA_VERSION,
+                "status": "UNAVAILABLE",
+                "method": "FIFO_CURRENT_SNAPSHOT",
+                "as_of_date": current_date,
+                "cutoff_date": history.get("cutoff_date"),
+                "revision": revision,
+                "remaining_status": history.get("remaining_status"),
+                "movement_count": history.get("movement_count"),
+                "model_only": True,
+                "factual_period_profit_eligible": False,
+                "layers": [],
+                "open_rate": None,
+                "reason_code": reason,
+            }
+
+        if (history.get("queue_initialized") is not True
+                or history.get("remaining_status") != "AT_CONFIRMED_SNAPSHOT"
+                or type(history.get("movement_count")) is not int
+                or history.get("movement_count") != 0):
+            return unavailable("FIFO_PLANNING_SNAPSHOT_REPLAY_REQUIRED")
+        if cls._date(current_date) is None or cls._date(history.get("cutoff_date")) is None:
+            return unavailable("FIFO_PLANNING_CUTOFF_UNAVAILABLE")
+
+        raw_layers = history.get("layers")
+        raw_rates = history.get("rates")
+        reconciliations = history.get("rate_reconciliations")
+        if (not isinstance(raw_layers, list) or len(raw_layers) > 100
+                or not isinstance(raw_rates, list) or len(raw_rates) > 256
+                or not isinstance(reconciliations, list) or len(reconciliations) > 256):
+            return unavailable("FIFO_PLANNING_SOURCE_LIMIT_EXCEEDED")
+
+        finite = []
+        for raw in raw_layers:
+            if not isinstance(raw, dict):
+                return unavailable("FIFO_PLANNING_LAYER_INVALID")
+            quantity = raw.get("remaining_units")
+            unit_cost = cls._money(raw.get("unit_cost_rub"))
+            effective_date = cls._date(raw.get("effective_date"))
+            sequence = raw.get("sequence")
+            if (type(sequence) is not int or sequence < 1
+                    or type(quantity) is not int or quantity < 0
+                    or unit_cost is None or effective_date is None
+                    or effective_date > current_date):
+                return unavailable("FIFO_PLANNING_LAYER_INVALID")
+            if quantity:
+                finite.append({
+                    "source_order": sequence,
+                    "source_group": "FINITE_LAYER",
+                    "kind": "FINITE_LAYER",
+                    "quantity": quantity,
+                    "unit_cost_rub": unit_cost,
+                    "effective_date": effective_date,
+                })
+
+        rates_by_sequence = {}
+        effective_rates = []
+        for rate in raw_rates:
+            if not isinstance(rate, dict):
+                return unavailable("FIFO_PLANNING_RATE_INVALID")
+            sequence = rate.get("sequence")
+            effective_date = cls._date(rate.get("effective_date"))
+            if type(sequence) is not int or sequence < 1 or effective_date is None:
+                return unavailable("FIFO_PLANNING_RATE_INVALID")
+            if sequence in rates_by_sequence:
+                return unavailable("FIFO_PLANNING_RATE_DUPLICATE")
+            rates_by_sequence[sequence] = rate
+            if (rate.get("status") == "EFFECTIVE" and rate.get("cancelled") is not True
+                    and effective_date <= current_date):
+                effective_rates.append(rate)
+        effective_rates.sort(key=lambda item: item["sequence"])
+        reconciliations_by_sequence = {}
+        effective_rate_sequences = {item["sequence"] for item in effective_rates}
+        for item in reconciliations:
+            if not isinstance(item, dict):
+                return unavailable("FIFO_PLANNING_RATE_RECONCILIATION_INVALID")
+            prior_sequence = item.get("reconciled_rate_sequence")
+            transition_sequence = item.get("transition_rate_sequence")
+            transition = rates_by_sequence.get(transition_sequence)
+            if (type(prior_sequence) is not int or type(transition_sequence) is not int
+                    or prior_sequence in reconciliations_by_sequence
+                    or transition is None):
+                return unavailable("FIFO_PLANNING_RATE_RECONCILIATION_INVALID")
+            if transition_sequence in effective_rate_sequences:
+                if prior_sequence not in effective_rate_sequences:
+                    return unavailable("FIFO_PLANNING_RATE_RECONCILIATION_INVALID")
+                reconciliations_by_sequence[prior_sequence] = item
+
+        if effective_rates:
+            for rate in effective_rates[:-1]:
+                if rate["sequence"] not in reconciliations_by_sequence:
+                    return unavailable("FIFO_PLANNING_RATE_HISTORY_INCOMPLETE")
+                reconciliation = reconciliations_by_sequence[rate["sequence"]]
+                quantity = reconciliation.get("prior_rate_units")
+                unit_cost = cls._money(rate.get("unit_cost_rub"))
+                effective_date = cls._date(rate.get("effective_date"))
+                if (type(quantity) is not int or not 0 <= quantity <= 1_000_000
+                        or unit_cost is None or effective_date is None):
+                    return unavailable("FIFO_PLANNING_RATE_RECONCILIATION_INVALID")
+                if quantity:
+                    finite.append({
+                        "source_order": rate["sequence"],
+                        "source_group": "RECONCILED_RATE",
+                        "kind": "RECONCILED_RATE",
+                        "quantity": quantity,
+                        "unit_cost_rub": unit_cost,
+                        "effective_date": effective_date,
+                    })
+
+        finite.sort(key=lambda item: (item["effective_date"], item["source_group"], item["source_order"]))
+        for left, right in zip(finite, finite[1:]):
+            if (left["effective_date"] == right["effective_date"]
+                    and left["source_group"] != right["source_group"]):
+                return unavailable("FIFO_PLANNING_LAYER_ORDER_AMBIGUOUS")
+        if len(finite) > FifoPlanningQuantityAllocationService.MAX_LAYERS:
+            return unavailable("FIFO_PLANNING_LAYER_LIMIT_EXCEEDED")
+
+        open_rate = None
+        if effective_rates:
+            active = effective_rates[-1]
+            active_cost = cls._money(active.get("unit_cost_rub"))
+            active_date = cls._date(active.get("effective_date"))
+            if active_cost is None or active_date is None:
+                return unavailable("FIFO_PLANNING_OPEN_RATE_INVALID")
+            if finite and active_date <= finite[-1]["effective_date"]:
+                return unavailable("FIFO_PLANNING_OPEN_RATE_ORDER_AMBIGUOUS")
+            open_rate = {
+                "unit_cost_rub": active_cost,
+                "effective_date": active_date,
+            }
+
+        projected_layers = [
+            {
+                "sequence": index,
+                "kind": item["kind"],
+                "quantity": item["quantity"],
+                "unit_cost_rub": item["unit_cost_rub"],
+                "effective_date": item["effective_date"],
+            }
+            for index, item in enumerate(finite, start=1)
+        ]
+        basis = {
+            "schema_version": FifoPlanningQuantityAllocationService.SCHEMA_VERSION,
+            "status": "AVAILABLE",
+            "method": "FIFO_CURRENT_SNAPSHOT",
+            "as_of_date": current_date,
+            "cutoff_date": history.get("cutoff_date"),
+            "revision": revision,
+            "remaining_status": "AT_CONFIRMED_SNAPSHOT",
+            "movement_count": 0,
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+            "layers": projected_layers,
+            "open_rate": open_rate,
+        }
+        # Apply the same strict, bounded contract used by the pure allocator;
+        # malformed or ambiguous source history cannot be persisted as usable.
+        normalized = FifoPlanningQuantityAllocationService.normalize_persisted_basis(basis)
+        return normalized if normalized is not None else unavailable(
+            "FIFO_PLANNING_BASIS_VALIDATION_FAILED"
+        )
 
     def _legacy_result(self, identity, current_date, *, reason=None):
         row = None

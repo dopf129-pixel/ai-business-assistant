@@ -491,6 +491,9 @@ class UnitPriceScenarioSource:
                             (cost_basis or {}).get("factual_period_profit_eligible")
                         ),
                         "revision": (cost_basis or {}).get("cache_revision"),
+                        "quantity_allocation_basis": deepcopy(
+                            (cost_basis or {}).get("quantity_allocation_basis")
+                        ),
                     },
                     "tax_policy": {"complete": policy.get("mode") is not None},
                     "discount_points": points["completeness"],

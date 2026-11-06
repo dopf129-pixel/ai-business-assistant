@@ -230,6 +230,44 @@ def _select_single(single):
     return single.handle_callback(callback, user_id="user-1")
 
 
+def _fifo_planning_cost_basis():
+    return {
+        "complete": True,
+        "amount": "100.00",
+        "method": "FIFO_FINITE_LAYER",
+        "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+        "as_of_date": "2026-11-06",
+        "cutoff_date": "2026-11-05",
+        "stream_revision": 7,
+        "revision": "fc26-frozen-revision",
+        "model_only": True,
+        "factual_period_profit_eligible": False,
+        "quantity_allocation_basis": {
+            "schema_version": 1,
+            "status": "AVAILABLE",
+            "method": "FIFO_CURRENT_SNAPSHOT",
+            "as_of_date": "2026-11-06",
+            "cutoff_date": "2026-11-05",
+            "revision": "fc26-frozen-revision",
+            "remaining_status": "AT_CONFIRMED_SNAPSHOT",
+            "movement_count": 0,
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+            "layers": [{
+                "sequence": 1,
+                "kind": "FINITE_LAYER",
+                "quantity": 8,
+                "unit_cost_rub": "100.00",
+                "effective_date": "2026-11-05",
+            }],
+            "open_rate": {
+                "unit_cost_rub": "120.00",
+                "effective_date": "2026-11-06",
+            },
+        },
+    }
+
+
 def test_single_save_list_open_and_continue_uses_historical_snapshot_without_source_calls(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
     tenant = _activate()
@@ -779,6 +817,53 @@ def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_
         assert stale["status"] == "PLANNING_ACTION_STALE"
         assert stored["current_revision"] == 2
         assert saved_runtime._pending[("user-1", "user-1::ozon::store-a")]["ticket"] == "newer-action-ticket"
+        assert len(source.calls) == 1
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_fifo_sales_mix_preview_uses_frozen_layers_and_shows_exact_quantity_breakdown(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        saved_runtime.handle_callback(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = saved_runtime.handle_text("FIFO объём", user_id="user-1")
+        document = service.get_document(saved["document_id"])["document"]
+        payload = deepcopy(document["payload"])
+        item = payload["items"][0]
+        item["provenance"]["cost"] = "fifo_next_unit_cost"
+        item["sources"]["completeness"]["cost"] = _fifo_planning_cost_basis()
+        revised = service.repository.save_document(
+            title=document["title"], payload=payload,
+            document_id=document["document_id"], expected_revision=1,
+            expected_state_revision=document["state_revision"],
+            idempotency_key="seed-fc26-fifo-basis",
+            owner_id="user-1", store_id="store-a",
+        )
+        assert revised["error"] is False
+
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "FIFO объём · v2"), user_id="user-1",
+        )
+        period = saved_runtime.handle_callback(
+            _button(detail, "План объёма продаж"), user_id="user-1",
+        )
+        saved_runtime.handle_text("01.08.2026 - 31.08.2026", user_id="user-1")
+        quantity = saved_runtime.handle_text("10", user_id="user-1")
+        preview = saved_runtime.handle_text("0", user_id="user-1")
+
+        assert period["status"] == "SALES_MIX_INPUT_REQUIRED"
+        assert quantity["status"] == "SALES_MIX_INPUT_REQUIRED"
+        assert preview["status"] == "SALES_MIX_PREVIEW"
+        assert preview["sales_mix_result"]["components"]["cost_of_goods"] == "1040.00"
+        assert "себест. 1040.00 ₽" in preview["message"]
+        assert "FIFO 8×100.00 ₽ + 2×120.00 ₽" in preview["message"]
+        assert "среднее 104.00 ₽/шт." in preview["message"]
+        assert "итоговая прибыль" in preview["message"]
         assert len(source.calls) == 1
     finally:
         reset_current_tenant_user_id(tenant)

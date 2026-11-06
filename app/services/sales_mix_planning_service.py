@@ -4,6 +4,10 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import re
 
+from services.fifo_planning_quantity_allocation_service import (
+    FifoPlanningQuantityAllocationService,
+)
+
 
 class SalesMixPlanningService:
     MAX_ITEMS = 10
@@ -18,9 +22,10 @@ class SalesMixPlanningService:
         "profit_before_tax",
     )
 
-    def __init__(self, scenario_service, tax_service=None):
+    def __init__(self, scenario_service, tax_service=None, fifo_allocator=None):
         self.scenario_service = scenario_service
         self.tax_service = tax_service or getattr(scenario_service, "tax_service", None)
+        self.fifo_allocator = fifo_allocator or FifoPlanningQuantityAllocationService()
 
     def calculate(self, items, *, quantities, period_label, expenses, expenses_confirmed,
                   include_cross_docking=False):
@@ -99,6 +104,21 @@ class SalesMixPlanningService:
                 identity=identity,
             )
             unit = projected.get("calculated") or {}
+            cost_allocation, fifo_cost_delta, fifo_cost_error = self._fifo_quantity_cost(
+                item, inputs, quantity, unit,
+            )
+            if fifo_cost_error is not None:
+                complete = False
+                pre_ad_complete = False
+                if include_cross_docking:
+                    cross_docking_complete = False
+                excluded.append({
+                    "row_id": row_id,
+                    "label": label,
+                    "reason": "FIFO_QUANTITY_ALLOCATION_INCOMPLETE",
+                    "cost_reason": fifo_cost_error,
+                })
+                continue
             pre_ad_unit_profit = self._decimal(unit.get("pre_ad_profit_before_tax"))
             pre_ad_revenue = self._decimal(unit.get("revenue"))
             pre_ad_discount_points = self._decimal(unit.get("discount_points"))
@@ -124,8 +144,9 @@ class SalesMixPlanningService:
             )
             if pre_ad_row_available:
                 pre_ad_profit_before_tax_total += (
-                    pre_ad_unit_profit * quantity
-                ).quantize(Decimal("0.01"))
+                    (pre_ad_unit_profit * quantity).quantize(Decimal("0.01"))
+                    + fifo_cost_delta
+                )
                 pre_ad_revenue_total += (pre_ad_revenue * quantity).quantize(Decimal("0.01"))
                 pre_ad_discount_points_total += (
                     pre_ad_discount_points * quantity
@@ -149,6 +170,11 @@ class SalesMixPlanningService:
                     pre_ad_known_expenses[key] = pre_ad_known_expenses.get(
                         key, Decimal("0.00"),
                     ) + (amount * quantity).quantize(Decimal("0.01"))
+                if fifo_cost_delta and "COGS" in pre_ad_known_expenses:
+                    # The unit scenario's COGS is the next-unit reference. Use
+                    # the exact layer total for this quantity while retaining
+                    # the existing pre-ad rounding adjustment and tax bridge.
+                    pre_ad_known_expenses["COGS"] -= fifo_cost_delta
                 pre_ad_included_expense_keys.update(
                     unit_scope.get("included_expense_keys") or []
                 )
@@ -204,7 +230,10 @@ class SalesMixPlanningService:
                     "reason": "PRE_AD_COMPONENT_UNKNOWN",
                 })
                 continue
-            pre_ad_row_profit = (pre_ad_unit_profit * quantity).quantize(Decimal("0.01"))
+            pre_ad_row_profit = (
+                (pre_ad_unit_profit * quantity).quantize(Decimal("0.01"))
+                + fifo_cost_delta
+            )
             row_components["pre_ad_profit_before_tax"] = pre_ad_row_profit
             additional_unit_expense = self._decimal(unit.get("additional_unit_expenses"))
             if extended_scenario is not None:
@@ -232,7 +261,13 @@ class SalesMixPlanningService:
                         continue
                     complete = False
                     break
-                row_components[field] = (value * quantity).quantize(Decimal("0.01"))
+                row_amount = (value * quantity).quantize(Decimal("0.01"))
+                if cost_allocation is not None and cost_allocation.get("status") == "COMPLETE":
+                    if field == "cost_of_goods":
+                        row_amount = Decimal(cost_allocation["total_cost_rub"])
+                    elif field == "profit_before_tax":
+                        row_amount += fifo_cost_delta
+                row_components[field] = row_amount
                 totals[field] += row_components[field]
                 if abs(totals[field]) > self.MAX_AGGREGATE_AMOUNT:
                     return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
@@ -264,6 +299,7 @@ class SalesMixPlanningService:
             row_result = self._row_result(
                 row_id, label, quantity, row_components,
                 unit_price=self._decimal(unit.get("revenue")),
+                cost_allocation=cost_allocation,
             )
             if after_ad_partial_only:
                 row_result["after_ad_status"] = "INCOMPLETE_ADVERTISING"
@@ -607,9 +643,10 @@ class SalesMixPlanningService:
         return (mode, rate, minimum)
 
     @staticmethod
-    def _row_result(row_id, label, quantity, components, *, unit_price=None):
+    def _row_result(row_id, label, quantity, components, *, unit_price=None,
+                    cost_allocation=None):
         profit_before_tax = components.get("profit_before_tax")
-        return {
+        result = {
             "row_id": row_id,
             "label": label,
             "quantity": quantity,
@@ -623,6 +660,66 @@ class SalesMixPlanningService:
                 if profit_before_tax is not None else None
             ),
         }
+        if isinstance(cost_allocation, dict):
+            result["cost_allocation"] = cost_allocation
+        return result
+
+    def _fifo_quantity_cost(self, item, inputs, quantity, unit):
+        """Apply exact FIFO totals only for a matching, non-overridden basis."""
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        completeness = sources.get("completeness")
+        completeness = completeness if isinstance(completeness, dict) else {}
+        cost_source = completeness.get("cost")
+        cost_source = cost_source if isinstance(cost_source, dict) else {}
+        basis = cost_source.get("quantity_allocation_basis")
+        method = str(cost_source.get("method") or "").upper()
+        is_fifo = method.startswith("FIFO_") or (
+            isinstance(basis, dict) and basis.get("method") == "FIFO_CURRENT_SNAPSHOT"
+        )
+        if not is_fifo:
+            return None, Decimal("0.00"), None
+
+        provenance = item.get("provenance")
+        provenance = provenance if isinstance(provenance, dict) else {}
+        cost_provenance = str(provenance.get("cost") or "").strip().lower()
+        manual_cost = cost_provenance in {
+            "manual", "manual_seller_assumption", "manual_unit_economics_input",
+        }
+        input_cost = self._decimal(inputs.get("cost"))
+        if input_cost is None:
+            return None, Decimal("0.00"), "FIFO_PLANNING_UNIT_COST_MISSING"
+        input_cost = input_cost.quantize(Decimal("0.01"))
+        if manual_cost:
+            total = (input_cost * quantity).quantize(Decimal("0.01"))
+            return {
+                "status": "MANUAL_SCENARIO_OVERRIDE",
+                "method": "MANUAL_SCENARIO_COST",
+                "quantity": quantity,
+                "unit_cost_rub": self._money(input_cost),
+                "total_cost_rub": self._money(total),
+                "average_cost_rub": self._money(input_cost),
+                "reference_fifo_revision": cost_source.get("revision"),
+                "model_only": True,
+                "factual_period_profit_eligible": False,
+                "lines": [],
+            }, Decimal("0.00"), None
+
+        source_cost = self._decimal(cost_source.get("amount"))
+        if source_cost is None or source_cost.quantize(Decimal("0.01")) != input_cost:
+            return None, Decimal("0.00"), "FIFO_PLANNING_COST_SOURCE_MISMATCH"
+        if not isinstance(basis, dict):
+            return None, Decimal("0.00"), "FIFO_PLANNING_BASIS_UNAVAILABLE"
+        allocation = self.fifo_allocator.allocate(quantity=quantity, basis=basis)
+        if allocation.get("status") != "COMPLETE":
+            return None, Decimal("0.00"), allocation.get("reason_code") or "FIFO_PLANNING_ALLOCATION_INCOMPLETE"
+        baseline_cost = self._decimal(unit.get("cost"))
+        if baseline_cost is None:
+            return None, Decimal("0.00"), "FIFO_PLANNING_UNIT_COST_MISSING"
+        baseline_total = (baseline_cost * quantity).quantize(Decimal("0.01"))
+        exact_total = Decimal(allocation["total_cost_rub"])
+        # Positive delta means exact FIFO COGS is lower than next-unit × Q,
+        # so pre-tax contribution rises by the same amount.
+        return allocation, baseline_total - exact_total, None
 
     @staticmethod
     def _safe_label(identity):

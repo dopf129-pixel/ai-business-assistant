@@ -264,6 +264,26 @@ class _RevisionCostAdapter:
             "model_only": True,
             "factual_period_profit_eligible": False,
             "cache_revision": self.revision,
+            "quantity_allocation_basis": {
+                "schema_version": 1,
+                "status": "AVAILABLE" if self.amount is not None else "UNAVAILABLE",
+                "method": "FIFO_CURRENT_SNAPSHOT",
+                "as_of_date": as_of_date,
+                "cutoff_date": "2026-10-10",
+                "revision": self.revision,
+                "remaining_status": "AT_CONFIRMED_SNAPSHOT",
+                "movement_count": 0,
+                "model_only": True,
+                "factual_period_profit_eligible": False,
+                "layers": ([{
+                    "sequence": 1, "kind": "FINITE_LAYER", "quantity": 40,
+                    "unit_cost_rub": self.amount, "effective_date": "2026-10-01",
+                }] if self.amount is not None else []),
+                "open_rate": None,
+                **({} if self.amount is not None else {
+                    "reason_code": "FIFO_COST_MOVEMENT_REPLAY_REQUIRED",
+                }),
+            },
         }
         return {
             "cost_per_unit_rub": self.amount,
@@ -624,6 +644,7 @@ def test_fifo_cost_revision_refreshes_cached_scenario_and_preserves_layer_detail
     assert first["source_completeness"]["cost"]["next_layer_remaining_units"] == 40
     assert first["source_completeness"]["cost"]["next_planned_rate"]["unit_cost_rub"] == "135.00"
     assert first["source_completeness"]["cost"]["cutoff_date"] == "2026-10-10"
+    assert first["source_completeness"]["cost"]["quantity_allocation_basis"]["layers"][0]["quantity"] == 40
     assert cached["cache"]["status"] == "hit"
     assert refreshed["suggested_inputs"]["cost"] == 127.5
     assert refreshed["cache"]["status"] == "miss"
