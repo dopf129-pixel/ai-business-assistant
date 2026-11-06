@@ -103,3 +103,9 @@ No owner decision was needed for FC02. It used official documentation and existi
 
 Supply act SKU `fact_quantity` lines are reconciled against the accepted-act summary. Identical repeated representations are deduplicated by stable SHA-256 references; conflicting duplicates, unmatched accepted acts, unidentified units, incomplete reads and multi-SKU supplies fail closed. Act `created_date`, parent `state_updated_date`, local capture time and crossdock `arrival_date` are not written as physical receipt time. Synthetic verification is in `tests/test_fifo_cost_source_normalizer.py`; no live responses were used.
 
+## FC09 bounded collection
+
+`app/services/fifo_cost_source_collection_service.py` is an explicit read-only adapter over `OzonClient`; it does not run on a schedule and does not write facts. It passes the existing parent operation trace into all calls, limits retries to one per client method, enforces per-request timeouts, counts actual attempts through the transport observer and stops child calls on parent cancellation/deadline/budget exhaustion. Concurrent calls for the same owner/store/SKU/source are single-flight. Supply lookup has finite page/row limits and an opaque, expiring, single-use continuation tied to owner/store/SKU/supply scope; page/order references are fingerprinted instead of retained in raw form. A failed/partial read cannot become a complete negative search.
+
+Synthetic FC09 regression profile: `tests/test_fifo_cost_client_contract.py` and `tests/test_fifo_cost_source_collection_service.py`, linked with FIFO normalizer/kernel/repository and existing supply/act tests — **117 passed**. No live Ozon/Telegram calls were made. The physical stock-to-sale cutoff gap described above remains unchanged.
+

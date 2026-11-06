@@ -1,5 +1,11 @@
 # 2026-11-06 — FIFO cost history implementation baseline
 
+# 2026-11-06 — FC09 bounded FIFO source collection
+
+- `tests/test_fifo_cost_source_collection_service.py` covers exact owner/store/SKU scope, read-only FBO collection, two-page resumable supply search, complete negative lookup only after terminal pagination, opaque single-use and expiring checkpoint, source fingerprint, repeated cursor/order conflict, rate limit, cancellation, parent deadline/request caps, child-call reservation, timeout mid-operation, duplicate concurrent callback and SKU mismatch. It uses synthetic client responses only.
+- `tests/test_fifo_cost_client_contract.py` verifies `/v4/product/info/stocks` forwards bounded pagination/retry/observer options and rejects invalid page size before any request.
+- Linked Windows profile including source normalizer, FIFO kernel/repository and existing cross-docking supply/act regressions: **117 passed in 2.28s**. `compileall` and `git diff --check` PASS. No live API, bot, or owner database used. Exact-head CI is deferred to FC34.
+
 # 2026-11-06 — FC08 FIFO stock/supply evidence normalization
 
 - `tests/test_fifo_cost_source_normalizer.py` covers allowlisted exact product/SKU identity, `total_items` and explicit page completeness, strict integer counts, `present` vs reserved semantics, non-overlapping transit evidence, and distinct invalid/partial/empty/confirmed-zero/conflict/unavailable outcomes.
