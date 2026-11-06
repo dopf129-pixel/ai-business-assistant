@@ -1,4 +1,5 @@
 from decimal import Decimal
+from itertools import permutations
 
 import pytest
 
@@ -95,6 +96,47 @@ def test_fc16_replay_sorts_by_physical_date_and_is_request_order_independent(ser
         "sale-early", "sale-late",
     ]
     assert Decimal(first["total_cogs_rub"]) == Decimal("60.00")
+
+
+def test_fc32_every_input_order_preserves_layer_totals_and_consumes_units_once(service):
+    events = [
+        _sale("sale-first", 3, "2026-11-02", "1" * 64),
+        _sale("sale-second", 4, "2026-11-03", "2" * 64),
+        _sale("sale-third", 1, "2026-11-04", "3" * 64),
+    ]
+    expected = {
+        "sale-first": [(2, "10.00", "20.00"), (1, "20.00", "20.00")],
+        "sale-second": [(2, "20.00", "40.00"), (2, "30.00", "60.00")],
+        "sale-third": [(1, "30.00", "30.00")],
+    }
+
+    for ordered_events in permutations(events):
+        result = _preview(
+            service,
+            ordered_events,
+            layers=[
+                FifoCostLayer("layer-10", "10.00", 2),
+                FifoCostLayer("layer-20", "20.00", 3),
+                FifoCostLayer("layer-30", "30.00", 4),
+            ],
+        )
+
+        assert result["complete"] is True
+        assert result["total_cogs_rub"] == "170.00"
+        assert result["remaining_confirmed_units"] == 1
+        actual = {
+            row["event_id"]: [
+                (line["quantity"], line["unit_cost_rub"], line["total_cost_rub"])
+                for line in row["lines"]
+            ]
+            for row in result["allocations"]
+        }
+        assert actual == expected
+        assert sum(
+            line["quantity"]
+            for allocation in result["allocations"]
+            for line in allocation["lines"]
+        ) == 8
 
 
 def test_fc16_date_only_events_on_same_day_are_not_given_guessed_fifo_order(service):

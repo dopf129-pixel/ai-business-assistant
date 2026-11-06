@@ -479,6 +479,31 @@ def test_fc17_period_read_uses_only_latest_complete_allocations_and_exact_dates(
         assert first_day["complete"] is True
         assert [(row["quantity"], row["total_cogs_rub"])
                 for row in first_day["allocations"]] == [(2, "20.00")]
+
+        revision_before_reads = repo.read_allocation_guard(
+            store_id="store-a", product_id="product-1", offer_id="offer-1", sku="sku-1",
+        )["allocation_revision"]
+        second_day = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-03", date_to="2026-11-03",
+        )
+        repeated_first_day = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-02",
+        )
+        repeated_whole_period = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-02", date_to="2026-11-03",
+        )
+
+        assert second_day["complete"] is True
+        assert [(row["quantity"], row["total_cogs_rub"])
+                for row in second_day["allocations"]] == [(2, "40.00")]
+        assert repeated_first_day["allocations"] == first_day["allocations"]
+        assert repeated_whole_period["allocations"] == whole_period["allocations"]
+        assert repo.read_allocation_guard(
+            store_id="store-a", product_id="product-1", offer_id="offer-1", sku="sku-1",
+        )["allocation_revision"] == revision_before_reads
     finally:
         reset_current_tenant_user_id(token)
 
