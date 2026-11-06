@@ -1,3 +1,8 @@
+# 2026-11-06 — FC35: review handoff
+
+- Пакет независимого review: `project_brain/FIFO_COST_REVIEW_HANDOFF_2026-11-06.md`. В нём зафиксированы full suite 4,792 passed, compileall/diff PASS, data manifest 6/6 и границы доверия к синтетическим источникам.
+- Финальные CI checks проверяются на актуальной голове PR #726; локальный Docker недоступен, поэтому нельзя подменять ими Docker build/smoke workflow.
+
 # 2026-11-06 — FC34: полный набор и целостность данных
 
 - Полная Windows команда `python -m pytest -q` (Python 3.12.10, pytest 8.4.2): **4,792 passed in 50.14s**. Предшествующая регрессия меню исправлена добавлением ожидаемой кнопки экспорта истории; реализация не изменялась.
