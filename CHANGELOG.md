@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO rate inputs support TOTAL_LANDED (FL06)
+
+- Existing rate-entry service now accepts either the existing `COMPONENTS` breakdown or one explicit `TOTAL_LANDED` amount. Mixed/incomplete inputs fail closed; the same amount normalizes to the same unit cost.
+- `TOTAL_LANDED` stores the full unit amount and SQL `NULL` for all unknown component fields. FIFO history and CSV explicitly show that the breakdown was not provided; prior migrated rates remain `COMPONENTS`.
+- Verification: focused rate/history/schema profile **59 passed**; full FIFO cost + Telegram FIFO profile **348 passed**; compileall, diff-check, and `git diff --exit-code -- data` PASS.
+
 # 2026-11-07 — FIFO pending case fault boundaries
 
 - Добавлены fault-injection regressions для создания/изменения case и append declaration/observation/report: сбой после промежуточных SQL writes полностью откатывает строки и revision.

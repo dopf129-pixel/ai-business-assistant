@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO late-entry completion FL06
+
+- FL00–FL06 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. Rate entry supports `COMPONENTS` and `TOTAL_LANDED` through one monetary amount contract. The validated pair `10.00 + 3.00 + 1.65` / `14.65` yields equal `14.65 ₽/unit`; total-only records persist null component amounts.
+- Rate history and CSV identify `TOTAL_LANDED` and do not render `14.65` as purchase cost or missing parts as zero. Schema migration tests retain historical rate mode as `COMPONENTS`. Existing FIFO calculations continue to consume the canonical `unit_cost_rub`.
+- FL06 code commit: `08472f865dedabcda3edf2c4b2e68bfc9ab2465d`. Verification: focused **59 passed**, full FIFO/Telegram FIFO **348 passed**, compileall/diff-check PASS; `data/` unchanged. Next FL07: durable case application service. `IMPLEMENTATION_VERIFIED` and `OWNER_CASE_VERIFIED` remain false.
+
 # 2026-11-07 — FIFO late-entry completion FL05 fault boundaries
 
 - FL00–FL05 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL05 добавляет сбойные границы для create/update case и всех evidence append: каждый injected SQL fault после частичной записи оставляет количество строк и case revision прежними.

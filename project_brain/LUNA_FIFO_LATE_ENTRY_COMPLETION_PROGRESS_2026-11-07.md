@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL06.
-Выполненных этапов:6/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands и FL05 pre-FIFO/fault boundaries VERIFIED; runtime integration и owner case ещё не завершены).
+Следующий этап: FL07.
+Выполненных этапов:7/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries и FL06 full-cost modes VERIFIED; runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -26,7 +26,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL03 | Миграция13 и cipher | VERIFIED | 41 passed focused; 348 passed related FIFO profile; compileall/diff-check PASS; data manifest unchanged |
 | FL04 | Repository cases/evidence | VERIFIED | `a9b1374eaf96b0262ee854cb68612d6d19241717`; 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
 | FL05 | До-FIFO хранение и fault tests | VERIFIED | `a5e455f49fb81af7e67bbbd708edab9db8d8e642`; 69 focused / 370 related passed; compileall/diff-check PASS; `data/` unchanged |
-| FL06 | Полная стоимость | NOT_STARTED | — |
+| FL06 | Полная стоимость | VERIFIED | `08472f865dedabcda3edf2c4b2e68bfc9ab2465d`; TOTAL_LANDED/COMPONENTS amount parity 14.65; null components; focused 59 / FIFO+Telegram 348 passed; compileall/diff-check/data unchanged |
 | FL07 | Lifecycle случая | NOT_STARTED | — |
 | FL08 | Конкретные поставки | NOT_STARTED | — |
 | FL09 | Наблюдения и missing | NOT_STARTED | — |
@@ -63,6 +63,16 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 - Ведомость доступна владельцу только до05.11. Наблюдение исчезающих148 не является официальным описанием всех API.
 - reserved, cross-source cutoff и привязка физических продаж ещё требуют proof/validation.
 - Новая домашняя закупка не пересчитана — допустимый UNKNOWN, не blocker создания case.
+
+## Выполнение FL06 — 2026-11-08
+
+- `FifoCostRateService.preview_new_cost` и repository теперь имеют единый amount contract для `COMPONENTS` и `TOTAL_LANDED`. Компонентный режим сохраняет прежнюю сумму частей; итоговый режим требует полный `unit_cost_rub` и `NULL` всех трёх частей. Смешанные/неполные поля, неверный режим и несовпадение явно переданного component total отклоняются до записи. Поздняя коррекция из существующего component-only draft с TOTAL_LANDED закрывается отдельным кодом, без ослабления старого correction path.
+- Rate mutation записывает `cost_input_mode` в существующую schema v13. Чтение истории пробрасывает mode; старые rows в migration проверке остаются `COMPONENTS`. История Telegram и CSV показывают явное отсутствие разбивки; для total-only полной суммой не подменяется закупка, а компонентные CSV-ячейки пусты. Fingerprint входа включает mode; allocation-source fingerprint оставлен совместимым: канонический unit amount и FIFO math не изменились.
+- Числовой контроль N02/N03: `10.00 + 3.00 + 1.65` и `TOTAL_LANDED 14.65` дают один `14.65 ₽/шт.`; persisted total row — `cost_input_mode=TOTAL_LANDED`, purchase/delivery/packaging `NULL`. Старый компонентный путь и CSV остаются покрытыми тестами.
+- Изменены `app/services/fifo_cost_repository.py`, `fifo_cost_rate_service.py`, `telegram_fifo_cost_history_service.py` и соответствующие rate/history tests. Код commit `08472f865dedabcda3edf2c4b2e68bfc9ab2465d` (`Support total landed FIFO cost rates`).
+- Проверки: targeted rate/history/schema **59 passed in 2.36s**; all `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` **348 passed in 13.65s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. SQL fixtures работают в `tmp_path`; файлы владельца и реальные API не читались.
+- `IMPLEMENTATION_VERIFIED`: нет (сквозной переход ещё не реализован). `OWNER_CASE_VERIFIED`: нет; список реальных поставок и доказанный cutoff не добавлены. Нет blocker для независимого FL07.
+- Следующий этап: FL07 — append-only application service для lifecycle transition case.
 
 ## Формат записи после этапа
 

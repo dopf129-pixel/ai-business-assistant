@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO total landed rate regressions (FL06)
+
+- `tests/test_fifo_cost_rate_service.py::test_component_and_total_landed_rate_share_amount_contract_and_keep_nulls` verifies equal normalized `14.65` totals for component input (`10 + 3 + 1.65`) and total input, mode-bound persistence with null components, snapshot readback, and no extra FIFO layer/event.
+- `test_rate_cost_mode_rejects_mixed_or_incomplete_inputs_before_write` covers unsupported mode, total plus fake component, component total mismatch, and missing component. The existing v12 migration test asserts legacy rows still read as `COMPONENTS`.
+- `tests/test_telegram_fifo_cost_history.py::test_total_landed_history_and_csv_never_invent_component_breakdown` verifies user-facing history and CSV show `TOTAL_LANDED` with blank component cells; `test_empty_fifo_history_csv_keeps_mode_column_alignment` checks the empty export schema.
+- FL06 focused profile: **59 passed**; all FIFO cost and Telegram FIFO tests: **348 passed**. Fixtures use `tmp_path`; `data/` is unchanged.
+
 # 2026-11-07 — FIFO pending case safety regressions (FL05)
 
 - `tests/test_fifo_cost_transition_store.py::test_injected_failure_rolls_back_each_transition_write` injects SQLite failure after partial SQL writes for case create/update, declaration, observation, and report. It verifies rows and current revision are rolled back.
