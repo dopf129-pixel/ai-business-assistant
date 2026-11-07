@@ -34,6 +34,18 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
         )
         self.return_inventory_service = return_inventory_service
 
+    def get_start_response(self, user_id=None):
+        result = super().get_start_response(user_id)
+        if isinstance(result, dict) and result.get("error") is False:
+            clearer = getattr(
+                self.return_inventory_service,
+                "clear_pending",
+                None,
+            )
+            if callable(clearer):
+                clearer(user_id)
+        return result
+
     def handle_text(self, text, user_id=None):
         if self.return_inventory_service is not None:
             profile_failure = self._admit_user_profile(user_id)

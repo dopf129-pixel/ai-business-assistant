@@ -13,6 +13,13 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         self.fifo_late_entry_service = fifo_late_entry_service
         self.fifo_anchor_entry_service = fifo_anchor_entry_service
 
+    def get_start_response(self, user_id=None):
+        result = super().get_start_response(user_id)
+        if isinstance(result, dict) and result.get("error") is False:
+            self._clear_seller_cost_and_fifo_pending(user_id)
+            self._clear_form_input_states_for_navigation(user_id)
+        return result
+
     def handle_text(self, text, user_id=None):
         if self.fifo_anchor_entry_service is not None:
             profile_failure = self._admit_user_profile(user_id)
@@ -187,9 +194,16 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                         "message": "Кнопка устарела. Откройте SKU заново.",
                         "read_only_ozon": True,
                     }
-                return self.seller_cost_service.select_sku(
+                selected = self.seller_cost_service.select_sku(
                     user_id, sku, return_to_unit_economics=True,
                 )
+                if (
+                    isinstance(selected, dict)
+                    and selected.get("error") is False
+                    and selected.get("seller_cost_input_pending") is True
+                ):
+                    self._clear_fifo_pending(user_id)
+                return selected
             if callback_text.startswith("seller_cost_resume_unit:"):
                 token = callback_text.split(":", 1)[1]
                 resume = self.seller_cost_service.consume_unit_economics_return(
@@ -222,6 +236,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                     return result
                 self.clear_unit_price_calculator_state(user_id)
                 self._clear_seller_cost_and_fifo_pending(user_id)
+                self._clear_form_input_states_for_navigation(user_id)
                 if result.get("action") == "start_new_rate" and self.fifo_rate_entry_service is not None:
                     return self.fifo_rate_entry_service.start(
                         user_id,
@@ -278,8 +293,13 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         return super().handle_button(callback, user_id)
 
     def _clear_seller_cost_and_fifo_pending(self, user_id):
+        clearer = getattr(self.seller_cost_service, "clear_pending", None)
+        if callable(clearer):
+            clearer(user_id)
+        self._clear_fifo_pending(user_id)
+
+    def _clear_fifo_pending(self, user_id):
         for service in (
-            self.seller_cost_service,
             self.fifo_rate_entry_service,
             self.fifo_late_entry_service,
             self.fifo_anchor_entry_service,
@@ -287,3 +307,12 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             clearer = getattr(service, "clear_pending", None)
             if callable(clearer):
                 clearer(user_id)
+
+    def _clear_form_input_states_for_navigation(self, user_id):
+        clearer = getattr(
+            self.button_handler,
+            "clear_form_input_states_for_navigation",
+            None,
+        )
+        if callable(clearer):
+            clearer(user_id)
