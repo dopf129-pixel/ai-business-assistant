@@ -1,3 +1,8 @@
+# 2026-11-07 — FIFO CSV и resume navigation regressions
+
+- `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.
+- Связанный профиль `tests/test_fifo_telegram_navigation_regressions.py`, `app/tests/test_seller_cost_confirmation_flow.py`, `tests/test_telegram_fifo_cost_history.py`: **44 passed in 1.25s**. Полный Windows `pytest -q`: **4,851 passed in 51.12s**. `compileall` и diff-check проходят; manifest пяти файлов `data/` совпадает до/после. Exact-head CI ожидает публикации текущих изменений.
+
 # 2026-11-07 — регрессии переходов FIFO-мастеров и Telegram-форм
 
 - `tests/test_fifo_telegram_navigation_regressions.py` использует production `AssistantButtonHandlerService`, Telegram adapters, `TelegramBotService` и реальный `TelegramExternalExpenseRuntimeService` на временной SQLite. Покрывает: валидный seller-cost return к другому SKU очищает FIFO draft; stale seller-cost/FIFO callbacks сохраняют чужой ввод; принятая FIFO-навигация завершает внешний расход, а stale callback его сохраняет; `/start` сбрасывает anchor/rate/late и внешний расход только после успешного допуска.

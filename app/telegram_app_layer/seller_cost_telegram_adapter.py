@@ -88,11 +88,18 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         if filename and not str(filename).lower().endswith(".csv"):
             return {"error": True, "message": "Отправьте CSV-файл, который выдал бот.", "code": "SELLER_COST_TABLE_FILE_TYPE_INVALID", "read_only_ozon": True}
         try:
-            return self.seller_cost_service.import_table_for_user(
+            result = self.seller_cost_service.import_table_for_user(
                 user_id, content, filename=filename,
             )
         except Exception:
             return {"error": True, "message": "Не удалось импортировать таблицу. Изменений не применено.", "code": "SELLER_COST_TABLE_IMPORT_FAILED", "read_only_ozon": True}
+        if (
+            isinstance(result, dict)
+            and result.get("error") is False
+            and result.get("seller_cost_confirmation_pending") is True
+        ):
+            self._clear_fifo_pending(user_id)
+        return result
 
     def handle_button(self, callback, user_id=None):
         self._clear_unit_price_calculator_for_navigation(callback, user_id)
@@ -222,6 +229,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                         "message": "SKU для возврата недоступен. Откройте карточку заново.",
                         "read_only_ozon": True,
                     }
+                self._clear_fifo_pending(user_id)
                 refresher = getattr(
                     self.button_handler, "refresh_unit_economics", None,
                 )

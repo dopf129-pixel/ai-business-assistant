@@ -1,12 +1,20 @@
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.expense_repository import ExpenseRepository
+from services.fifo_cost_anchor_service import FifoCostAnchorService
+from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_cost_rate_service import FifoCostRateService
+from services.fifo_cost_repository import FifoCostRepository
 from services.ozon_account_repository import make_store_tenant_scope
+from services.seller_cost_table_service import SellerCostTableService
 from services.telegram_external_expense_runtime_service import (
     TelegramExternalExpenseRuntimeService,
+)
+from services.telegram_fifo_cost_history_service import (
+    TelegramFifoCostHistoryService,
 )
 from services.telegram_fifo_cost_rate_entry_service import (
     TelegramFifoCostRateEntryService,
@@ -52,6 +60,44 @@ class _Products:
 class _Costs:
     def get_all_costs(self):
         return []
+
+
+class _RecordingCosts:
+    def __init__(self):
+        self.current = []
+        self.recorded = []
+        self.bulk_recorded = []
+
+    def get_all_costs(self):
+        return list(self.current)
+
+    def record_cost_switch(self, **row):
+        self.recorded.append(row)
+        self.current.append(dict(row))
+        return {"error": False, "status": "PRODUCT_COST_SWITCH_RECORDED"}
+
+    def record_cost_switches(self, rows, *, expected_revision=None):
+        self.bulk_recorded.append(list(rows))
+        self.current.extend(dict(row) for row in rows)
+        return {"error": False, "inserted": len(rows), "unchanged": 0}
+
+
+class _UnitEconomicsQuery:
+    def __init__(self):
+        self.queries = []
+
+    def query(self, sku):
+        self.queries.append(sku)
+        return {
+            "error": False,
+            "available": True,
+            "source": "historical",
+            "sku": sku,
+            "missing_fields": [],
+        }
+
+    def format_response(self, result):
+        return "Unit economics — " + result["sku"]
 
 
 class _LegacySellerCostFlow:
@@ -104,6 +150,65 @@ def _keyboard_callback(result, prefix):
         for item in result["keyboard"]["buttons"]
         if item["callback"].startswith(prefix)
     )
+
+
+_FIFO_IDENTITY_A = {
+    "store_id": "store-a",
+    "product_id": "product-a",
+    "offer_id": "offer-a",
+    "sku": "sku-a",
+}
+
+
+def _real_fifo_rate_entry(tmp_path):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "navigation-fifo.sqlite",
+        now_provider=lambda: datetime(2026, 11, 7, 12, tzinfo=timezone.utc),
+    )
+    with _tenant():
+        anchor = FifoCostAnchorService(repository)
+        preview = anchor.preview_opening_anchor(
+            **_FIFO_IDENTITY_A,
+            inventory_cutoff="2026-11-06",
+            cost_layers=[{
+                "sequence": 1,
+                "unit_cost_rub": "10.00",
+                "ozon_units": 4,
+                "transit_units": 0,
+                "home_units": 2,
+            }],
+            ozon_units_include_reserved_confirmed=True,
+            transit_not_in_ozon_confirmed=True,
+        )
+        assert preview["error"] is False, preview
+        committed = anchor.commit_opening_anchor(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="navigation-fifo-anchor",
+        )
+        assert committed["error"] is False, committed
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: date(2026, 11, 7),
+        )
+        rate_entry = TelegramFifoCostRateEntryService(
+            history,
+            FifoCostRateService(repository),
+            date_provider=lambda: date(2026, 11, 7),
+        )
+    return history, rate_entry
+
+
+def _start_real_fifo_rate(adapter, ui, user_id=101):
+    ticket = ui.create_sku_callback(
+        user_id=user_id,
+        **_FIFO_IDENTITY_A,
+        display_name="Товар A",
+    )
+    assert ticket["error"] is False, ticket
+    card = adapter.handle_button(ticket["callback"], user_id=user_id)
+    assert card.get("error") is False, card
+    new_rate = _keyboard_callback(card, "fifo_history:new:")
+    return adapter.handle_button(new_rate, user_id=user_id)
 
 
 def _open_external_expense_amount(adapter, user_id):
@@ -169,6 +274,134 @@ def test_valid_cost_return_for_another_sku_clears_old_fifo_text_master():
     assert text_after_rejected_target["message"] == "FIFO A old wizard"
     assert stale["error"] is True
     assert text_after_stale["message"] == "FIFO A old wizard"
+
+
+def test_valid_csv_preview_closes_real_fifo_input_but_keeps_csv_confirmation(tmp_path):
+    keyboard = AssistantKeyboardService()
+    history, rate_entry = _real_fifo_rate_entry(tmp_path)
+    fifo_ui = TelegramFifoCostHistoryService(history)
+    costs = _RecordingCosts()
+    seller_cost = TelegramSellerCostUpdateService(
+        _Products(), costs, date_provider=lambda: date(2026, 11, 7),
+    )
+    adapter = SellerCostTelegramAdapter(
+        assistant=_Assistant(), keyboard_service=keyboard,
+        button_handler=AssistantButtonHandlerService(
+            assistant=_Assistant(), keyboard_service=keyboard,
+        ),
+        seller_cost_service=seller_cost,
+        fifo_history_service=fifo_ui,
+        fifo_rate_entry_service=rate_entry,
+    )
+    csv_content = (
+        ";".join(SellerCostTableService.HEADER)
+        + "\noffer-b;sku-b;123;2026-11-07\n"
+    )
+
+    with _tenant():
+        started = rate_entry.start(101, _FIFO_IDENTITY_A, "Товар A", 1)
+        preview = adapter.handle_document(
+            csv_content.encode("utf-8"), user_id=101, filename="cost.csv",
+        )
+        text_during_preview = adapter.handle_text("777", user_id=101)
+        saved = adapter.handle_button(
+            _keyboard_callback(preview, seller_cost.TABLE_CONFIRM_CALLBACK + ":"),
+            user_id=101,
+        )
+        text_after_save = adapter.handle_text("ordinary request", user_id=101)
+
+    assert started["error"] is False, started
+    assert preview["error"] is False
+    assert preview["seller_cost_confirmation_pending"] is True
+    assert text_during_preview["handled"] is True
+    assert "Таблица пока не сохранена" in text_during_preview["message"]
+    assert saved["error"] is False, saved
+    assert saved["imported"] == 1
+    assert costs.bulk_recorded[0][0]["sku"] == "sku-b"
+    assert text_after_save["message"] == "assistant fallback"
+
+
+def test_rejected_csv_upload_preserves_real_fifo_input(tmp_path):
+    keyboard = AssistantKeyboardService()
+    _history, rate_entry = _real_fifo_rate_entry(tmp_path)
+    seller_cost = TelegramSellerCostUpdateService(
+        _Products(), _RecordingCosts(), date_provider=lambda: date(2026, 11, 7),
+    )
+    adapter = SellerCostTelegramAdapter(
+        assistant=_Assistant(), keyboard_service=keyboard,
+        button_handler=AssistantButtonHandlerService(
+            assistant=_Assistant(), keyboard_service=keyboard,
+        ),
+        seller_cost_service=seller_cost,
+        fifo_rate_entry_service=rate_entry,
+    )
+
+    with _tenant():
+        started = rate_entry.start(101, _FIFO_IDENTITY_A, "Товар A", 1)
+        rejected = adapter.handle_document(
+            b"not,the,exported,header\n", user_id=101, filename="bad.csv",
+        )
+        text_after_rejection = adapter.handle_text("777", user_id=101)
+
+    assert started["error"] is False
+    assert rejected["error"] is True
+    assert rejected["code"] == "SELLER_COST_TABLE_HEADER_INVALID"
+    assert text_after_rejection["handled"] is True
+    assert "доставку" in text_after_rejection["message"]
+
+
+def test_valid_resume_unit_callback_closes_fifo_but_stale_callback_preserves_it(
+    tmp_path,
+):
+    keyboard = AssistantKeyboardService()
+    history, rate_entry = _real_fifo_rate_entry(tmp_path)
+    fifo_ui = TelegramFifoCostHistoryService(history)
+    costs = _RecordingCosts()
+    seller_cost = TelegramSellerCostUpdateService(
+        _Products(), costs, date_provider=lambda: date(2026, 11, 7),
+    )
+    query = _UnitEconomicsQuery()
+    handler = AssistantButtonHandlerService(
+        assistant=_Assistant(), keyboard_service=keyboard,
+        unit_economics_query=query,
+    )
+    adapter = SellerCostTelegramAdapter(
+        assistant=_Assistant(), keyboard_service=keyboard,
+        button_handler=handler,
+        seller_cost_service=seller_cost,
+        fifo_history_service=fifo_ui,
+        fifo_rate_entry_service=rate_entry,
+    )
+
+    with _tenant():
+        entry = handler.create_seller_cost_return_callback(101, "sku-b")
+        selected = adapter.handle_button(entry, user_id=101)
+        cost_preview = adapter.handle_text("123", user_id=101)
+        saved = adapter.handle_button(
+            cost_preview["keyboard"]["buttons"][0]["callback"], user_id=101,
+        )
+        resume = _keyboard_callback(saved, "seller_cost_resume_unit:")
+
+        _start_real_fifo_rate(adapter, fifo_ui)
+        stale = adapter.handle_button(
+            "seller_cost_resume_unit:expired", user_id=101,
+        )
+        text_after_stale = adapter.handle_text("700", user_id=101)
+
+        _start_real_fifo_rate(adapter, fifo_ui)
+        returned = adapter.handle_button(resume, user_id=101)
+        text_after_return = adapter.handle_text("777", user_id=101)
+
+    assert selected["seller_cost_input_pending"] is True
+    assert cost_preview["seller_cost_confirmation_pending"] is True
+    assert saved["error"] is False
+    assert stale["error"] is True
+    assert text_after_stale["handled"] is True
+    assert "доставку" in text_after_stale["message"]
+    assert returned["error"] is False, returned
+    assert returned["unit_economics"]["sku"] == "sku-b"
+    assert query.queries == ["sku-b"]
+    assert text_after_return["message"] == "assistant fallback"
 
 
 def test_accepted_fifo_navigation_clears_external_form_but_stale_callback_preserves_it(
