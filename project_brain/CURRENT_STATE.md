@@ -3,7 +3,7 @@
 - Валидная кнопка возврата к себестоимости другого SKU очищает старые seller-cost/FIFO мастера только после успешной проверки одноразового callback. Устаревший callback не меняет ввод.
 - Принятый FIFO-переход и успешная команда `/start` закрывают конкурирующие произвольные текстовые формы. `/start` завершает FIFO, seller-cost и return-inventory черновики; отказ допуска профиля сохраняет FIFO-состояние.
 - End-to-end профиль Telegram: **69 passed in 1.77s**; полный Windows `pytest -q` с `PYTHONPATH=app`: **4,848 passed in 50.31s**. `compileall -q app tests` и `git diff --check` PASS. До/после снимок `data/`: исходный `tasks.json` восстановлен побайтно, два новых тестовых файла удалены, остальные четыре исходных файла не изменились.
-- Код и документация пока локальны в ветке PR #726; exact-head CI ожидает публикации. Слияние, deployment, live Ozon/Telegram запросы и запуск бота не выполнялись.
+- Кодовый SHA `899da6f7c510ec10f54254eea98a9b14916b9973` опубликован в PR #726; exact-head GitHub Actions run [42366323896](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42366323896) прошёл: Windows/Linux full verification и production Docker build/runtime smoke. Документирующий follow-up commit запускает повторный CI на новой голове. Слияние, deployment, live Ozon/Telegram запросы и запуск бота не выполнялись.
 
 # 2026-11-07 — FIFO review fixes R1–R3 (PR #726)
 

@@ -1,7 +1,7 @@
 # 2026-11-07 — регрессии переходов FIFO-мастеров и Telegram-форм
 
 - `tests/test_fifo_telegram_navigation_regressions.py` использует production `AssistantButtonHandlerService`, Telegram adapters, `TelegramBotService` и реальный `TelegramExternalExpenseRuntimeService` на временной SQLite. Покрывает: валидный seller-cost return к другому SKU очищает FIFO draft; stale seller-cost/FIFO callbacks сохраняют чужой ввод; принятая FIFO-навигация завершает внешний расход, а stale callback его сохраняет; `/start` сбрасывает anchor/rate/late и внешний расход только после успешного допуска.
-- Профиль регрессий плюс существующие FIFO-history, external-expense, user-admission, seller-cost и return-inventory tests: **69 passed in 1.77s**. Полный Windows `pytest -q` с `PYTHONPATH=app`: **4,848 passed in 50.31s**. `compileall -q app tests` и `git diff --check` PASS; тестовые изменения `data/` восстановлены/удалены по исходному manifest.
+- Профиль регрессий плюс существующие FIFO-history, external-expense, user-admission, seller-cost и return-inventory tests: **69 passed in 1.77s**. Полный Windows `pytest -q` с `PYTHONPATH=app`: **4,848 passed in 50.31s**. `compileall -q app tests` и `git diff --check` PASS; тестовые изменения `data/` восстановлены/удалены по исходному manifest. Exact-head GitHub Actions run [42366323896](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42366323896) passed for implementation SHA `899da6f7c510ec10f54254eea98a9b14916b9973` (Windows/Linux and production Docker build/runtime smoke).
 
 # 2026-11-07 — FIFO review R1–R3
 
