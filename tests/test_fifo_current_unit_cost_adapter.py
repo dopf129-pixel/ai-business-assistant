@@ -6,6 +6,9 @@ from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_source_normalizer import FifoStockSnapshot
+from services.fifo_cost_period_profit_source_service import (
+    FifoCostPeriodProfitSourceService,
+)
 from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -31,6 +34,17 @@ class _LegacyCosts:
         return (
             product_id, IDENTITY["sku"], IDENTITY["offer_id"], self.cost, "RUB",
             "2026-10-01",
+        )
+
+
+class _ChangedIdentityLegacyCosts:
+    def get_current_cost_date(self):
+        return "2026-11-06"
+
+    def get_cost(self, product_id):
+        return (
+            product_id, IDENTITY["sku"], IDENTITY["offer_id"], "30.00",
+            "RUB", "2026-10-01",
         )
 
 
@@ -187,6 +201,130 @@ def test_existing_fifo_stream_with_unreplayed_movement_does_not_fall_back(tmp_pa
     assert result["cost_basis"]["completeness"] == "REPLAY_REQUIRED"
     assert result["cost_basis"]["reason_code"] == "FIFO_COST_MOVEMENT_REPLAY_REQUIRED"
     assert result["cost_basis"]["quantity_allocation_basis"]["status"] == "UNAVAILABLE"
+
+
+def test_catalog_identity_change_cannot_hide_or_duplicate_active_fifo_stream(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = _repository(tmp_path)
+        _anchor(repository)
+        changed_identity = {**IDENTITY, "product_id": "product-renumbered"}
+
+        history = repository.read_cost_history_snapshot(
+            store_id="store-a", **changed_identity,
+        )
+        mode = repository.read_cost_mode_status(
+            store_id="store-a", **changed_identity,
+        )
+        period_mode = FifoCostPeriodProfitSourceService(
+            repository,
+            tenant_scope_provider=lambda: make_store_tenant_scope("owner-a", "store-a"),
+        ).get_scope_mode(changed_identity)
+        result = FifoCurrentUnitCostAdapter(
+            _ChangedIdentityLegacyCosts(), FifoCostHistoryService(repository),
+        ).resolve_current_cost(
+            changed_identity, store_id="store-a", as_of_date="2026-11-06",
+        )
+
+        changed_anchor = FifoCostAnchorService(repository).preview_opening_anchor(
+            **changed_identity,
+            store_id="store-a",
+            inventory_cutoff="2026-11-05",
+            cost_layers=[{
+                "sequence": 1, "unit_cost_rub": "20.00", "ozon_units": 10,
+                "transit_units": 0, "home_units": 0,
+            }],
+            ozon_units_include_reserved_confirmed=True,
+            transit_not_in_ozon_confirmed=True,
+        )
+        assert changed_anchor["error"] is False, changed_anchor
+        rejected = repository.commit_command(
+            preview_id=changed_anchor["preview_id"],
+            active_preview_id=changed_anchor["preview_id"],
+            idempotency_key="changed-identity-anchor1",
+        )
+        changed_identity_zero_stock = FifoStockSnapshot(
+            status="CONFIRMED_ZERO", source_status="COMPLETE", store_id="store-a",
+            product_id=changed_identity["product_id"],
+            offer_id=changed_identity["offer_id"], sku=changed_identity["sku"],
+            captured_at="2026-11-06T12:00:00Z", source_as_of=None,
+            pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=0, reserved_units=0, available_units=0, transit_units=0,
+            transit_status="DISJOINT_CONFIRMED", source_fingerprint="c" * 64,
+            issue_codes=(), anchor_eligible=False,
+        )
+        rates = FifoCostRateService(repository)
+        rate_preview = rates.preview_new_cost(
+            **changed_identity,
+            store_id="store-a", effective_date="2026-11-06",
+            purchase_cost_rub="20.00", delivery_cost_rub="1.00",
+            packaging_cost_rub="0.00", old_home_units=0,
+            expected_revision=0, zero_stock_snapshot=changed_identity_zero_stock,
+        )
+        assert rate_preview["error"] is False, rate_preview
+        rejected_rate = rates.confirm_new_cost(
+            preview_id=rate_preview["preview_id"],
+            active_preview_id=rate_preview["preview_id"],
+            idempotency_key="changed-identity-rate1",
+        )
+        connection = repository.get_connection()
+        try:
+            stream_count = connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_streams WHERE store_id=? AND sku=?",
+                ("store-a", IDENTITY["sku"]),
+            ).fetchone()[0]
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert history["error"] is True
+    assert history["code"] == "FIFO_IDENTITY_CONFLICT"
+    assert mode["error"] is True
+    assert mode["code"] == "FIFO_IDENTITY_CONFLICT"
+    assert period_mode == {"error": True, "code": "FIFO_IDENTITY_CONFLICT"}
+    assert result["cost_per_unit_rub"] is None
+    assert result["cost_method"] == "UNAVAILABLE"
+    assert result["cost_basis"]["reason_code"] == "FIFO_IDENTITY_CONFLICT"
+    assert rejected["error"] is True
+    assert rejected["code"] == "FIFO_IDENTITY_CONFLICT"
+    assert rejected_rate["error"] is True
+    assert rejected_rate["code"] == "FIFO_IDENTITY_CONFLICT"
+    assert stream_count == 1
+
+
+def test_optional_product_id_enrichment_cannot_start_a_second_fifo_stream(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = _repository(tmp_path)
+        anchor = FifoCostAnchorService(repository)
+        original = anchor.preview_opening_anchor(
+            store_id="store-a", product_id=None, offer_id=IDENTITY["offer_id"],
+            sku=IDENTITY["sku"], inventory_cutoff="2026-11-05",
+            cost_layers=[{
+                "sequence": 1, "unit_cost_rub": "10.00", "ozon_units": 10,
+                "transit_units": 0, "home_units": 0,
+            }],
+            ozon_units_include_reserved_confirmed=True,
+            transit_not_in_ozon_confirmed=True,
+        )
+        assert original["error"] is False, original
+        committed = repository.commit_command(
+            preview_id=original["preview_id"],
+            active_preview_id=original["preview_id"],
+            idempotency_key="optional-product-anchor1",
+        )
+        assert committed["error"] is False, committed
+
+        enriched = repository.read_cost_mode_status(
+            store_id="store-a", product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert enriched["error"] is True
+    assert enriched["code"] == "FIFO_IDENTITY_CONFLICT"
 
 
 def test_quantity_basis_materializes_reconciled_prior_rate_as_a_finite_fifo_layer(tmp_path):

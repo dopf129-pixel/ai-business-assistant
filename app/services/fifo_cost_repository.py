@@ -159,6 +159,11 @@ class FifoCostRepository:
             identity_fingerprint = self._sha256(identity)
             stream_id = "fifo_" + identity_fingerprint[:40]
             connection = self.get_connection()
+            identity_conflict = self._identity_stream_conflict(
+                connection, identity, identity_fingerprint,
+            )
+            if identity_conflict is not None:
+                return identity_conflict
             stream = connection.execute(
                 """SELECT state, revision FROM fifo_cost_streams
                    WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
@@ -446,6 +451,11 @@ class FifoCostRepository:
             fingerprint = self._sha256(identity)
             stream_id = "fifo_" + fingerprint[:40]
             connection = self.get_connection()
+            identity_conflict = self._identity_stream_conflict(
+                connection, identity, fingerprint,
+            )
+            if identity_conflict is not None:
+                return identity_conflict
             stream = connection.execute(
                 """SELECT revision, policy_version, state
                    FROM fifo_cost_streams
@@ -1117,6 +1127,11 @@ class FifoCostRepository:
             fingerprint = self._sha256(identity)
             stream_id = "fifo_" + fingerprint[:40]
             connection = self.get_connection()
+            identity_conflict = self._identity_stream_conflict(
+                connection, identity, fingerprint,
+            )
+            if identity_conflict is not None:
+                return identity_conflict
             stream = connection.execute(
                 """SELECT revision, state FROM fifo_cost_streams
                    WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
@@ -2799,6 +2814,15 @@ class FifoCostRepository:
                         **result,
                     }
 
+                identity_conflict = self._identity_stream_conflict(
+                    connection,
+                    normalized["identity"],
+                    normalized["identity_fingerprint"],
+                )
+                if identity_conflict is not None:
+                    connection.rollback()
+                    return identity_conflict
+
                 stream = connection.execute(
                     "SELECT revision, state FROM fifo_cost_streams WHERE stream_id=?",
                     (normalized["stream_id"],),
@@ -3600,6 +3624,15 @@ class FifoCostRepository:
                         "idempotent": True, **result,
                     }
 
+                identity_conflict = self._identity_stream_conflict(
+                    connection,
+                    normalized["identity"],
+                    normalized["identity_fingerprint"],
+                )
+                if identity_conflict is not None:
+                    connection.rollback()
+                    return identity_conflict
+
                 stream = connection.execute(
                     "SELECT state, revision, policy_version FROM fifo_cost_streams WHERE stream_id=?",
                     (normalized["stream_id"],),
@@ -3973,6 +4006,27 @@ class FifoCostRepository:
             "owner_fingerprint": self._sha256_text(owner_id),
             "tenant_fingerprint": self._sha256_text(tenant_id),
         }
+
+    def _identity_stream_conflict(self, connection, identity, fingerprint):
+        """Fail closed when a store/SKU already has FIFO history under another identity.
+
+        Product and offer metadata can change while the seller SKU stays stable.
+        Do not reinterpret such a stream as legacy or create a second queue: the
+        caller must resolve the identity explicitly before continuing.
+        """
+        rows = connection.execute(
+            """SELECT identity_fingerprint FROM fifo_cost_streams
+               WHERE store_id=? AND sku=? AND policy_version=?
+                 AND state<>'LEGACY' AND identity_fingerprint<>?
+               LIMIT 2""",
+            (
+                identity["store_id"], identity["sku"],
+                identity["policy_version"], fingerprint,
+            ),
+        ).fetchall()
+        if rows:
+            return self._error("FIFO_IDENTITY_CONFLICT")
+        return None
 
     @classmethod
     def _normalize_identity(cls, store_id, product_id, offer_id, sku, policy_version):

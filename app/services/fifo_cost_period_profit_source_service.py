@@ -55,6 +55,12 @@ class FifoCostPeriodProfitSourceService:
             offer_id=scope["offer_id"],
             sku=scope["sku"],
         )
+        if (
+            isinstance(result, dict)
+            and result.get("error") is True
+            and result.get("code") == "FIFO_IDENTITY_CONFLICT"
+        ):
+            return self._error("FIFO_IDENTITY_CONFLICT")
         if not isinstance(result, dict) or result.get("error") is not False:
             return self._error("FIFO_COST_MODE_UNAVAILABLE")
         if result.get("active") is not True:
@@ -111,6 +117,12 @@ class FifoCostPeriodProfitSourceService:
             offer_id=scope["offer_id"],
             sku=scope["sku"],
         )
+        if (
+            isinstance(mode, dict)
+            and mode.get("error") is True
+            and mode.get("code") == "FIFO_IDENTITY_CONFLICT"
+        ):
+            return self._error("FIFO_IDENTITY_CONFLICT")
         if not isinstance(mode, dict) or mode.get("error") is not False:
             return self._error("FIFO_COST_MODE_UNAVAILABLE")
         if mode.get("active") is not True:

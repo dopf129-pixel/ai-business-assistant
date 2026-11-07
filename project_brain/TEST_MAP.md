@@ -1,5 +1,11 @@
 # 2026-11-07 — FIFO review R1–R3
 
+- `tests/test_fifo_current_unit_cost_adapter.py::test_catalog_identity_change_cannot_hide_or_duplicate_active_fifo_stream` проверяет, что смена product ID при стабильном store/SKU/offer не возвращает legacy-mode, не попадает в legacy текущую себестоимость и не создаёт ни anchor, ни zero-stock rate stream; `test_optional_product_id_enrichment_cannot_start_a_second_fifo_stream` покрывает обогащение ранее неполной identity. `FifoCostPeriodProfitSourceService` сохраняет typed `FIFO_IDENTITY_CONFLICT`.
+- `tests/test_telegram_fifo_cost_history.py::test_stale_fifo_callbacks_preserve_return_inventory_confirmation` параметризует stale history/anchor/rate/late callbacks и подтверждает, что возврат можно после них сохранить. `test_opening_return_inventory_clears_all_fifo_entry_drafts` проверяет переход из FIFO rate/late/anchor черновиков в возвраты; `test_accepted_fifo_history_navigation_clears_return_draft` проверяет успешную навигацию.
+- Связанный Windows профиль (**85 passed in 2.38s**) включает FIFO adapter/repository/Period Profit и Telegram return-inventory tests. Полный Windows `pytest -q`: **4,844 passed in 50.66s**; `compileall -q app tests`, `git diff --check` и точное восстановление manifest `data/` прошли. Exact-head CI ожидает публикации нового SHA.
+
+# 2026-11-07 — FIFO review R1–R3
+
 - `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` covers dated historical cost resolving to an inactive current FIFO stream by exact product ID or stable offer ID; conflicting catalogue indexes stay unresolved. Seller mappings accept matching stable offer IDs across product-ID changes and reject conflicts on both identities.
 - `tests/test_unit_price_scenario_telegram_runtime.py` uses the real calculator runtime and button handler to verify that stale FIFO callbacks preserve pending price input and valid history navigation clears the scenario after ticket acceptance.
 - `tests/test_telegram_fifo_cost_history.py` retains the stale rate/anchor wizard isolation regression.

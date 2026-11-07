@@ -1,3 +1,10 @@
+# 2026-11-07 — FIFO review fixes R1–R3 (PR #726)
+
+- Поток FIFO определяется на уровне активного store/SKU: изменение или обогащение product/offer identity не отключает существующий FIFO и не создаёт вторую историю. Неоднозначность возвращает `FIFO_IDENTITY_CONFLICT` в repository/Period Profit; автоматическое объединение запрещено.
+- Возвратная Telegram-навигация очищает legacy seller-cost и FIFO rate/late/anchor drafts. FIFO callback обрабатывается до очистки возвратного черновика; его завершает только успешная FIFO history-навигация, а stale/invalid callbacks сохраняют черновик.
+- Регрессии добавлены в `tests/test_fifo_current_unit_cost_adapter.py` и `tests/test_telegram_fifo_cost_history.py`. Связанный профиль: **85 passed in 2.38s**; полный Windows pytest: **4,844 passed in 50.66s**; compileall/diff-check прошли. Полный прогон изменил один и создал два тестовых файла в `data/`; они восстановлены/удалены, итоговый manifest совпал с исходным. Exact-head CI ожидает публикации нового SHA.
+- PR #726 остаётся незлитым; deployment, live Ozon/Telegram запросы и запуск бота не выполнялись.
+
 # 2026-11-07 — FIFO review R1–R3 исправлены в PR #726
 
 - Исторический финансовый SKU с подтверждённой датированной себестоимостью сопоставляется с текущим каталогом только по уникальному точному product ID или offer ID. Канонический SKU позволяет проверить FIFO-режим: при неактивном потоке расчёт продолжает legacy-путь, при неоднозначной связи остаётся fail-closed.

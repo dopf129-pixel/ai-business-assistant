@@ -12,7 +12,13 @@ from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryS
 from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateEntryService
 from services.telegram_fifo_cost_anchor_entry_service import TelegramFifoCostAnchorEntryService
 from services.telegram_seller_cost_update_service import TelegramSellerCostUpdateService
+from services.telegram_return_inventory_confirmation_service import (
+    TelegramReturnInventoryConfirmationService,
+)
 from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
+from telegram_app_layer.return_inventory_telegram_adapter import (
+    ReturnInventoryTelegramAdapter,
+)
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 
 
@@ -600,6 +606,50 @@ class _RateEntryCallbackStub:
         pass
 
 
+class _StaleFifoCallbackStub:
+    def handle_callback(self, _user_id, _callback):
+        return {
+            "error": True,
+            "handled": True,
+            "code": "FIFO_CALLBACK_STALE",
+            "message": "Кнопка устарела. Откройте товар заново.",
+        }
+
+    def clear_pending(self, _user_id):
+        pass
+
+    def handle_text(self, _user_id, _text):
+        return {"error": False, "handled": False}
+
+
+class _ReturnInventoryRecordingRepository:
+    def __init__(self):
+        self.calls = []
+
+    def record_recovery(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return {"error": False, "status": "RETURN_INVENTORY_RECOVERY_RECORDED"}
+
+
+class _PendingFifoEntryStub:
+    def __init__(self):
+        self.pending = {"101": {"step": "test"}}
+
+    def clear_pending(self, user_id):
+        self.pending.pop(str(user_id), None)
+
+    def handle_text(self, user_id, _text):
+        if str(user_id) in self.pending:
+            return {"error": False, "handled": True, "message": "old FIFO wizard"}
+        return {"error": False, "handled": False}
+
+    def handle_callback(self, _user_id, _callback):
+        return {
+            "error": True, "handled": True, "code": "FIFO_CALLBACK_STALE",
+            "message": "Кнопка устарела.",
+        }
+
+
 def test_seller_cost_adapter_routes_fifo_actions_to_explicit_services():
     rate_entry = _RateEntryCallbackStub()
     adapter = SellerCostTelegramAdapter(
@@ -755,6 +805,110 @@ def test_stale_rate_confirmation_does_not_clear_another_skus_anchor_draft(tmp_pa
     assert after_stale_callback["error"] is False
     assert after_stale_callback["message"] != "assistant fallback"
     assert after_stale_callback.get("handled") is True
+
+
+def test_stale_fifo_callbacks_preserve_return_inventory_confirmation():
+    callback_routes = (
+        ("fifo_history:open:expired", "fifo_history_service"),
+        ("fifo_anchor:confirm:expired", "fifo_anchor_entry_service"),
+        ("fifo_rate:confirm:expired", "fifo_rate_entry_service"),
+        ("fifo_late:confirm:expired", "fifo_late_entry_service"),
+    )
+    for callback, service_name in callback_routes:
+        repository = _ReturnInventoryRecordingRepository()
+        return_service = TelegramReturnInventoryConfirmationService(repository)
+        fifo_stub = _StaleFifoCallbackStub()
+        adapter = ReturnInventoryTelegramAdapter(
+            assistant=_Assistant(), keyboard_service=None,
+            button_handler=_ButtonHandler(),
+            seller_cost_service=_LegacySellerCostService(),
+            return_inventory_service=return_service,
+            **{service_name: fifo_stub},
+        )
+
+        adapter.handle_button("return_inventory", user_id=101)
+        identified = adapter.handle_text(
+            "1001736969 | 0239984545-0031-1 | 3921245627 | 1",
+            user_id=101,
+        )
+        assert identified["error"] is False, identified
+        selected = adapter.handle_button(
+            "return_inventory_state:SALEABLE_RESTORED", user_id=101,
+        )
+        assert selected["error"] is False, selected
+
+        stale = adapter.handle_button(callback, user_id=101)
+        pending = return_service._pending.get("101")
+        confirmed = adapter.handle_button(
+            "return_inventory_confirm", user_id=101,
+        )
+
+        assert stale["error"] is True, (callback, stale)
+        assert stale["code"] == "FIFO_CALLBACK_STALE", (callback, stale)
+        assert pending is not None and pending["stage"] == "CONFIRM", callback
+        assert confirmed["error"] is False, (callback, confirmed)
+        assert len(repository.calls) == 1, callback
+
+
+def test_opening_return_inventory_clears_all_fifo_entry_drafts(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository_value, history = _anchored_history(tmp_path)
+        rate_entry = TelegramFifoCostRateEntryService(
+            history, FifoCostRateService(_repository_value),
+            date_provider=lambda: date(2026, 11, 7),
+        )
+        assert rate_entry.start(101, IDENTITY, "Крючки", 1)["error"] is False
+        late_entry = _PendingFifoEntryStub()
+        anchor_entry = _PendingFifoEntryStub()
+        return_service = TelegramReturnInventoryConfirmationService(
+            _ReturnInventoryRecordingRepository(),
+        )
+        adapter = ReturnInventoryTelegramAdapter(
+            assistant=_Assistant(), keyboard_service=None,
+            button_handler=_ButtonHandler(),
+            seller_cost_service=_LegacySellerCostService(),
+            return_inventory_service=return_service,
+            fifo_rate_entry_service=rate_entry,
+            fifo_late_entry_service=late_entry,
+            fifo_anchor_entry_service=anchor_entry,
+        )
+
+        opened = adapter.handle_button("return_inventory", user_id=101)
+        adapter.handle_button("return_inventory_cancel", user_id=101)
+        ordinary_text = adapter.handle_text("123", user_id=101)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert opened["error"] is False
+    assert rate_entry._pending == {}
+    assert late_entry.pending == {}
+    assert anchor_entry.pending == {}
+    assert ordinary_text["message"] == "assistant fallback"
+
+
+def test_accepted_fifo_history_navigation_clears_return_draft():
+    repository = _ReturnInventoryRecordingRepository()
+    return_service = TelegramReturnInventoryConfirmationService(repository)
+
+    class AcceptedHistory:
+        def handle_callback(self, _user_id, _callback):
+            return {"error": False, "handled": True, "action": "open_history"}
+
+    adapter = ReturnInventoryTelegramAdapter(
+        assistant=_Assistant(), keyboard_service=None,
+        button_handler=_ButtonHandler(),
+        seller_cost_service=_LegacySellerCostService(),
+        return_inventory_service=return_service,
+        fifo_history_service=AcceptedHistory(),
+    )
+    adapter.handle_button("return_inventory", user_id=101)
+
+    opened_fifo = adapter.handle_button("fifo_history:open:valid", user_id=101)
+
+    assert opened_fifo["error"] is False
+    assert opened_fifo["handled"] is True
+    assert "101" not in return_service._pending
 
 
 def test_initial_anchor_order_rejection_clears_draft_without_writing(tmp_path):
