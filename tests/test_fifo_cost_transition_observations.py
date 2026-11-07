@@ -198,3 +198,66 @@ def test_missing_refresh_appends_without_erasing_declaration_or_partial_receipt(
         )["code"] == "FIFO_HISTORY_NOT_INITIALIZED"
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_cancelled_supply_observation_keeps_its_cost_declaration_link(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "fifo-cancelled-supply.sqlite",
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        service = FifoCostTransitionService(
+            repository,
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        assert service.create_case(
+            case=_case(), idempotency_key="fl10-cancel-create-001",
+        )["error"] is False
+        declared = service.declare_supply(
+            case_id="case_fl09_0001", **IDENTITY,
+            reference_kind="SUPPLY", reference_id="2001",
+            declared_shipped_units=148, dispatch_date="2026-11-05",
+            expected_case_revision=1, idempotency_key="fl10-cancel-declare-148",
+        )
+        assert declared["error"] is False
+        declaration_id = service.get_supply_manifest(
+            case_id="case_fl09_0001", **IDENTITY,
+        )["declarations"][0]["declaration_id"]
+        cancelled_snapshot = FifoCostSourceNormalizer().normalize_active_supply_snapshot(
+            supply_reference_digest=_supply_reference_digest("2001"),
+            store_id=IDENTITY["store_id"],
+            captured_at=datetime(2026, 11, 8, 11, tzinfo=timezone.utc),
+            source_fingerprint="d" * 64, presence="PRESENT", raw_status="CANCELLED",
+            order_id=11, scope_complete=True, pagination_complete=True,
+            source_status="COMPLETE",
+        )
+        assert cancelled_snapshot.normalized_status == "CANCELLED"
+        recorded = service.record_supply_observation(
+            case_id="case_fl09_0001", **IDENTITY,
+            declaration_id=declaration_id, reference_id="2001",
+            snapshot=cancelled_snapshot, expected_case_revision=2,
+            idempotency_key="fl10-cancel-observation",
+        )
+        assert recorded["error"] is False, recorded
+
+        manifest = service.get_supply_manifest(
+            case_id="case_fl09_0001", **IDENTITY,
+        )
+        assert manifest["declarations"][0]["declaration_id"] == declaration_id
+        assert manifest["declarations"][0]["declared_shipped_units"] == 148
+        history = repository.read_transition_evidence(
+            case_id="case_fl09_0001", **IDENTITY,
+            kind="SUPPLY_OBSERVATION", limit=100,
+        )
+        assert history["items"][0]["normalized_status"] == "CANCELLED"
+        assert repository.read_cost_history_snapshot(
+            **IDENTITY,
+        )["code"] == "FIFO_HISTORY_NOT_INITIALIZED"
+    finally:
+        reset_current_tenant_user_id(tenant)
