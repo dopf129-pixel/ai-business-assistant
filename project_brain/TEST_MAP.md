@@ -1,3 +1,15 @@
+# 2026-11-08 — FIFO partial acceptance/correction regressions (FL10)
+
+- `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py` covers cumulative 40→70→100, stale duplicate 70 after 100, repeated act/page representation, two distinct act refs, non-final pending quantity, final 98/100 discrepancy=2, 100→90 correction review, newer PARTIAL freshness, same-time conflict, SKU mismatch, over-declaration and invalid inputs.
+- `tests/test_fifo_cost_transition_observations.py::test_cancelled_supply_observation_keeps_its_cost_declaration_link` proves CANCELLED status evidence does not delete the declaration or activate FIFO.
+- Focused FL10 plus normalizer/observation profile: **46 passed**. All `tests/test_fifo_cost_*.py` and `tests/test_telegram_fifo_cost_*.py`: **379 passed**. Compileall, diff-check and `git diff --exit-code -- data` PASS; fixtures use `tmp_path` and synthetic API payloads.
+
+# 2026-11-08 — FIFO active supply observation regressions (FL09)
+
+- `tests/test_fifo_cost_source_collection_service.py` verifies the legacy COMPLETED-only lookup stays stable; the new active lookup recognizes receiving, explicit complete MISSING, incomplete pagination continuation, and unknown status without silent filtering. HTTP attempts/pages/deadline are bounded.
+- `tests/test_fifo_cost_transition_observations.py` verifies a durable declared 148 survives a missing aggregate row, prior partial accepted quantity remains, no quantity/receipt is synthesized, and cross-declaration references are rejected.
+- Focused FL09 profile: **51 passed in 3.03s**. Full `pytest -q`: **4907 passed in 52.36s**. Compileall and diff-check PASS; test artifact `data/tasks.json` restored and `data/` matches Git. Tests use temporary repositories and synthetic source responses.
+
 # 2026-11-08 — FIFO supply declaration regressions (FL08)
 
 - `tests/test_fifo_cost_transition_supply_declarations.py` verifies `6234 + 600 + 148 = 6982`, numeric undistributed remainder with no synthetic supply, duplicate and mixed-SKU rejection, same numeric ID in another store, ORDER/SUPPLY separation and ACT rejection, encrypted lookup redaction, and preserved owner facts when the cipher key is missing.
@@ -6606,10 +6618,4 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_sales_mix_planning_service.py::test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero` проверяет смесь одного SKU с подтверждённым нулём и другого с положительным STORAGE; `test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix` сохраняет подтверждённый кросс-докинг при неизвестной рекламе. Неизвестная реклама оставляет количество/выручку и маржу до рекламы, но не выдаёт after-ad totals.
 - `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
 - Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.
-
-# 2026-11-08 — FIFO active supply observation regressions (FL09)
-
-- `tests/test_fifo_cost_source_collection_service.py` verifies the legacy COMPLETED-only lookup stays stable; the new active lookup recognizes receiving, explicit complete MISSING, incomplete pagination continuation, and unknown status without silent filtering. HTTP attempts/pages/deadline are bounded.
-- `tests/test_fifo_cost_transition_observations.py` verifies a durable declared 148 survives a missing aggregate row, prior partial accepted quantity remains, no quantity/receipt is synthesized, and cross-declaration references are rejected.
-- Focused FL09 profile: **51 passed in 3.03s**. Full `pytest -q`: **4907 passed in 52.36s**. Compileall and diff-check PASS; test artifact `data/tasks.json` restored and `data/` matches Git. Tests use temporary repositories and synthetic source responses.
 

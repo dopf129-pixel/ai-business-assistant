@@ -1,3 +1,14 @@
+# 2026-11-08 — FIFO late-entry completion FL10
+
+- FL00–FL10 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL10 добавил `FifoCostSupplyAcceptanceReconciliationService`: кумулятивные accepted totals выбираются как latest (40→70→100 остаётся 100), повтор акта/снимка не удваивает результат, а два разных акта остаются в digest refs раздельно.
+- Более свежий PARTIAL не обнуляет последний complete accepted count, но возвращает PARTIAL и блокирует финальную discrepancy. Снижение 100→90 требует документальной коррекции; final accepted ниже declared показывает unaccepted quantity и action code без автоматического inventory/FIFO движения. Отмена status observation не удаляет declaration.
+- FL10 commit `9445d8cc`; focused 46 passed; весь FIFO/Telegram FIFO профиль 379 passed; compileall/diff-check/data unchanged PASS. Следующий FL11: общий бюджет чтения, checkpoints и безопасное resume.
+
+# 2026-11-08 — FIFO late-entry completion FL09
+
+- FL00–FL09 VERIFIED. `FifoCostSourceCollectionService.observe_active_supply_by_id` наблюдает активные статусы отдельно от старого COMPLETED-only lookup, пишет append-only PRESENT/MISSING observations и возвращает continuation при PARTIAL. Только полная пагинация подтверждает MISSING; отсутствующая строка не становится нулём и не стирает декларацию/частичную приёмку.
+- Неизвестный статус сохраняется как безопасный raw token и нормализуется в UNKNOWN. FL09 code commit `f2e2239a`; focused 51 passed; full `pytest -q` 4907 passed; compileall/diff-check/data restored PASS.
+
 # 2026-11-08 — FIFO late-entry completion FL08
 
 - FL00–FL08 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. `FifoCostTransitionService` now persists exact typed ORDER/SUPPLY declarations; existing `FifoCostRepository` enforces same-store reference uniqueness, SKU consistency, and the case-level owner quantity inside the write transaction.
@@ -5501,8 +5512,3 @@ Completed:
 - FC22 `DONE_WITH_GAP`: a read-only before/after service now reports FIFO units/COGS by basis and recalculates period tax/profit through the existing `TaxService`. Owner confirmation is bound to exact store/SKU/draft and source, stream, allocation, tax and impact fingerprints.
 - FIFO schema v9→v10 appends a correction audit snapshot atomically with the new rate. The former allocation projection is invalidated; Period Profit is not changed until complete replay. The synthetic path supports only one missing rate and no linked returns/non-sale outflows; production remains blocked by unreconciled historical stock/finance cutoff.
 - Linked FC22 profile: **65 passed in 3.25s**. All data used were synthetic or in pytest temporary SQLite; no live Ozon/Telegram requests or bot startup.
-# 2026-11-08 — FIFO late-entry FL09 завершён
-
-- Ветка `codex/fifo-late-entry-foundation-20261107`; FL00–FL09 VERIFIED. Новый отдельный collector наблюдает активные поставки, сохраняет append-only `SupplyObservation` и различает PRESENT/MISSING/PARTIAL. Полная terminal pagination позволяет зафиксировать MISSING, неполная оставляет continuation.
-- Наблюдение содержит только scoped reference digest и факт статуса; количества не выводятся из статуса. MISSING не стирает объявленное количество или предыдущую частичную приёмку и не создаёт приход. Неизвестный статус остаётся безопасным raw token и нормализуется в UNKNOWN. Старый completed-only поиск не менялся.
-- FL09 code commit `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`. Focused профиль: 51 passed; полный `pytest -q`: 4907 passed; compileall/diff-check PASS. Тестовый `data/tasks.json` восстановлен; `data/` совпадает с Git. Далее FL10: дедупликация кумулятивных наблюдений и актов, discrepancy/correction без автоматического движения остатков.

@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL10.
-Выполненных этапов:10/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations и FL09 active observations VERIFIED; documents, runtime integration and owner case ещё не завершены).
+Следующий этап: FL11.
+Выполненных этапов:11/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations, FL09 active observations и FL10 acceptance reconciliation VERIFIED; documents, runtime integration and owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -30,7 +30,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL07 | Lifecycle случая | VERIFIED | `5254efafe05e197564a4913c5123373ca0db13c2`; create/edit/cancel/read/list append-only & idempotent; active store/SKU CAS; focused 25 / FIFO+Telegram 352 passed; compileall/diff-check/data unchanged |
 | FL08 | Конкретные поставки | VERIFIED | `363cc5e899f7d01c682e7f4dc8a62a03977b708c`; typed ORDER/SUPPLY, scoped duplicate/SKU/total guards, ciphertext redaction, unknown-key preservation, no synthetic remainder; focused 38 / FIFO+Telegram 358 passed; compileall/diff-check/data unchanged |
 | FL09 | Наблюдения и missing | VERIFIED | `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`; focused 51 passed; full pytest 4907 passed; compileall/diff-check/data restore PASS |
-| FL10 | Частичная приёмка | NOT_STARTED | — |
+| FL10 | Частичная приёмка | VERIFIED | `9445d8cc`; focused 46 passed; FIFO/Telegram FIFO 379 passed; compileall/diff-check/data unchanged PASS |
 | FL11 | Бюджеты/checkpoints | NOT_STARTED | — |
 | FL12 | Ведомость parser | NOT_STARTED | — |
 | FL13 | Остатки parser | NOT_STARTED | — |
@@ -172,6 +172,17 @@ Source readiness:
 - Тесты используют `tmp_path`. `git diff --exit-code -- data` чистый; 5 файлов / 3,168 bytes совпадают с веткой. Владелец, production DB, реальные API и бот не использовались.
 - FL05 подтверждает только безопасное сохранение незавершённого случая. Положительное доказательство принятия, cutoff, bridge и применение ещё не реализованы; `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
 - Commit FL05: `a5e455f49fb81af7e67bbbd708edab9db8d8e642` (`Prove FIFO pending case isolation and rollback`). Следующий этап: FL06 — единая семантика полной landed cost без фиктивных компонент.
+
+## Выполнение FL10 — 2026-11-08
+
+- Добавлен pure `FifoCostSupplyAcceptanceReconciliationService`, который принимает только уже нормализованные и обезличенные `FifoSupplyActSnapshot` для одной поставки/магазина. Он не выполняет API-запросы, persistence, inventory movement, FIFO allocation или изменение режима прибыли.
+- Кумулятивные снимки 40→70→100 выбирают последний подтверждённый total. Повтор evidence fingerprint не прибавляет количество; повтор одного act/page нормализатором дедуплицируется, а разные act refs остаются раздельными и суммируются один раз. Снимки разных stores/supplies, другой SKU, неоднозначные same-time versions и принятые единицы сверх декларации дают CONFLICT.
+- Более поздний PARTIAL/UNAVAILABLE/EMPTY сохраняет последнее complete accepted quantity, но выставляет PARTIAL и не подтверждает финальную недостачу. Complete non-final 98/100 остаётся ожиданием (2 не приняты), а complete final 98/100 возвращает DISCREPANCY=2 и `CONFIRM_SHORTAGE_MOVEMENT`. Снижение 100→90 возвращает `CORRECTION_REVIEW_REQUIRED`, сохраняет 100 как прежний confirmed total, 90 — как candidate и требует документально подтверждённой коррекции.
+- Отдельная repository regression подтверждает, что CANCELLED observation не удаляет declaration/cost link и не активирует FIFO. Механизма удаления/перепривязки supply cost links не добавлено.
+- Изменены: новый `app/services/fifo_cost_supply_acceptance_reconciliation_service.py`, новый `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py`, расширен `tests/test_fifo_cost_transition_observations.py`. Документация обновлена в CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP и FL01_IMPLEMENTATION_MAP. Архитектура — minor extension: pure service поверх существующего нормализатора; storage schema, tax, Period Profit и production bot wiring не менялись.
+- Код commit `9445d8cc` (`Reconcile FIFO supply acceptance snapshots`). Проверки на финальном коде: focused FL10 + normalizer/observation **46 passed in 1.01s**; полный FIFO/Telegram FIFO профиль **379 passed in 15.04s**; compileall, `git diff --check`, `git diff --exit-code -- data` PASS. Database fixtures используют `tmp_path`; owner database и live API не использовались.
+- `IMPLEMENTATION_VERIFIED`: нет; source collection budget, persistent document versions, stock/cutoff bridge и production UI остаются впереди. `OWNER_CASE_VERIFIED`: нет; документы и факт по каждой реальной поставке ещё не представлены. Нет блокера для FL11.
+- Следующий этап: FL11 — один общий budget, source checkpoints и проверяемый resume.
 
 ## PR delivery
 
