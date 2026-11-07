@@ -25,7 +25,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL02 | Контракты и часы | VERIFIED | new FIFO contract profile 13 passed; combined unique FIFO profile 320 passed; compileall/diff-check PASS; data manifest matches FL00 |
 | FL03 | Миграция13 и cipher | VERIFIED | 41 passed focused; 348 passed related FIFO profile; compileall/diff-check PASS; data manifest unchanged |
 | FL04 | Repository cases/evidence | VERIFIED | `a9b1374eaf96b0262ee854cb68612d6d19241717`; 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
-| FL05 | До-FIFO хранение и fault tests | VERIFIED | 69 focused / 370 related passed; compileall/diff-check PASS; `data/` unchanged |
+| FL05 | До-FIFO хранение и fault tests | VERIFIED | `a5e455f49fb81af7e67bbbd708edab9db8d8e642`; 69 focused / 370 related passed; compileall/diff-check PASS; `data/` unchanged |
 | FL06 | Полная стоимость | NOT_STARTED | — |
 | FL07 | Lifecycle случая | NOT_STARTED | — |
 | FL08 | Конкретные поставки | NOT_STARTED | — |
@@ -140,7 +140,7 @@ Source readiness:
 - Focused профиль transition store/schema/contracts/repository/backup/credentials: **69 passed in 4.00s**. Широкий профиль всех FIFO repository/services, Telegram FIFO, Period Profit integration, navigation и credentials (32 модуля): **370 passed in 14.40s**. `compileall -q app tests` и `git diff --check` PASS.
 - Тесты используют `tmp_path`. `git diff --exit-code -- data` чистый; 5 файлов / 3,168 bytes совпадают с веткой. Владелец, production DB, реальные API и бот не использовались.
 - FL05 подтверждает только безопасное сохранение незавершённого случая. Положительное доказательство принятия, cutoff, bridge и применение ещё не реализованы; `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
-- Commit FL05 будет зафиксирован после записи SHA; следующий этап: FL06 — единая семантика полной landed cost без фиктивных компонент.
+- Commit FL05: `a5e455f49fb81af7e67bbbd708edab9db8d8e642` (`Prove FIFO pending case isolation and rollback`). Следующий этап: FL06 — единая семантика полной landed cost без фиктивных компонент.
 
 ## PR delivery
 
