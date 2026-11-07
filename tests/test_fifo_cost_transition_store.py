@@ -93,14 +93,20 @@ def _case(case_id="transition-case-0001", *, sku="sku-1", owner=OWNER, store=STO
 
 def _declaration(case_id="transition-case-0001", declaration_id="decl-0001",
                  quantity=6234, *, revision=1, encrypted=True, owner=OWNER,
-                 store=STORE, sku="sku-1"):
+                 store=STORE, sku="sku-1", reference_id=2000070135564):
     lookup = (
-        encrypt_tenant_value(2000070135564, master_key=MASTER_KEY)
+        encrypt_tenant_value(reference_id, master_key=MASTER_KEY)
         if encrypted else None
     )
     digest = hashlib.sha256(
-        f"fifo-supply-reference:{owner}:{store}:SUPPLY:2000070135564".encode()
+        f"fifo-supply-reference:{owner}:{store}:SUPPLY:{reference_id}".encode()
     ).hexdigest()
+    unknown_values = {} if encrypted else {
+        "lookup_reference": UnknownValue(
+            TransitionReasonCode.LOOKUP_REFERENCE_UNAVAILABLE,
+            EvidenceSourceKind.OWNER_INPUT,
+        ),
+    }
     return SupplyDeclaration(
         metadata=_metadata(owner=owner, store=store, sku=sku),
         case_id=case_id,
@@ -112,6 +118,7 @@ def _declaration(case_id="transition-case-0001", declaration_id="decl-0001",
         declared_shipped_units=quantity,
         dispatch_date="2026-11-05",
         provenance=EvidenceSourceKind.OWNER_INPUT,
+        unknown_values=unknown_values,
     )
 
 
@@ -414,7 +421,8 @@ def test_case_and_declaration_quotas_preserve_last_committed_state(tmp_path):
                 result = repository.append_supply_declaration(
                     declaration=_declaration(
                         case_id=case.case_id, declaration_id=f"decl-{index:04d}",
-                        store="store-declarations",
+                        quantity=0, store="store-declarations",
+                        reference_id=2100000000000 + index,
                     ),
                     expected_case_revision=case_revision,
                     idempotency_key=f"decl-key-{index:04d}",
@@ -424,7 +432,7 @@ def test_case_and_declaration_quotas_preserve_last_committed_state(tmp_path):
             blocked_declaration = repository.append_supply_declaration(
                 declaration=_declaration(
                     case_id=case.case_id, declaration_id="decl-overflow",
-                    store="store-declarations",
+                    quantity=0, store="store-declarations", reference_id=2100000000100,
                 ),
                 expected_case_revision=case_revision,
                 idempotency_key="decl-overflow-0001",

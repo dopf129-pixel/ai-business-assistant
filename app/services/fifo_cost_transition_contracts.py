@@ -50,6 +50,7 @@ class TransitionReasonCode(str, Enum):
     TIMEZONE_INVALID = "TIMEZONE_INVALID"
     FINGERPRINT_INVALID = "FINGERPRINT_INVALID"
     SOURCE_PROOF_UNAVAILABLE = "SOURCE_PROOF_UNAVAILABLE"
+    LOOKUP_REFERENCE_UNAVAILABLE = "LOOKUP_REFERENCE_UNAVAILABLE"
     COST_INPUT_INVALID = "COST_INPUT_INVALID"
     STATE_INVALID = "STATE_INVALID"
     REPORT_EVIDENCE_INVALID = "REPORT_EVIDENCE_INVALID"
@@ -344,8 +345,19 @@ class SupplyDeclaration:
             _optional_ciphertext(self.encrypted_lookup_reference),
         )
         unknown = dict(self.unknown_values)
-        if set(unknown) - {"declared_shipped_units"}:
+        if set(unknown) - {"declared_shipped_units", "lookup_reference"}:
             _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if self.encrypted_lookup_reference is None:
+            _require_unknown(unknown, "lookup_reference")
+            if (
+                unknown["lookup_reference"].reason_code
+                is not TransitionReasonCode.LOOKUP_REFERENCE_UNAVAILABLE
+                or unknown["lookup_reference"].source_kind
+                is not EvidenceSourceKind.OWNER_INPUT
+            ):
+                _fail(TransitionReasonCode.CONTRACT_INVALID)
+        else:
+            _reject_unknown(unknown, "lookup_reference")
         if self.declared_shipped_units is None:
             _require_unknown(unknown, "declared_shipped_units")
         else:

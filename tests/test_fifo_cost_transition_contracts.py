@@ -290,7 +290,13 @@ def test_supply_declaration_stores_only_scoped_digest_and_optional_ciphertext():
         declared_shipped_units=None,
         dispatch_date="2026-11-05",
         provenance=EvidenceSourceKind.OWNER_INPUT,
-        unknown_values={"declared_shipped_units": _unknown()},
+        unknown_values={
+            "declared_shipped_units": _unknown(),
+            "lookup_reference": UnknownValue(
+                TransitionReasonCode.LOOKUP_REFERENCE_UNAVAILABLE,
+                EvidenceSourceKind.OWNER_INPUT,
+            ),
+        },
     )
     assert declaration.declared_shipped_units is None
     assert declaration.reference_digest == "d" * 64

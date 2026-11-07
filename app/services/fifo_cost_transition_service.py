@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
+import hashlib
+import re
 
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_contracts import (
@@ -17,11 +19,14 @@ from services.fifo_cost_transition_contracts import (
     TransitionMetadata,
     TransitionReasonCode,
     TransitionState,
+    SupplyDeclaration,
+    SupplyReferenceKind,
     UnknownValue,
     utc_now,
 )
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
+from services.tenant_cipher_provider import encrypt_tenant_value
 
 
 class FifoCostTransitionService:
@@ -146,6 +151,181 @@ class FifoCostTransitionService:
         return self.repository.list_transition_cases(
             store_id=store_id, sku=sku, states=states, limit=limit,
         )
+
+    def declare_supply(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        reference_kind, reference_id, declared_shipped_units,
+        dispatch_date=None, expected_case_revision, idempotency_key,
+    ) -> dict:
+        """Append an owner-declared typed ORDER/SUPPLY link to the exact case.
+
+        The raw lookup reference exists only in this call frame: persistence
+        receives a scoped digest and, when the configured tenant cipher is
+        available, a Fernet token. A missing cipher does not discard the
+        declaration; it explicitly disables future refresh-by-ID.
+        """
+        current = self.get_case(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if current.get("error"):
+            return current
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        try:
+            case = self._case_from_payload(current["case"])
+            if case.state not in self._EDITABLE_STATES:
+                return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+            kind = (
+                reference_kind if isinstance(reference_kind, SupplyReferenceKind)
+                else SupplyReferenceKind(str(reference_kind).strip().upper())
+            )
+            normalized_reference = self._normalize_reference_id(reference_id)
+            reference_digest = self._supply_reference_digest(
+                owner_id=case.metadata.scope.owner_id,
+                store_id=case.metadata.scope.store_id,
+                reference_kind=kind,
+                reference_id=normalized_reference,
+            )
+            encrypted_lookup = encrypt_tenant_value(normalized_reference)
+            unknown_values = {}
+            if declared_shipped_units is None:
+                unknown_values["declared_shipped_units"] = UnknownValue(
+                    TransitionReasonCode.SOURCE_PROOF_UNAVAILABLE,
+                    EvidenceSourceKind.OWNER_INPUT,
+                )
+            if encrypted_lookup is None:
+                unknown_values["lookup_reference"] = UnknownValue(
+                    TransitionReasonCode.LOOKUP_REFERENCE_UNAVAILABLE,
+                    EvidenceSourceKind.OWNER_INPUT,
+                )
+            source_fingerprint = hashlib.sha256(
+                ("fifo-transition-declaration:v1:" + ":".join((
+                    reference_digest,
+                    "UNKNOWN" if declared_shipped_units is None
+                    else str(declared_shipped_units),
+                    str(dispatch_date or ""),
+                ))).encode("utf-8")
+            ).hexdigest()
+            metadata = TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_INPUT,
+                completeness=(
+                    EvidenceCompleteness.PARTIAL if unknown_values
+                    else EvidenceCompleteness.COMPLETE
+                ),
+                source_fingerprint=source_fingerprint,
+                store_timezone=case.metadata.store_timezone,
+            )
+            declaration_id = "decl_" + hashlib.sha256(
+                f"fifo-transition-declaration-id:v1:{case.case_id}:{idempotency_key}".encode()
+            ).hexdigest()[:32]
+            declaration = SupplyDeclaration(
+                metadata=metadata,
+                case_id=case.case_id,
+                declaration_id=declaration_id,
+                revision=1,
+                reference_kind=kind,
+                reference_digest=reference_digest,
+                encrypted_lookup_reference=encrypted_lookup,
+                declared_shipped_units=declared_shipped_units,
+                dispatch_date=dispatch_date,
+                provenance=EvidenceSourceKind.OWNER_INPUT,
+                unknown_values=unknown_values,
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            reason = getattr(exc, "reason_code", None)
+            if reason is not None:
+                return self._error(reason.value)
+            if isinstance(exc, ValueError) and str(exc) == "FIFO_TRANSITION_REFERENCE_INVALID":
+                return self._error(str(exc))
+            return self._error("FIFO_TRANSITION_DECLARATION_INVALID")
+        return self.repository.append_supply_declaration(
+            declaration=declaration,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def get_supply_manifest(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+    ) -> dict:
+        """Return safe supply quantities and owner-total remainder, never IDs."""
+        current = self.get_case(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if current.get("error"):
+            return current
+        evidence = self.repository.read_transition_evidence(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, kind="SUPPLY_DECLARATION", limit=100,
+        )
+        if evidence.get("error"):
+            return evidence
+        latest = {}
+        for item in evidence["items"]:
+            key = item["declaration_id"]
+            if key not in latest or item["evidence_revision"] > latest[key]["evidence_revision"]:
+                latest[key] = item
+        declarations = sorted(
+            latest.values(), key=lambda item: (item.get("recorded_at") or "", item["declaration_id"]),
+        )
+        known_units = sum(
+            item["declared_shipped_units"]
+            for item in declarations
+            if item["declared_shipped_units"] is not None
+        )
+        quantities_complete = all(
+            item["declared_shipped_units"] is not None for item in declarations
+        )
+        owner_total = current["case"].get("declared_shipped_units")
+        if owner_total is not None and known_units > owner_total:
+            return self._error("FIFO_TRANSITION_SUPPLY_TOTAL_CONFLICT")
+        undistributed = (
+            owner_total - known_units
+            if owner_total is not None and quantities_complete else None
+        )
+        return {
+            "error": False,
+            "code": "FIFO_TRANSITION_SUPPLY_MANIFEST_FOUND",
+            "case_id": current["case_id"],
+            "case_revision": current["case_revision"],
+            "owner_declared_total": owner_total,
+            "known_assigned_units": known_units,
+            "assignment_complete": quantities_complete,
+            "undistributed_units": undistributed,
+            "undistributed_status": "KNOWN" if undistributed is not None else "UNKNOWN",
+            "declarations": [
+                {
+                    "declaration_id": item["declaration_id"],
+                    "reference_kind": item["reference_kind"],
+                    "declared_shipped_units": item["declared_shipped_units"],
+                    "dispatch_date": item["dispatch_date"],
+                    "lookup_status": (
+                        "AVAILABLE" if item.get("lookup_reference_available")
+                        else "LOOKUP_REFERENCE_UNAVAILABLE"
+                    ),
+                }
+                for item in declarations
+            ],
+        }
+
+    @staticmethod
+    def _normalize_reference_id(value) -> str:
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            raise ValueError("FIFO_TRANSITION_REFERENCE_INVALID")
+        raw = str(value).strip()
+        if not re.fullmatch(r"[0-9]{1,40}", raw):
+            raise ValueError("FIFO_TRANSITION_REFERENCE_INVALID")
+        return str(int(raw))
+
+    @staticmethod
+    def _supply_reference_digest(*, owner_id, store_id, reference_kind, reference_id):
+        domain = "fifo-transition-reference:v1"
+        material = "\0".join((
+            domain, owner_id, store_id, reference_kind.value, reference_id,
+        ))
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _case_from_payload(payload: dict) -> TransitionCase:

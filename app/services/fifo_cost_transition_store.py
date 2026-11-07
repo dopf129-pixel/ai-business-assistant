@@ -182,6 +182,61 @@ class FifoCostTransitionStore:
                 return {"error": True, "code": "FIFO_TRANSITION_DECLARATION_REVISION_CONFLICT"}
             if existing is None and declaration.revision != 1:
                 return {"error": True, "code": "FIFO_TRANSITION_DECLARATION_REVISION_CONFLICT"}
+            duplicate_rows = connection.execute(
+                """SELECT c.case_id, c.sku, c.current_state, d.declaration_id
+                   FROM fifo_cost_supply_declarations AS d
+                   JOIN fifo_cost_transition_cases AS c ON c.case_id=d.case_id
+                   WHERE c.owner_fingerprint=? AND c.tenant_fingerprint=?
+                     AND c.store_id=? AND d.reference_kind=? AND d.reference_digest=?
+                     AND c.current_state<>'CANCELLED'""",
+                (scope["owner_fingerprint"], scope["tenant_fingerprint"],
+                 declaration.metadata.scope.store_id,
+                 declaration.reference_kind.value, declaration.reference_digest),
+            ).fetchall()
+            for duplicate in duplicate_rows:
+                if (
+                    duplicate["case_id"] == declaration.case_id
+                    and duplicate["declaration_id"] == declaration.declaration_id
+                ):
+                    continue
+                if duplicate["sku"] != declaration.metadata.scope.sku:
+                    return {"error": True, "code": "FIFO_TRANSITION_SUPPLY_SKU_CONFLICT"}
+                return {"error": True, "code": "FIFO_TRANSITION_SUPPLY_REFERENCE_DUPLICATE"}
+
+            current_case = connection.execute(
+                """SELECT payload_json FROM fifo_cost_transition_case_revisions
+                   WHERE case_id=? AND case_revision=?""",
+                (declaration.case_id, case_row["current_revision"]),
+            ).fetchone()
+            if current_case is None:
+                return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
+            try:
+                owner_total = json.loads(current_case["payload_json"]).get(
+                    "declared_shipped_units",
+                )
+            except (TypeError, ValueError):
+                return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
+            if owner_total is not None and declaration.declared_shipped_units is not None:
+                latest_rows = connection.execute(
+                    """SELECT d.declaration_id, d.declared_shipped_units
+                       FROM fifo_cost_supply_declarations AS d
+                       JOIN (
+                           SELECT declaration_id, MAX(declaration_revision) AS revision
+                           FROM fifo_cost_supply_declarations WHERE case_id=?
+                           GROUP BY declaration_id
+                       ) AS latest
+                         ON latest.declaration_id=d.declaration_id
+                        AND latest.revision=d.declaration_revision
+                       WHERE d.case_id=?""",
+                    (declaration.case_id, declaration.case_id),
+                ).fetchall()
+                other_known_units = sum(
+                    row["declared_shipped_units"] or 0
+                    for row in latest_rows
+                    if row["declaration_id"] != declaration.declaration_id
+                )
+                if other_known_units + declaration.declared_shipped_units > owner_total:
+                    return {"error": True, "code": "FIFO_TRANSITION_SUPPLY_TOTAL_CONFLICT"}
             if existing is None:
                 count = connection.execute(
                     "SELECT COUNT(DISTINCT declaration_id) FROM fifo_cost_supply_declarations "
@@ -426,8 +481,12 @@ class FifoCostTransitionStore:
         items = []
         for row in rows:
             item = {key: row[key] for key in row.keys() if key != "payload_json"}
-            if kind == "SUPPLY_DECLARATION" and not include_encrypted_lookup_reference:
-                item.pop("encrypted_lookup_reference", None)
+            if kind == "SUPPLY_DECLARATION":
+                item["lookup_reference_available"] = bool(
+                    item.get("encrypted_lookup_reference")
+                )
+                if not include_encrypted_lookup_reference:
+                    item.pop("encrypted_lookup_reference", None)
             if kind == "REPORT_EVIDENCE":
                 item["payload"] = {
                     "cell_references": json.loads(item.pop("cell_references_json")),
