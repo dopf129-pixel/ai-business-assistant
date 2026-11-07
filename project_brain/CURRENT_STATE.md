@@ -1,8 +1,8 @@
-# 2026-11-07 — FIFO late-entry completion FL00–FL01
+# 2026-11-07 — FIFO late-entry completion FL00–FL02
 
 - Исполнительная ветка `codex/fifo-late-entry-foundation-20261107` ответвлена от точного PR #727 head `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR спецификации открыт на `main` `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`.
-- FL00 VERIFIED: исходный FIFO regression профиль **307 passed**, compileall/diff-check PASS, пять файлов `data/` совпадают по aggregate manifest. FL01 VERIFIED: создана карта integration seams и source gates, 27 code/test paths проверены.
-- Runtime функциональность не изменялась. Следующий этап FL02 — typed contracts и часы. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` пока false; реальные ID поставок и cutoff не подтверждены.
+- FL00 VERIFIED: исходный FIFO regression профиль **307 passed**; FL01 VERIFIED: карта integration seams, 27 code/test paths. FL02 VERIFIED: typed transition contracts, **13 new tests** и combined FIFO profile **320 passed**; compileall/diff-check PASS. Пять файлов `data/` побайтно/по manifest совпадают с исходной точкой.
+- Начата runtime реализация только валидации DTO; repository/migration/UI/финансовая интеграция ещё не изменялись. Следующий этап FL03 — schema v13 и общий cipher provider. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` пока false; реальные ID поставок и cutoff не подтверждены.
 
 # 2026-11-07 — подготовлено ТЗ завершения позднего ввода FIFO
 

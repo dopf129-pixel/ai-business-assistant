@@ -1,7 +1,7 @@
 # 2026-11-07 — План приёмки завершения позднего FIFO-ввода
 
 - Подготовлено ТЗ LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md (FL00–FL35) и независимая матрица N01–N40 в FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md.
-- Запланированы tests для durable transition store/service, supply observations, bounded XLSX imports, cutoff bridge, atomic apply, restart/backup и production UI wiring. Эти новые tests ещё не написаны и не выполнены; реализация NOT_STARTED.
+- На момент подготовки задания были запланированы tests для durable transition store/service, supply observations, bounded XLSX imports, cutoff bridge, atomic apply, restart/backup и production UI wiring. Фактические этапы ниже отделяют сделанное от оставшегося.
 - Проверка документационного PR не является выполнением FL00–FL35 или подтверждением источников реального магазина.
 
 # 2026-11-07 — FL00/FL01 baseline и карта швов
@@ -10,6 +10,13 @@
 - `project_brain/FL01_IMPLEMENTATION_MAP.md` связывает требования с действующими owners/production wiring и профильными regression tests. Static check проверил 27 Python code/test paths, missing=0.
 - Пять существующих файлов `data/` (3,168 bytes) не менялись; aggregate manifest SHA-256 до/после `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
 - Новые переходные сервисы и их tests пока не реализованы; статический map check не считается runtime verification.
+
+# 2026-11-07 — FL02 typed FIFO transition contracts
+
+- `app/services/fifo_cost_transition_contracts.py` задаёт scope/metadata, строгие деньги и количества, date-only/UTC timestamp, timezone и injected clock, unknown-value reason/provenance, total-vs-components cost, transition/supply/stock/report DTO, source-coverage proof и preview binding.
+- `tests/test_fifo_cost_transition_contracts.py`: **13 passed**. Совместно с прежним FIFO/Telegram FIFO regression профилем: **320 passed in 10.87s**. Проверены bool/float rejection, explicit zero, nullable+reason/provenance, stale/partial source proof, ownership source kind, immutable evidence, даты/часовые пояса и Decimal HALF_UP.
+- `python -m compileall -q app tests`, `git diff --check` PASS. `data/` manifest полностью совпадает с FL00: 5 файлов / 3,168 bytes / SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
+- Контракты не являются доказательством реальной полноты Ozon или cutoff; новый store/migration и runtime wiring ещё не реализованы.
 
 # 2026-11-07 — FIFO CSV и resume navigation regressions
 

@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL02.
-Выполненных этапов:2/36 (FL00 baseline и FL01 implementation map VERIFIED; runtime реализация ещё не начата).
+Следующий этап: FL03.
+Выполненных этапов:3/36 (FL00 baseline, FL01 implementation map и FL02 typed contracts VERIFIED; runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -22,7 +22,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 |---|---|---|---|
 | FL00 | Baseline и безопасная ветка | VERIFIED | aef1f134; FIFO regression 307 passed (10.96s), compileall/diff-check PASS; data manifest SHA-256 e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730 unchanged |
 | FL01 | Карта интеграции | VERIFIED | FL01_IMPLEMENTATION_MAP.md; 27 code/test paths exist, static map check and diff-check PASS; no runtime changes |
-| FL02 | Контракты и часы | NOT_STARTED | — |
+| FL02 | Контракты и часы | VERIFIED | new FIFO contract profile 13 passed; combined unique FIFO profile 320 passed; compileall/diff-check PASS; data manifest matches FL00 |
 | FL03 | Миграция13 и cipher | NOT_STARTED | — |
 | FL04 | Repository cases/evidence | NOT_STARTED | — |
 | FL05 | До-FIFO хранение и fault tests | NOT_STARTED | — |
@@ -102,6 +102,15 @@ Source readiness:
 - Static map check: **27** перечисленных Python code/test paths существуют, missing=0; `git diff --check` PASS. Runtime не менялся; baseline 307 тестов и data manifest из FL00 без изменений.
 - Решение DECISIONS/066 не изменялось: новые responsibilities остаются в том же tenant FIFO repository и canonical finance/TaxService pipeline.
 - Следующий этап: FL02 — DTO, typed reason codes, clock providers и unit tests для null/zero/bool/Decimal/time/source-proof.
+
+## Выполнение FL02 — 2026-11-07
+
+- Добавлен `app/services/fifo_cost_transition_contracts.py`: scoped metadata, strict enums/reason codes, TransitionCase, SupplyDeclaration/Observation, BucketSnapshot, ReportEvidence, SourceProof и FinancialPreviewBinding; `Decimal`/`ROUND_HALF_UP`, UTC-aware timestamps, date-only precision и injected clock provider.
+- Null quantity/cost/date требует reason code и source provenance; явный ноль остаётся допустимым. Полная стоимость `TOTAL_LANDED` не имеет компонентной разбивки; `COMPONENTS` требует явно введённые суммы с точным итогом. Доступность/полнота API чтения нельзя получить из owner-input DTO. Lookup reference contract требует Fernet-token shape либо `None`; криптографическое открытие токена относится к FL03. Секрет или обычный номер поставки не записывается в поле ciphertext.
+- Добавлен `tests/test_fifo_cost_transition_contracts.py`: **13 passed**; объединённый профиль всех 320 уникальных FIFO/Telegram FIFO tests: **320 passed in 10.87s**. `python -m compileall -q app tests` и `git diff --check` PASS.
+- Состояние `data/`: 5 файлов, 3,168 bytes; manifest SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`, совпадает с FL00. Тесты запускаются в локальной venv проекта; файлы данных не изменились.
+- Источники реального магазина не запрашивались. `SourceProof` подтверждает полноту чтения только по API-kind и complete scope/pagination, но не физическую семантику; cutoff gate ADR066 остаётся открытым.
+- Следующий этап: FL03 — schema v13, миграция 12→13 и общий cipher provider без изменения credentials.
 
 ## PR delivery
 
