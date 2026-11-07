@@ -175,7 +175,11 @@ class FifoCostRepository:
             return self._error("FIFO_TRANSITION_REVISION_INVALID")
         if not self._valid_transition_idempotency_key(idempotency_key):
             return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
-        if case.state not in {TransitionState.DRAFT, TransitionState.AWAITING_EVIDENCE}:
+        if case.state not in {
+            TransitionState.DRAFT,
+            TransitionState.AWAITING_EVIDENCE,
+            TransitionState.CANCELLED,
+        } or (case.state is TransitionState.CANCELLED and expected_revision == 0):
             return self._error("FIFO_TRANSITION_CASE_NOT_READY")
         scope, _identity = self._transition_metadata_scope(case.metadata)
         if scope.get("error"):
@@ -187,6 +191,14 @@ class FifoCostRepository:
                 idempotency_key=idempotency_key,
                 recorded_at=self._iso(self._now()),
             )
+        )
+
+    def cancel_transition_case(self, *, case, expected_revision, idempotency_key):
+        if not isinstance(case, TransitionCase) or case.state is not TransitionState.CANCELLED:
+            return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+        return self.save_transition_case(
+            case=case, expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
         )
 
     def read_transition_case(
@@ -209,6 +221,37 @@ class FifoCostRepository:
                 connection, case_id, scope, identity,
             )
         except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def list_transition_cases(
+        self, *, store_id, sku=None,
+        states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
+    ):
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        try:
+            normalized_store = self._safe_identity_part(store_id, "store_id", 128)
+            normalized_sku = (
+                self._safe_identity_part(sku, "sku", 64) if sku is not None else None
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return self._error("FIFO_TRANSITION_LIMIT_INVALID")
+        if not isinstance(states, (tuple, list)) or not states:
+            return self._error("FIFO_TRANSITION_STATE_FILTER_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.list_cases(
+                connection, scope, store_id=normalized_store,
+                sku=normalized_sku, states=tuple(states), limit=limit,
+            )
+        except (sqlite3.Error, OSError, ValueError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
         finally:
             if connection is not None:

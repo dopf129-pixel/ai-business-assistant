@@ -82,6 +82,19 @@ class FifoCostTransitionStore:
         if expected_revision == 0:
             if case.case_revision != 1 or row is not None:
                 return {"error": True, "code": "FIFO_TRANSITION_REVISION_CONFLICT"}
+            if case.state.value == "CANCELLED":
+                return {"error": True, "code": "FIFO_TRANSITION_CASE_NOT_READY"}
+            active_sku_case = connection.execute(
+                """SELECT case_id FROM fifo_cost_transition_cases
+                   WHERE owner_fingerprint=? AND tenant_fingerprint=?
+                     AND store_id=? AND sku=?
+                     AND current_state IN ('DRAFT', 'AWAITING_EVIDENCE', 'READY_TO_CONFIRM')
+                   LIMIT 1""",
+                (scope["owner_fingerprint"], scope["tenant_fingerprint"],
+                 case.metadata.scope.store_id, case.metadata.scope.sku),
+            ).fetchone()
+            if active_sku_case is not None:
+                return {"error": True, "code": "FIFO_TRANSITION_ACTIVE_CASE_CONFLICT"}
             active_count = connection.execute(
                 """SELECT COUNT(*) FROM fifo_cost_transition_cases
                    WHERE owner_fingerprint=? AND tenant_fingerprint=? AND store_id=?
@@ -316,6 +329,63 @@ class FifoCostTransitionStore:
             "case_revision": row["current_revision"],
             "state": row["current_state"],
             "case": payload,
+        }
+
+    @classmethod
+    def list_cases(
+        cls, connection, scope: dict, *, store_id: str, sku: str | None = None,
+        states: tuple[str, ...] = ("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"),
+        limit: int = 100,
+    ) -> dict:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return {"error": True, "code": "FIFO_TRANSITION_LIMIT_INVALID"}
+        allowed_states = {
+            "DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED",
+        }
+        if (
+            not isinstance(states, (tuple, list)) or not states
+            or any(not isinstance(state, str) or state not in allowed_states for state in states)
+            or len(set(states)) != len(states)
+        ):
+            return {"error": True, "code": "FIFO_TRANSITION_STATE_FILTER_INVALID"}
+        where = [
+            "owner_fingerprint=?", "tenant_fingerprint=?", "store_id=?",
+            f"current_state IN ({','.join('?' for _ in states)})",
+        ]
+        params = [
+            scope["owner_fingerprint"], scope["tenant_fingerprint"], store_id,
+            *states,
+        ]
+        if sku is not None:
+            where.append("sku=?")
+            params.append(sku)
+        params.append(limit)
+        rows = connection.execute(
+            """SELECT case_id, product_id, offer_id, sku FROM fifo_cost_transition_cases
+               WHERE """ + " AND ".join(where) + " ORDER BY updated_at DESC, case_id LIMIT ?",
+            params,
+        ).fetchall()
+        cases = []
+        for row in rows:
+            item = cls.read_case(
+                connection, row["case_id"], scope,
+                {
+                    "store_id": store_id,
+                    "product_id": row["product_id"],
+                    "offer_id": row["offer_id"],
+                    "sku": row["sku"],
+                },
+            )
+            if item.get("error"):
+                return item
+            cases.append(item)
+        return {
+            "error": False,
+            "code": "FIFO_TRANSITION_CASES_FOUND",
+            "store_id": store_id,
+            "cases": cases,
+            "count": len(cases),
+            "limit": limit,
         }
 
     @classmethod
