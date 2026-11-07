@@ -4,7 +4,7 @@
 - Seller-confirmed identity mappings accept historical cost evidence when either the product ID or exact offer ID agrees, while rejecting evidence that conflicts on both identities.
 - Stale FIFO callbacks preserve the active unit-price scenario. A valid FIFO history callback clears it only after the history ticket is accepted.
 - Added regressions for canonical identity recovery, product-ID changes with stable offers, ambiguous identity conflicts, and calculator navigation/stale callbacks.
-- Verification: focused Windows profile **97 passed**; full Windows `pytest -q` **4,839 passed in 50.57s**; `compileall` and `git diff --check` pass. All five files in `data/` were restored byte-for-byte; the before/after manifest is identical (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head CI for the fix commit is pending publication.
+- Verification: focused Windows profile **97 passed**; full Windows `pytest -q` **4,839 passed in 50.57s**; `compileall` and `git diff --check` pass. All five files in `data/` were restored byte-for-byte; the before/after manifest is identical (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). GitHub Actions run [42360261757](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42360261757) passed on implementation SHA `ccb3d4101308e225448da4965957aa3912338d3b` (Windows/Linux full verification and production Docker build/runtime smoke).
 
 # 2026-11-07 — исправлены последние три замечания FIFO review (PR #726)
 

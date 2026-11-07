@@ -3,7 +3,7 @@
 - `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` covers dated historical cost resolving to an inactive current FIFO stream by exact product ID or stable offer ID; conflicting catalogue indexes stay unresolved. Seller mappings accept matching stable offer IDs across product-ID changes and reject conflicts on both identities.
 - `tests/test_unit_price_scenario_telegram_runtime.py` uses the real calculator runtime and button handler to verify that stale FIFO callbacks preserve pending price input and valid history navigation clears the scenario after ticket acceptance.
 - `tests/test_telegram_fifo_cost_history.py` retains the stale rate/anchor wizard isolation regression.
-- Focused Windows profile: **97 passed**. Full Windows `pytest -q`: **4,839 passed in 50.57s**. `python -m compileall -q app tests` and `git diff --check` pass. All five files under `data/` were restored byte-for-byte with identical before/after manifest (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head CI for the fix SHA is pending publication.
+- Focused Windows profile: **97 passed**. Full Windows `pytest -q`: **4,839 passed in 50.57s**. `python -m compileall -q app tests` and `git diff --check` pass. All five files under `data/` were restored byte-for-byte with identical before/after manifest (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head GitHub Actions run [42360261757](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42360261757) passed on implementation SHA `ccb3d4101308e225448da4965957aa3912338d3b`, including Windows/Linux full verification and production Docker build/runtime smoke.
 
 # 2026-11-07 — FIFO review R1–R3: aliases, post-commit text and stale late cancel
 

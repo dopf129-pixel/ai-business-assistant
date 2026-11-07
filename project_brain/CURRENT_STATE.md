@@ -3,7 +3,7 @@
 - Исторический финансовый SKU с подтверждённой датированной себестоимостью сопоставляется с текущим каталогом только по уникальному точному product ID или offer ID. Канонический SKU позволяет проверить FIFO-режим: при неактивном потоке расчёт продолжает legacy-путь, при неоднозначной связи остаётся fail-closed.
 - Подтверждённая связь продавца допускает изменившийся product ID при точном совпадении offer ID; конфликт обоих признаков отклоняется. Устаревшие FIFO-кнопки сохраняют активный сценарий цены; действительный переход в историю очищает сценарий только после проверки тикета.
 - Добавлены регрессии для exact-ID/offer recovery, конфликтных идентичностей и сохранения/очистки сценария калькулятора.
-- Проверки: целевой Windows-профиль **97 passed**; полный `pytest -q` **4,839 passed in 50.57s**; `compileall` и `git diff --check` прошли. Пять файлов `data/` восстановлены, before/after SHA-256 manifest совпал (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). CI на новом SHA ожидается после публикации.
+- Проверки: целевой Windows-профиль **97 passed**; полный `pytest -q` **4,839 passed in 50.57s**; `compileall` и `git diff --check` прошли. Пять файлов `data/` восстановлены, before/after SHA-256 manifest совпал (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head GitHub Actions run [42360261757](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42360261757) прошёл для implementation SHA `ccb3d4101308e225448da4965957aa3912338d3b`: Windows/Linux full verification, production Docker build и runtime smoke.
 
 # 2026-11-07 — FIFO review R1–R3 исправлены в рабочей копии PR #726
 
