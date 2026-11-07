@@ -420,9 +420,20 @@ def test_checkpoint_is_bound_to_owner_store_and_exact_sku():
         max_pages_per_call=1,
     )
 
+    resumed_after_mismatch = service.find_supply_by_id(
+        2001,
+        identity=IDENTITY,
+        store_id="store-a",
+        tenant_scope="owner:1",
+        checkpoint_token=first.continuation_token,
+        max_pages_per_call=1,
+    )
+
     assert mismatch.status == "CONFLICT"
     assert "FIFO_SUPPLY_CHECKPOINT_SCOPE_MISMATCH" in mismatch.issue_codes
-    assert len(client.calls) == 2
+    assert resumed_after_mismatch.status == "PARTIAL"
+    assert "FIFO_SUPPLY_CHECKPOINT_STALE" not in resumed_after_mismatch.issue_codes
+    assert len(client.calls) == 3
 
 
 def test_repeated_cursor_fails_closed_with_finite_request_count():

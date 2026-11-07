@@ -319,6 +319,38 @@ class FifoCostTransitionService:
             ],
         }
 
+    def supply_declaration_matches_reference(
+        self, *, case_id, declaration_id, owner_id, store_id,
+        product_id=None, offer_id=None, sku, reference_id,
+    ) -> bool:
+        """Validate a supplied ID against one scoped encrypted declaration.
+
+        The scoped digest is compared internally and never returned in a
+        manifest or diagnostic result.
+        """
+        evidence = self.repository.read_transition_evidence(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, kind="SUPPLY_DECLARATION", limit=100,
+        )
+        if evidence.get("error"):
+            return False
+        latest = {}
+        for item in evidence["items"]:
+            key = item["declaration_id"]
+            if key not in latest or item["evidence_revision"] > latest[key]["evidence_revision"]:
+                latest[key] = item
+        persisted = latest.get(declaration_id)
+        expected_digest = self.reference_digest_for_supply(
+            owner_id=owner_id, store_id=store_id, reference_id=reference_id,
+        )
+        return bool(
+            persisted is not None
+            and persisted.get("reference_kind") == "SUPPLY"
+            and persisted.get("lookup_reference_available")
+            and expected_digest is not None
+            and persisted.get("reference_digest") == expected_digest
+        )
+
     def record_supply_observation(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         declaration_id, reference_id, snapshot, expected_case_revision,
@@ -461,6 +493,19 @@ class FifoCostTransitionService:
         if not re.fullmatch(r"[0-9]{1,40}", raw):
             raise ValueError("FIFO_TRANSITION_REFERENCE_INVALID")
         return str(int(raw))
+
+    @classmethod
+    def reference_digest_for_supply(cls, *, owner_id, store_id, reference_id):
+        try:
+            normalized_reference = cls._normalize_reference_id(reference_id)
+        except (TypeError, ValueError):
+            return None
+        return supply_reference_digest(
+            owner_id=owner_id,
+            store_id=store_id,
+            reference_kind=SupplyReferenceKind.SUPPLY,
+            reference_id=normalized_reference,
+        )
 
     @staticmethod
     def _case_from_payload(payload: dict) -> TransitionCase:
