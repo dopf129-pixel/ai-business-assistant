@@ -23,6 +23,15 @@ from services.fifo_cost_allocation_service import (
     FifoSaleEvent,
 )
 from services.fifo_cost_replay_service import FifoCostReplayService, FifoDatedAllocationEvent
+from services.fifo_cost_transition_contracts import (
+    ReportEvidence,
+    SupplyDeclaration,
+    SupplyObservation,
+    TransitionCase,
+    TransitionMetadata,
+    TransitionState,
+)
+from services.fifo_cost_transition_store import FifoCostTransitionStore
 from services.tenant_context import get_current_tenant_user_id
 from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
@@ -156,6 +165,146 @@ class FifoCostRepository:
             connection.close()
             raise
         return connection
+
+    def save_transition_case(self, *, case, expected_revision, idempotency_key):
+        """Persist an owner draft without initializing or mutating the FIFO stream."""
+        if not isinstance(case, TransitionCase):
+            return self._error("FIFO_TRANSITION_CASE_INVALID")
+        if type(expected_revision) is not int or expected_revision < 0:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        if case.state not in {TransitionState.DRAFT, TransitionState.AWAITING_EVIDENCE}:
+            return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+        scope, _identity = self._transition_metadata_scope(case.metadata)
+        if scope.get("error"):
+            return scope
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.save_case(
+                connection, case, scope,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def read_transition_case(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_case(
+                connection, case_id, scope, identity,
+            )
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def append_supply_declaration(
+        self, *, declaration, expected_case_revision, idempotency_key,
+    ):
+        if not isinstance(declaration, SupplyDeclaration):
+            return self._error("FIFO_TRANSITION_DECLARATION_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        scope, _identity = self._transition_metadata_scope(declaration.metadata)
+        if scope.get("error"):
+            return scope
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_declaration(
+                connection, declaration, scope,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def append_supply_observation(
+        self, *, case_id, observation, expected_case_revision, idempotency_key,
+    ):
+        if not isinstance(observation, SupplyObservation):
+            return self._error("FIFO_TRANSITION_OBSERVATION_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        scope, _identity = self._transition_metadata_scope(observation.metadata)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_observation(
+                connection, case_id, observation, scope,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def append_report_evidence(
+        self, *, case_id, report, expected_case_revision, idempotency_key,
+    ):
+        if not isinstance(report, ReportEvidence):
+            return self._error("FIFO_TRANSITION_REPORT_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        scope, _identity = self._transition_metadata_scope(report.metadata)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_report(
+                connection, case_id, report, scope,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def read_transition_evidence(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        kind, limit=100,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_evidence(
+                connection, case_id, scope, identity, kind=kind, limit=limit,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
 
     def read_cost_history_snapshot(
         self, *, store_id, product_id=None, offer_id=None, sku,
@@ -4846,6 +4995,77 @@ class FifoCostRepository:
         ]
         for scope in expired:
             self._ACTIVE_PREVIEWS.pop(scope, None)
+
+    def _transition_metadata_scope(self, metadata):
+        if not isinstance(metadata, TransitionMetadata):
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID"), None
+        scope = self._tenant_scope(metadata.scope.store_id)
+        if scope.get("error"):
+            return scope, None
+        tenant_id = str(get_current_tenant_user_id() or "").strip()
+        owner_id, scoped_store = split_store_tenant_scope(tenant_id)
+        if (owner_id != metadata.scope.owner_id
+                or scoped_store != metadata.scope.store_id):
+            return self._error("FIFO_TRANSITION_SCOPE_MISMATCH"), None
+        try:
+            identity = self._normalize_identity(
+                metadata.scope.store_id, metadata.scope.product_id,
+                metadata.scope.offer_id, metadata.scope.sku, 1,
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID"), None
+        return scope, identity
+
+    def _normalize_transition_read_identity(
+        self, store_id, *, product_id=None, offer_id=None, sku,
+    ):
+        try:
+            return self._normalize_identity(
+                store_id, product_id, offer_id, sku, 1,
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+
+    @staticmethod
+    def _valid_transition_case_id(value):
+        return (
+            isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{8,96}", value) is not None
+        )
+
+    @staticmethod
+    def _valid_transition_idempotency_key(value):
+        return (
+            isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", value) is not None
+        )
+
+    def _run_transition_write(self, operation):
+        connection = None
+        try:
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            result = operation(connection)
+            if result.get("error"):
+                connection.rollback()
+                return result
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_EVIDENCE_CONFLICT")
+        except (sqlite3.Error, OSError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        except (TypeError, ValueError, OverflowError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_PAYLOAD_INVALID")
+        finally:
+            if connection is not None:
+                connection.close()
 
     @staticmethod
     def _error(code):

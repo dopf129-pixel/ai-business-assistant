@@ -1,3 +1,10 @@
+# 2026-11-07 — FIFO late-entry completion FL04 repository commands
+
+- FL00–FL04 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL04 добавляет scoped append/read/CAS/idempotency для cases и evidence на существующем `FifoCostRepository`; append-only evidence и case revisions выполняются одной repository-транзакцией.
+- Проверены restart чтения, очередь ещё не создана, replay/conflict, параллельный CAS, tenant isolation, safe ciphertext read и квоты 20/100/2000 с сохранением последней committed state. 63 focused tests и 357 связанных FIFO/Telegram tests прошли; compileall и diff-check PASS.
+- `data/` не менялась (`git status --short -- data` пусто). Никакая реальная owner DB или Ozon/Telegram API не использовалась. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` ещё false.
+- Следующий этап: FL05 — fault injection каждой записи и доказательство, что pending case до FIFO не меняет legacy/history/actual profit.
+
 # 2026-11-07 — FIFO late-entry completion FL00–FL02
 
 - Исполнительная ветка `codex/fifo-late-entry-foundation-20261107` ответвлена от точного PR #727 head `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR спецификации открыт на `main` `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`.

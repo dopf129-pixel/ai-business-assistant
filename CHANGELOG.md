@@ -1,3 +1,9 @@
+# 2026-11-07 — FIFO transition repository commands
+
+- Добавлены tenant-scoped сохранение/чтение transition case и append-only командные методы `append_supply_declaration`, `append_supply_observation`, `append_report_evidence` с CAS и идемпотентностью.
+- Квоты на 20 активных случаев в store, 100 declarations и 2000 observations на case отклоняют лишнюю запись, сохраняя прежнюю ревизию и evidence. Ciphertext lookup-reference не выдаётся при чтении; сырые ID поставок не попадают в payload.
+- FL04 проверен на isolated SQLite: 63 focused и 357 связанных FIFO/Telegram tests прошли. До-FIFO case не создаёт очередь. Данные владельца, live DB и реальные API не использовались.
+
 # 2026-11-07 — FIFO late-entry completion started
 
 - FL00 baseline and FL01 implementation map are recorded for the late-entry workflow. No runtime behavior, financial data, or owner data changed.

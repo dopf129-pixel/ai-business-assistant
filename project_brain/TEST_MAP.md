@@ -1,3 +1,10 @@
+# 2026-11-07 — FIFO transition repository tests (FL04)
+
+- `tests/test_fifo_cost_transition_store.py` covers durable case read after restart without queue initialization; case revision CAS and idempotency replay/conflict; one winner under concurrent writes; append/read declaration, supply observations, and report evidence; safe lookup-reference redaction; append-only enforcement; cross-tenant isolation; and quota failure preserving the current revision/evidence.
+- Focused profile: `test_fifo_cost_transition_store.py`, `test_fifo_cost_transition_schema_v13.py`, `test_fifo_cost_transition_contracts.py`, FIFO repository, backup/restore, and credential persistence — **63 passed in 3.80s**.
+- Related regression profile: all `test_fifo_cost_*.py`, `test_telegram_fifo_cost*.py`, FIFO navigation regressions, seller-cost confirmation, and credential persistence — **357 passed in 13.95s**.
+- All database fixtures use temporary paths. No bot launch, live API, or owner data is involved.
+
 # 2026-11-07 — План приёмки завершения позднего FIFO-ввода
 
 - Подготовлено ТЗ LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md (FL00–FL35) и независимая матрица N01–N40 в FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md.

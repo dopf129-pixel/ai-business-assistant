@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL04.
-Выполненных этапов:4/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts и FL03 schema v13/cipher VERIFIED; runtime integration и owner case ещё не завершены).
+Следующий этап: FL05.
+Выполненных этапов:5/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher и FL04 repository commands VERIFIED; runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -24,7 +24,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL01 | Карта интеграции | VERIFIED | FL01_IMPLEMENTATION_MAP.md; 27 code/test paths exist, static map check and diff-check PASS; no runtime changes |
 | FL02 | Контракты и часы | VERIFIED | new FIFO contract profile 13 passed; combined unique FIFO profile 320 passed; compileall/diff-check PASS; data manifest matches FL00 |
 | FL03 | Миграция13 и cipher | VERIFIED | 41 passed focused; 348 passed related FIFO profile; compileall/diff-check PASS; data manifest unchanged |
-| FL04 | Repository cases/evidence | NOT_STARTED | — |
+| FL04 | Repository cases/evidence | VERIFIED | 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
 | FL05 | До-FIFO хранение и fault tests | NOT_STARTED | — |
 | FL06 | Полная стоимость | NOT_STARTED | — |
 | FL07 | Lifecycle случая | NOT_STARTED | — |
@@ -121,6 +121,16 @@ Source readiness:
 - Фактические проверки: focused schema/repository/backup/credential suite **41 passed in 2.30s**; окончательный related FIFO/profile suite **348 passed in 12.78s**; `compileall -q app tests` PASS; `git diff --check` PASS. Профиль использовал изолированные `tmp_path` БД; production/live DB и данные владельца не открывались. `git status --short -- data` пуст, `data/` manifest остаётся ожидаемым FL00 SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
 - Источник реального магазина не запрашивался. Новый кейс не записывался; `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; cutoff и все owner case evidence gates остаются открытыми.
 - Следующий этап: FL04 — repository commands с CAS/idempotency и квотами.
+
+## Выполнение FL04 — 2026-11-07
+
+- В `FifoCostRepository` добавлены `save_transition_case`, `read_transition_case`, `append_supply_declaration`, `append_supply_observation`, `append_report_evidence`, `read_transition_evidence`. Имена публичных команд приведены к зафиксированному контракту ТЗ. SQL helpers в `fifo_cost_transition_store.py` используют только переданный repository connection и не открывают/не завершают транзакцию.
+- Запись case/evidence, revision snapshot, idempotency audit и CAS выполняются в `BEGIN IMMEDIATE`; на ошибке вызывающий repository откатывает всю команду. Case revision независима от FIFO stream, поэтому pending case сохраняется и читается после нового экземпляра repository, не создавая FIFO queue.
+- Scope включает owner/store/product/offer/SKU. Owner id не помещается в case payload; encrypted supply lookup-reference отделён от payload и исключён из обычного read. Внешние номера поставок хранятся только в Fernet ciphertext, а payload содержит digest.
+- Применены квоты: максимум20 активных cases на tenant/store,100 разных declarations на case,2000 observations на case. При превышении команда возвращает typed error и не продвигает case revision; предыдущие записи читаются полностью.
+- `tests/test_fifo_cost_transition_store.py`: keyword-only public API, restart/no-queue, CAS/idempotency, concurrent CAS, declaration/observation/report persistence, replay с разным payload, stale revision, чужой tenant, ciphertext redaction, append-only и quotas. Focused профиль: **63 passed in 3.80s**. Related profile (31 modules): **357 passed in 13.95s**. `compileall -q app tests` и `git diff --check` PASS.
+- Тесты использовали временные SQLite БД. `git status --short -- data` пусто; реальные data files, production DB, отчёты владельца и Ozon/Telegram API не использовались. `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; это repository foundation, а не готовый flow применения.
+- Следующий этап: FL05 — fault injection в каждой записи, restart/baseline proof и подтверждение неизменности legacy/history/фактической прибыли до создания FIFO.
 
 ## PR delivery
 
