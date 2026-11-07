@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO late-entry completion FL08
+
+- FL00–FL08 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. `FifoCostTransitionService` now persists exact typed ORDER/SUPPLY declarations; existing `FifoCostRepository` enforces same-store reference uniqueness, SKU consistency, and the case-level owner quantity inside the write transaction.
+- Lookup IDs are never returned by the service: persistence contains only a scope/type-separated digest and optional existing Fernet ciphertext. Missing key preserves owner quantities and marks lookup unavailable. The owner total minus known declared supplies is reported as `undistributed_units`; there is no synthetic supply ID.
+- FL08 code commit: `363cc5e899f7d01c682e7f4dc8a62a03977b708c`. Verification: focused **38 passed**, all FIFO/Telegram FIFO **358 passed**, compileall/diff-check/data-preservation checks PASS. Next FL09: active-supply observations and explicit MISSING status. `IMPLEMENTATION_VERIFIED` and `OWNER_CASE_VERIFIED` remain false.
+
 # 2026-11-08 — FIFO late-entry completion FL07
 
 - FL00–FL07 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. New `FifoCostTransitionService` coordinates typed case create/update/cancel/read/list through existing `FifoCostRepository`. Every update or cancellation writes an append-only case revision; exact retries are idempotent.

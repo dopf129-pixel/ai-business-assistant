@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO supply declarations and undistributed totals (FL08)
+
+- Added typed ORDER/SUPPLY declarations for an exact owner/store/SKU case. Lookup references are stored only as a scope/type-separated digest plus existing Fernet ciphertext; without the cipher, the declaration is retained with `LOOKUP_REFERENCE_UNAVAILABLE` and lookup is unavailable.
+- Duplicate references, cross-SKU reuse, and known declarations exceeding the owner total fail closed. The manifest reports an undistributed remainder as a number and never invents a virtual supply.
+- Verification: focused declaration/contracts/store/service profile **38 passed**; complete FIFO + Telegram FIFO profile **358 passed**; compileall, diff-check, and `git diff --exit-code -- data` PASS.
+
 # 2026-11-08 — FIFO transition case lifecycle (FL07)
 
 - Added typed application operations for creating, editing, cancelling, reading, and listing late-entry cases. Case updates/cancellation append immutable revisions and support exact idempotent retries.

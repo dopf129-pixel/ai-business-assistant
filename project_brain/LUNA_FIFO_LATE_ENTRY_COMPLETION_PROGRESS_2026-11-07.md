@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL08.
-Выполненных этапов:8/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes и FL07 case lifecycle VERIFIED; supply/document/runtime integration и owner case ещё не завершены).
+Следующий этап: FL09.
+Выполненных этапов:9/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle и FL08 supply declarations VERIFIED; active-supply observations, documents, runtime integration and owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -28,7 +28,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL05 | До-FIFO хранение и fault tests | VERIFIED | `a5e455f49fb81af7e67bbbd708edab9db8d8e642`; 69 focused / 370 related passed; compileall/diff-check PASS; `data/` unchanged |
 | FL06 | Полная стоимость | VERIFIED | `08472f865dedabcda3edf2c4b2e68bfc9ab2465d`; TOTAL_LANDED/COMPONENTS amount parity 14.65; null components; focused 59 / FIFO+Telegram 348 passed; compileall/diff-check/data unchanged |
 | FL07 | Lifecycle случая | VERIFIED | `5254efafe05e197564a4913c5123373ca0db13c2`; create/edit/cancel/read/list append-only & idempotent; active store/SKU CAS; focused 25 / FIFO+Telegram 352 passed; compileall/diff-check/data unchanged |
-| FL08 | Конкретные поставки | NOT_STARTED | — |
+| FL08 | Конкретные поставки | VERIFIED | `363cc5e899f7d01c682e7f4dc8a62a03977b708c`; typed ORDER/SUPPLY, scoped duplicate/SKU/total guards, ciphertext redaction, unknown-key preservation, no synthetic remainder; focused 38 / FIFO+Telegram 358 passed; compileall/diff-check/data unchanged |
 | FL09 | Наблюдения и missing | NOT_STARTED | — |
 | FL10 | Частичная приёмка | NOT_STARTED | — |
 | FL11 | Бюджеты/checkpoints | NOT_STARTED | — |
@@ -83,6 +83,17 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 - Код commit `5254efafe05e197564a4913c5123373ca0db13c2` (`Add FIFO transition case lifecycle service`). Проверки: focused transition service/store/schema **25 passed in 2.32s**; полный профиль `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` **352 passed in 14.01s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Тестовые БД — `tmp_path`; owner data/live API не использовались.
 - `IMPLEMENTATION_VERIFIED`: нет; полный supply → document → bridge → impact → atomic apply путь впереди. `OWNER_CASE_VERIFIED`: нет; реальные связи supply IDs и cutoff не подтверждены. Нет blocker для FL08.
 - Следующий этап: FL08 — typed declarations конкретных поставок, защищённое сохранение lookup reference и честный нераспределённый shipped total.
+
+## Выполнение FL08 — 2026-11-08
+
+- `FifoCostTransitionService.declare_supply` принимает только typed `ORDER`/`SUPPLY` reference для точного owner/store/SKU case. Lookup ID нормализуется, превращается в domain-separated digest (owner/store/reference type) и шифруется существующим `tenant_cipher_provider`; raw ID не попадает в persistent payload или manifest. Тип `ACT` не является ORDER/SUPPLY reference.
+- `FifoCostTransitionStore.append_declaration` в существующей `BEGIN IMMEDIATE` транзакции отклоняет duplicate reference в owner/store, привязку к другому SKU и сумму известных деклараций сверх owner-declared total. Количество перепроверяется из актуальных declaration revisions в write transaction. Отменённый case освобождает reference; активные и APPLIED cases не позволяют повторный учёт.
+- Если master key отсутствует/невалиден, declaration и количество сохраняются с `LOOKUP_REFERENCE_UNAVAILABLE`; ID нельзя обновить по сохранённому lookup. `get_supply_manifest` исключает digest/ciphertext/внешний ID и показывает owner total, known assigned units, полноту назначения и numeric `undistributed_units`. Виртуальная declaration не создаётся.
+- Synthetic matrix: `6234 + 600 + 148 = 6982`; остаток при одном известном declaration `6982 - 6234 = 748`; duplicate и mixed SKU отвергаются; тот же numeric ID в другом store допускается; ORDER/SUPPLY различаются, ACT отвергается. Missing cipher сохраняет 148 и помечает refresh недоступным.
+- Добавлен `tests/test_fifo_cost_transition_supply_declarations.py`, обновлены DTO/store tests. Изменения остаются в существующих `FifoCostTransitionService`, `FifoCostRepository`, `FifoCostTransitionStore` и cipher provider; новая persistence authority/schema не добавлялась.
+- Код commit: `363cc5e899f7d01c682e7f4dc8a62a03977b708c` (`Add scoped FIFO supply declarations`). Проверки: focused contracts/store/service/declaration profile **38 passed in 2.67s**; full FIFO + Telegram FIFO profile **358 passed in 14.52s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. SQLite fixtures — `tmp_path`; `data/` не менялась.
+- Реальные Ozon/Telegram запросы и owner data не использовались. Числа 6234/600/148 остаются synthetic и не подтверждают IDs или источник каждой реальной поставки. `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; blocker для FL09 отсутствует.
+- Следующий этап: FL09 — active-supply observations, PARTIAL/MISSING semantics и сохранение последнего известного количества при исчезновении агрегированной строки.
 
 ## Формат записи после этапа
 

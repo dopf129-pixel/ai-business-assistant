@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO supply declaration regressions (FL08)
+
+- `tests/test_fifo_cost_transition_supply_declarations.py` verifies `6234 + 600 + 148 = 6982`, numeric undistributed remainder with no synthetic supply, duplicate and mixed-SKU rejection, same numeric ID in another store, ORDER/SUPPLY separation and ACT rejection, encrypted lookup redaction, and preserved owner facts when the cipher key is missing.
+- `tests/test_fifo_cost_transition_store.py` covers atomic reference/quantity guards with append-only evidence, CAS/idempotency and quotas. Contract tests require `LOOKUP_REFERENCE_UNAVAILABLE` whenever the optional ciphertext is absent.
+- Focused transition declaration/contracts/store/service profile: **38 passed**. Full FIFO and Telegram FIFO profile: **358 passed**. Compileall, `git diff --check`, and `git diff --exit-code -- data` PASS; database fixtures use `tmp_path`.
+
 # 2026-11-08 — FIFO transition case lifecycle regressions (FL07)
 
 - `tests/test_fifo_cost_transition_service.py` verifies create/edit/cancel revisions, exact idempotent update/cancel retry, durable read after service/repository restart, unknown new-home quantity retained with reason/provenance, dispatch date not activating FIFO, and terminal case audit preservation.
