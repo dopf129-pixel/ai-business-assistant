@@ -1,3 +1,7 @@
+# 2026-11-07 — FIFO late-entry completion started
+
+- FL00 baseline and FL01 implementation map are recorded for the late-entry workflow. No runtime behavior, financial data, or owner data changed; next is typed transition contracts (FL02).
+
 # 2026-11-07 — Подготовлено задание завершения позднего FIFO-ввода
 
 - Добавлено исполнимое ТЗ FL00–FL35 для сохранения новой себестоимости до настройки FIFO, сопровождения незавершённых поставок, импорта двух отчётов и подтверждаемого атомарного пересчёта.

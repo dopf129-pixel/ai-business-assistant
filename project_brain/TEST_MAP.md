@@ -4,6 +4,13 @@
 - Запланированы tests для durable transition store/service, supply observations, bounded XLSX imports, cutoff bridge, atomic apply, restart/backup и production UI wiring. Эти новые tests ещё не написаны и не выполнены; реализация NOT_STARTED.
 - Проверка документационного PR не является выполнением FL00–FL35 или подтверждением источников реального магазина.
 
+# 2026-11-07 — FL00/FL01 baseline и карта швов
+
+- До runtime изменений профиль FIFO repository/allocation/anchor/rate/replay/sources/late-entry/supply/returns/Period Profit/Telegram: **307 passed in 10.96s**; `compileall` и `git diff --check` PASS.
+- `project_brain/FL01_IMPLEMENTATION_MAP.md` связывает требования с действующими owners/production wiring и профильными regression tests. Static check проверил 27 Python code/test paths, missing=0.
+- Пять существующих файлов `data/` (3,168 bytes) не менялись; aggregate manifest SHA-256 до/после `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
+- Новые переходные сервисы и их tests пока не реализованы; статический map check не считается runtime verification.
+
 # 2026-11-07 — FIFO CSV и resume navigation regressions
 
 - `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.

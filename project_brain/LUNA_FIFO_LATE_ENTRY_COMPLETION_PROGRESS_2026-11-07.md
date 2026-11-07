@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL01.
-Выполненных этапов:1/36 (FL00 baseline VERIFIED; реализация модулей ещё не начата).
+Следующий этап: FL02.
+Выполненных этапов:2/36 (FL00 baseline и FL01 implementation map VERIFIED; runtime реализация ещё не начата).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -21,7 +21,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | Этап | Содержание | Статус | Commit / checks |
 |---|---|---|---|
 | FL00 | Baseline и безопасная ветка | VERIFIED | aef1f134; FIFO regression 307 passed (10.96s), compileall/diff-check PASS; data manifest SHA-256 e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730 unchanged |
-| FL01 | Карта интеграции | NOT_STARTED | — |
+| FL01 | Карта интеграции | VERIFIED | FL01_IMPLEMENTATION_MAP.md; 27 code/test paths exist, static map check and diff-check PASS; no runtime changes |
 | FL02 | Контракты и часы | NOT_STARTED | — |
 | FL03 | Миграция13 и cipher | NOT_STARTED | — |
 | FL04 | Repository cases/evidence | NOT_STARTED | — |
@@ -94,6 +94,14 @@ Source readiness:
 - Файлы `data/`: **5 файлов**, 3,168 байт; aggregate manifest SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730` до и после тестов совпал. Ни тесты, ни FL00 не изменили данные.
 - Source readiness: факты владельца остаются на уровне подготовки; supply IDs и доказанный cutoff не добавлены. Это не блокирует FL01.
 - Следующий этап: FL01 — карта интеграции и явное сопоставление контракта с существующими швами.
+
+## Выполнение FL01 — 2026-11-07
+
+- Создан `project_brain/FL01_IMPLEMENTATION_MAP.md`: существующие FIFO repository/authority, v12 migration seam, supply source limits, поздний мастер, Period Profit/TaxService, planning readers, returns/outflows, cipher, backup и Telegram factory сопоставлены с точными FL-этапами и regression tests.
+- Подтверждены ожидаемые ограничения текущей реализации: late UI требует initialized queue; pending текст in-memory; supply lookup ограничен COMPLETED/accepted актом; rate components имеют NOT NULL; cutoff gate ADR066 остаётся обязательным. Это адаптация имён к фактическому коду, не изменение контракта/ADR.
+- Static map check: **27** перечисленных Python code/test paths существуют, missing=0; `git diff --check` PASS. Runtime не менялся; baseline 307 тестов и data manifest из FL00 без изменений.
+- Решение DECISIONS/066 не изменялось: новые responsibilities остаются в том же tenant FIFO repository и canonical finance/TaxService pipeline.
+- Следующий этап: FL02 — DTO, typed reason codes, clock providers и unit tests для null/zero/bool/Decimal/time/source-proof.
 
 ## PR delivery
 
