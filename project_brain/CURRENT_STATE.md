@@ -1,3 +1,10 @@
+# 2026-11-07 — FIFO late-entry completion FL05 fault boundaries
+
+- FL00–FL05 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL05 добавляет сбойные границы для create/update case и всех evidence append: каждый injected SQL fault после частичной записи оставляет количество строк и case revision прежними.
+- Сохранение pending case до FIFO проверено через настоящий `FifoCostRepository`, `FifoCostPeriodProfitSourceService` и canonical Period Profit summary на synthetic finance/cost sources: cost mode остаётся LEGACY, FIFO history не создаётся, себестоимость 21 ₽ и прибыль 53 ₽ совпадают до/после.
+- FL05 targeted profile — 69 passed; связанный FIFO/Telegram/Period Profit профиль — 370 passed; compileall/diff-check PASS; пять `data/` файлов (3,168 bytes) не менялись.
+- Следующий этап: FL06 — `TOTAL_LANDED` / `COMPONENTS` единый amount contract и сохранение полной себестоимости без ложной компонентной разбивки.
+
 # 2026-11-07 — FIFO late-entry completion FL04 repository commands
 
 - FL00–FL04 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL04 добавляет scoped append/read/CAS/idempotency для cases и evidence на существующем `FifoCostRepository`; append-only evidence и case revisions выполняются одной repository-транзакцией.

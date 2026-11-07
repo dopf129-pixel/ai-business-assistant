@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL05.
-Выполненных этапов:5/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher и FL04 repository commands VERIFIED; runtime integration и owner case ещё не завершены).
+Следующий этап: FL06.
+Выполненных этапов:6/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands и FL05 pre-FIFO/fault boundaries VERIFIED; runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -25,7 +25,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL02 | Контракты и часы | VERIFIED | new FIFO contract profile 13 passed; combined unique FIFO profile 320 passed; compileall/diff-check PASS; data manifest matches FL00 |
 | FL03 | Миграция13 и cipher | VERIFIED | 41 passed focused; 348 passed related FIFO profile; compileall/diff-check PASS; data manifest unchanged |
 | FL04 | Repository cases/evidence | VERIFIED | `a9b1374eaf96b0262ee854cb68612d6d19241717`; 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
-| FL05 | До-FIFO хранение и fault tests | NOT_STARTED | — |
+| FL05 | До-FIFO хранение и fault tests | VERIFIED | 69 focused / 370 related passed; compileall/diff-check PASS; `data/` unchanged |
 | FL06 | Полная стоимость | NOT_STARTED | — |
 | FL07 | Lifecycle случая | NOT_STARTED | — |
 | FL08 | Конкретные поставки | NOT_STARTED | — |
@@ -132,6 +132,15 @@ Source readiness:
 - Тесты использовали временные SQLite БД. `git status --short -- data` пусто; реальные data files, production DB, отчёты владельца и Ozon/Telegram API не использовались. `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; это repository foundation, а не готовый flow применения.
 - Commit FL04: `a9b1374eaf96b0262ee854cb68612d6d19241717` (`Add durable FIFO transition repository commands`).
 - Следующий этап: FL05 — fault injection в каждой записи, restart/baseline proof и подтверждение неизменности legacy/history/фактической прибыли до создания FIFO.
+
+## Выполнение FL05 — 2026-11-07
+
+- Добавлена параметризованная fault-injection регрессия для case create, case update, append declaration, observation и report. SQLite ошибка внедряется после промежуточных изменений; repository возвращает storage-unavailable, а transaction rollback сохраняет количество evidence и прежнюю case revision. Конкурентный CAS и idempotency с конфликтующим payload дополнительно покрыты FL04 тестами.
+- Новый synthetic integration test сравнивает canonical Period Profit до/после сохранения pending transition case на той же временной базе. Настоящие `FifoCostRepository` и `FifoCostPeriodProfitSourceService` остаются на `FIFO_COST_MODE_LEGACY`, `read_cost_history_snapshot` остаётся `FIFO_HISTORY_NOT_INITIALIZED`; себестоимость **21.00 ₽** и прибыль **53.00 ₽** идентичны. В базе есть case, но нет FIFO stream.
+- Focused профиль transition store/schema/contracts/repository/backup/credentials: **69 passed in 4.00s**. Широкий профиль всех FIFO repository/services, Telegram FIFO, Period Profit integration, navigation и credentials (32 модуля): **370 passed in 14.40s**. `compileall -q app tests` и `git diff --check` PASS.
+- Тесты используют `tmp_path`. `git diff --exit-code -- data` чистый; 5 файлов / 3,168 bytes совпадают с веткой. Владелец, production DB, реальные API и бот не использовались.
+- FL05 подтверждает только безопасное сохранение незавершённого случая. Положительное доказательство принятия, cutoff, bridge и применение ещё не реализованы; `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
+- Commit FL05 будет зафиксирован после записи SHA; следующий этап: FL06 — единая семантика полной landed cost без фиктивных компонент.
 
 ## PR delivery
 

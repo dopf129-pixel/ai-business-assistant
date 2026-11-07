@@ -1,3 +1,9 @@
+# 2026-11-07 — FIFO pending case fault boundaries
+
+- Добавлены fault-injection regressions для создания/изменения case и append declaration/observation/report: сбой после промежуточных SQL writes полностью откатывает строки и revision.
+- Canonical Period Profit на временной SQLite подтверждает, что сохранение новой цены до начальной FIFO оставляет legacy mode/history и фактический синтетический результат неизменными.
+- FL05: 69 focused и 370 связанных tests прошли; compileall/diff-check PASS; `data/` не менялась.
+
 # 2026-11-07 — FIFO transition repository commands
 
 - Добавлены tenant-scoped сохранение/чтение transition case и append-only командные методы `append_supply_declaration`, `append_supply_observation`, `append_report_evidence` с CAS и идемпотентностью.

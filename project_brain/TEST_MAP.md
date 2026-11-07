@@ -1,3 +1,10 @@
+# 2026-11-07 — FIFO pending case safety regressions (FL05)
+
+- `tests/test_fifo_cost_transition_store.py::test_injected_failure_rolls_back_each_transition_write` injects SQLite failure after partial SQL writes for case create/update, declaration, observation, and report. It verifies rows and current revision are rolled back.
+- `test_pending_transition_keeps_legacy_mode_history_and_period_profit` exercises real temporary `FifoCostRepository`, `FifoCostPeriodProfitSourceService`, and canonical `PeriodProfitEffectiveCostSaleQuantitySummaryService` with bounded synthetic finance/cost inputs. Pending new landed cost cannot initialize FIFO or change the cost mode, history, 21 ₽ unit cost, or 53 ₽ profit.
+- FL05 profile: six focused FIFO transition/schema/repository/backup/cipher modules — **69 passed in 4.00s**. Wider FIFO/Telegram/Period Profit regression profile (32 modules) — **370 passed in 14.40s**.
+- All storage is under `tmp_path`; no live API, bot process, or owner database is used.
+
 # 2026-11-07 — FIFO transition repository tests (FL04)
 
 - `tests/test_fifo_cost_transition_store.py` covers durable case read after restart without queue initialization; case revision CAS and idempotency replay/conflict; one winner under concurrent writes; append/read declaration, supply observations, and report evidence; safe lookup-reference redaction; append-only enforcement; cross-tenant isolation; and quota failure preserving the current revision/evidence.

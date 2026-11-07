@@ -1,6 +1,6 @@
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import hashlib
 import inspect
 import sqlite3
@@ -10,6 +10,10 @@ import pytest
 from cryptography.fernet import Fernet
 
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_period_profit_source_service import (
+    FifoCostPeriodProfitSourceService,
+)
+from services.fifo_cost_transition_store import FifoCostTransitionStore
 from services.fifo_cost_transition_contracts import (
     CostInputMode,
     EvidenceCompleteness,
@@ -30,6 +34,9 @@ from services.fifo_cost_transition_contracts import (
     UnknownValue,
 )
 from services.ozon_account_repository import make_store_tenant_scope
+from services.period_profit_effective_cost_sale_quantity_summary_service import (
+    PeriodProfitEffectiveCostSaleQuantitySummaryService,
+)
 from services.tenant_cipher_provider import encrypt_tenant_value
 from services.tenant_context import (
     reset_current_tenant_user_id,
@@ -516,5 +523,204 @@ def test_observation_quota_does_not_append_or_advance_case_revision(tmp_path):
             ).fetchone()[0] == 2
         finally:
             check.close()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+@pytest.mark.parametrize(
+    "write_kind", ["case_create", "case_update", "declaration", "observation", "report"],
+)
+def test_injected_failure_rolls_back_each_transition_write(tmp_path, monkeypatch, write_kind):
+    tenant = set_current_tenant_user_id(TENANT)
+    try:
+        repository = _repository(tmp_path)
+        case = _case()
+        if write_kind != "case_create":
+            assert repository.save_transition_case(
+                case=case, expected_revision=0, idempotency_key="case-create-0001",
+            )["error"] is False
+        if write_kind in {"observation", "report"}:
+            assert repository.append_supply_declaration(
+                declaration=_declaration(), expected_case_revision=1,
+                idempotency_key="decl-append-0001",
+            )["error"] is False
+        expected_revision = {
+            "case_create": 0, "case_update": 1,
+            "declaration": 1, "observation": 2, "report": 2,
+        }[write_kind]
+
+        def fail_after_partial_write(*_args, **_kwargs):
+            raise sqlite3.OperationalError("injected transition write failure")
+
+        monkeypatch.setattr(
+            FifoCostTransitionStore, "_insert_case_revision",
+            staticmethod(fail_after_partial_write),
+        )
+        if write_kind == "case_create":
+            result = repository.save_transition_case(
+                case=case, expected_revision=0, idempotency_key="case-create-0001",
+            )
+        elif write_kind == "case_update":
+            changed_case = replace(
+                case, case_revision=2, updated_at="2026-11-07T12:01:00Z",
+            )
+            result = repository.save_transition_case(
+                case=changed_case, expected_revision=1,
+                idempotency_key="case-update-injected",
+            )
+        elif write_kind == "declaration":
+            result = repository.append_supply_declaration(
+                declaration=_declaration(), expected_case_revision=1,
+                idempotency_key="decl-append-0001",
+            )
+        elif write_kind == "observation":
+            result = repository.append_supply_observation(
+                case_id=case.case_id, observation=_observation(),
+                expected_case_revision=2, idempotency_key="observation-001",
+            )
+        else:
+            result = repository.append_report_evidence(
+                case_id=case.case_id, report=_report(),
+                expected_case_revision=2, idempotency_key="report-import-0001",
+            )
+        assert result == {
+            "error": True, "code": "FIFO_TRANSITION_STORAGE_UNAVAILABLE",
+        }
+
+        connection = sqlite3.connect(repository.db_path)
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_transition_cases WHERE case_id=?",
+                (case.case_id,),
+            ).fetchone()[0] == (0 if write_kind == "case_create" else 1)
+            revision_row = connection.execute(
+                "SELECT current_revision FROM fifo_cost_transition_cases WHERE case_id=?",
+                (case.case_id,),
+                ).fetchone()
+            assert revision_row == (
+                None if write_kind == "case_create" else (expected_revision,)
+            )
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_transition_case_revisions WHERE case_id=?",
+                (case.case_id,),
+            ).fetchone()[0] == (0 if write_kind == "case_create" else expected_revision)
+            for table, expected_count in (
+                ("fifo_cost_supply_declarations", int(write_kind in {"observation", "report"})),
+                ("fifo_cost_supply_observations", 0),
+                ("fifo_cost_report_evidence", 0),
+            ):
+                assert connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE case_id=?",
+                    (case.case_id,),
+                ).fetchone()[0] == expected_count
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_pending_transition_keeps_legacy_mode_history_and_period_profit(tmp_path):
+    class Finance:
+        def get_daily_finance(self, _day, *, sku):
+            return {
+                "error": False, "sales_count": 1, "gross_sales": 100.0,
+                "discount_points": 0.0, "net_accrual": 80.0,
+                "commission": -10.0, "logistics": -20.0,
+                "acquiring": -2.0, "other_fees": 0.0,
+                "fee_breakdown": {}, "accrual_type_breakdown": {},
+            }
+
+        def get_daily_sale_posting_evidence(self, day):
+            return {
+                "error": False, "complete": True,
+                "records": [{
+                    "posting_number": "posting-transition-test", "sku": "sku-1",
+                    "accrual_date": day,
+                }],
+            }
+
+    class LegacyCost:
+        def get_cost(self, _product_id):
+            return 21.0
+
+        def get_effective_cost_evidence(self, *_args, **_kwargs):
+            return {
+                "error": False, "effective_cost_confirmed": True,
+                "historical_cost_confirmed": True, "cost_price": 21.0,
+                "effective_from": "2026-01-01", "effective_through": "2026-12-31",
+                "history_id": "test-legacy-history",
+                "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
+                "source": "SELLER_CONFIRMED_OPERATIONAL_HISTORY",
+            }
+
+    class PeriodProfit(PeriodProfitEffectiveCostSaleQuantitySummaryService):
+        def _load_period_skus(self, *_args, **_kwargs):
+            return {"map": {}, "expected": set(), "fatal": None}
+
+        def _load_direct_finance_quantity_map(self, *_args, **_kwargs):
+            return {"map": {}, "expected": set(), "fatal": None}
+
+        def _load_realization_quantity_map(self, *_args, **_kwargs):
+            return {("posting-transition-test", "sku-1"): 1}
+
+        def _load_fbo_list_quantity_map(self, *_args, **_kwargs):
+            return {}
+
+        def _load_posting_quantity_for_identity(self, *_args, **_kwargs):
+            return None
+
+    tenant = set_current_tenant_user_id(TENANT)
+    try:
+        repository = _repository(tmp_path)
+        fifo_source = FifoCostPeriodProfitSourceService(
+            repository=repository, tenant_scope_provider=lambda: TENANT,
+        )
+        period_profit = PeriodProfit(
+            finance_service=Finance(), cost_service=LegacyCost(), tax_rate=0.06,
+            fifo_cost_source_service=fifo_source,
+        )
+        product = [{
+            "product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+        }]
+        baseline_profit = period_profit.calculate(
+            date(2026, 11, 6), date(2026, 11, 6), product,
+        )
+        baseline_mode = repository.read_cost_mode_status(
+            store_id=STORE, product_id="product-1", offer_id="offer-1", sku="sku-1",
+        )
+        baseline_history = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id="product-1", offer_id="offer-1", sku="sku-1",
+        )
+        assert baseline_mode["code"] == "FIFO_COST_MODE_LEGACY"
+        assert baseline_history["code"] == "FIFO_HISTORY_NOT_INITIALIZED"
+        assert baseline_profit["error"] is False, baseline_profit
+        assert baseline_profit["product_cost"] == 21.0
+        assert baseline_profit["profit"] == 53.0
+
+        assert repository.save_transition_case(
+            case=_case(), expected_revision=0, idempotency_key="case-create-0001",
+        )["error"] is False
+
+        assert repository.read_cost_mode_status(
+            store_id=STORE, product_id="product-1", offer_id="offer-1", sku="sku-1",
+        ) == baseline_mode
+        assert repository.read_cost_history_snapshot(
+            store_id=STORE, product_id="product-1", offer_id="offer-1", sku="sku-1",
+        ) == baseline_history
+        assert period_profit.calculate(
+            date(2026, 11, 6), date(2026, 11, 6), product,
+        ) == baseline_profit
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_streams WHERE store_id=? AND sku=?",
+                (STORE, "sku-1"),
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_transition_cases WHERE store_id=? AND sku=?",
+                (STORE, "sku-1"),
+            ).fetchone()[0] == 1
+        finally:
+            connection.close()
     finally:
         reset_current_tenant_user_id(tenant)
