@@ -1,4 +1,10 @@
 
+# 2026-11-08 — Ограниченное обновление FIFO-поставок (FL11)
+
+- Добавлен `FifoCostTransitionSupplyRefreshService`, который связывает чтение активного статуса, деталей заказа и принятых актов под общий бюджет шага не более 20 секунд и 10 HTTP-попыток.
+- Checkpoint привязан к owner/store/SKU/case/declaration/reference/revision. Найденная на частичной странице поставка сохраняет только progress, не публикуя complete observation до полного чтения; restart и смена scope работают fail closed.
+- Сохранён privacy contract: публичный manifest не раскрывает reference digest или ID. Новый flow read-only и не изменяет FIFO/прибыль.
+
 # 2026-11-08 — Сверка частичной FIFO-приёмки (FL10)
 
 - Добавлен pure reconciliation service для нормализованных актов одной точной поставки/SKU. Кумулятивные 40→70→100 и повторный stale snapshot 70 дают 100, а два разных акта остаются раздельно идентифицируемыми и суммируются один раз.

@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL11.
-Выполненных этапов:11/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations, FL09 active observations и FL10 acceptance reconciliation VERIFIED; documents, runtime integration and owner case ещё не завершены).
+Следующий этап: FL12.
+Выполненных этапов:12/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations, FL09 active observations, FL10 acceptance reconciliation и FL11 bounded refresh/checkpoint resume VERIFIED; documents, runtime integration and owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -31,7 +31,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL08 | Конкретные поставки | VERIFIED | `363cc5e899f7d01c682e7f4dc8a62a03977b708c`; typed ORDER/SUPPLY, scoped duplicate/SKU/total guards, ciphertext redaction, unknown-key preservation, no synthetic remainder; focused 38 / FIFO+Telegram 358 passed; compileall/diff-check/data unchanged |
 | FL09 | Наблюдения и missing | VERIFIED | `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`; focused 51 passed; full pytest 4907 passed; compileall/diff-check/data restore PASS |
 | FL10 | Частичная приёмка | VERIFIED | `9445d8cc`; focused 46 passed; FIFO/Telegram FIFO 379 passed; compileall/diff-check/data unchanged PASS |
-| FL11 | Бюджеты/checkpoints | NOT_STARTED | — |
+| FL11 | Бюджеты/checkpoints | VERIFIED | `66d05d38`; focused 40 passed; FIFO/Telegram FIFO 388 passed; compileall/diff-check/data unchanged PASS |
 | FL12 | Ведомость parser | NOT_STARTED | — |
 | FL13 | Остатки parser | NOT_STARTED | — |
 | FL14 | Контекстный XLSX import | NOT_STARTED | — |
@@ -184,10 +184,21 @@ Source readiness:
 - `IMPLEMENTATION_VERIFIED`: нет; source collection budget, persistent document versions, stock/cutoff bridge и production UI остаются впереди. `OWNER_CASE_VERIFIED`: нет; документы и факт по каждой реальной поставке ещё не представлены. Нет блокера для FL11.
 - Следующий этап: FL11 — один общий budget, source checkpoints и проверяемый resume.
 
+## Выполнение FL11 — 2026-11-08
+
+- Добавлен `FifoCostTransitionSupplyRefreshService`: он связывает точный active status read и accepted act lookup для одного owner/store/SKU/case/declaration/revision. Финальная owner/reference проверка делает сравнение scoped digest внутри transition service; digest и ID не выводятся в safe manifest/result.
+- На весь вызов наследуется единый parent budget не больше 20 секунд и 10 реальных HTTP-попыток, включая list/details, act summary/products и retry-capable client boundary. Для внешнего parent trace применяется более строгий из двух лимитов. `actual_http_attempts` показывает фактически зарезервированные вызовы без маскирующего clamp.
+- Active supply, найденная до конца пагинации, теперь сохраняется внутри ограниченного process-local checkpoint и не становится complete observation. Resume продолжает scan, выявляет дубли ID на последующих страницах и записывает observation только после полного source scope. Неверная область не потребляет валидный checkpoint. Continuation привязан к владельцу, магазину, точному SKU/identity, делу, декларации, reference digest и revision; после рестарта старый токен fail closed, владелец может начать новый bounded read с сохранённого кейса/evidence.
+- Добавлены `app/services/fifo_cost_transition_supply_refresh_service.py` и `tests/test_fifo_cost_transition_supply_refresh_service.py`; расширены `fifo_cost_source_collection_service.py`, `fifo_cost_transition_service.py` и source-collection tests. Покрыты 429, deadline timeout, malformed page, repeated cursor, duplicate ID across pages, process restart, store switch, case revision change, partial budget checkpoint/resume, полный shared budget по status+acts и invariant «нет FIFO mutation».
+- Ошибка проверки показала, что публичный manifest должен продолжать скрывать scoped reference digest. Digest остался только внутренним; existing privacy contract regression проходит.
+- Focused wrapper/source/declaration profile: **40 passed in 1.77s**. На кодовом SHA `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a` полный FIFO+Telegram FIFO профиль: **388 passed in 16.26s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS; все fixtures используют tmp_path и synthetic API, owner DB/данные/live API не тронуты.
+- Commit FL11: `66d05d38` (`Bound FIFO supply refresh and resume`). Никакие source facts этого теста не трактуются как owner-case validation: `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
+- Следующий этап: FL12 — read-only parser оборотной ведомости с cell provenance и точными control totals.
+
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
-| 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main | — | NOT_RUN |
+| 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main | `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a` + FL11 docs pending | NOT_RUN |
 | 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | branchPR1 | — | NOT_RUN |
 | 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | branchPR2 | — | NOT_RUN |

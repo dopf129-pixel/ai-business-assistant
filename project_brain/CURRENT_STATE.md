@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO late-entry completion FL11
+
+- FL00–FL11 VERIFIED в коде исполнения, но не в production и не на owner case. `FifoCostTransitionSupplyRefreshService` выполняет active status + accepted acts под общим bounded budget до 20s/10 HTTP attempts; status observations сохраняются только после завершённого чтения.
+- Partial pagination/timeout сохраняют checkpoint progress, связанный с owner/store/SKU/case/declaration/reference/revision. Найденная до последней страницы поставка продолжается, а межстраничный duplicate ID конфликтует. Restart и scope mismatch безопасно блокируют старый continuation; reference digest остаётся скрытым в public manifest.
+- FL11 commit `66d05d38`; focused wrapper/source/declaration **40 passed**; полный FIFO/Telegram FIFO профиль **388 passed in 16.26s** на SHA `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a`. `compileall`, `git diff --check` и `git diff --exit-code -- data` PASS; следующий FL12 — parser оборотной ведомости.
+
 # 2026-11-08 — FIFO late-entry completion FL10
 
 - FL00–FL10 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL10 добавил `FifoCostSupplyAcceptanceReconciliationService`: кумулятивные accepted totals выбираются как latest (40→70→100 остаётся 100), повтор акта/снимка не удваивает результат, а два разных акта остаются в digest refs раздельно.

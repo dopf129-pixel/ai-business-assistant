@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO shared budget/checkpoint regressions (FL11)
+
+- `tests/test_fifo_cost_transition_supply_refresh_service.py` validates one parent budget across active status and act endpoints, caller budget tightening, PARTIAL resume, target found before final page, cross-page duplicate-ID conflict, timeout, 429, malformed page, repeated cursor, process restart, store/revision scope changes, and no observation/FIFO write on incomplete source.
+- `tests/test_fifo_cost_source_collection_service.py` confirms source checkpoint scope mismatch does not consume the valid continuation. `tests/test_fifo_cost_transition_supply_declarations.py` preserves the safe public manifest contract: IDs and digests remain absent.
+- Focused wrapper/source/declaration profile: **40 passed in 1.77s**. FIFO+Telegram FIFO profile on code SHA `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a`: **388 passed in 16.26s**. `compileall -q app tests`, `git diff --check` and `git diff --exit-code -- data` PASS; details are in the FL11 progress journal.
+
 # 2026-11-08 — FIFO partial acceptance/correction regressions (FL10)
 
 - `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py` covers cumulative 40→70→100, stale duplicate 70 after 100, repeated act/page representation, two distinct act refs, non-final pending quantity, final 98/100 discrepancy=2, 100→90 correction review, newer PARTIAL freshness, same-time conflict, SKU mismatch, over-declaration and invalid inputs.
