@@ -3,7 +3,7 @@
 - Historical finance SKUs now prefer an explicitly seller-confirmed current catalogue mapping and retain dated cost evidence only when the product identity agrees. An unmapped retired SKU is blocked from being treated as an inactive FIFO stream.
 - FIFO history navigation clears competing drafts only after the history ticket is validated. Stale rate, anchor, and late-entry callbacks no longer clear another active draft.
 - Added regression coverage for mapped/unmapped historical finance SKUs and a stale rate confirmation during another SKU's anchor wizard.
-- Focused verification: **49 passed**; full Windows `pytest -q`: **4,832 passed in 52.27s**. `compileall -q app tests` and `git diff --check` passed. All five original files in `data/` were restored and their SHA-256 manifest matched (`94c75acc7d3c64627b27718bfda1ecd4b26bee9f7073a7f64a1748bed546f96f`). Exact-head CI is pending publication.
+- Focused verification: **49 passed**; full Windows `pytest -q`: **4,832 passed in 52.27s**. `compileall -q app tests` and `git diff --check` passed. All five original files in `data/` were restored and their SHA-256 manifest matched (`94c75acc7d3c64627b27718bfda1ecd4b26bee9f7073a7f64a1748bed546f96f`). Exact-head CI run [42356816722](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42356816722) passed for code commit `2af2f5c1d8721fb56a009ff79779e22231dee738`: Windows, Linux, production Docker build, and runtime smoke.
 
 # 2026-11-07 — исправлены последние три замечания FIFO review (PR #726)
 

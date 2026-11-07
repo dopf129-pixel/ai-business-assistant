@@ -2,7 +2,7 @@
 
 - Подтверждённая связь старого финансового SKU с текущим каталогом теперь применяется раньше dated cost recovery; историческая стоимость сохраняется только при совпадающем product ID. Без безопасного canonical SKU FIFO-проверка возвращает typed error вместо перехода к legacy себестоимости.
 - Адаптер Telegram проверяет history ticket до очистки чужих черновиков; callbacks подтверждения/отмены FIFO не очищают черновики других сценариев.
-- Регрессии добавлены в `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` и `tests/test_telegram_fifo_cost_history.py`. Целевой прогон: **49 passed**; полный Windows `pytest -q`: **4,832 passed in 52.27s**; `compileall` и `git diff --check` прошли. Все 5 исходных файлов `data/` восстановлены побайтно; SHA-256 manifest совпал (`94c75acc7d3c64627b27718bfda1ecd4b26bee9f7073a7f64a1748bed546f96f`). Exact-head CI ожидает публикации.
+- Регрессии добавлены в `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` и `tests/test_telegram_fifo_cost_history.py`. Целевой прогон: **49 passed**; полный Windows `pytest -q`: **4,832 passed in 52.27s**; `compileall` и `git diff --check` прошли. Все 5 исходных файлов `data/` восстановлены побайтно; SHA-256 manifest совпал (`94c75acc7d3c64627b27718bfda1ecd4b26bee9f7073a7f64a1748bed546f96f`). CI run [42356816722](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42356816722) прошёл на code SHA `2af2f5c1d8721fb56a009ff79779e22231dee738`: Windows/Linux, production Docker build и runtime smoke.
 
 # 2026-11-07 — FIFO review R1–R3 исправлены в рабочей копии PR #726
 
