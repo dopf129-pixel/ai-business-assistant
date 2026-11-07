@@ -6607,3 +6607,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
 - Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.
 
+# 2026-11-08 — FIFO active supply observation regressions (FL09)
+
+- `tests/test_fifo_cost_source_collection_service.py` verifies the legacy COMPLETED-only lookup stays stable; the new active lookup recognizes receiving, explicit complete MISSING, incomplete pagination continuation, and unknown status without silent filtering. HTTP attempts/pages/deadline are bounded.
+- `tests/test_fifo_cost_transition_observations.py` verifies a durable declared 148 survives a missing aggregate row, prior partial accepted quantity remains, no quantity/receipt is synthesized, and cross-declaration references are rejected.
+- Focused FL09 profile: **51 passed in 3.03s**. Full `pytest -q`: **4907 passed in 52.36s**. Compileall and diff-check PASS; test artifact `data/tasks.json` restored and `data/` matches Git. Tests use temporary repositories and synthetic source responses.
+

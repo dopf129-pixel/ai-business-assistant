@@ -1,3 +1,10 @@
+# 2026-11-08 — Наблюдения активных FIFO-поставок (FL09)
+
+- Добавлен отдельный ограниченный collector по всем известным статусам заявок Seller API v3. Найденная активная поставка возвращает только статус и scoped digest; количества приёмки не выводятся из статуса.
+- Полное завершённое чтение без поставки даёт `MISSING`; неполная пагинация возвращает `PARTIAL` и continuation без отрицательного факта. Неизвестный статус сохраняется как безопасный raw token и нормализуется в `UNKNOWN`.
+- Append-only `SupplyObservation` привязан к той же owner/store/type/ID декларации. MISSING хранит null количества с reason/provenance и не стирает объявленные или ранее частично принятые единицы. Legacy `find_supply_by_id` остаётся COMPLETED-only.
+- Проверки: FL09 focused **51 passed**; полный `pytest` **4907 passed**; compileall/diff-check PASS. Тестовый `data/tasks.json` восстановлен; `data/` совпадает с Git.
+
 # 2026-11-08 — FIFO supply declarations and undistributed totals (FL08)
 
 - Added typed ORDER/SUPPLY declarations for an exact owner/store/SKU case. Lookup references are stored only as a scope/type-separated digest plus existing Fernet ciphertext; without the cipher, the declaration is retained with `LOOKUP_REFERENCE_UNAVAILABLE` and lookup is unavailable.

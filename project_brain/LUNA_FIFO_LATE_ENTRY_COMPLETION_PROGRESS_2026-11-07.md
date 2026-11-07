@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL09.
-Выполненных этапов:9/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle и FL08 supply declarations VERIFIED; active-supply observations, documents, runtime integration and owner case ещё не завершены).
+Следующий этап: FL10.
+Выполненных этапов:10/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations и FL09 active observations VERIFIED; documents, runtime integration and owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -29,7 +29,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL06 | Полная стоимость | VERIFIED | `08472f865dedabcda3edf2c4b2e68bfc9ab2465d`; TOTAL_LANDED/COMPONENTS amount parity 14.65; null components; focused 59 / FIFO+Telegram 348 passed; compileall/diff-check/data unchanged |
 | FL07 | Lifecycle случая | VERIFIED | `5254efafe05e197564a4913c5123373ca0db13c2`; create/edit/cancel/read/list append-only & idempotent; active store/SKU CAS; focused 25 / FIFO+Telegram 352 passed; compileall/diff-check/data unchanged |
 | FL08 | Конкретные поставки | VERIFIED | `363cc5e899f7d01c682e7f4dc8a62a03977b708c`; typed ORDER/SUPPLY, scoped duplicate/SKU/total guards, ciphertext redaction, unknown-key preservation, no synthetic remainder; focused 38 / FIFO+Telegram 358 passed; compileall/diff-check/data unchanged |
-| FL09 | Наблюдения и missing | NOT_STARTED | — |
+| FL09 | Наблюдения и missing | VERIFIED | `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`; focused 51 passed; full pytest 4907 passed; compileall/diff-check/data restore PASS |
 | FL10 | Частичная приёмка | NOT_STARTED | — |
 | FL11 | Бюджеты/checkpoints | NOT_STARTED | — |
 | FL12 | Ведомость parser | NOT_STARTED | — |
