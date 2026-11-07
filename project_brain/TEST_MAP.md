@@ -1,3 +1,9 @@
+# 2026-11-07 — План приёмки завершения позднего FIFO-ввода
+
+- Подготовлено ТЗ LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md (FL00–FL35) и независимая матрица N01–N40 в FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md.
+- Запланированы tests для durable transition store/service, supply observations, bounded XLSX imports, cutoff bridge, atomic apply, restart/backup и production UI wiring. Эти новые tests ещё не написаны и не выполнены; реализация NOT_STARTED.
+- Проверка документационного PR не является выполнением FL00–FL35 или подтверждением источников реального магазина.
+
 # 2026-11-07 — FIFO CSV и resume navigation regressions
 
 - `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.
