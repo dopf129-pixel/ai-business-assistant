@@ -4,15 +4,14 @@
 ТЗ: LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md.
 Матрица: FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md.
 База спецификации: main d8d4ba00c85acf14ba9a960f56a755fbe30b555c.
-Это план исполнения, не отчёт о выполненной реализации.
+Журнал исполнения; содержит фактические результаты ниже. Спецификация не заменяет доказательства владельца.
 
 ## Resume
 
-Следующий этап: FL00.
-Выполненных этапов:0/36. Реализация NOT_STARTED.
+Следующий этап: FL01.
+Выполненных этапов:1/36 (FL00 baseline VERIFIED; реализация модулей ещё не начата).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Рабочая ветка подготовки: codex/fifo-late-entry-completion-spec-20261107.
-Если спецификация ещё в отдельном PR, создать foundation branch от его последней головы, сохранив документы; base foundation PR — main. Не начинать от старой ветки реализации #726.
+Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -21,7 +20,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 
 | Этап | Содержание | Статус | Commit / checks |
 |---|---|---|---|
-| FL00 | Baseline и безопасная ветка | NOT_STARTED | — |
+| FL00 | Baseline и безопасная ветка | VERIFIED | aef1f134; FIFO regression 307 passed (10.96s), compileall/diff-check PASS; data manifest SHA-256 e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730 unchanged |
 | FL01 | Карта интеграции | NOT_STARTED | — |
 | FL02 | Контракты и часы | NOT_STARTED | — |
 | FL03 | Миграция13 и cipher | NOT_STARTED | — |
@@ -86,6 +85,15 @@ Source readiness:
 - Runtime код и реальные записи не изменялись.
 - Статическая проверка подготовки:36 уникальных этаповFL00–FL35,36 строк журнала,40 уникальных сценариевN01–N40 и7 независимых числовых контролей — PASS. git diff --check — PASS. Runtime tests локально не повторялись: изменения только Markdown; полный Verify документационного PR фиксируется на точном SHA в описании PR.
 - Проверка документационного PR не считается реализациейFL00–FL35 или проверкой источников реального магазина.
+
+## Выполнение FL00 — 2026-11-07
+
+- Исходная точка чистая: checkout `codex/fifo-late-entry-completion-spec-20261107`, HEAD `aef1f1348fca4e7728215b73ddd32004a0540e20`, спецификация PR #727 открыта/mergeable на base `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; существующих изменений в рабочем дереве не было.
+- Создана `codex/fifo-late-entry-foundation-20261107` от точного HEAD PR #727. Основание будущего PR — `main`; branch содержит документы #727 согласно плану исполнения.
+- Baseline: существующие FIFO repository/allocation/anchor/rate/replay/sources/late-entry/supply/returns/Period Profit/Telegram tests — **307 passed in 10.96s**; `python -m compileall -q app tests` PASS; `git diff --check` PASS. Полный suite до реализации не запускался; exact-head CI документационного PR уже был зелёным, но не подменяет implementation CI.
+- Файлы `data/`: **5 файлов**, 3,168 байт; aggregate manifest SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730` до и после тестов совпал. Ни тесты, ни FL00 не изменили данные.
+- Source readiness: факты владельца остаются на уровне подготовки; supply IDs и доказанный cutoff не добавлены. Это не блокирует FL01.
+- Следующий этап: FL01 — карта интеграции и явное сопоставление контракта с существующими швами.
 
 ## PR delivery
 
