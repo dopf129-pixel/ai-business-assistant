@@ -3,6 +3,7 @@ from threading import Event, Thread
 from unittest.mock import patch
 
 from services.assistant_keyboard_service import AssistantKeyboardService
+from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 from services.telegram_unit_price_calculator_runtime_service import (
@@ -13,6 +14,7 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 
 
 class _ProductService:
@@ -1747,6 +1749,108 @@ def test_target_price_applies_only_from_current_verified_result_and_old_button_s
     assert "подставлена только в текущий сценарий" in applied["message"]
     assert stale["status"] == "UNIT_PRICE_SCENARIO_STALE"
     assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_stale_fifo_callback_keeps_real_price_scenario_and_pending_input():
+    class Assistant:
+        def ask(self, *_args):
+            return {"error": False, "message": "assistant fallback"}
+
+    class StaleRateEntry:
+        def handle_callback(self, _user_id, _callback):
+            return {
+                "error": True,
+                "handled": True,
+                "message": "Подтверждение FIFO устарело.",
+            }
+
+        def handle_text(self, _user_id, _text):
+            return {"error": False, "handled": False}
+
+    runtime, _source = _runtime()
+    tenant = _activate()
+    try:
+        opened = _select_catalog_product(runtime)
+        price_button = next(
+            button for button in opened["keyboard"]["buttons"]
+            if str(button.get("callback", "")).endswith(":price")
+        )
+        pending = runtime.handle_callback(
+            price_button["callback"], user_id="user-1",
+        )
+        handler = AssistantButtonHandlerService(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            unit_price_calculator_runtime_service=runtime,
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            button_handler=handler,
+            fifo_rate_entry_service=StaleRateEntry(),
+        )
+
+        stale = adapter.handle_button(
+            "fifo_rate:confirm:expired-ticket",
+            user_id="user-1",
+        )
+        active_after_stale = runtime.active_scenario_identity("user-1")
+        accepted_price = runtime.handle_text("400", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert pending["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert stale["error"] is True
+    assert stale["message"] == "Подтверждение FIFO устарело."
+    assert active_after_stale is not None
+    assert accepted_price["status"] in {
+        "UNIT_PRICE_SCENARIO_READY",
+        "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+    }
+    assert accepted_price["price_scenario"]["inputs"]["price"]["value"] == 400
+
+
+def test_valid_fifo_history_navigation_clears_active_price_scenario():
+    class Assistant:
+        def ask(self, *_args):
+            return {"error": False, "message": "assistant fallback"}
+
+    class ValidHistory:
+        def handle_callback(self, _user_id, _callback):
+            return {
+                "error": False,
+                "handled": True,
+                "message": "Карточка истории FIFO",
+            }
+
+    runtime, _source = _runtime()
+    tenant = _activate()
+    try:
+        _select_catalog_product(runtime)
+        assert runtime.active_scenario_identity("user-1") is not None
+        handler = AssistantButtonHandlerService(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            unit_price_calculator_runtime_service=runtime,
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            button_handler=handler,
+            fifo_history_service=ValidHistory(),
+        )
+
+        opened = adapter.handle_button(
+            "fifo_history:open:valid-ticket",
+            user_id="user-1",
+        )
+        active_after_navigation = runtime.active_scenario_identity("user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert opened["error"] is False
+    assert opened["message"] == "Карточка истории FIFO"
+    assert active_after_navigation is None
 
 
 def test_comparison_applies_only_the_selected_saved_row():

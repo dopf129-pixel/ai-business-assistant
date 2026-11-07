@@ -220,6 +220,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                     return {"error": True, "message": "INVALID_FIFO_HISTORY_RESULT", "read_only_ozon": True}
                 if result.get("error") is not False or result.get("handled") is not True:
                     return result
+                self.clear_unit_price_calculator_state(user_id)
                 self._clear_seller_cost_and_fifo_pending(user_id)
                 if result.get("action") == "start_new_rate" and self.fifo_rate_entry_service is not None:
                     return self.fifo_rate_entry_service.start(

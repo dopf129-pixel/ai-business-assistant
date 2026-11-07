@@ -1,9 +1,10 @@
-# 2026-11-07 — FIFO review fixes R1–R2
+# 2026-11-07 — FIFO review fixes R1–R3
 
-- Historical finance SKUs now prefer an explicitly seller-confirmed current catalogue mapping and retain dated cost evidence only when the product identity agrees. An unmapped retired SKU is blocked from being treated as an inactive FIFO stream.
-- FIFO history navigation clears competing drafts only after the history ticket is validated. Stale rate, anchor, and late-entry callbacks no longer clear another active draft.
-- Added regression coverage for mapped/unmapped historical finance SKUs and a stale rate confirmation during another SKU's anchor wizard.
-- Focused verification: **49 passed**; full Windows `pytest -q`: **4,832 passed in 52.27s**. `compileall -q app tests` and `git diff --check` passed. All five original files in `data/` were restored and their SHA-256 manifest matched (`94c75acc7d3c64627b27718bfda1ecd4b26bee9f7073a7f64a1748bed546f96f`). Exact-head CI run [42356816722](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42356816722) passed for code commit `2af2f5c1d8721fb56a009ff79779e22231dee738`: Windows, Linux, production Docker build, and runtime smoke.
+- Historical finance SKUs with confirmed dated cost now resolve a unique current catalogue identity by exact product ID or stable offer ID before FIFO mode lookup. This restores the dated legacy path when that exact FIFO stream is inactive; ambiguous catalogue matches remain fail-closed.
+- Seller-confirmed identity mappings accept historical cost evidence when either the product ID or exact offer ID agrees, while rejecting evidence that conflicts on both identities.
+- Stale FIFO callbacks preserve the active unit-price scenario. A valid FIFO history callback clears it only after the history ticket is accepted.
+- Added regressions for canonical identity recovery, product-ID changes with stable offers, ambiguous identity conflicts, and calculator navigation/stale callbacks.
+- Verification: focused Windows profile **97 passed**; full Windows `pytest -q` **4,839 passed in 50.57s**; `compileall` and `git diff --check` pass. All five files in `data/` were restored byte-for-byte; the before/after manifest is identical (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head CI for the fix commit is pending publication.
 
 # 2026-11-07 — исправлены последние три замечания FIFO review (PR #726)
 

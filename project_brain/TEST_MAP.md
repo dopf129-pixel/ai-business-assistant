@@ -1,8 +1,9 @@
-# 2026-11-07 — FIFO review R1–R2
+# 2026-11-07 — FIFO review R1–R3
 
-- `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` covers dated historical cost plus confirmed canonical alias, and verifies an unmapped historical finance SKU fails closed before FIFO can be treated inactive.
-- `tests/test_telegram_fifo_cost_history.py::test_stale_rate_confirmation_does_not_clear_another_skus_anchor_draft` runs real history/rate/anchor services through the adapter and verifies stale callback isolation.
-- Focused Windows profile: **49 passed**. Full Windows `pytest -q`: **4,832 passed in 52.27s**. `python -m compileall -q app tests` and `git diff --check` passed. The five pre-existing files under `data/` were restored byte-for-byte and their aggregate SHA-256 manifest matched. Exact-head CI run [42356816722](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42356816722) passed on code SHA `2af2f5c1d8721fb56a009ff79779e22231dee738` (Windows, Linux, production Docker build/runtime smoke).
+- `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` covers dated historical cost resolving to an inactive current FIFO stream by exact product ID or stable offer ID; conflicting catalogue indexes stay unresolved. Seller mappings accept matching stable offer IDs across product-ID changes and reject conflicts on both identities.
+- `tests/test_unit_price_scenario_telegram_runtime.py` uses the real calculator runtime and button handler to verify that stale FIFO callbacks preserve pending price input and valid history navigation clears the scenario after ticket acceptance.
+- `tests/test_telegram_fifo_cost_history.py` retains the stale rate/anchor wizard isolation regression.
+- Focused Windows profile: **97 passed**. Full Windows `pytest -q`: **4,839 passed in 50.57s**. `python -m compileall -q app tests` and `git diff --check` pass. All five files under `data/` were restored byte-for-byte with identical before/after manifest (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head CI for the fix SHA is pending publication.
 
 # 2026-11-07 — FIFO review R1–R3: aliases, post-commit text and stale late cancel
 

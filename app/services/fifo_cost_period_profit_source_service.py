@@ -32,6 +32,8 @@ class FifoCostPeriodProfitSourceService:
         "OZON_FBO_SNAPSHOT_TO_CURRENT_CATALOG_OFFER_ID",
         "OZON_FBO_POSTING_OFFER_ID",
         "SELLER_CONFIRMED_PRODUCT_IDENTITY_MAPPING",
+        "CONFIRMED_HISTORICAL_COST_IDENTITY_TO_CURRENT_CATALOG",
+        "CONFIRMED_CURRENT_COST_IDENTITY_TO_CURRENT_CATALOG",
     })
 
     def __init__(self, repository: FifoCostRepository | None = None, tenant_scope_provider=None):
