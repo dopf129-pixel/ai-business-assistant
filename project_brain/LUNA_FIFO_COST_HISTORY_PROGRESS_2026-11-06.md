@@ -7,7 +7,7 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Latest review round (2026-11-07): three findings fixed locally with regressions. Focused profile 81 passed; full Windows pytest -q 4,822 passed in 50.54s; compileall/diff-check pass. All five original files under data/ were restored with matching SHA-256. Commit/push these changes to PR #726 and require exact-head CI before merge. No merge, deploy, live requests, or bot startup.
+- Latest review round (2026-11-07): three findings fixed and pushed in code commit bc82ca6d. Focused profile 81 passed; full Windows pytest -q 4,822 passed in 50.54s; compileall/diff-check pass; all five original data files restored by SHA-256. Exact-head CI run 42321325070 passed Windows and Linux full verification plus production Docker build/runtime smoke. PR #726 remains open and unmerged; no deploy, live requests, or bot startup.
 - Previous implementation milestone: R1-R4 fixes were committed in 0511922d; exact-head CI run 42312193535 passed Windows/Linux verification and Docker smoke.
 
 

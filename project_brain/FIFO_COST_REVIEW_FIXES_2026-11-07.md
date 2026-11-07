@@ -50,4 +50,4 @@
 - Связанный профиль: 81 passed in 1.74s. Полный Windows pytest -q: 4,822 passed in 50.54s.
 - python -m compileall -q app tests и git diff --check PASS.
 - Перед полным запуском сохранены исходные байты пяти файлов под data/; после запуска все пять файлов восстановлены и сверены по SHA-256 (5/5 совпало). Созданные тестами файлы внутри data/ удалены после проверки их расположения.
-- Изменения пока локальные. Нужен commit/push в существующий PR #726 и новый exact-head CI до merge. Живые API/бот не запускались.
+- Кодовый коммит bc82ca6d запушен в PR #726. Exact-head CI run [42321325070](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42321325070) прошёл Windows/Linux full verification и production Docker build/runtime smoke. Живые API/бот не запускались; PR не слит.
