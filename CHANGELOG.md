@@ -1,3 +1,11 @@
+# 2026-11-07 — FIFO review fixes R1–R3 (PR #726)
+
+- Legacy store-period sales analytics now checks the exact SKU's FIFO cutoff before reading current legacy cost. Active/overlapping FIFO periods, and unavailable scope checks, fail closed; pre-cutoff periods keep the existing legacy cost-resolution path.
+- Empty/FBS-only stock rows no longer imply zero FBO inventory. A zero start requires an explicit numeric FBO row.
+- Initial FIFO setup now tells the owner to enter layers oldest-first, requests explicit order confirmation, and shows the ordered per-layer price/quantity summary before saving.
+- Added regressions for cutoff behavior, incomplete FBO evidence, order confirmation/rejection, and Telegram's unavailable-sales-evidence handling.
+- Verification: focused profile 81 passed; full Windows pytest -q 4,822 passed in 50.54s; compileall and git diff --check PASS. All five original files under data/ restored with matching SHA-256.
+
 # 2026-11-07 — исправлены четыре повторных замечания FIFO review (PR #726)
 
 - Первая новая ставка теперь отклоняется, если указанное количество старого товара дома превышает подтверждённый конечный FIFO-остаток.

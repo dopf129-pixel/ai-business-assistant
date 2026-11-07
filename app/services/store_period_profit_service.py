@@ -9,7 +9,8 @@ class StorePeriodProfitService:
         self,
         finance_service,
         cost_service,
-        profit_service
+        profit_service,
+        fifo_cost_source_service=None,
     ):
 
         self.finance_analytics = (
@@ -25,6 +26,11 @@ class StorePeriodProfitService:
         self.profit_service = (
             profit_service
         )
+
+        # The aggregate finance reader used here cannot prove per-sale FIFO
+        # allocations. When a SKU has crossed its FIFO cutoff, never price it
+        # from the legacy current-cost row.
+        self.fifo_cost_source_service = fifo_cost_source_service
 
 
     def calculate_period_profit(
@@ -47,6 +53,38 @@ class StorePeriodProfitService:
 
 
         for product in products:
+
+            if self.fifo_cost_source_service is not None:
+                scope = self.fifo_cost_source_service.get_scope_mode(
+                    product,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                if (
+                    not isinstance(scope, dict)
+                    or scope.get("error") is True
+                ):
+                    return {
+                        "error": True,
+                        "code": "PERIOD_PROFIT_FIFO_SCOPE_UNAVAILABLE",
+                        "products_count": 0,
+                        "profits": [],
+                    }
+                if scope.get("active") is True:
+                    return {
+                        "error": True,
+                        "code": "PERIOD_PROFIT_FIFO_ALLOCATION_REQUIRED",
+                        "reason_code": scope.get("code"),
+                        "products_count": 0,
+                        "profits": [],
+                    }
+                if scope.get("active") is not False:
+                    return {
+                        "error": True,
+                        "code": "PERIOD_PROFIT_FIFO_SCOPE_UNAVAILABLE",
+                        "products_count": 0,
+                        "profits": [],
+                    }
 
             product_id = (
                 product.get(

@@ -250,6 +250,15 @@ class FifoCostSourceNormalizer:
                     "INVALID", store, identity_values, captured, complete, pages,
                     total_items, None, None, None, "UNKNOWN", issues,
                 )
+            if not present_values:
+                missing_fbo_issues = ["FBO_STOCK_ROW_MISSING"]
+                if unknown_stock_type:
+                    missing_fbo_issues.append("STOCK_TYPE_UNKNOWN")
+                return self._stock_result(
+                    "PARTIAL", store, identity_values, captured, complete, pages,
+                    total_items, None, None, None, "UNKNOWN",
+                    [*issues, *missing_fbo_issues],
+                )
             fbo_units = sum(present_values)
             reserved_units = sum(reserved_values)
             if fbo_units > self.MAX_UNITS or reserved_units > self.MAX_UNITS:

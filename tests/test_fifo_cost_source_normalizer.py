@@ -175,6 +175,31 @@ def test_exact_product_with_confirmed_zero_is_distinct_from_empty(normalizer):
     assert result.available_units == 0
 
 
+@pytest.mark.parametrize(
+    "stocks",
+    [
+        [],
+        [{"type": "fbs", "present": 0, "reserved": 0}],
+    ],
+    ids=["no-stock-rows", "fbs-only"],
+)
+def test_missing_fbo_stock_row_is_partial_not_confirmed_zero(normalizer, stocks):
+    result = _normalize_stock(
+        normalizer,
+        {
+            "total_items": 1,
+            "items": [{"product_id": 101, "stocks": stocks}],
+        },
+    )
+
+    assert result.status == "PARTIAL"
+    assert result.source_status == "PARTIAL"
+    assert result.fbo_units is None
+    assert result.reserved_units is None
+    assert result.available_units is None
+    assert "FBO_STOCK_ROW_MISSING" in result.issue_codes
+
+
 def test_stock_rejects_boolean_and_fractional_quantities(normalizer):
     for bad in (True, 1.5, -1, "3"):
         result = _normalize_stock(normalizer, _stock_response(present=bad))
@@ -218,8 +243,9 @@ def test_unknown_stock_type_makes_snapshot_partial(normalizer):
     result = _normalize_stock(normalizer, response)
 
     assert result.status == "PARTIAL"
-    assert result.fbo_units == 0
+    assert result.fbo_units is None
     assert "STOCK_TYPE_UNKNOWN" in result.issue_codes
+    assert "FBO_STOCK_ROW_MISSING" in result.issue_codes
 
 
 def test_duplicate_identical_product_representation_is_deduplicated(normalizer):

@@ -1,3 +1,10 @@
+# 2026-11-07 — follow-up FIFO review regressions R1–R3
+
+- tests/test_store_period_profit_fifo_guard.py: active/overlapping cutoff mode and FIFO scope read errors block before finance/current-cost; pre-cutoff keeps the legacy path; SalesContextProvider does not report declining sales when FIFO evidence is unavailable.
+- tests/test_fifo_cost_source_normalizer.py and tests/test_fifo_cost_source_collection_service.py: empty/FBS-only product stock rows do not become CONFIRMED_ZERO; an explicit zero FBO row preserves the existing contract.
+- tests/test_telegram_fifo_cost_history.py: the setup asks explicit oldest-first confirmation, shows layer order and quantities, and refusal deletes only the draft without writing a queue.
+- Verification: focused profile 81 passed in 1.74s; full Windows pytest -q 4,822 passed in 50.54s; compileall/diff-check PASS. All five original files under data/ match their pre-run SHA-256.
+
 # 2026-11-07 — follow-up regression coverage для FIFO review R1–R4
 
 - `tests/test_fifo_cost_rate_service.py::test_first_rate_rejects_old_home_count_larger_than_confirmed_finite_stock` проверяет отказ до записи для несовместимого остатка при первой новой ставке.

@@ -35,3 +35,19 @@
 Начальный cutoff, подтверждённые нулевые источники и результаты сценариев остаются модельными данными владельца. Нет доказанного общего физического timestamp продаж и остатков; `INVENTORY_CUTOFF_UNRECONCILED` продолжает блокировать фактический FIFO COGS. Multi-transition correction и replay для unsupported returns/non-sale movements остаются fail-closed.
 
 Классификация: **Architecture Review Required** — изменения затрагивают композицию Telegram, сервисные контракты и миграцию SQLite. Живые Ozon/Telegram запросы, запуск бота, merge, deployment и owner acceptance не выполнялись.
+
+## Повторное review 2026-11-07 — R1–R3
+
+| Finding | Исправление |
+|---|---|
+| Legacy store-period аналитика читала текущую цену после FIFO cutover и в диапазоне через cutoff | StorePeriodProfitService получает точный режим FIFO из FifoCostPeriodProfitSourceService до finance/cost чтения. Активный FIFO и недоступная проверка останавливают весь период; период до cutoff остаётся на прежнем legacy cost-resolution path. Production wiring передан из telegram_core_factory.py. |
+| Пустые или FBS-only stocks строки превращались в нулевой FBO остаток | FifoCostSourceNormalizer возвращает PARTIAL, неизвестные FBO/reserved значения и FBO_STOCK_ROW_MISSING; только явная числовая FBO строка может подтвердить ноль. |
+| Мастер начального FIFO не уточнял порядок слоёв | Ввод и шаги мастера требуют oldest-first и отдельного подтверждения. Перед записью preview перечисляет каждый слой как номер, суммарное количество и цену; отказ удаляет черновик без записи. |
+
+### Проверки повторного review
+
+- Регрессии: tests/test_store_period_profit_fifo_guard.py, tests/test_fifo_cost_source_normalizer.py, tests/test_fifo_cost_source_collection_service.py, tests/test_telegram_fifo_cost_history.py.
+- Связанный профиль: 81 passed in 1.74s. Полный Windows pytest -q: 4,822 passed in 50.54s.
+- python -m compileall -q app tests и git diff --check PASS.
+- Перед полным запуском сохранены исходные байты пяти файлов под data/; после запуска все пять файлов восстановлены и сверены по SHA-256 (5/5 совпало). Созданные тестами файлы внутри data/ удалены после проверки их расположения.
+- Изменения пока локальные. Нужен commit/push в существующий PR #726 и новый exact-head CI до merge. Живые API/бот не запускались.

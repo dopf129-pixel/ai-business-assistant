@@ -7,7 +7,9 @@ Live Ozon/Telegram requests, bot startup, deployment, and merge are out of scope
 
 ## Resume
 
-- Current phase: four follow-up review findings R1–R4 are fixed and committed as `0511922d8073e9d5a915e95d7693260f0a0a0b4e` on the existing PR #726 branch. Targeted regression profile: **74 passed in 3.45s**; full Windows suite: **4,812 passed in 50.98s**; compileall and diff-check pass. The full test run restored all five original `data/` files by matching their pre-run SHA-256 hashes and removed two test-created files contained under `data/`. Exact-head CI run [42312193535](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42312193535) passed Windows/Linux full verification plus production Docker build and runtime smoke. Initial positive-layer and zero-stock-first-rate Telegram setup remain planning-only; factual production cutoff and multi-transition correction stay blocked/documented. No merge, deploy, live requests, or bot startup.
+- Latest review round (2026-11-07): three findings fixed locally with regressions. Focused profile 81 passed; full Windows pytest -q 4,822 passed in 50.54s; compileall/diff-check pass. All five original files under data/ were restored with matching SHA-256. Commit/push these changes to PR #726 and require exact-head CI before merge. No merge, deploy, live requests, or bot startup.
+- Previous implementation milestone: R1-R4 fixes were committed in 0511922d; exact-head CI run 42312193535 passed Windows/Linux verification and Docker smoke.
+
 
 ## 2026-11-07 — repeated review fixes R1–R4
 

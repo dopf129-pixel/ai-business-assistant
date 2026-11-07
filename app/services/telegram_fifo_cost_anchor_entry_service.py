@@ -114,21 +114,31 @@ class TelegramFifoCostAnchorEntryService:
                 count = draft["layer_count"]
                 if sequence < count:
                     return self._layer_prompt(sequence + 1, count)
-                draft["step"] = "ozon_confirmation"
+                draft["step"] = "layer_order_confirmation"
             return self._prompt(
-                "Подтверждаете, что количество «на Ozon» включает зарезервированные единицы? "
-                "Ответьте ДА. Если не можете подтвердить, отправьте НЕТ — настройка остановится."
+                "Партии введены от самой старой к самой новой? FIFO будет списывать их именно в этом порядке. "
+                "Ответьте ДА, чтобы подтвердить порядок; если не уверены, отправьте НЕТ — запись остановится."
             )
 
-        if step in {"ozon_confirmation", "transit_confirmation"}:
+        if step in {"layer_order_confirmation", "ozon_confirmation", "transit_confirmation"}:
             answer = self._yes_no(text)
             if answer is None:
                 return self._input_error("Ответьте ДА или НЕТ.")
             if not answer:
                 self.clear_pending(user_id)
+                if step == "layer_order_confirmation":
+                    return self._failure(
+                        "Порядок партий не подтверждён. Черновик удалён; FIFO-история не изменена."
+                    )
                 return self._failure(
                     "Начальную FIFO-очередь нельзя подтвердить без этих данных. "
                     "Черновик удалён; история и расчёты не изменились."
+                )
+            if step == "layer_order_confirmation":
+                self._set(owner, step, step_next="ozon_confirmation")
+                return self._prompt(
+                    "Подтверждаете, что количество «на Ozon» включает зарезервированные единицы? "
+                    "Ответьте ДА. Если не можете подтвердить, отправьте НЕТ — настройка остановится."
                 )
             if step == "ozon_confirmation":
                 self._set(owner, step, step_next="transit_confirmation")
@@ -230,6 +240,16 @@ class TelegramFifoCostAnchorEntryService:
     def _confirmation(self, draft):
         preview = draft.get("preview") or {}
         zones = preview.get("zone_totals") or {}
+        layer_lines = []
+        for index, layer in enumerate(draft.get("layers") or (), start=1):
+            total_units = sum(
+                layer.get(key, 0)
+                for key in ("ozon_units", "transit_units", "home_units")
+            )
+            layer_lines.append(
+                f"{index}:{total_units}@{layer.get('unit_cost_rub')}"
+            )
+        layer_summary = "\n".join(layer_lines)
         return {
             "error": False,
             "handled": True,
@@ -237,6 +257,8 @@ class TelegramFifoCostAnchorEntryService:
                 f"Проверьте начальный остаток · {draft['display_name']}\n"
                 f"Срез: {draft['cutoff_date']}\n"
                 f"Партий: {len(draft['layers'])}; всего единиц: {preview.get('total_units')}\n"
+                "Порядок FIFO: от самой старой партии к новой. Слои (№: шт.@₽/шт.):\n"
+                f"{layer_summary}\n"
                 f"На Ozon: {zones.get('OZON', 0)}; в пути: {zones.get('TRANSIT', 0)}; дома: {zones.get('HOME', 0)}\n"
                 f"Известная стоимость остатка: {preview.get('known_cost_rub')} ₽.\n\n"
                 "Подтвердить запись? Она не включает FIFO-себестоимость в финансовые отчёты."
@@ -266,7 +288,8 @@ class TelegramFifoCostAnchorEntryService:
 
     def _layer_prompt(self, index, count):
         return self._prompt(
-            f"Введите партию {index} из {count} в формате: себестоимость за единицу ₽; "
+            f"Партия {index} из {count}. Вводите от самой старой к самой новой. "
+            "FIFO будет списывать партии в этом порядке. Формат: себестоимость за единицу ₽; "
             "количество на Ozon; в пути; дома. Количества — целые, неизвестное нельзя указывать как 0. "
             "Например: 120,50; 40; 0; 3"
         )

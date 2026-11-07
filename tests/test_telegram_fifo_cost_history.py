@@ -645,14 +645,17 @@ def test_initial_anchor_is_reachable_and_confirmed_through_telegram_adapter(tmp_
         started = adapter.handle_button(anchor_callback, user_id=101)
         assert "Укажите дату" in started["message"]
 
-        steps = [
-            "2026-11-05", "1", "120,50; 4; 2; 3", "ДА", "ДА",
-        ]
-        for text in steps[:-1]:
+        steps = ["2026-11-05", "1", "120,50; 4; 2; 3"]
+        for text in steps:
             response = adapter.handle_text(text, user_id=101)
             assert response["error"] is False, response
-        confirmation = adapter.handle_text(steps[-1], user_id=101)
+        assert "от самой старой к самой новой" in response["message"]
+        assert adapter.handle_text("ДА", user_id=101)["error"] is False
+        assert adapter.handle_text("ДА", user_id=101)["error"] is False
+        confirmation = adapter.handle_text("ДА", user_id=101)
         assert confirmation["fifo_anchor_confirmation_pending"] is True
+        assert "1:9@120.50" in confirmation["message"]
+        assert "Порядок FIFO: от самой старой партии к новой." in confirmation["message"]
         assert confirmation["keyboard"]["buttons"][0]["callback"].startswith(
             "fifo_anchor:confirm:"
         )
@@ -670,6 +673,38 @@ def test_initial_anchor_is_reachable_and_confirmed_through_telegram_adapter(tmp_
     assert snapshot["layers"][0]["recorded_quantity"] == 4
     assert snapshot["layers"][1]["recorded_quantity"] == 2
     assert snapshot["layers"][2]["recorded_quantity"] == 3
+
+
+def test_initial_anchor_order_rejection_clears_draft_without_writing(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "telegram-fifo-anchor-order-rejected.sqlite",
+            now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: date(2026, 11, 6),
+        )
+        entry = TelegramFifoCostAnchorEntryService(
+            history, FifoCostAnchorService(repository),
+            date_provider=lambda: date(2026, 11, 6),
+        )
+        assert entry.start(101, IDENTITY, "Крючки", 0)["error"] is False
+        entry.handle_text(101, "2026-11-05")
+        entry.handle_text(101, "2")
+        prompt = entry.handle_text(101, "20; 1; 0; 0")
+        assert "от самой старой к самой новой" in prompt["message"]
+        entry.handle_text(101, "10; 1; 0; 0")
+
+        rejected = entry.handle_text(101, "НЕТ")
+        snapshot = history.get_sku_history(**IDENTITY)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert "Порядок партий не подтверждён" in rejected["message"]
+    assert snapshot["error"] is False
+    assert snapshot["queue_initialized"] is False
+    assert snapshot["revision"] == 0
 
 
 def test_initial_zero_stock_rate_is_owner_confirmed_persisted_and_plannable(tmp_path):
@@ -963,3 +998,27 @@ def test_fifo_anchor_entry_rounds_half_up_to_currency_cent():
     assert TelegramFifoCostAnchorEntryService._parse_layer(
         "1.004; 100; 0; 0",
     )["unit_cost_rub"] == "1.00"
+
+
+def test_fifo_anchor_confirmation_shows_fifo_layers_in_entry_order():
+    service = TelegramFifoCostAnchorEntryService(None, None)
+    confirmation = service._confirmation({
+        "display_name": "Товар",
+        "cutoff_date": "2026-11-05",
+        "draft_id": "draft-1",
+        "layers": [
+            {"unit_cost_rub": "20.00", "ozon_units": 1, "transit_units": 0, "home_units": 0},
+            {"unit_cost_rub": "10.00", "ozon_units": 2, "transit_units": 0, "home_units": 1},
+        ],
+        "preview": {
+            "total_units": 4,
+            "known_cost_rub": "60.00",
+            "zone_totals": {"OZON": 3, "TRANSIT": 0, "HOME": 1},
+        },
+    })
+
+    message = confirmation["message"]
+    oldest = message.index("1:1@20.00")
+    newest = message.index("2:3@10.00")
+    assert "Слои (№: шт.@₽/шт.)" in message
+    assert oldest < newest
