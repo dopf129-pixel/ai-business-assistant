@@ -6,6 +6,12 @@
 
 - Added typed transition/supply/stock/report DTOs, reason codes, fail-closed source-coverage checks and explicit UTC/date-only/money normalization. Contract-only scope; no database, FIFO behavior, Period Profit or owner data changed. FL03 is next.
 
+# 2026-11-07 — FIFO late-entry schema v13
+
+- Added seven tenant-scoped transition evidence tables and migrated FIFO storage from schema v12 to v13 in the existing SQLite database. Existing cost rows migrate as `COMPONENTS`; `TOTAL_LANDED` uses null component values rather than fabricated cost splits.
+- Extracted a shared Fernet provider backed by the existing `OZON_CREDENTIAL_MASTER_KEY`; credential repository behavior and stored credentials remain unchanged. Missing/invalid keys fail closed for encrypted lookup values.
+- Added v13 schema, migration preservation, child-FK, rollback, future-version, tenant-isolation, cost-mode and cipher regressions. No real owner or live database was accessed.
+
 # 2026-11-07 — Подготовлено задание завершения позднего FIFO-ввода
 
 - Добавлено исполнимое ТЗ FL00–FL35 для сохранения новой себестоимости до настройки FIFO, сопровождения незавершённых поставок, импорта двух отчётов и подтверждаемого атомарного пересчёта.

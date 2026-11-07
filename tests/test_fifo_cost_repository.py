@@ -162,7 +162,7 @@ def test_v11_migration_adds_inventory_cutoff_without_rewriting_projection(tmp_pa
         )
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 12
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION
     finally:
         migrated.close()
 

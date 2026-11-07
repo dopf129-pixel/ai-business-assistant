@@ -4,6 +4,12 @@
 - FL00 VERIFIED: исходный FIFO regression профиль **307 passed**; FL01 VERIFIED: карта integration seams, 27 code/test paths. FL02 VERIFIED: typed transition contracts, **13 new tests** и combined FIFO profile **320 passed**; compileall/diff-check PASS. Пять файлов `data/` побайтно/по manifest совпадают с исходной точкой.
 - Начата runtime реализация только валидации DTO; repository/migration/UI/финансовая интеграция ещё не изменялись. Следующий этап FL03 — schema v13 и общий cipher provider. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` пока false; реальные ID поставок и cutoff не подтверждены.
 
+# 2026-11-07 — FIFO late-entry FL03 schema v13
+
+- `FifoCostRepository` теперь владеет семью transition evidence таблицами в существующей tenant-local SQLite базе; FIFO schema version — 13. Миграция 12→13 сохраняет прежние rate values, индексы, триггеры и child FK edges; прежние ставки читаются как `COMPONENTS`. Для `TOTAL_LANDED` компоненты остаются `NULL`.
+- Общий `tenant_cipher_provider` использует только существующий Fernet key contract `OZON_CREDENTIAL_MASTER_KEY`; `OzonAccountRepository` делегирует ему создание cipher без смены формата и контракта credentials.
+- FL03 VERIFIED: новый migration/cipher profile вместе с существующими repository/backup/credential tests — 41 passed; partial-DDL rollback, future schema refusal и tenant scope проверены на временных SQLite. `data/` и live DB не читались/не изменялись. Следующий этап FL04 — repository commands для case/evidence. IMPLEMENTATION_VERIFIED и OWNER_CASE_VERIFIED остаются false.
+
 # 2026-11-07 — подготовлено ТЗ завершения позднего ввода FIFO
 
 - PR #726 слит в main d8d4ba00; владелец обновил локального бота. Реальный случай новой партии в пути выявил незавершённый путь: поздний мастер требует принятую поставку и сохраняет только черновик.

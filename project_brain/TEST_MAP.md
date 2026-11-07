@@ -18,6 +18,12 @@
 - `python -m compileall -q app tests`, `git diff --check` PASS. `data/` manifest полностью совпадает с FL00: 5 файлов / 3,168 bytes / SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
 - Контракты не являются доказательством реальной полноты Ozon или cutoff; новый store/migration и runtime wiring ещё не реализованы.
 
+# 2026-11-07 — FL03 FIFO transition schema v13 и общий cipher
+
+- `tests/test_fifo_cost_transition_schema_v13.py` проверяет создание новой схемы, режимы `COMPONENTS`/`TOTAL_LANDED`, точное сохранение v12 rate-row digest, custom indexes/triggers, rate child foreign keys, `foreign_key_check`, rollback после injected DDL failure с возвратом `foreign_keys=ON`, отказ для future schema v14, tenant/store/SKU scope и fail-closed Fernet key handling.
+- Обновлён `tests/test_fifo_cost_repository.py`: historical v11 upgrade теперь утверждает актуальную версию schema 13.
+- Связанный профиль: schema v13 + FIFO repository + backup/restore + credential persistence: **41 passed in 2.30s**. Полный профиль связанных FIFO service/Telegram regressions — **348 passed in 12.78s**. Новая таблица ReportEvidence и шифрование пока не используются бизнес-командами; их repository API реализуется в FL04.
+
 # 2026-11-07 — FIFO CSV и resume navigation regressions
 
 - `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.

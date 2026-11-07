@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL03.
-Выполненных этапов:3/36 (FL00 baseline, FL01 implementation map и FL02 typed contracts VERIFIED; runtime integration и owner case ещё не завершены).
+Следующий этап: FL04.
+Выполненных этапов:4/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts и FL03 schema v13/cipher VERIFIED; runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -23,7 +23,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL00 | Baseline и безопасная ветка | VERIFIED | aef1f134; FIFO regression 307 passed (10.96s), compileall/diff-check PASS; data manifest SHA-256 e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730 unchanged |
 | FL01 | Карта интеграции | VERIFIED | FL01_IMPLEMENTATION_MAP.md; 27 code/test paths exist, static map check and diff-check PASS; no runtime changes |
 | FL02 | Контракты и часы | VERIFIED | new FIFO contract profile 13 passed; combined unique FIFO profile 320 passed; compileall/diff-check PASS; data manifest matches FL00 |
-| FL03 | Миграция13 и cipher | NOT_STARTED | — |
+| FL03 | Миграция13 и cipher | VERIFIED | 41 passed focused; 348 passed related FIFO profile; compileall/diff-check PASS; data manifest unchanged |
 | FL04 | Repository cases/evidence | NOT_STARTED | — |
 | FL05 | До-FIFO хранение и fault tests | NOT_STARTED | — |
 | FL06 | Полная стоимость | NOT_STARTED | — |
@@ -111,6 +111,16 @@ Source readiness:
 - Состояние `data/`: 5 файлов, 3,168 bytes; manifest SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`, совпадает с FL00. Тесты запускаются в локальной venv проекта; файлы данных не изменились.
 - Источники реального магазина не запрашивались. `SourceProof` подтверждает полноту чтения только по API-kind и complete scope/pagination, но не физическую семантику; cutoff gate ADR066 остаётся открытым.
 - Следующий этап: FL03 — schema v13, миграция 12→13 и общий cipher provider без изменения credentials.
+
+## Выполнение FL03 — 2026-11-07
+
+- `FifoCostRepository.SCHEMA_VERSION` повышен до 13; добавлены seven scoped tables: transition cases/revisions, supply declarations/observations, report evidence, previews и commits. Append-only guards и indexes встроены в FIFO schema; Planning `user_version` не используется.
+- Таблица `fifo_cost_rate_changes` переводится 12→13 контролируемым rebuild внутри текущей immediate transaction. Старые component amounts, IDs и row digest сохраняются; старые записи становятся `COMPONENTS`. Новый `TOTAL_LANDED` допускает только `NULL` для трёх не сообщённых владельцем компонентов. Индексы, triggers и существующие child FK схемы восстановлены; `PRAGMA foreign_key_check` проходит до commit.
+- `app/services/tenant_cipher_provider.py` делегирует существующему `OZON_CREDENTIAL_MASTER_KEY`; `OzonAccountRepository._fernet()` использует тот же provider. Не добавлены новый ключ или ciphertext для credentials; invalid/missing key и invalid token fail closed.
+- Добавлен `tests/test_fifo_cost_transition_schema_v13.py`. Проверены fresh schema/cost mode constraints, v12→v13 exact row digest/objects/FKs, injected partial-DDL rollback (schema остаётся 12, FK enforcement восстановлен), future schema refusal без mutation, разделение двух tenant scope для одинаковых store/SKU и шифрование с отсутствующим/неверным ключом. Обновлён v11 test для текущей schema version.
+- Фактические проверки: focused schema/repository/backup/credential suite **41 passed in 2.30s**; окончательный related FIFO/profile suite **348 passed in 12.78s**; `compileall -q app tests` PASS; `git diff --check` PASS. Профиль использовал изолированные `tmp_path` БД; production/live DB и данные владельца не открывались. `git status --short -- data` пуст, `data/` manifest остаётся ожидаемым FL00 SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
+- Источник реального магазина не запрашивался. Новый кейс не записывался; `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; cutoff и все owner case evidence gates остаются открытыми.
+- Следующий этап: FL04 — repository commands с CAS/idempotency и квотами.
 
 ## PR delivery
 
