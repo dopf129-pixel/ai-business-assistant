@@ -116,6 +116,37 @@ class SupplyReferenceKind(str, Enum):
     SUPPLY = "SUPPLY"
 
 
+def supply_reference_digest(*, owner_id, store_id, reference_kind, reference_id):
+    """Build the stable owner/store/type-scoped digest for a numeric lookup ID."""
+    if not isinstance(owner_id, str) or not owner_id.strip() or len(owner_id.strip()) > 128:
+        return None
+    if not isinstance(store_id, str) or not store_id.strip() or len(store_id.strip()) > 128:
+        return None
+    try:
+        kind = (
+            reference_kind if isinstance(reference_kind, SupplyReferenceKind)
+            else SupplyReferenceKind(str(reference_kind).strip().upper())
+        )
+    except (TypeError, ValueError):
+        return None
+    if isinstance(reference_id, bool) or not isinstance(reference_id, (str, int)):
+        return None
+    raw = str(reference_id).strip()
+    if not raw.isascii() or not raw.isdigit() or len(raw) > 40:
+        return None
+    normalized_id = str(int(raw))
+    if normalized_id == "0":
+        return None
+    material = "\0".join((
+        "fifo-transition-reference:v1",
+        owner_id.strip(),
+        store_id.strip(),
+        kind.value,
+        normalized_id,
+    ))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
 class ReportType(str, Enum):
     STOCK_MANAGEMENT = "STOCK_MANAGEMENT"
     TURNOVER = "TURNOVER"

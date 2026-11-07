@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 from typing import Mapping
 
 
@@ -66,6 +67,25 @@ class FifoSupplyActEvidence:
     fact_quantity: int
 
 
+@dataclass(frozen=True)
+class FifoActiveSupplySnapshot:
+    """Redacted, status-only observation for one declared active supply."""
+
+    status: str
+    source_status: str
+    store_id: str | None
+    supply_reference_digest: str | None
+    order_ref: str | None
+    captured_at: str | None
+    raw_status: str | None
+    normalized_status: str
+    scope_complete: bool
+    pagination_complete: bool
+    presence: str
+    source_fingerprint: str | None
+    issue_codes: tuple[str, ...]
+
+
 class FifoCostSourceNormalizer:
     """Normalize only fields whose names and values are explicitly allowlisted."""
 
@@ -77,6 +97,121 @@ class FifoCostSourceNormalizer:
         "OZON_RATE_LIMITED", "OZON_TIMEOUT", "OZON_CANCELLED",
         "OZON_SOURCE_UNAVAILABLE",
     })
+
+    _ACTIVE_SUPPLY_STATUS_MAP = {
+        "DATA_FILLING": "DECLARED",
+        "READY_TO_SUPPLY": "DECLARED",
+        "ACCEPTED_AT_SUPPLY_WAREHOUSE": "AT_DROPOFF",
+        "IN_TRANSIT": "IN_TRANSIT",
+        "ACCEPTANCE_AT_STORAGE_WAREHOUSE": "RECEIVING",
+        "COMPLETED": "ACCEPTED",
+        "CANCELLED": "CANCELLED",
+    }
+
+    def normalize_active_supply_snapshot(
+        self,
+        *,
+        supply_reference_digest: object,
+        store_id: object,
+        captured_at: object,
+        source_fingerprint: object,
+        presence: object,
+        raw_status: object = None,
+        order_id: object = None,
+        scope_complete: object,
+        pagination_complete: object,
+        source_status: object,
+        issue_codes: object = (),
+    ) -> FifoActiveSupplySnapshot:
+        """Normalize a status-only lookup without deriving receipt quantities."""
+
+        store = self._nonempty_text(store_id, 128)
+        order = self._identifier(order_id) if order_id is not None else None
+        captured = self._utc_timestamp(captured_at)
+        fingerprint = (
+            source_fingerprint
+            if isinstance(source_fingerprint, str)
+            and re.fullmatch(r"[0-9a-f]{64}", source_fingerprint)
+            else None
+        )
+        reference_digest = (
+            supply_reference_digest
+            if isinstance(supply_reference_digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", supply_reference_digest)
+            else None
+        )
+        valid_presence = isinstance(presence, str) and presence in {"PRESENT", "MISSING"}
+        valid_source_status = (
+            isinstance(source_status, str)
+            and source_status in {"COMPLETE", "PARTIAL"}
+        )
+        complete_scope = type(scope_complete) is bool and scope_complete
+        complete_pages = type(pagination_complete) is bool and pagination_complete
+        issues = [
+            value for value in issue_codes
+            if isinstance(value, str)
+            and re.fullmatch(r"[A-Z0-9_.-]{1,64}", value)
+        ] if isinstance(issue_codes, (tuple, list)) else []
+        if type(scope_complete) is not bool:
+            issues.append("SUPPLY_SCOPE_COMPLETENESS_INVALID")
+        if type(pagination_complete) is not bool:
+            issues.append("SUPPLY_PAGINATION_COMPLETENESS_INVALID")
+        raw = None
+        normalized = "UNKNOWN"
+        if raw_status is not None:
+            if not isinstance(raw_status, str):
+                issues.append("SUPPLY_STATUS_INVALID")
+            else:
+                candidate = raw_status.strip().upper()
+                if re.fullmatch(r"[A-Z0-9_./-]{1,64}", candidate):
+                    raw = candidate
+                    normalized = self._ACTIVE_SUPPLY_STATUS_MAP.get(candidate, "UNKNOWN")
+                else:
+                    issues.append("SUPPLY_STATUS_INVALID")
+        if presence == "PRESENT" and (raw is None or normalized == "UNKNOWN"):
+            if "SUPPLY_STATUS_UNKNOWN" not in issues:
+                issues.append("SUPPLY_STATUS_UNKNOWN")
+        if not valid_presence:
+            issues.append("SUPPLY_PRESENCE_INVALID")
+        if not valid_source_status:
+            issues.append("SUPPLY_SOURCE_STATUS_INVALID")
+        if not complete_scope and presence == "MISSING":
+            issues.append("SUPPLY_MISSING_SCOPE_INCOMPLETE")
+        if not complete_pages and presence == "MISSING":
+            issues.append("SUPPLY_MISSING_PAGINATION_INCOMPLETE")
+        if store is None:
+            issues.append("STORE_ID_INVALID")
+        if reference_digest is None:
+            issues.append("SUPPLY_REFERENCE_DIGEST_INVALID")
+        if captured is None:
+            issues.append("CAPTURE_TIMESTAMP_INVALID")
+        if fingerprint is None:
+            issues.append("SUPPLY_FINGERPRINT_INVALID")
+        if presence == "PRESENT" and order is None:
+            issues.append("SUPPLY_ORDER_ID_INVALID")
+        if presence == "MISSING":
+            raw = None
+            normalized = "UNKNOWN"
+            order = None
+        valid = not any(code.endswith("INVALID") for code in issues) and valid_presence and valid_source_status
+        if presence == "MISSING" and (not complete_scope or not complete_pages):
+            valid = False
+        status = presence if valid else "INVALID"
+        return FifoActiveSupplySnapshot(
+            status=status,
+            source_status=str(source_status) if valid_source_status else "PARTIAL",
+            store_id=store,
+            supply_reference_digest=reference_digest,
+            order_ref=self._digest("ORDER", order) if order else None,
+            captured_at=captured,
+            raw_status=raw,
+            normalized_status=normalized,
+            scope_complete=complete_scope,
+            pagination_complete=complete_pages,
+            presence=presence if valid_presence else "MISSING",
+            source_fingerprint=fingerprint,
+            issue_codes=tuple(dict.fromkeys(issues)),
+        )
 
     def normalize_stock_snapshot(
         self,

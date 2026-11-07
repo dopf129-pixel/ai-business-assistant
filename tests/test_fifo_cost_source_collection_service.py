@@ -7,6 +7,10 @@ import pytest
 from services.fifo_cost_source_collection_service import (
     FifoCostSourceCollectionService,
 )
+from services.fifo_cost_transition_contracts import (
+    SupplyReferenceKind,
+    supply_reference_digest,
+)
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
     current_period_profit_trace,
@@ -24,6 +28,7 @@ class _FakeOzonClient:
         self.summary = None
         self.products = None
         self.request_options = []
+        self.list_state_filters = []
         self.stock_response = {
             "total_items": 1,
             "items": [{
@@ -55,6 +60,7 @@ class _FakeOzonClient:
 
     def get_supply_orders_list(self, _states, *, last_id=None, **options):
         self.request_options.append(options)
+        self.list_state_filters.append(tuple(_states))
         error = self._request("list", options.get("request_attempt_observer"))
         if error:
             return error
@@ -466,6 +472,7 @@ def test_found_supply_uses_fact_quantity_and_hides_raw_source_ids():
     assert result.supply_snapshot.effective_at is None
     assert result.supply_snapshot.order_ref
     assert result.supply_snapshot.order_ref != "11"
+    assert client.list_state_filters == [("COMPLETED",)]
     assert result.actual_http_attempts == 4
     assert "2001" not in repr(result)
     assert "3001" not in repr(result)
@@ -648,3 +655,114 @@ def test_search_page_cap_is_enforced_and_token_expires():
     assert expired.status == "CONFLICT"
     assert "FIFO_SUPPLY_CHECKPOINT_EXPIRED" in expired.issue_codes
     assert len(client.calls) == 2
+
+
+def test_active_supply_observer_finds_receiving_without_requesting_receipt_units():
+    client = _FakeOzonClient()
+    client.list_pages = [{"order_ids": [11], "last_id": None}]
+    client.details_by_id["11"] = {
+        "order_id": 11,
+        "state": "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+        "supplies": [{
+            "supply_id": 2001,
+            "state": "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+            "is_crossdock": True,
+        }],
+    }
+
+    result = _service(client).observe_active_supply_by_id(
+        2001, owner_id="owner-a",
+        identity=IDENTITY, store_id="store-a", tenant_scope="owner:1",
+    )
+
+    assert result.status == "PRESENT"
+    assert result.source_status == "COMPLETE"
+    assert result.actual_http_attempts == 2
+    assert result.supply_snapshot.presence == "PRESENT"
+    assert result.supply_snapshot.raw_status == "ACCEPTANCE_AT_STORAGE_WAREHOUSE"
+    assert result.supply_snapshot.normalized_status == "RECEIVING"
+    assert result.supply_snapshot.supply_reference_digest == supply_reference_digest(
+        owner_id="owner-a", store_id="store-a",
+        reference_kind=SupplyReferenceKind.SUPPLY, reference_id="2001",
+    )
+    assert result.supply_snapshot.order_ref != "11"
+    assert "2001" not in repr(result.supply_snapshot)
+    assert set(client.list_state_filters[0]) == set(
+        _service(client).ACTIVE_SUPPLY_STATES
+    )
+    assert "COMPLETED" in client.list_state_filters[0]
+    assert "IN_TRANSIT" in client.list_state_filters[0]
+    assert client.calls == ["list", "details"]
+
+
+def test_active_supply_missing_is_emitted_only_after_complete_lookup():
+    client = _FakeOzonClient()
+    client.list_pages = [{"order_ids": [11], "last_id": None}]
+    client.details_by_id["11"] = _completed_order(
+        11, [{"supply_id": 3002, "state": "COMPLETED"}],
+    )
+
+    result = _service(client).observe_active_supply_by_id(
+        2001, owner_id="owner-a",
+        identity=IDENTITY, store_id="store-a", tenant_scope="owner:1",
+    )
+
+    assert result.status == "MISSING"
+    assert result.source_status == "COMPLETE"
+    assert result.supply_snapshot.presence == "MISSING"
+    assert result.supply_snapshot.scope_complete is True
+    assert result.supply_snapshot.pagination_complete is True
+    assert result.supply_snapshot.normalized_status == "UNKNOWN"
+    assert result.supply_snapshot.raw_status is None
+    assert "2001" not in repr(result.supply_snapshot)
+
+
+def test_active_supply_partial_page_is_not_reported_missing_and_can_resume():
+    client = _FakeOzonClient()
+    client.list_pages = [
+        {"order_ids": [11], "last_id": "cursor-A"},
+        {"order_ids": [], "last_id": None},
+    ]
+    client.details_by_id["11"] = _completed_order(
+        11, [{"supply_id": 3002, "state": "COMPLETED"}],
+    )
+    service = _service(client)
+
+    partial = service.observe_active_supply_by_id(
+        2001, owner_id="owner-a",
+        identity=IDENTITY, store_id="store-a", tenant_scope="owner:1",
+        max_pages_per_call=1,
+    )
+    assert partial.status == "PARTIAL"
+    assert partial.supply_snapshot is None
+    assert partial.continuation_token
+
+    missing = service.observe_active_supply_by_id(
+        2001, owner_id="owner-a",
+        identity=IDENTITY, store_id="store-a", tenant_scope="owner:1",
+        checkpoint_token=partial.continuation_token,
+    )
+    assert missing.status == "MISSING"
+    assert missing.supply_snapshot.presence == "MISSING"
+    assert missing.supply_snapshot.pagination_complete is True
+    assert client.calls == ["list", "details", "list"]
+
+
+def test_active_supply_unknown_state_is_visible_not_filtered():
+    client = _FakeOzonClient()
+    client.list_pages = [{"order_ids": [11], "last_id": None}]
+    client.details_by_id["11"] = {
+        "order_id": 11,
+        "state": "COMPLETED",
+        "supplies": [{"supply_id": 2001, "state": "NEW_VENDOR_STATUS"}],
+    }
+
+    result = _service(client).observe_active_supply_by_id(
+        2001, owner_id="owner-a",
+        identity=IDENTITY, store_id="store-a", tenant_scope="owner:1",
+    )
+
+    assert result.status == "PRESENT"
+    assert result.supply_snapshot.raw_status == "NEW_VENDOR_STATUS"
+    assert result.supply_snapshot.normalized_status == "UNKNOWN"
+    assert "SUPPLY_STATUS_UNKNOWN" in result.issue_codes
