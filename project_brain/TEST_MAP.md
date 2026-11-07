@@ -1,3 +1,9 @@
+# 2026-11-07 — повторные FIFO review-regressions R1–R3
+
+- `tests/test_fifo_cost_period_profit_source_service.py`: allowlisted historical-SKU mapping selects the exact catalog FIFO stream for both mode lookup and allocation query; an unknown alias source blocks instead of selecting legacy cost.
+- `tests/test_telegram_fifo_cost_history.py`: stale cancel callbacks after anchor/rate commits return the committed result; anchor wizard rejects over-limit quantities and layer counts without losing the draft, and rejects aggregate event/reference overflow before preview while permitting correction of the current layer.
+- Verification: linked FIFO/Period Profit/Telegram/anchor profile **61 passed in 1.69s**; full Windows pytest **4,826 passed in 50.90s**; `compileall` and `git diff --check` PASS. Full-suite data wrapper restored **5/5** original `data/` files by SHA-256.
+
 # 2026-11-07 — follow-up FIFO review regressions R1–R3
 
 - tests/test_store_period_profit_fifo_guard.py: active/overlapping cutoff mode and FIFO scope read errors block before finance/current-cost; pre-cutoff keeps the legacy path; SalesContextProvider does not report declining sales when FIFO evidence is unavailable.

@@ -9,6 +9,7 @@ from threading import RLock
 from time import monotonic
 from uuid import uuid4
 
+from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
 
@@ -17,7 +18,21 @@ class TelegramFifoCostAnchorEntryService:
     CALLBACK_PREFIX = "fifo_anchor"
     TTL_SECONDS = 15 * 60
     MAX_PENDING = 128
-    MAX_LAYERS = 100
+    MAX_EVENT_UNITS = FifoCostAnchorService.MAX_EVENT_UNITS
+    MAX_STREAM_UNITS = FifoCostAnchorService.MAX_STREAM_UNITS
+    MAX_COMMAND_EVENTS = FifoCostAnchorService.MAX_COMMAND_EVENTS
+    MAX_REFERENCES_PER_SOURCE = FifoCostAnchorService.MAX_REFERENCES_PER_SOURCE
+    # Every layer contributes three zone entries, each either a positive
+    # command event or an explicit zero-stock reference.
+    MAX_LAYERS = min(
+        FifoCostAnchorService.MAX_LAYERS,
+        (MAX_COMMAND_EVENTS + MAX_REFERENCES_PER_SOURCE) // 3,
+    )
+    _CAPACITY_ERRORS = frozenset({
+        "FIFO_COMMAND_EVENT_LIMIT",
+        "FIFO_SOURCE_REFERENCE_LIMIT",
+        "FIFO_STREAM_QUANTITY_LIMIT",
+    })
 
     def __init__(self, history_service, anchor_service, *, date_provider=None):
         self.history_service = history_service
@@ -103,15 +118,26 @@ class TelegramFifoCostAnchorEntryService:
             if row is None:
                 return self._input_error(
                     "Для партии введите четыре значения через точку с запятой: "
-                    "себестоимость ₽; на Ozon; в пути; дома. Например: 120,50; 40; 0; 3"
+                    f"себестоимость ₽; на Ozon; в пути; дома. Количество в каждой зоне — "
+                    f"от 0 до {self.MAX_EVENT_UNITS:,}. Например: 120,50; 40; 0; 3"
                 )
             with self._lock:
                 draft = self._pending.get(owner)
                 if not isinstance(draft, dict) or draft.get("step") != "layer":
                     return self._stale()
                 sequence = len(draft["layers"]) + 1
-                draft["layers"].append({"sequence": sequence, **row})
+                candidate_layers = [
+                    *draft["layers"], {"sequence": sequence, **row},
+                ]
                 count = draft["layer_count"]
+                capacity_error = self._layer_capacity_error(
+                    candidate_layers, total_layer_count=count,
+                )
+                if capacity_error:
+                    return self._input_error(
+                        self._capacity_error_message(capacity_error)
+                    )
+                draft["layers"] = candidate_layers
                 if sequence < count:
                     return self._layer_prompt(sequence + 1, count)
                 draft["step"] = "layer_order_confirmation"
@@ -166,13 +192,13 @@ class TelegramFifoCostAnchorEntryService:
             if draft.get("tenant_scope") != self._tenant_scope():
                 self._pending.pop(owner, None)
                 return self._stale()
+            if draft.get("committed_result") is not None:
+                return dict(draft["committed_result"])
             if action == "cancel":
                 self._pending.pop(owner, None)
                 return self._prompt("Начальная FIFO-очередь не записана. Данные не изменились.")
             if draft.get("step") != "confirm" or not isinstance(draft.get("preview"), dict):
                 return self._stale()
-            if draft.get("committed_result") is not None:
-                return dict(draft["committed_result"])
 
         current = self.history_service.get_sku_history(**draft["identity"])
         if (
@@ -227,6 +253,21 @@ class TelegramFifoCostAnchorEntryService:
             expected_revision=snapshot["revision"],
         )
         if not isinstance(preview, dict) or preview.get("error") is not False:
+            code = preview.get("code") if isinstance(preview, dict) else None
+            if code in self._CAPACITY_ERRORS:
+                with self._lock:
+                    current = self._pending.get(owner)
+                    if (
+                        isinstance(current, dict)
+                        and current.get("draft_id") == snapshot.get("draft_id")
+                        and current.get("layers")
+                    ):
+                        current["layers"].pop()
+                        current["step"] = "layer"
+                return self._input_error(
+                    "Проверка обнаружила превышение лимита хранения. Черновик сохранён; "
+                    "повторно введите последнюю партию с допустимыми количествами."
+                )
             self.clear_pending(owner)
             return self._failure("Не удалось проверить остатки и партии. Ничего не записано; начните заново.")
         with self._lock:
@@ -294,6 +335,66 @@ class TelegramFifoCostAnchorEntryService:
             "Например: 120,50; 40; 0; 3"
         )
 
+    @classmethod
+    def _layer_capacity_error(cls, layers, *, total_layer_count):
+        event_count = 0
+        reference_count = 0
+        total_units = 0
+        for layer in layers:
+            for field in ("ozon_units", "transit_units", "home_units"):
+                quantity = layer[field]
+                if quantity:
+                    event_count += 1
+                    total_units += quantity
+                else:
+                    reference_count += 1
+
+        if event_count > cls.MAX_COMMAND_EVENTS:
+            return "events"
+        if reference_count > cls.MAX_REFERENCES_PER_SOURCE:
+            return "references"
+
+        remaining_layers = total_layer_count - len(layers)
+        if remaining_layers < 0:
+            return "layers"
+        event_capacity = cls.MAX_COMMAND_EVENTS - event_count
+        reference_capacity = cls.MAX_REFERENCES_PER_SOURCE - reference_count
+        future_zone_count = 3 * remaining_layers
+        minimum_future_events = max(
+            remaining_layers,
+            future_zone_count - reference_capacity,
+        )
+        maximum_future_events = min(future_zone_count, event_capacity)
+        if minimum_future_events > maximum_future_events:
+            return "future_capacity"
+        if total_units + remaining_layers > cls.MAX_STREAM_UNITS:
+            return "stream_quantity"
+        return None
+
+    @classmethod
+    def _capacity_error_message(cls, code):
+        if code == "events":
+            return (
+                f"Слишком много заполненных зон: хранилище принимает не более "
+                f"{cls.MAX_COMMAND_EVENTS} записей за один начальный остаток. "
+                "Партия не добавлена; скорректируйте её и отправьте повторно."
+            )
+        if code == "references":
+            return (
+                f"Слишком много нулевых зон: хранилище принимает не более "
+                f"{cls.MAX_REFERENCES_PER_SOURCE} подтверждений. "
+                "Партия не добавлена; скорректируйте её и отправьте повторно."
+            )
+        if code == "stream_quantity":
+            return (
+                f"Общее количество превышает лимит {cls.MAX_STREAM_UNITS:,} единиц. "
+                "Партия не добавлена; скорректируйте её и отправьте повторно."
+            )
+        return (
+            "Это распределение не оставляет допустимых лимитов для оставшихся партий. "
+            "Партия не добавлена; измените её и отправьте повторно."
+        )
+
     def _today(self):
         try:
             value = self.date_provider()
@@ -321,7 +422,10 @@ class TelegramFifoCostAnchorEntryService:
             return None
         if not cost.is_finite() or cost < 0 or cost > Decimal("1000000000"):
             return None
-        quantities = [cls._parse_int(item, minimum=0, maximum=1_000_000) for item in parts[1:]]
+        quantities = [
+            cls._parse_int(item, minimum=0, maximum=cls.MAX_EVENT_UNITS)
+            for item in parts[1:]
+        ]
         if any(item is None for item in quantities) or sum(quantities) <= 0:
             return None
         return {

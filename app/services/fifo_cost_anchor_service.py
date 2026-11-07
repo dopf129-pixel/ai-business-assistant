@@ -20,6 +20,8 @@ class FifoCostAnchorService:
     MAX_LAYERS = 100
     MAX_EVENT_UNITS = FifoCostRepository.MAX_EVENT_QUANTITY
     MAX_STREAM_UNITS = FifoCostRepository.MAX_COMMAND_UNITS
+    MAX_COMMAND_EVENTS = FifoCostRepository.MAX_COMMAND_EVENTS
+    MAX_REFERENCES_PER_SOURCE = FifoCostRepository.MAX_REFERENCES_PER_SOURCE
     _ZONES = (
         ("ozon_units", "OZON"),
         ("transit_units", "TRANSIT"),
@@ -103,9 +105,9 @@ class FifoCostAnchorService:
                     "location_to": location,
                     "currency": "RUB",
                 })
-        if len(events) > FifoCostRepository.MAX_COMMAND_EVENTS:
+        if len(events) > self.MAX_COMMAND_EVENTS:
             return self._error("FIFO_COMMAND_EVENT_LIMIT")
-        if len(zero_confirmation_refs) > FifoCostRepository.MAX_REFERENCES_PER_SOURCE:
+        if len(zero_confirmation_refs) > self.MAX_REFERENCES_PER_SOURCE:
             return self._error("FIFO_SOURCE_REFERENCE_LIMIT")
 
         captured_at = self._captured_at()

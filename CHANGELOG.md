@@ -1,3 +1,10 @@
+# 2026-11-07 — повторные исправления FIFO review (PR #726)
+
+- Подтверждённый `catalog_sku` теперь выбирает нужный FIFO-поток только для allowlist источников восстановления; финансовый SKU остаётся идентичностью продажи, а неизвестное соответствие блокируется без перехода на legacy-себестоимость.
+- Старые кнопки отмены после сохранения начального остатка или новой ставки возвращают результат сохранения и не сообщают, что запись отменена.
+- Мастер начальных FIFO-слоёв использует ограничения хранилища: проверяет максимум 66 слоёв, 100 000 единиц на зону, общий объём и совокупные лимиты событий/нулевых подтверждений. Ошибочную последнюю партию можно исправить без повторного ввода предыдущих.
+- Регрессии: 61 связанный тест; полный Windows pytest — 4 826 passed. `compileall`, `git diff --check` и проверка восстановления всех 5 файлов `data/` прошли.
+
 # 2026-11-07 — FIFO review fixes R1–R3 (PR #726)
 
 - Legacy store-period sales analytics now checks the exact SKU's FIFO cutoff before reading current legacy cost. Active/overlapping FIFO periods, and unavailable scope checks, fail closed; pre-cutoff periods keep the existing legacy cost-resolution path.

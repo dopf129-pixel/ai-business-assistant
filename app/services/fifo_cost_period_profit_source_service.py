@@ -22,6 +22,18 @@ class FifoCostPeriodProfitSourceService:
     falls back to the current unit rate.
     """
 
+    _CONFIRMED_CATALOG_SKU_SOURCES = frozenset({
+        "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_SKU",
+        "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID",
+        "OZON_RELATED_SKU_TO_CURRENT_CATALOG",
+        "OZON_RELATED_SKU_TO_SELLER_COST_IDENTITY",
+        "OZON_FINANCE_UNIT_TO_FBO_POSTING_OFFER_ID",
+        "OZON_REALIZATION_POSTING_TO_CURRENT_CATALOG_OFFER_ID",
+        "OZON_FBO_SNAPSHOT_TO_CURRENT_CATALOG_OFFER_ID",
+        "OZON_FBO_POSTING_OFFER_ID",
+        "SELLER_CONFIRMED_PRODUCT_IDENTITY_MAPPING",
+    })
+
     def __init__(self, repository: FifoCostRepository | None = None, tenant_scope_provider=None):
         self.repository = repository or FifoCostRepository()
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
@@ -229,6 +241,18 @@ class FifoCostPeriodProfitSourceService:
         sku = self._text(product.get("sku"))
         if not sku or not product_id and not offer_id:
             return self._error("FIFO_COST_PRODUCT_IDENTITY_INVALID")
+        catalog_sku = self._text(product.get("catalog_sku"))
+        if catalog_sku and catalog_sku != sku:
+            source = self._text(product.get("historical_sku_identity_source"))
+            if (
+                product.get("historical_sku_identity_recovered") is not True
+                or source not in self._CONFIRMED_CATALOG_SKU_SOURCES
+            ):
+                return self._error("FIFO_COST_PRODUCT_IDENTITY_INVALID")
+            # Finance SKU remains the sale/digest identity. The exact current
+            # catalog SKU selects the separately anchored FIFO cost stream only
+            # after an allowlisted identity-recovery service proved the mapping.
+            sku = catalog_sku
         return {
             "error": False, "store_id": store_id,
             "product_id": product_id, "offer_id": offer_id, "sku": sku,

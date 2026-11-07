@@ -16,8 +16,11 @@ class _Repository:
         self.allocations = allocations or []
         self.cutoff_date = cutoff_date
         self.summary_calls = 0
+        self.summary_scope_calls = []
+        self.mode_calls = []
 
-    def read_cost_mode_status(self, **_kwargs):
+    def read_cost_mode_status(self, **kwargs):
+        self.mode_calls.append(dict(kwargs))
         return {
             "error": False, "active": self.active,
             "code": "FIFO_COST_MODE_FIFO" if self.active else "FIFO_COST_MODE_LEGACY",
@@ -25,8 +28,9 @@ class _Repository:
             "cutoff_date": self.cutoff_date,
         }
 
-    def read_period_allocation_summary(self, **_kwargs):
+    def read_period_allocation_summary(self, **kwargs):
         self.summary_calls += 1
+        self.summary_scope_calls.append(dict(kwargs))
         return {
             "error": False, "active": self.active,
             "complete": self.complete,
@@ -36,10 +40,10 @@ class _Repository:
         }
 
 
-def _digest():
+def _digest(*, posting_number="opaque-posting", finance_sku="sku-1"):
     return FifoCostSaleEvidenceNormalizer.build_identity_digest(
-        store_id="store-a", posting_number="opaque-posting",
-        finance_sku="sku-1", identity={
+        store_id="store-a", posting_number=posting_number,
+        finance_sku=finance_sku, identity={
             "mapping_confirmed": True,
             "offer_id": "offer-1", "product_id": "product-1",
         },
@@ -184,6 +188,68 @@ def test_uninitialized_scope_stays_on_legacy_cost_mode():
     result = service.get_scope_mode(_product())
     assert result["error"] is False
     assert result["active"] is False
+
+
+def test_confirmed_historical_finance_sku_mapping_selects_catalog_fifo_stream():
+    repository = _Repository(active=True, allocations=[{
+        "source_identity_digest": _digest(
+            posting_number="mapped-posting", finance_sku="old-finance-sku",
+        ),
+        "effective_date": "2026-11-02", "quantity": 1,
+        "total_cogs_rub": "20.00",
+    }])
+    service = _service(repository)
+    product = {
+        "product_id": "product-1",
+        "offer_id": "offer-1",
+        "sku": "old-finance-sku",
+        "catalog_sku": "current-catalog-sku",
+        "historical_sku_identity_recovered": True,
+        "historical_sku_identity_source": (
+            "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+        ),
+    }
+
+    result = service.get_scope_mode(product)
+
+    assert result["error"] is False
+    assert result["active"] is True
+    assert result["sku"] == "current-catalog-sku"
+    assert repository.mode_calls[0]["sku"] == "current-catalog-sku"
+
+    reconciled = service.reconcile_period_sales(
+        product=product,
+        finance_sku="old-finance-sku",
+        date_from="2026-11-02",
+        date_to="2026-11-02",
+        sales=[{"posting_number": "mapped-posting", "quantity": 1}],
+    )
+    assert reconciled["error"] is False
+    assert reconciled["active"] is True
+    assert reconciled["complete"] is True
+    assert reconciled["product_cost"] == "20.00"
+    assert repository.mode_calls[-1]["sku"] == "current-catalog-sku"
+    assert repository.summary_scope_calls[0]["sku"] == "current-catalog-sku"
+
+
+def test_unconfirmed_catalog_sku_alias_blocks_instead_of_falling_back_to_legacy():
+    repository = _Repository(active=False)
+    service = _service(repository)
+    product = {
+        "product_id": "product-1",
+        "offer_id": "offer-1",
+        "sku": "old-finance-sku",
+        "catalog_sku": "unverified-catalog-sku",
+        "historical_sku_identity_recovered": True,
+        "historical_sku_identity_source": "UNRECOGNIZED_MAPPING_SOURCE",
+    }
+
+    result = service.get_scope_mode(product)
+
+    assert result == {
+        "error": True, "code": "FIFO_COST_PRODUCT_IDENTITY_INVALID",
+    }
+    assert repository.mode_calls == []
 
 
 def test_pre_cutoff_period_uses_legacy_mode_after_fifo_was_activated():

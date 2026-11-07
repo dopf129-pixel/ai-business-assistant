@@ -489,8 +489,11 @@ def test_new_rate_flow_commits_to_fifo_without_changing_old_layers(tmp_path):
             result = entry.handle_text(101, value)
         assert result["fifo_rate_confirmation_pending"] is True
         callback = result["keyboard"]["buttons"][0]["callback"]
+        cancel_callback = result["keyboard"]["buttons"][1]["callback"]
         saved = entry.handle_callback(101, callback)
+        stale_cancel = entry.handle_callback(101, cancel_callback)
         assert saved["fifo_rate_saved"] is True
+        assert stale_cancel == saved
 
         snapshot = history.get_sku_history(
             **IDENTITY,
@@ -662,11 +665,15 @@ def test_initial_anchor_is_reachable_and_confirmed_through_telegram_adapter(tmp_
         saved = adapter.handle_button(
             confirmation["keyboard"]["buttons"][0]["callback"], user_id=101,
         )
+        stale_cancel = adapter.handle_button(
+            confirmation["keyboard"]["buttons"][1]["callback"], user_id=101,
+        )
         snapshot = history.get_sku_history(**IDENTITY)
     finally:
         reset_current_tenant_user_id(tenant)
 
     assert saved["fifo_anchor_saved"] is True
+    assert stale_cancel == saved
     assert "не включена" in saved["message"]
     assert snapshot["queue_initialized"] is True
     assert snapshot["cutoff_date"] == "2026-11-05"
@@ -705,6 +712,97 @@ def test_initial_anchor_order_rejection_clears_draft_without_writing(tmp_path):
     assert snapshot["error"] is False
     assert snapshot["queue_initialized"] is False
     assert snapshot["revision"] == 0
+
+
+def test_initial_anchor_wizard_preflights_zone_event_and_zero_reference_limits(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        scenarios = (
+            # 51 rows with one positive zone would exceed the 100 zero-reference cap.
+            ("references", 51, "10; 1; 0; 0", "10; 1; 1; 1", 53),
+            # 34 rows with three positive zones would exceed the 100 event cap.
+            ("events", 34, "10; 1; 1; 1", "10; 1; 0; 0", 100),
+        )
+        for name, count, repeated_layer, corrected_layer, expected_events in scenarios:
+            repository = FifoCostRepository(
+                db_path=tmp_path / f"telegram-fifo-limit-{name}.sqlite",
+                now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+            )
+            history = FifoCostHistoryService(
+                repository, date_provider=lambda: date(2026, 11, 6),
+            )
+            anchor_service = FifoCostAnchorService(repository)
+            previews = []
+            original_preview = anchor_service.preview_opening_anchor
+
+            def capture_preview(**kwargs):
+                result = original_preview(**kwargs)
+                previews.append(result)
+                return result
+
+            anchor_service.preview_opening_anchor = capture_preview
+            entry = TelegramFifoCostAnchorEntryService(
+                history, anchor_service,
+                date_provider=lambda: date(2026, 11, 6),
+            )
+            assert entry.start(101, IDENTITY, "Крючки", 0)["error"] is False
+            entry.handle_text(101, "2026-11-05")
+            entry.handle_text(101, str(count))
+
+            for _ in range(count - 1):
+                accepted = entry.handle_text(101, repeated_layer)
+                assert accepted["error"] is False, accepted
+
+            rejected = entry.handle_text(101, repeated_layer)
+            assert rejected["error"] is False
+            assert rejected["handled"] is True
+            assert "Партия не добавлена" in rejected["message"]
+
+            corrected = entry.handle_text(101, corrected_layer)
+            assert corrected["error"] is False, corrected
+            assert "от самой старой к самой новой" in corrected["message"]
+            entry.handle_text(101, "ДА")
+            entry.handle_text(101, "ДА")
+            preview = entry.handle_text(101, "ДА")
+
+            assert preview["error"] is False, preview
+            assert preview["fifo_anchor_confirmation_pending"] is True
+            assert previews[0]["error"] is False
+            assert previews[0]["event_count"] == expected_events
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_initial_anchor_wizard_zone_limit_and_layer_count_are_correctable(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "telegram-fifo-single-zone-limit.sqlite",
+            now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(
+            repository, date_provider=lambda: date(2026, 11, 6),
+        )
+        entry = TelegramFifoCostAnchorEntryService(
+            history, FifoCostAnchorService(repository),
+            date_provider=lambda: date(2026, 11, 6),
+        )
+        entry.start(101, IDENTITY, "Крючки", 0)
+        entry.handle_text(101, "2026-11-05")
+        rejected_count = entry.handle_text(101, str(entry.MAX_LAYERS + 1))
+        assert rejected_count["error"] is False
+        assert f"1 до {entry.MAX_LAYERS}" in rejected_count["message"]
+
+        entry.handle_text(101, "1")
+        too_many_units = entry.handle_text(101, "10; 100001; 0; 0")
+        assert too_many_units["error"] is False
+        assert "100,000" in too_many_units["message"]
+
+        accepted = entry.handle_text(101, "10; 100000; 0; 0")
+        assert accepted["error"] is False
+        assert "от самой старой к самой новой" in accepted["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
 
 
 def test_initial_zero_stock_rate_is_owner_confirmed_persisted_and_plannable(tmp_path):

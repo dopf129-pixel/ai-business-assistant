@@ -222,6 +222,8 @@ class TelegramFifoCostRateEntryService:
             if pending.get("tenant_scope") != self._tenant_scope():
                 self._pending.pop(owner, None)
                 return self._stale()
+            if pending.get("step") == "committed":
+                return dict(pending["committed_result"])
             if action == "cancel":
                 self._pending.pop(owner, None)
                 return {
@@ -230,8 +232,6 @@ class TelegramFifoCostRateEntryService:
                     "message": "Новая себестоимость не сохранена.",
                     "read_only_ozon": True,
                 }
-            if pending.get("step") == "committed":
-                return dict(pending["committed_result"])
             if pending.get("step") != "confirm":
                 return self._stale()
             result = self.rate_service.confirm_new_cost(
