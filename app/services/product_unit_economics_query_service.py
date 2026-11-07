@@ -1,8 +1,10 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from hashlib import sha256
 from math import isfinite
 from time import monotonic
+from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
 from services.product_unit_economics_historical_pre_ad_margin_service import (
     ProductUnitEconomicsHistoricalPreAdMarginService,
@@ -94,6 +96,7 @@ class ProductUnitEconomicsQueryService:
         cache_clock=None,
         cache_timestamp_provider=None,
         historical_pre_ad_margin_service=None,
+        cost_adapter=None,
     ):
         self.product_service = product_service
         self.period_profit_service = period_profit_service
@@ -105,6 +108,7 @@ class ProductUnitEconomicsQueryService:
             current_economics_source
         )
         self.cost_service = cost_service
+        self.cost_adapter = cost_adapter
         self.current_finance_days = max(
             1,
             int(current_finance_days)
@@ -183,15 +187,30 @@ class ProductUnitEconomicsQueryService:
             }
         product = normalized_product
 
-        cache_key = str(
-            product.get("offer_id")
-            or product.get("sku")
-            or target_sku
+        tenant_scope = str(get_current_tenant_user_id() or "").strip() or None
+        _owner, active_store = split_store_tenant_scope(tenant_scope)
+        cost_date = self._current_cost_date_scope()
+        cost_evidence = (
+            self._resolve_current_cost_basis(product, active_store, cost_date)
+            if self.current_economics_source is not None
+            and self.cost_adapter is not None else None
         )
         cache_key = (
-            str(get_current_tenant_user_id() or "").strip() or None,
-            cache_key,
+            tenant_scope,
+            str(active_store or ""),
+            str(product.get("product_id") or ""),
+            str(product.get("offer_id") or ""),
+            str(product.get("sku") or target_sku),
+            str(cost_date or ""),
+            str(cost_evidence.get("cost_revision") or "")
+            if isinstance(cost_evidence, dict) else "",
         )
+        if isinstance(cost_evidence, dict):
+            # Keep only the current fingerprint for this exact store/SKU/date;
+            # restores and corrections must not leave reusable old snapshots.
+            for previous_key in tuple(self._query_cache):
+                if previous_key != cache_key and previous_key[:6] == cache_key[:6]:
+                    self._query_cache.pop(previous_key, None)
         cached = self._query_cache.get(cache_key)
         now = self.cache_clock()
 
@@ -212,7 +231,8 @@ class ProductUnitEconomicsQueryService:
         if self.current_economics_source is not None:
             result = self._query_current(
                 target_sku,
-                product
+                product,
+                cost_evidence=cost_evidence,
             )
         else:
             result = self._query_historical(
@@ -290,6 +310,20 @@ class ProductUnitEconomicsQueryService:
             # Let the next explicit query resume the bounded source checkpoint.
             return False
 
+        cost_basis = result.get("cost_basis")
+        if (
+            result.get("source") == "current"
+            and isinstance(cost_basis, dict)
+            and cost_basis.get("completeness") not in {
+                "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+                "CONFIRMED_REPLAY_MODEL_ONLY",
+                "LEGACY_EFFECTIVE_COST_CONFIRMED",
+            }
+        ):
+            # Retry an incomplete FIFO read on the next query instead of
+            # caching it as a settled cost for the normal economics TTL.
+            return False
+
         return True
 
     def _with_cache_metadata(
@@ -325,7 +359,7 @@ class ProductUnitEconomicsQueryService:
             return value.astimezone(timezone.utc).isoformat()
         return str(value)
 
-    def _query_current(self, sku, product):
+    def _query_current(self, sku, product, *, cost_evidence=None):
         offer_id = product.get("offer_id") or sku
         finance_sku = product.get("sku")
         accrual_dates = self._recent_complete_dates()
@@ -353,12 +387,13 @@ class ProductUnitEconomicsQueryService:
                 sku,
                 facts,
                 accrual_dates=accrual_dates,
+                cost_evidence=cost_evidence,
             )
 
-        cost = self._current_cost(
-            facts,
-            product
-        )
+        if isinstance(cost_evidence, dict):
+            cost = cost_evidence.get("cost_per_unit_rub")
+        else:
+            cost = self._current_cost(facts, product)
         prepared_facts = dict(facts)
         prepared_facts["tax_base_policy"] = (
             self.current_tax_base_policy
@@ -377,6 +412,13 @@ class ProductUnitEconomicsQueryService:
             "source": "current",
             **metric
         }
+        if isinstance(cost_evidence, dict):
+            result["cost_basis"] = deepcopy(
+                cost_evidence.get("cost_basis") or {}
+            )
+            result["cost_method"] = cost_evidence.get("cost_method")
+            result["cost_revision"] = cost_evidence.get("cost_revision")
+            result["cost_as_of"] = cost_evidence.get("cost_updated_at")
         result["note"] = self._build_current_note(
             result
         )
@@ -1034,6 +1076,7 @@ class ProductUnitEconomicsQueryService:
                 result.get("cost"),
                 price
             ),
+            *self._format_current_cost_basis(result.get("cost_basis")),
             "",
             "Налог:",
             self._format_money_with_share(
@@ -1112,6 +1155,53 @@ class ProductUnitEconomicsQueryService:
             lines.extend(["", note])
 
         return "\n".join(lines)
+
+    @classmethod
+    def _format_current_cost_basis(cls, basis):
+        if not isinstance(basis, dict):
+            return []
+        methods = {
+            "FIFO_FINITE_LAYER": "FIFO: следующая единица из текущего слоя",
+            "FIFO_OPEN_RATE": "FIFO: открытая ставка, остаток слоя неизвестен",
+            "FIFO_UNAVAILABLE": "FIFO: следующая стоимость не подтверждена",
+            "LEGACY_EFFECTIVE_DATED": "датированная себестоимость (FIFO ещё не задан)",
+            "LEGACY_UNAVAILABLE": "датированная себестоимость не найдена",
+            "UNAVAILABLE": "источник себестоимости недоступен",
+        }
+        method = methods.get(str(basis.get("method") or ""))
+        lines = [method + "."] if method else []
+        as_of = str(basis.get("as_of_date") or "")
+        cutoff = str(basis.get("cutoff_date") or "")
+        if as_of:
+            lines.append("Срез себестоимости на " + as_of + ".")
+        if cutoff:
+            lines.append("Точка фактической отсечки FIFO: " + cutoff + ".")
+        remaining = basis.get("next_layer_remaining_units")
+        if type(remaining) is int and remaining >= 0:
+            lines.append(f"Остаток текущего слоя: {remaining} шт.")
+        planned = basis.get("next_planned_rate")
+        if isinstance(planned, dict):
+            amount = cls._breakdown_decimal(planned.get("unit_cost_rub"))
+            effective = str(planned.get("effective_date") or "")
+            if amount is not None:
+                lines.append(
+                    "Следующая ставка: " + f"{amount:.2f} ₽/шт."
+                    + (" с " + effective if effective else "")
+                    + "; она не подменяет текущий FIFO-слой."
+                )
+        completeness = str(basis.get("completeness") or "")
+        if completeness in {
+            "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "CONFIRMED_REPLAY_MODEL_ONLY",
+            "LEGACY_EFFECTIVE_COST_CONFIRMED",
+        }:
+            lines.append("Полнота себестоимости: подтверждена для текущей плановой оценки.")
+        else:
+            reason = str(basis.get("reason_code") or completeness or "данные неполны")
+            lines.append("Расчёт неполный: " + reason + "; себестоимость не подставлена.")
+        if basis.get("model_only") is True:
+            lines.append("FIFO-себестоимость используется только для плановой оценки.")
+        return lines
 
     def _format_pre_ad_summary(self, result):
         projection = result.get("pre_ad_margin")
@@ -1794,6 +1884,57 @@ class ProductUnitEconomicsQueryService:
 
         return None
 
+    def _current_cost_date_scope(self):
+        getter = getattr(
+            self.cost_adapter or self.cost_service,
+            "get_current_cost_date",
+            None,
+        )
+        if not callable(getter):
+            return None
+        try:
+            value = getter()
+        except Exception:
+            return None
+        return str(value) if value else None
+
+    def _resolve_current_cost_basis(self, product, store_id, cost_date):
+        try:
+            resolved = self.cost_adapter.resolve_current_cost(
+                product,
+                store_id=store_id,
+                as_of_date=cost_date,
+            )
+        except Exception:
+            resolved = None
+        if (
+            not isinstance(resolved, dict)
+            or not isinstance(resolved.get("cost_basis"), dict)
+            or not str(resolved.get("cost_revision") or "").strip()
+        ):
+            revision = sha256(
+                ("COST_ADAPTER_UNAVAILABLE:" + str(cost_date or "")).encode()
+            ).hexdigest()
+            return {
+                "cost_per_unit_rub": None,
+                "cost_updated_at": None,
+                "cost_method": "UNAVAILABLE",
+                "cost_revision": revision,
+                "cost_basis": {
+                    "method": "UNAVAILABLE",
+                    "completeness": "COST_ADAPTER_UNAVAILABLE",
+                    "reason_code": "FIFO_COST_ADAPTER_UNAVAILABLE",
+                    "as_of_date": cost_date,
+                    "next_unit_cost_rub": None,
+                    "next_layer_remaining_units": None,
+                    "next_planned_rate": None,
+                    "model_only": True,
+                    "factual_period_profit_eligible": False,
+                    "cache_revision": revision,
+                },
+            }
+        return resolved
+
     def _recent_complete_dates(self):
         today = datetime.now(timezone.utc).date()
         return [
@@ -1806,7 +1947,9 @@ class ProductUnitEconomicsQueryService:
             )
         ]
 
-    def _empty_current_result(self, sku, facts, accrual_dates=None):
+    def _empty_current_result(
+        self, sku, facts, accrual_dates=None, cost_evidence=None,
+    ):
         missing = list(
             facts.get("missing_data") or []
         )
@@ -1823,7 +1966,7 @@ class ProductUnitEconomicsQueryService:
             product_cost=None,
         ).get("pre_ad_margin")
 
-        return {
+        result = {
             "error": False,
             "available": False,
             "source": "current",
@@ -1849,6 +1992,15 @@ class ProductUnitEconomicsQueryService:
             "pre_ad_margin": pre_ad_margin,
             "note": "Актуальный расчёт пока недоступен"
         }
+        if isinstance(cost_evidence, dict):
+            result["cost"] = cost_evidence.get("cost_per_unit_rub")
+            result["cost_basis"] = deepcopy(
+                cost_evidence.get("cost_basis") or {}
+            )
+            result["cost_method"] = cost_evidence.get("cost_method")
+            result["cost_revision"] = cost_evidence.get("cost_revision")
+            result["cost_as_of"] = cost_evidence.get("cost_updated_at")
+        return result
 
     def _current_pre_ad_source_periods(self, facts, accrual_dates):
         return {

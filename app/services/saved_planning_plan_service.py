@@ -5,6 +5,9 @@ from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.planning_sales_mix_cost_snapshot_adapter import (
+    PlanningSalesMixCostSnapshotAdapter,
+)
 from services.tenant_context import get_current_tenant_user_id
 
 
@@ -131,12 +134,14 @@ class SavedPlanningPlanService:
                     item.setdefault("inputs", {})[field] = old_inputs[field]
                     item.setdefault("provenance", {})[field] = "manual_seller_assumption"
         fresh_payload["sales_mix"] = None
+        fresh_payload.pop("sales_mix_cost_snapshot", None)
         fresh_capture = deepcopy(fresh_capture)
         fresh_capture["payload"] = fresh_payload
         return fresh_capture
 
     def save_sales_mix_revision(self, document_id, sales_mix, *, expected_revision,
-                                expected_state_revision, idempotency_key=None):
+                                expected_state_revision, idempotency_key=None,
+                                cost_projection=None):
         """Append a user-confirmed sales-mix projection by revision CAS."""
         scope = self._scope()
         if scope is None:
@@ -153,6 +158,17 @@ class SavedPlanningPlanService:
             return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
         payload = deepcopy(document.get("payload") or {})
         payload["sales_mix"] = deepcopy(sales_mix)
+        snapshot_adapter = PlanningSalesMixCostSnapshotAdapter()
+        if cost_projection is not None:
+            cost_snapshot = snapshot_adapter.build(
+                payload.get("items"), sales_mix, cost_projection,
+            )
+            if cost_snapshot is None:
+                return self._error("PLANNING_SALES_MIX_COST_SNAPSHOT_INVALID")
+            payload["sales_mix_cost_snapshot"] = cost_snapshot
+        elif ("sales_mix_cost_snapshot" in payload
+              or snapshot_adapter.has_fifo_basis(payload.get("items"))):
+            return self._error("PLANNING_SALES_MIX_COST_SNAPSHOT_REQUIRED")
         result = self.repository.save_document(
             title=document.get("title"), payload=payload,
             owner_id=scope["owner_id"], store_id=scope["store_id"],

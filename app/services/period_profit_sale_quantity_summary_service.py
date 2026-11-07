@@ -90,6 +90,10 @@ class PeriodProfitSaleQuantitySummaryService(
         result = super().calculate(date_from, date_to, products)
         if not isinstance(result, dict) or result.get("error") is not False:
             return result
+        if result.get("fifo_cogs_reconciliation_required") is True:
+            return self._quantity_error(
+                "PERIOD_PROFIT_FIFO_COGS_RECONCILIATION_REQUIRED"
+            )
         if self.sale_quantity_ozon_client is None:
             return result
 

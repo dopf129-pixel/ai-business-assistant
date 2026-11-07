@@ -14,6 +14,10 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
         seller_cost_service=None,
         return_inventory_service=None,
         onboarding_service=None,
+        fifo_history_service=None,
+        fifo_rate_entry_service=None,
+        fifo_late_entry_service=None,
+        fifo_anchor_entry_service=None,
     ):
         super().__init__(
             assistant,
@@ -23,8 +27,24 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
             memory_command_service,
             seller_cost_service,
             onboarding_service,
+            fifo_history_service,
+            fifo_rate_entry_service,
+            fifo_late_entry_service,
+            fifo_anchor_entry_service,
         )
         self.return_inventory_service = return_inventory_service
+
+    def get_start_response(self, user_id=None):
+        result = super().get_start_response(user_id)
+        if isinstance(result, dict) and result.get("error") is False:
+            clearer = getattr(
+                self.return_inventory_service,
+                "clear_pending",
+                None,
+            )
+            if callable(clearer):
+                clearer(user_id)
+        return result
 
     def handle_text(self, text, user_id=None):
         if self.return_inventory_service is not None:
@@ -46,6 +66,21 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
 
     def handle_button(self, callback, user_id=None):
         self._clear_unit_price_calculator_for_navigation(callback, user_id)
+        callback_text = str(callback or "")
+        if callback_text.startswith((
+            "fifo_history:", "fifo_anchor:", "fifo_rate:", "fifo_late:",
+        )):
+            result = super().handle_button(callback_text, user_id)
+            if (
+                callback_text.startswith("fifo_history:")
+                and isinstance(result, dict)
+                and result.get("error") is False
+                and result.get("handled") is True
+                and self.return_inventory_service is not None
+            ):
+                self.return_inventory_service.clear_pending(user_id)
+            return result
+
         service = self.return_inventory_service
         if service is None:
             return super().handle_button(callback, user_id)
@@ -54,10 +89,9 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
         if profile_failure:
             return profile_failure
 
-        callback_text = str(callback or "")
         try:
             if callback_text == "return_inventory":
-                self._clear_seller_cost(user_id)
+                self._clear_seller_cost_and_fifo_pending(user_id)
                 return service.open_menu(user_id)
             if callback_text.startswith("return_inventory_state:"):
                 state = callback_text.split(":", 1)[1]
@@ -72,12 +106,6 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
             return self._failure("RETURN_INVENTORY_BUTTON_FLOW_FAILED")
 
         return super().handle_button(callback, user_id)
-
-    def _clear_seller_cost(self, user_id):
-        service = self.seller_cost_service
-        clearer = getattr(service, "clear_pending", None)
-        if callable(clearer):
-            clearer(user_id)
 
     @staticmethod
     def _failure(code):

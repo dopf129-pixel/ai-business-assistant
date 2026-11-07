@@ -8,6 +8,9 @@ from period_profit_mapping_registry_factory import (
 from services.period_profit_effective_cost_service import (
     PeriodProfitEffectiveCostService,
 )
+from services.fifo_cost_period_profit_source_service import (
+    FifoCostPeriodProfitSourceService,
+)
 from services.expense_repository import ExpenseRepository
 from services.period_profit_finance_service import (
     PeriodProfitFinanceService as FinanceService,
@@ -116,6 +119,9 @@ def create_period_profit_query(mapping_registry=None):
         finance_service=finance_service,
         cost_service=cost_service,
         tax_rate=0.0,
+    )
+    raw_summary_service.fifo_cost_source_service = (
+        FifoCostPeriodProfitSourceService()
     )
     if hasattr(raw_summary_service, "sale_quantity_ozon_client"):
         raw_summary_service.sale_quantity_ozon_client = ozon_client

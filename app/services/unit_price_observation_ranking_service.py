@@ -5,6 +5,9 @@ import json
 
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
+from services.fifo_planning_basis_compatibility_service import (
+    FifoPlanningBasisCompatibilityService,
+)
 
 
 class UnitPriceObservationRankingService:
@@ -17,6 +20,7 @@ class UnitPriceObservationRankingService:
         self.repository = repository
         self.planning_service = planning_service
         self.ranking_service = ranking_service
+        self.fifo_cost_basis = FifoPlanningBasisCompatibilityService()
 
     def rank_for_observation(self, observation_id, *, owner_id, store_id, now=None):
         selected = self.repository.get_unit_price_observation(
@@ -82,6 +86,10 @@ class UnitPriceObservationRankingService:
                     assumption_basis.get("extended_cost_signature")
                     if isinstance(assumption_basis, dict) else None
                 ),
+                "plan_fifo_cost_basis_status": (
+                    assumption_basis.get("fifo_cost_basis_status")
+                    if isinstance(assumption_basis, dict) else None
+                ),
             })
 
         # Repeated collections at one price are history, not price variants.
@@ -107,6 +115,7 @@ class UnitPriceObservationRankingService:
             "plan_extended_cost_mode": item["plan_extended_cost_mode"],
             "plan_extended_cost_origin": item["plan_extended_cost_origin"],
             "plan_extended_cost_signature": item["plan_extended_cost_signature"],
+            "plan_fifo_cost_basis_status": item["plan_fifo_cost_basis_status"],
             "owner_id": owner_id, "store_id": store_id,
         } for index, item in enumerate(checked)]
         source_references = [{
@@ -257,6 +266,17 @@ class UnitPriceObservationRankingService:
             "cross_docking_basis": cross_docking_basis,
             "extended_cost_basis": extended_basis,
         }
+        fifo_basis = self.fifo_cost_basis.describe_item(item)
+        if fifo_basis["status"] == "UNKNOWN":
+            return {
+                "assumption_signature": None,
+                "extended_cost_mode": extended_basis["mode"],
+                "extended_cost_origin": extended_basis["origin"],
+                "extended_cost_signature": extended_basis["signature"],
+                "fifo_cost_basis_status": "UNKNOWN",
+            }
+        if fifo_basis["status"] == "FIFO_AVAILABLE":
+            material["fifo_cost_basis_signature"] = fifo_basis["signature"]
         try:
             encoded = json.dumps(
                 material, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -269,6 +289,7 @@ class UnitPriceObservationRankingService:
             "extended_cost_mode": extended_basis["mode"],
             "extended_cost_origin": extended_basis["origin"],
             "extended_cost_signature": extended_basis["signature"],
+            "fifo_cost_basis_status": fifo_basis["status"],
         }
 
     @staticmethod

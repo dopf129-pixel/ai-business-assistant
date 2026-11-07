@@ -15,11 +15,19 @@ from services.assistant_period_profit_runtime_service import (  # noqa: E402
 from services.period_profit_identity_confirmation_runtime_service import (  # noqa: E402
     PeriodProfitIdentityConfirmationRuntimeService,
 )
+from services.fifo_cost_period_profit_source_service import (  # noqa: E402
+    FifoCostPeriodProfitSourceService,
+)
+from services.fifo_cost_repository import FifoCostRepository  # noqa: E402
 from services.period_profit_seller_confirmed_identity_scope_service import (  # noqa: E402
     PeriodProfitSellerConfirmedIdentityScopeService,
 )
 from services.seller_confirmed_product_identity_repository import (  # noqa: E402
     SellerConfirmedProductIdentityRepository,
+)
+from services.tenant_context import (  # noqa: E402
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
 )
 
 
@@ -74,6 +82,41 @@ class _MappingRepository:
             "current_sku": self.sku,
             "current_offer_id": self.offer_id,
         }
+
+
+class _MissingMappingRepository:
+    def get_mapping(self, finance_sku):
+        return {
+            "error": False,
+            "status": "SELLER_PRODUCT_IDENTITY_MAPPING_MISSING",
+            "finance_sku": finance_sku,
+            "mapping_confirmed": False,
+            "seller_confirmed": False,
+        }
+
+
+class _HistoricalCostService(_CurrentCostService):
+    def __init__(self, product_id=CURRENT_PRODUCT_ID, offer_id=OFFER_ID):
+        self.product_id = product_id
+        self.offer_id = offer_id
+
+    def get_historical_cost_evidence(self, *_args, **_kwargs):
+        return {
+            "error": False,
+            "status": "PRODUCT_COST_HISTORY_READY",
+            "historical_cost_confirmed": True,
+            "product_id": self.product_id,
+            "sku": OLD_SKU,
+            "offer_id": self.offer_id,
+            "cost_price": 30.0,
+            "currency": "RUB",
+        }
+
+
+class _HistoricalSummary:
+    def __init__(self, product_id=CURRENT_PRODUCT_ID, offer_id=OFFER_ID):
+        self.cost_service = _HistoricalCostService(product_id, offer_id)
+        self.tax_rate = 0.06
 
 
 class _Recorder:
@@ -300,6 +343,238 @@ def test_scope_fails_closed_when_confirmed_mapping_conflicts_with_catalog():
     assert recovered is None
     assert (
         "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_SELLER_MAPPING_PRODUCT_CONFLICT"
+        in service._sku_recovery_diagnostic_codes
+    )
+
+
+def test_historical_cost_identity_uses_confirmed_catalog_alias_for_fifo_scope():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MappingRepository(),
+    )
+    service._catalog_by_sku = {
+        CURRENT_SKU: {
+            "product_id": CURRENT_PRODUCT_ID,
+            "sku": CURRENT_SKU,
+            "offer_id": OFFER_ID,
+        }
+    }
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+    fifo_source = FifoCostPeriodProfitSourceService(
+        tenant_scope_provider=lambda: "owner-1::ozon::store-a",
+    )
+    scope = fifo_source.resolve_scope_identity(recovered)
+
+    assert recovered["sku"] == OLD_SKU
+    assert recovered["catalog_sku"] == CURRENT_SKU
+    assert recovered["historical_cost_evidence"] is True
+    assert recovered["cost_price"] == 30.0
+    assert recovered["historical_sku_identity_source"] == (
+        "SELLER_CONFIRMED_PRODUCT_IDENTITY_MAPPING"
+    )
+    assert scope["error"] is False
+    assert scope["sku"] == CURRENT_SKU
+
+
+def test_unmapped_historical_cost_identity_cannot_be_treated_as_inactive_fifo():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MissingMappingRepository(),
+    )
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+    fifo_source = FifoCostPeriodProfitSourceService(
+        tenant_scope_provider=lambda: "owner-1::ozon::store-a",
+    )
+
+    scope = fifo_source.get_scope_mode(
+        recovered,
+        date_from="2026-11-06",
+        date_to="2026-11-06",
+    )
+
+    assert scope["error"] is True
+    assert scope["code"] == (
+        "FIFO_COST_HISTORICAL_SKU_CANONICAL_IDENTITY_UNRESOLVED"
+    )
+
+
+def test_unmapped_historical_cost_with_exact_current_catalog_match_keeps_legacy_mode(
+    tmp_path,
+):
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MissingMappingRepository(),
+    )
+    current_product = {
+        "product_id": CURRENT_PRODUCT_ID,
+        "sku": CURRENT_SKU,
+        "offer_id": OFFER_ID,
+    }
+    service._catalog_by_sku = {CURRENT_SKU: current_product}
+    service._catalog_by_product_id = {CURRENT_PRODUCT_ID: current_product}
+    service._catalog_by_offer = {OFFER_ID: current_product}
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+    fifo_source = FifoCostPeriodProfitSourceService(
+        repository=FifoCostRepository(
+            db_path=tmp_path / "historical-legacy-fifo-mode.sqlite",
+        ),
+        tenant_scope_provider=lambda: "owner-1::ozon::store-a",
+    )
+    tenant = set_current_tenant_user_id(
+        "owner-1::ozon::store-a"
+    )
+    try:
+        mode = fifo_source.get_scope_mode(
+            recovered,
+            date_from="2026-10-01",
+            date_to="2026-10-31",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert recovered["sku"] == OLD_SKU
+    assert recovered["catalog_sku"] == CURRENT_SKU
+    assert recovered["product_id"] == CURRENT_PRODUCT_ID
+    assert recovered["offer_id"] == OFFER_ID
+    assert recovered["cost_price"] == 30.0
+    assert recovered["historical_sku_identity_source"] == (
+        "CONFIRMED_HISTORICAL_COST_IDENTITY_TO_CURRENT_CATALOG"
+    )
+    assert mode["error"] is False, mode
+    assert mode["active"] is False
+
+
+def test_unmapped_historical_cost_can_match_current_catalog_by_stable_offer(
+    tmp_path,
+):
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(product_id="retired-product-id"),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MissingMappingRepository(),
+    )
+    current_product = {
+        "product_id": CURRENT_PRODUCT_ID,
+        "sku": CURRENT_SKU,
+        "offer_id": OFFER_ID,
+    }
+    service._catalog_by_sku = {CURRENT_SKU: current_product}
+    service._catalog_by_product_id = {CURRENT_PRODUCT_ID: current_product}
+    service._catalog_by_offer = {OFFER_ID: current_product}
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+    fifo_source = FifoCostPeriodProfitSourceService(
+        repository=FifoCostRepository(
+            db_path=tmp_path / "historical-offer-legacy-fifo-mode.sqlite",
+        ),
+        tenant_scope_provider=lambda: "owner-1::ozon::store-a",
+    )
+    tenant = set_current_tenant_user_id(
+        "owner-1::ozon::store-a"
+    )
+    try:
+        mode = fifo_source.get_scope_mode(
+            recovered,
+            date_from="2026-10-01",
+            date_to="2026-10-31",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert recovered["product_id"] == CURRENT_PRODUCT_ID
+    assert recovered["offer_id"] == OFFER_ID
+    assert recovered["catalog_sku"] == CURRENT_SKU
+    assert recovered["cost_price"] == 30.0
+    assert mode["error"] is False, mode
+    assert mode["active"] is False
+
+
+def test_historical_cost_catalog_match_fails_closed_when_indexes_disagree():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MissingMappingRepository(),
+    )
+    other_product = {
+        "product_id": "other-product-id",
+        "sku": "other-catalog-sku",
+        "offer_id": OFFER_ID,
+    }
+    current_product = {
+        "product_id": CURRENT_PRODUCT_ID,
+        "sku": CURRENT_SKU,
+        "offer_id": "other-offer",
+    }
+    service._catalog_by_product_id = {CURRENT_PRODUCT_ID: current_product}
+    service._catalog_by_offer = {OFFER_ID: other_product}
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+
+    assert recovered is not None
+    assert not recovered.get("catalog_sku")
+    assert (
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_HISTORICAL_COST_CATALOG_IDENTITY_CONFLICT"
+        in service._sku_recovery_diagnostic_codes
+    )
+
+
+def test_confirmed_seller_mapping_accepts_historical_product_id_with_same_offer():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(product_id="retired-product-id"),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MappingRepository(),
+    )
+    service._catalog_by_sku = {
+        CURRENT_SKU: {
+            "product_id": CURRENT_PRODUCT_ID,
+            "sku": CURRENT_SKU,
+            "offer_id": OFFER_ID,
+        }
+    }
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+
+    assert recovered is not None
+    assert recovered["product_id"] == CURRENT_PRODUCT_ID
+    assert recovered["offer_id"] == OFFER_ID
+    assert recovered["catalog_sku"] == CURRENT_SKU
+    assert recovered["cost_price"] == 30.0
+    assert recovered["historical_cost_evidence"] is True
+
+
+def test_confirmed_seller_mapping_rejects_conflicting_product_and_offer():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(
+            product_id="retired-product-id",
+            offer_id="different-offer",
+        ),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MappingRepository(),
+    )
+    service._catalog_by_sku = {
+        CURRENT_SKU: {
+            "product_id": CURRENT_PRODUCT_ID,
+            "sku": CURRENT_SKU,
+            "offer_id": OFFER_ID,
+        }
+    }
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+
+    assert recovered is None
+    assert (
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_SELLER_MAPPING_HISTORICAL_COST_PRODUCT_CONFLICT"
         in service._sku_recovery_diagnostic_codes
     )
 

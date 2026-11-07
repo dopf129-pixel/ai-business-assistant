@@ -36,6 +36,10 @@ class FakeCostService:
     def __init__(self, costs):
         self.costs = costs
         self.calls = []
+        self.current_date = None
+
+    def get_current_cost_date(self):
+        return self.current_date
 
     def get_cost(self, product_id):
         self.calls.append(str(product_id))
@@ -184,6 +188,27 @@ def test_explicit_refresh_bypasses_cached_unit_economics_after_cost_change():
     assert cached["cache"]["status"] == "hit"
     assert refreshed["cost"] == 45.0
     assert refreshed["cache"]["status"] == "miss"
+    assert len(source.calls) == 2
+
+
+def test_current_cost_cache_expires_at_effective_date_without_process_restart():
+    service, source, costs = _service(
+        facts=_facts(cross_docking={"evidence_complete": True}),
+    )
+    service.cache_ttl_seconds = 600
+    costs.current_date = "2026-08-25"
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        initial = service.query("hook-2")
+        costs.costs["4108512640"] = 45.0
+        costs.current_date = "2026-08-26"
+        changed_date = service.query("hook-2")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert initial["cost"] == 21.0
+    assert changed_date["cost"] == 45.0
+    assert changed_date["cache"]["status"] == "miss"
     assert len(source.calls) == 2
 
 

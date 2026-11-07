@@ -356,6 +356,7 @@ class AssistantTelegramAdapter:
         if value.startswith((
             "upc:", "upb:", "ups:", "pov:", "upt:",
             "unit_economics_details:",
+            "fifo_history:", "fifo_anchor:", "fifo_rate:", "fifo_late:",
         )):
             return
         self.clear_unit_price_calculator_state(user_id)

@@ -25,6 +25,17 @@ def test_analytics_document_is_explicitly_marked_as_not_a_cost_import():
     assert "нельзя загружать как таблицу себестоимости" in result["caption"]
 
 
+def test_fifo_history_csv_uses_read_only_analytics_document_contract():
+    result = prepare_telegram_document({
+        "document_kind": "analytics_export",
+        "filename": "fifo-cost-history.csv",
+        "mime_type": "text/csv",
+        "file_content": "Режим;FIFO\n",
+    })
+    assert result is not None
+    assert "нельзя загружать" in result["caption"]
+
+
 def test_document_contract_rejects_untrusted_or_mismatched_metadata():
     base = {
         "document_kind": "analytics_export",

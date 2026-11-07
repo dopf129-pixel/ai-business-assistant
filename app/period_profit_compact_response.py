@@ -6,6 +6,9 @@ from math import isfinite
 from services.period_profit_return_cogs_blocker_stage_service import (
     PeriodProfitReturnCogsBlockerStageService,
 )
+from services.period_profit_fifo_explanation_view_service import (
+    PeriodProfitFifoExplanationViewService,
+)
 
 
 def compact_period_profit_result(result):
@@ -97,6 +100,23 @@ def compact_period_profit_result(result):
             summary.get("tax"), summary.get("revenue")
         ),
     ]
+
+    fifo_explanation = summary.get("fifo_cost_explanation")
+    fifo_summary_lines = PeriodProfitFifoExplanationViewService.compact_lines(
+        fifo_explanation,
+    )
+    if fifo_summary_lines:
+        lines.extend(["", *fifo_summary_lines])
+        fifo_detail_lines = PeriodProfitFifoExplanationViewService.detail_lines(
+            fifo_explanation,
+        )
+        if fifo_detail_lines:
+            previous_details = output.get("details_text")
+            detail_section = "\n".join(fifo_detail_lines)
+            output["details_text"] = (
+                (previous_details.rstrip() + "\n\n") if isinstance(previous_details, str)
+                and previous_details.strip() else ""
+            ) + detail_section
 
     if external_line is not None:
         lines.append(external_line)

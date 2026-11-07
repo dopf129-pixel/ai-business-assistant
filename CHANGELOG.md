@@ -1,3 +1,264 @@
+# 2026-11-07 — Исправлены два перехода из активного FIFO ввода
+
+- Валидная загрузка CSV себестоимости закрывает старые FIFO мастера после открытия preview, сохраняя сам preview до явного подтверждения. Отклонённый файл не меняет активный ввод.
+- Валидная одноразовая кнопка возврата к карточке юнит-экономики другого SKU закрывает FIFO мастер; устаревшая кнопка не затрагивает его.
+- Добавлены регрессии на реальные CSV/FIFO сервисы и последовательность сохранения стоимости → FIFO ввод → возврат к карточке SKU.
+- Проверки: связанный профиль — **44 passed**; полный Windows `pytest -q` — **4,851 passed in 51.12s**; состояние пяти файлов `data/` идентично до/после. Exact-head CI run [42370751926](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42370751926) прошёл Windows/Linux full verification и production Docker build/runtime smoke на `7896289a`.
+
+# 2026-11-07 — Исправлены переходы между FIFO и формами ввода (PR #726)
+
+- Подтверждённый переход из цены SKU к старой себестоимости теперь закрывает FIFO-черновик до ввода цены; недействительная кнопка сохраняет активный мастер.
+- Принятая навигация в FIFO и успешный `/start` очищают конфликтующие формы произвольного периода, экспериментального расчёта и внешних расходов. `/start` также завершает seller-cost/FIFO/возвратные черновики; отказ профиля не очищает FIFO-мастер.
+- Добавлены end-to-end регрессии на переключение SKU, устаревшие кнопки, незавершённый внешний расход и `/start` через TelegramBotService.
+
+# 2026-11-07 — исправления повторного review FIFO R1–R3 (PR #726)
+
+- Поиск FIFO-потока теперь обнаруживает активную историю того же магазина/SKU под другой product/offer identity. Чтение и Period Profit возвращают `FIFO_IDENTITY_CONFLICT`; anchor и zero-stock rate commit не создают вторую очередь. Автоматической миграции или слияния потоков нет.
+- Возвратный Telegram-адаптер сначала передаёт FIFO callback в обработчик. Устаревшая/ошибочная кнопка не стирает возвратный черновик; только принятая FIFO history-навигация завершает его. Открытие возвратов очищает seller-cost и все три FIFO-черновика.
+- Добавлены регрессии на смену product ID, добавление ранее отсутствовавшего product ID, запрет дублирующего anchor/rate stream, stale callbacks четырёх FIFO-маршрутов и переход из rate/late/anchor мастеров в возвраты.
+- Проверки: связанный профиль **85 passed in 2.38s**; полный Windows `pytest -q` **4,844 passed in 50.66s**; `compileall -q app tests` и `git diff --check` прошли. Полный прогон изменил один исходный и создал два временных файла в `data/`; исходное содержимое восстановлено, итоговый manifest совпал. Exact-head GitHub Actions run [42363101157](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42363101157) прошёл на code SHA `23d3a3420a7390684a9f4e972f6b1c5f6eeb4dce`: Windows/Linux full verification и production Docker build/runtime smoke.
+
+# 2026-11-07 — FIFO review fixes R1–R3
+
+- Historical finance SKUs with confirmed dated cost now resolve a unique current catalogue identity by exact product ID or stable offer ID before FIFO mode lookup. This restores the dated legacy path when that exact FIFO stream is inactive; ambiguous catalogue matches remain fail-closed.
+- Seller-confirmed identity mappings accept historical cost evidence when either the product ID or exact offer ID agrees, while rejecting evidence that conflicts on both identities.
+- Stale FIFO callbacks preserve the active unit-price scenario. A valid FIFO history callback clears it only after the history ticket is accepted.
+- Added regressions for canonical identity recovery, product-ID changes with stable offers, ambiguous identity conflicts, and calculator navigation/stale callbacks.
+- Verification: focused Windows profile **97 passed**; full Windows `pytest -q` **4,839 passed in 50.57s**; `compileall` and `git diff --check` pass. All five files in `data/` were restored byte-for-byte; the before/after manifest is identical (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). GitHub Actions run [42360261757](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42360261757) passed on implementation SHA `ccb3d4101308e225448da4965957aa3912338d3b` (Windows/Linux full verification and production Docker build/runtime smoke).
+
+# 2026-11-07 — исправлены последние три замечания FIFO review (PR #726)
+
+- Финансовые SKU, подтверждённо сопоставленные одному точному FIFO-потоку, теперь проверяются общей выборкой. Полнота аллокаций сверяется для всех алиасов сразу, а количество и себестоимость каждой продажи относятся обратно к её финансовому SKU. Неожиданные и пропущенные операции по-прежнему блокируют расчёт.
+- После сохранения начальной очереди, новой ставки или позднего черновика свободный текст снова передаётся обычному боту. Старая кнопка отмены позднего черновика показывает уже сохранённый результат и не утверждает, что запись отменена.
+- Добавлены регрессии на несколько подтверждённых SKU-алиасов, недостающие/лишние аллокации, свободный текст после commit и повторную старую кнопку отмены.
+- Проверки: 48 целевых тестов и полный Windows `pytest -q` — **4 829 passed**; исходные 5 файлов `data/` восстановлены побайтно. Exact-head CI ожидается после публикации.
+
+# 2026-11-07 — повторные исправления FIFO review (PR #726)
+
+- Подтверждённый `catalog_sku` теперь выбирает нужный FIFO-поток только для allowlist источников восстановления; финансовый SKU остаётся идентичностью продажи, а неизвестное соответствие блокируется без перехода на legacy-себестоимость.
+- Старые кнопки отмены после сохранения начального остатка или новой ставки возвращают результат сохранения и не сообщают, что запись отменена.
+- Мастер начальных FIFO-слоёв использует ограничения хранилища: проверяет максимум 66 слоёв, 100 000 единиц на зону, общий объём и совокупные лимиты событий/нулевых подтверждений. Ошибочную последнюю партию можно исправить без повторного ввода предыдущих.
+- Регрессии: 61 связанный тест; полный Windows pytest — 4 826 passed. `compileall`, `git diff --check` и проверка восстановления всех 5 файлов `data/` прошли.
+
+# 2026-11-07 — FIFO review fixes R1–R3 (PR #726)
+
+- Legacy store-period sales analytics now checks the exact SKU's FIFO cutoff before reading current legacy cost. Active/overlapping FIFO periods, and unavailable scope checks, fail closed; pre-cutoff periods keep the existing legacy cost-resolution path.
+- Empty/FBS-only stock rows no longer imply zero FBO inventory. A zero start requires an explicit numeric FBO row.
+- Initial FIFO setup now tells the owner to enter layers oldest-first, requests explicit order confirmation, and shows the ordered per-layer price/quantity summary before saving.
+- Added regressions for cutoff behavior, incomplete FBO evidence, order confirmation/rejection, and Telegram's unavailable-sales-evidence handling.
+- Verification: focused profile 81 passed; full Windows pytest -q 4,822 passed in 50.54s; compileall and git diff --check PASS. All five original files under data/ restored with matching SHA-256.
+
+# 2026-11-07 — исправлены четыре повторных замечания FIFO review (PR #726)
+
+- Первая новая ставка теперь отклоняется, если указанное количество старого товара дома превышает подтверждённый конечный FIFO-остаток.
+- `CONFIRMED_REPLAY_MODEL_ONLY` признан полной себестоимостью для плановых расчётов, кэша и текущей карточки; factual Period Profit по-прежнему закрыт.
+- FIFO-история теперь доступна для всех SKU постранично, включая уже настроенные SKU при наличии товаров без себестоимости.
+- Ввод цены партии использует `ROUND_HALF_UP`; добавлены регрессии на конфликт остатков, статус replay, навигацию FIFO и границу округления.
+- Проверки: целевой профиль **74 passed**, полный Windows `pytest -q` **4,812 passed**; `compileall`, `git diff --check` и восстановление `data/` по 5/5 исходным хешам прошли. Коммит `0511922d8073e9d5a915e95d7693260f0a0a0b4e` прошёл exact-head CI run [42312193535](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42312193535): Windows, Linux, production Docker build и runtime smoke — success.
+
+# 2026-11-07 — исправления независимого review FIFO (PR #726)
+
+- FIFO-отчёт теперь выбирает себестоимость по периоду относительно сохранённой даты отсечки: до неё используется датированная legacy-история, период через границу блокируется, после неё требуется подтверждённая FIFO-аллокация.
+- В Telegram добавлены подтверждаемые начальные партии и нулевой старт с открытой ставкой; нулевой путь сохраняется только после полного read-only подтверждения точного SKU в Ozon и подтверждения владельца по дому/транзиту. Старая форма себестоимости закрыта для уже активного FIFO SKU; переход между SKU/формами очищает чужие черновики.
+- Согласованный остаток предыдущей ставки отображается как конечный FIFO-слой до открытой ставки. Свежий полный replay восстанавливает остаток конечных слоёв и текущую себестоимость для планирования; factual Period Profit и плановое распределение после движений по-прежнему не включаются автоматически.
+- Zero-stock отсечка сохраняется в schema v12; миграция v11 восстанавливает её только при единственном совпадении полного fingerprint-цепочки источников. Открытая ставка на нулевом старте доступна планированию заданного количества и не становится фактической себестоимостью. Добавлены regressions для cutover, zero-start/backfill, Telegram initial anchors, replay, legacy guard и изоляции черновиков.
+
+# 2026-11-06 — FIFO FC35: пакет независимого review подготовлен
+
+- Создан `project_brain/FIFO_COST_REVIEW_HANDOFF_2026-11-06.md` с точной базой/кодовым SHA, картой архитектуры и миграций, числовыми результатами, командами воспроизведения и блокерами готовности.
+- PR #726 открыт как draft на `main`; финальный Windows/Linux/Docker CI должен быть зелёным на текущей голове PR. Слияние запрещено в рамках задания.
+
+# 2026-11-06 — FIFO FC34: локальный полный прогон
+
+- Исправлено устаревшее ожидание клавиатуры в регрессионном тесте меню себестоимости: теперь он учитывает уже существующую кнопку экспорта истории; продуктовый контракт не менялся.
+- Полный Windows прогон `pytest -q`: **4,792 passed in 50.14s**. `compileall -q app tests` и `git diff --check` прошли.
+- Все 6 файлов `data/` после теста побайтно восстановлены по предварительному снимку и повторно сверены по размеру/SHA-256; незапланированных файлов нет. Локальный Docker не установлен; production image build/smoke выполняются CI на Ubuntu для точного SHA.
+- На PR SHA `18ee4e6e459d2aa6a324ae0ef7d5a40e6828baa5` run 42279830501 прошёл полностью: Windows/Linux full verification и Ubuntu production Docker build/runtime smoke PASS. PR #726 переведён из draft в ready-for-review без слияния. Новый коммит фиксирует только финальный статус; его актуальная голова также должна быть зелёной в CI.
+
+# 2026-11-06 — FIFO FC33: руководство владельца и статус готовности
+
+- Added a Russian owner guide and a separate safe acceptance checklist covering timely cost entry, explicit zero at home, transit, late supply, sales across a transition, returns, third rates, corrections and frozen plans.
+- The source audit now records current production wiring and per-mode evidence limits. It confirms the opening-anchor service exists but has no Telegram entry point: an uninitialized SKU cannot be set up end to end by an owner. The guide does not claim factual FIFO Period Profit; that remains `SOURCE_BLOCKED`, while real-store validation remains `USER_VALIDATION_PENDING`.
+- FC33 was a documentation and wiring audit only; no live API call, real bot run, or owner-data change. Full validation follows at FC34.
+
+# 2026-11-06 — FIFO FC32: независимая числовая матрица
+
+- Added replay permutation and repeated period-query regressions: six input orders produce the same exact layer allocations/170.00 ₽ total, and reading day/range summaries in a different order does not consume stock or change the published revision.
+- Linked synthetic FC32 profile: **406 passed in 12.25s** across FIFO suites, Period Profit, current unit economics, target planning, exports, and saved-plan persistence. `compileall` and `git diff --check` PASS; all **6** worktree `data/` files match SHA-256 and length before/after.
+- Matrix cases N01–N24 are covered by the linked profiles and prior stage tests. Positive factual FIFO COGS remains blocked by the unresolved physical inventory cutoff; unsupported source/movement paths are counted only as refusal/safety evidence, not as accepted production functionality.
+
+# 2026-11-06 — FIFO FC31: проверка backup/restore и миграций
+
+- Added an isolated round-trip regression through the existing backup service: FIFO anchors/rates, supply links, saved planning document, allocation revision and late-correction audit survive restore into a new storage root and fresh repository/services. Replayed allocation COGS is unchanged; current-cost/history and read-only CSV export reopen successfully.
+- The archive excludes `.env`, runtime cache files and process-local confirmation tickets; restored stale confirmations are rejected. Existing migration tests verify legacy/planning data preservation, old-schema upgrade, rollback on partial DDL failure and rejection of a future schema.
+- FC31 linked Windows profile: **103 passed in 5.77s**; changed-test `compileall` and `git diff --check` PASS. All **6** files under the worktree `data/` tree match SHA-256 and length before/after. Temporary roots, synthetic fixture data, and test-only backup archive; no live API or bot startup.
+
+# 2026-11-06 — FIFO FC30: конкурентность и bounded source work
+
+- Added a deterministic concurrency regression proving same-scope stock collection is single-flight while different stores and different exact SKU identities can collect independently. Both source results remain partial when the synthetic evidence does not establish the full inventory cutoff.
+- FC30 linked Windows profile: **116 passed in 4.55s** across source collection, repository, rate/correction, history and late-entry Telegram, FIFO explanation/allocation, and shared operation-budget diagnostics. Changed-file compileall and `git diff --check` PASS. Synthetic clients and temporary SQLite only; no live API or bot startup.
+
+# 2026-11-06 — FIFO FC29: безопасный импорт legacy-истории и выгрузка FIFO
+
+- Legacy CSV import now validates UTF-8, byte/row/cell limits, exact column count, unique catalog SKU, duplicate SKU/date and existing history (including future dated rates). Multiple distinct dated legacy rates for a SKU can be previewed and saved atomically. Preview captures a file reference and source revision; commit checks both current source and the history revision inside the SQLite write transaction.
+- FIFO-mode SKUs are rejected with a clear message by the legacy importer. FIFO layers/rates and legacy history have read-only CSV exports with dates, source/provenance and revisions; no bulk FIFO import or inferred batch quantity is created. Generated spreadsheet identifiers are formula-safe.
+- FC29 linked profile: **80 passed in 2.16s**; `compileall -q app tests` and `git diff --check` PASS. Temporary SQLite/synthetic fixtures only; no Ozon/Telegram network calls or bot startup.
+
+# 2026-11-06 — FIFO FC28: объяснение и детализация себестоимости периода
+
+- Period Profit now includes a consistent FIFO explanation: exact period units/COGS by allocation layer, opaque source references, effective dates, provenance, cost mode, cutoff/completeness and current correction revision. Append-only correction snapshots show prior versus current COGS, tax and profit while preserving access to the prior result.
+- Telegram compact output and analytics exports use the same allowlisted projection. Long details use Telegram's message splitter; exports report the existing bounded serializer failure instead of silently dropping layer rows. No raw database identifiers or source digests are exposed.
+- FC28 linked profile: **49 passed in 2.05s**; `compileall -q app tests` and `git diff --check` PASS. Synthetic fixtures/temporary SQLite only; factual cutoff remains unchanged and production-gated.
+
+# 2026-11-06 — FIFO FC27: immutable cost basis in saved plans
+
+- Confirmed sales-mix revisions now persist a versioned, allowlisted FIFO cost snapshot beside the saved plan revision: opaque basis reference, source revision/method, requested quantity, per-layer allocation, known partial amount and incompleteness reason. The snapshot is model-only and cannot enter factual Period Profit.
+- Plan comparisons and price-observation ranking now reject unknown or different FIFO bases. Copies/restarts preserve the exact snapshot; editing the quantity requires a newly calculated snapshot. Export includes the saved basis reference and allocation without another source read.
+- FC27 linked profile: **96 passed** across saved-plan, observation/ranking, comparison, export and snapshot-adapter regressions; `compileall -q app tests` and `git diff --check` PASS. Local data manifest: **59/59** hashes and sizes match. Code checkpoint: `8d905567`.
+
+# 2026-11-06 — FIFO FC26: точная себестоимость заданного объёма
+
+- План объёма продаж распределяет заданное Q по точным FIFO-слоям и считает общий COGS как сумму строк, сохраняя `TaxService` и агрегатный налоговый расчёт. Средняя себестоимость показывается только для чтения; она не используется для восстановления итога.
+- Сохранённый план получает ограниченный версионированный срез FIFO basis. Ручная себестоимость остаётся отдельным сценарием; неподтверждённый остаток исключает SKU из полного итога, но известная часть показывается явно и не включается в прибыль.
+- Проверки FC26: **256 passed**, `compileall -q app tests`, `git diff --check`; 59/59 файлов локальных данных совпадают с исходным SHA-256 manifest. Только синтетические данные и временные базы; реальные API и запуск бота не выполнялись.
+
+# 2026-11-06 — FIFO FC25: себестоимость заморожена в планировании цены
+
+- Целевая цена, сравнение вариантов и сетка явно показывают единую себестоимость следующей успешной единицы из снимка сценария. Для конечного FIFO-слоя выводится остаток и предупреждение, что оценку одной продажи нельзя переносить на больший объём.
+- Ручная себестоимость остаётся отдельным допущением; FIFO указывается только для сверки. Комиссия по-прежнему выбирается отдельно для цены каждого кандидата, в том числе по обе стороны тарифной границы.
+- Linked Windows profile: **80 passed in 1.27s**; `compileall -q app tests` и `git diff --check` PASS. Code checkpoint: `1a22f081`.
+
+# 2026-11-06 — FIFO FC24: единый источник текущей себестоимости
+
+- Добавлен read-only `FifoCurrentUnitCostAdapter` для текущей юнит-экономики и калькулятора цены. При незаведённом FIFO сохраняется датированная legacy-себестоимость; активная, но неполная FIFO-история не подменяется старой ценой.
+- Карточка и сценарии цены показывают способ оценки, дату/отсечку, остаток слоя, следующую ставку и полноту. FIFO остаётся плановой моделью и не открывает фактический COGS в Period Profit.
+- Кеши текущей карточки и сценариев связаны с owner/store/SKU, effective date и fingerprint полной обезличенной FIFO-истории; смена ревизии, даты или восстановленного содержимого инвалидирует старый результат.
+- FC24 verification: смежный профиль **393 passed in 7.28s**; `compileall -q app tests` и `git diff --check` PASS. Локальные данные не изменены; live Ozon/Telegram и bot startup не выполнялись.
+
+# 2026-11-06 — FIFO FC23: cancellation audit and date-boundary safety
+
+- Added an append-only v11 cancellation record for an unused future FIFO rate, preserving the original rate and monotonic sequence history. Owner/store/SKU/revision/source-bound previews reject stale confirmations and refuse rates already used by events, allocations or reconciliations.
+- Date-only equal boundaries are treated as unresolved; future-dated stock snapshots cannot confirm a transition. Cancelled rates are excluded from active rate selection. Multi-rate late correction, production cutoff, return and non-sale movement replay remain explicitly unsupported.
+- Added owner-facing Telegram preview/confirmation for cancelling a future rate; successful confirmation refreshes the history, while stale callbacks remain write-free.
+- Linked FC23 verification: **89 passed in 4.00s**; changed modules compile and `git diff --check` passes. Synthetic data only; no live Ozon/Telegram calls or bot startup.
+
+# 2026-11-06 — FC20: поздний ввод уже отправленной партии FIFO
+
+- Добавлен отдельный сценарий «Уже отправил новую партию»: бот связывает введённую стоимость и расходы партии, остаток старой партии дома, поставку и принятый акт Ozon с точным SKU и магазином; владелец отдельно указывает фактическую дату перехода.
+- Запись сохраняет только обезличенные ссылки/отпечатки и доказательство акта. До FC21–22 она не меняет FIFO-слои, остатки, Period Profit, налоги или прибыль; неполный поиск, неподходящий акт и устаревшая ревизия не принимаются.
+- FC20 профиль: **269 passed in 8.25s**; после финальной правки сервиса целевой профиль **36 passed in 1.47s**; `compileall` и `git diff --check` PASS. Только синтетические ответы и временная SQLite; реальные Ozon/Telegram запросы и запуск бота не выполнялись.
+
+# 2026-11-06 — FC19 несбытовые движения FIFO
+
+- Добавлены четыре отдельные причины подтверждённого несбытового выбытия: недостача дома, утилизация Ozon, возврат поставщику и списание. Перед записью показывается расчётная FIFO-оценка только по известным конечным слоям; неизвестный остаток открытой ставки не используется.
+- Оценка хранится в отдельной append-only таблице schema v8, уменьшает доступный FIFO-остаток, но не включается в COGS продаж или расчёт денежной прибыли. Неполная приёмка даёт только разницу declared/accepted без выбытия; перемещение между HOME/TRANSIT/OZON нейтрально для агрегатного SKU-пула.
+- Связанный FC18/FC19 профиль: **111 passed in 3.49s**; полный `pytest`: **4,676 passed in 46.45s**. Все 59 файлов локальных данных совпали с исходными SHA-256 после восстановления только побочных файлов тестов. Реальное использование остаётся cutoff-gated, пользовательский сценарий будет FC20.
+
+# 2026-11-06 — FC18 доказанное восстановление стоимости возврата FIFO
+
+- Добавлен backend-путь возврата: только полный возврат покупателя с точным SKU и однозначным исходным posting, статусом возврата Ozon и отдельным подтверждением владельца о фактическом восстановлении пригодного товара. Дата Ozon не используется как физическая дата возврата.
+- Возвращённая стоимость закрепляется за строками последней полной allocation исходной продажи. Полный возврат split sale восстанавливает каждый слой; неоднозначный частичный возврат split sale и возврат с нераспределённой open-rate стоимостью блокируются.
+- FIFO schema v6→v7 добавляет append-only `fifo_cost_return_basis`; события возврата и pinned basis проверяются при replay и входят в source fingerprint. Существующие денежные Return COGS gates не изменены. Связанный синтетический профиль: **131 passed**; compileall и `git diff --check` PASS. Производственный FIFO остаётся cutoff-gated.
+
+# 2026-11-06 — FC17 FIFO COGS в Period Profit
+
+- Периодный расчёт теперь выбирает себестоимость по точному store/SKU cutover: активный FIFO читает только последнюю полную allocation revision и сверяет устойчивый digest продажи и точное количество; неактивный SKU сохраняет прежнюю датированную себестоимость.
+- Устаревшее распределение, неполный охват или несовпадающая идентичность блокируют только соответствующий расчёт вместо fallback на сегодняшнюю цену. Начисления Ozon и налоговая служба остались источниками денежных сумм и налога.
+- `tests/test_period_profit_fifo_cost_integration.py`, источник FIFO для Period Profit и репозиторная выборка периода покрывают смешанные SKU, повторное начисление, object-date, exact-date и fail-closed. Связанный FIFO/Period Profit профиль: **906 passed in 25.87s**; `compileall` и `git diff --check` PASS. `DONE_WITH_GAP`: реальные cutoff/физические даты не подтверждены, поэтому производственный FIFO остаётся заблокированным.
+
+# 2026-11-06 — FC15 устойчивая идентичность продажи FIFO
+
+- Добавлен чистый нормализатор устойчивого ключа продажи по магазину, отправлению и подтверждённой идентичности offer/product. Смена каталожного SKU для того же seller offer не создаёт второй ключ; номера отправлений/SKU не возвращаются в сохранённую ссылку.
+- Дата финансового начисления хранится отдельно и никогда не подставляется как дата физического списания. Без подтверждённой физической даты и моста cutoff нормализатор возвращает непригодное к FIFO событие. FC15 остаётся `DONE_WITH_GAP` до проверки охвата источника на фактическом ответе владельца.
+- Связанный профиль: **33 passed in 1.21s**; `compileall` и `git diff --check` PASS. Только synthetic данные.
+
+# 2026-11-06 — FC14 сверка повторных переходов FIFO
+
+- Добавлена append-only история сверки остатков между ставками FIFO. После первой ставки каждая новая цена требует полного подтверждённого снимка зон запасов и явного подтверждения владельца.
+- При третьей и последующих ставках конечные старые слои сохраняют количество и себестоимость; только остаток предыдущей открытой ставки выводится из сверенного общего количества. Недостача относительно прошлой сверки, недостаточный общий остаток и движение без replay блокируют запись.
+- Связанный профиль: **84 passed in 2.62s**; `compileall` и `git diff --check` PASS. Источники synthetic, хранилище — временная SQLite.
+
+# 2026-11-06 — FC13 связи поставки и частичной приёмки FIFO
+
+- Добавлена append-only запись read-only evidence по точной связке магазин/SKU и отдельным хеш-ссылкам заявки, поставки и акта. FIFO schema v3 обновляется до v4 без изменения legacy/planning-данных и SQLite `user_version`.
+- По каждому акту отдельно сохраняются заявленное, согласованное и фактически принятое количества; одинаковое повторное чтение идемпотентно, изменение акта добавляет новую версию без повторного FIFO-прихода.
+- Дата создания акта хранится только как документальная дата. Ни дата создания, ни время сбора не назначаются физической датой движения; слой/событие прихода не создаются.
+- Связанный расширенный профиль: **188 passed in 3.63s**; `compileall` и `git diff --check` PASS. Только synthetic API fixtures и временная SQLite.
+
+# 2026-11-06 — FC12 история FIFO и ввод новой себестоимости
+
+- В существующее меню себестоимости добавлен отдельный просмотр FIFO истории точного SKU: стоимость следующей подтверждённой единицы, конечные слои, provenance количества и действующие/запланированные ставки. После движения, требующего replay, текущий остаток и следующая стоимость скрываются.
+- Добавлен пошаговый ввод новой ставки: закупка, доставка до владельца, упаковка и явный остаток старой партии дома; перед сохранением показывается preview. Подтверждение сохраняет только ставку, не добавляет неизвестное количество новой партии и не меняет существующий расчёт прибыли.
+- Кнопки позднего ввода и исправления пока безопасно сообщают, что сценарии будут реализованы отдельно; устаревшие, чужие, межмагазинные и ревизионно устаревшие callbacks отклоняются.
+- Связанный профиль: **108 passed in 2.91s**; compileall и `git diff --check` PASS. Нет реальных Ozon/Telegram запросов или запуска бота.
+
+# 2026-11-06 — FC11 новая ставка себестоимости FIFO
+
+- Добавлена отдельная append-only история новых ставок: закупка, доставка до владельца и упаковка образуют одну себестоимость единицы; количество новой партии не выдумывается.
+- Preview показывает конечный старый FIFO-остаток и новую ставку без записи. Введённый остаток старой партии дома сохраняется как сверочное подтверждение и не добавляется повторно к уже учтённым зонам.
+- Подтверждение защищено ревизией, владельцем/магазином/SKU, сроком черновика, идемпотентностью и атомарной транзакцией. Старые слои не переписываются; Period Profit остаётся закрыт при неподтверждённом cutoff.
+- FIFO schema v2 мигрирует на v3 атомарно. Связанный синтетический профиль: **127 passed in 2.79s**; compileall PASS. `git diff --check` после исправления форматирования PASS.
+
+# 2026-11-06 — FC10 начальная FIFO-точка по подтверждению владельца
+
+- Добавлен read-only preview и атомарное подтверждение начального среза для точного SKU: несколько старых cost layers в заданном FIFO-порядке, отдельные количества Ozon/transit/home, cutoff по дате и owner provenance.
+- Ноль дома должен быть введён явно; транзит требуется подтвердить как не пересекающийся с Ozon present; Ozon count явно подтверждается как включающий reserved. Отрицательный/неполный ввод блокируется. Явные нулевые зоны сохраняются обезличенными digest-ссылками.
+- Commit создаёт `FIFO_READY` очередь и projection, но оставляет `cutoff_status=INVENTORY_CUTOFF_UNRECONCILED`; фактический Period Profit COGS по-прежнему недоступен. Строгая проверка идентификаторов, owner provenance/capture time и date-only cutoff блокирует неоднозначное начальное состояние. Связанный FIFO профиль: **113 passed**; compileall и `git diff --check` PASS. UI и реальные API-вызовы не добавлялись.
+
+# 2026-11-06 — FC09 ограниченный сбор FIFO-источников
+
+- Добавлен owner-triggered read-only сбор остатков и поиск завершённой поставки с ограничениями родительского времени/HTTP-бюджета, наблюдением фактических попыток, отменой и single-flight защитой от повторных конкурентных запросов.
+- Поиск поставки выполняет до двух страниц за действие, использует одноразовый краткоживущий непрозрачный checkpoint и fingerprint; неполный/ограниченный ответ не объявляется полным. ID и исходные API-ответы не сохраняются и не возвращаются.
+- Добавлены регрессии клиентского контракта, бюджета, таймаута, отмены, лимита страниц, rate-limit, повторного курсора/checkpoint, срока жизни checkpoint, межмагазинного/SKU scope и конкурентного callback. Связанный профиль: **117 passed**; compileall и `git diff --check` PASS. Реальные Ozon/Telegram вызовы не выполнялись.
+
+# 2026-11-06 — FC08 нормализация FIFO-остатков и актов
+
+- Добавлен API-независимый нормализатор остатков FBO и актов поставки. Он сохраняет точный product/SKU scope, проверяет полноту страниц и `total_items`, отделяет общий `present` от reserved availability, хэширует ссылки на поставку/акт и сверяет SKU-строки с итогом акта без двойного сложения.
+- `EMPTY`, `CONFIRMED_ZERO`, `PARTIAL`, `INVALID`, `CONFLICT` и `UNAVAILABLE` различаются; неоднозначный транзит, неизвестный статус акта и неподтверждённый cutoff блокируют фактическую FIFO-точку. Реальные API-вызовы не добавлялись.
+- Проверка: `tests/test_fifo_cost_source_normalizer.py` — **25 passed**; compileall и `git diff --check` PASS.
+
+# 2026-11-06 — FIFO FC07: атомарные команды и черновики
+
+- Добавлен bounded preview/confirm boundary для пакета до 100 событий: preview не сохраняет стоимость; подтверждение атомарно записывает события, слои, source refs, команду и новую ревизию с CAS.
+- Защищены повторы по idempotency key и fingerprint, владельцу, магазину, SKU, source refs и revision. Новый черновик владельца инвалидирует старый черновик любого товара/магазина; билет действует 10 минут и не переживает рестарт.
+- FIFO schema v1 мигрирует на v2 в транзакции; старые FIFO facts сохраняются. `tests/test_fifo_cost_repository.py` вместе с чистым FIFO allocation profile: **44 passed**; compileall и `git diff --check` PASS.
+
+# 2026-11-06 — FIFO FC06: изолированная схема хранения
+
+- Добавлен `FifoCostRepository` с аддитивными таблицами фактов, источников, ссылок, правил FIFO, слоёв, проекций и распределений в существующей tenant-local SQLite. У схемы собственная версия; Planning Workspace, legacy cost tables и SQLite `PRAGMA user_version` не изменяются.
+- Старые товары автоматически не включаются в FIFO. SQLite проверки покрывают повторную инициализацию, append-only доказательства, неудачную миграцию без частичных изменений, неподдерживаемую будущую версию и изоляцию владельца/магазина.
+- Первоначальный профиль FC06: `tests/test_fifo_cost_repository.py` — 5 passed; итоговая миграция v1→v2 и дополнительные сценарии проверены в FC07.
+
+# 2026-11-06 — FC03 закреплены контракты и архитектура FIFO
+
+- Решение 066 закрепляет отдельный `FifoCostRepository` в существующей tenant-local SQLite: не трогаем Planning Workspace, legacy cost tables и SQLite `PRAGMA user_version`; migration version хранится в FIFO-owned `fifo_cost_schema` отдельно от `planning_schema`.
+- Зафиксированы Decimal/RUB/quantity контракты, неизменяемые события и allocation revisions, явный per-SKU cutover и fail-closed `INVENTORY_CUTOFF_UNRECONCILED`. До owner-валидации источников фактический Period Profit не получает модельную FIFO-себестоимость.
+- Контракт и архитектурные ссылки проверены; runtime-код не менялся.
+
+# 2026-11-06 — FC02 доказаны границы источников FIFO
+
+- По официальным объявлениям Ozon и текущим адаптерам описаны поддержанные поля остатков/приёмок и неподтверждённые семантики. Зафиксировано, что crossdock `arrival_date` возвращается `null`; дата обновления статуса не используется как фактическая дата приёмки FIFO.
+- Добавлен синтетический сценарий позднего финансового начисления после уменьшения остатка: без физического времени продажи и общего watermark FIFO остаётся `INVENTORY_CUTOFF_UNRECONCILED` и не попадает в фактическую прибыль.
+- Локальные и пользовательские данные, код расчётов и реальные Seller API источники не изменялись.
+
+# 2026-11-06 — FC01 подтвердил расхождение current cost и датированной истории
+
+- На изолированных SQLite-базах воспроизведены три дефекта: будущая запись переключает текущую проекцию раньше даты; поздняя старая запись может откатить текущую стоимость; пакетный импорт также выбирает максимальную будущую дату. В одном сценарии будущая стоимость дополнительно попала в сегодняшний legacy timestamp fallback Period Profit.
+- Составлена карта writer/reader путей, возвратной себестоимости, CSV/Telegram подтверждений, калькуляторов, периодного расчёта и кешей в `FIFO_COST_SOURCE_AUDIT_2026-11-06.md`.
+- Реализация не менялась. Исправление подтверждённых случаев запланировано в FC05; semantics Ozon inventory/supply проверяются отдельно в FC02.
+
+# 2026-11-06 — начата реализация FIFO истории себестоимости
+
+- Создана отдельная ветка реализации от точной головы PR #725; итоговый интеграционный PR будет направлен в `main` и включит само ТЗ.
+- Зафиксирован baseline: Windows `python -m pytest` — **4,442 passed in 45.02s**. Тестовые побочные изменения локальных данных сверены и восстановлены из точного SHA-256 снимка.
+- Поведение себестоимости ещё не менялось. Текущий этап — аудит писателей/читателей и воспроизведение выявленных датированных несоответствий.
+
+# 2026-11-06 — подготовлено ТЗ на FIFO себестоимости
+
+- Добавлено LUNA_FIFO_COST_HISTORY_TASK_2026-11-06.md: 36 этапов FC00–FC35 и 24 проверочных сценария для согласованного FIFO по остатку SKU, позднего ввода стоимости и корректировок.
+- Закреплены раздельные основания остатков Ozon/транзита/дома, сохранение старых слоёв, согласование среза с запаздывающими начислениями, интеграция с прибылью/калькулятором и сохранение истории.
+- Это документационное задание. FIFO и исправление dated/current resolver ещё не реализованы; реальные источники и данные владельца не изменялись.
+
 # 2026-11-05 — исправлены два замечания повторного review PR #724
 
 - Сводка ценовой сетки больше не приписывает неподтверждённую комиссию, если маржа базы недоступна из-за другого отсутствующего параметра, например себестоимости. Причина теперь строится по фактическим недостающим входам и статусу комиссии.
@@ -2287,3 +2548,22 @@ Summary Report теперь включает:
 - В карточке юнит-экономики, ценовых сценариях и доступных сравнениях добавлена маржа до рекламы после налога в ₽/шт. и % от цены продавца до баллов; отображаются основание налога, покрытие расходов, неизвестные категории и временные окна.
 - Исторический показатель добавляется только для доказанной рекламы exact SKU, уже учтённой в том же чистом результате; сохранённый налог периода не пересчитывается, Performance CPC не используется как add-back. Старые значения прибыли и планы сохранены.
 - MA27 локально: **4,404 passed**, compilation и diff checks PASS. Подготовлены пользовательская инструкция и review packet; проверка на реальных данных владельца ожидается отдельно.
+# 2026-11-06 — FC04 pure FIFO allocation kernel
+
+- Добавлен изолированный Decimal-аллокатор FIFO для подтверждённых конечных слоёв, ставки следующей единицы при неизвестном объёме закупки и точного базиса возврата. Он выдаёт итог только при подтверждённых якоре, cutoff, порядке событий и полноте источников; ограничивает число слоёв/событий и не публикует частичный результат.
+- Добавлены синтетические регрессии N01/N02/N03/N08/N21 и на ошибочные/предельные входы. FC05 продолжает исправление согласованности current и датированной legacy себестоимости.
+
+# 2026-11-06 — FC05 dated/current cost resolver
+
+- Одиночная и пакетная смена себестоимости обновляют совместимую текущую проекцию только значением, действующим сегодня. Будущая ставка не заменяет текущую, а поздно внесённая старая ставка не откатывает её. Текущая карточка и калькулятор разрешают цену по текущей effective date и обновляют кэш после смены даты без перезапуска.
+- Неоднозначная старая строка, совпадающая по сумме и timestamp с будущей сменой, теперь fail-closed: её нельзя выдать за подтверждённую сегодняшнюю стоимость. Подтверждённые интервалы и legacy timestamp с различимой provenance сохранены.
+# 2026-11-06 — FC16 bounded FIFO allocation replay
+
+- Added chronological, bounded FIFO replay with explicit date/time, source identity, inventory cutoff and revision evidence. Query order cannot change the allocation; ambiguous same-day events, missing source bridge, unsupported movement, exhausted confirmed units, duplicate identity and rate timing conflicts fail closed.
+- Added schema v5→v6 immutable allocation revisions, finite-layer and separate open-rate lines, stream-revision/source fingerprint CAS, idempotent atomic publication, and deterministic replay verification at the repository boundary. A validly rehashed but non-FIFO preview is rejected.
+- Linked FIFO profile: **175 passed in 5.18s**; `compileall` and `git diff --check` pass. Synthetic inputs and temporary SQLite only. FC16 is `DONE_WITH_GAP`: owner validation of physical sale date and shared stock/finance cutoff is still required; return and non-sale movement replay are deferred to FC18–FC19.
+# 2026-11-06 — FIFO FC22 late-entry impact and correction audit
+
+- Added a read-only before/after impact preview for late FIFO cost entry, including unit allocation by layer/rate, period COGS, tax and profit through the existing tax service.
+- Added atomic, append-only correction persistence with revision/fingerprint checks and projection invalidation. A correction does not immediately rewrite historical Period Profit; a complete allocation replay remains required.
+- The supported correction is deliberately narrow: one missing rate, complete cutoff/source history, no linked returns or non-sale outflows. Synthetic linked profile: 65 passed; production cutoff remains unreconciled.

@@ -25,6 +25,7 @@ def create_unit_price_scenario_runtime(core_components, unit_economics_query, ke
         None,
     )
     cost_service = getattr(unit_economics_query, "cost_service", None)
+    cost_adapter = getattr(unit_economics_query, "cost_adapter", None)
     if not all((product_service, current_economics_source, cost_service)):
         return None
 
@@ -38,6 +39,7 @@ def create_unit_price_scenario_runtime(core_components, unit_economics_query, ke
         cross_docking_source=cross_docking_source,
         cost_service=cost_service,
         tax_configuration_service=tax_configuration_service,
+        cost_adapter=cost_adapter,
     )
     scenario_service = UnitPriceScenarioService(TaxService())
     advertising_cap_service = UnitPriceAdvertisingCapService(scenario_service)

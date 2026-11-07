@@ -35,6 +35,7 @@ class PeriodProfitSummaryService:
         self.finance_service = finance_service
         self.cost_service = cost_service
         self.tax_rate = self._tax_fraction(tax_rate)
+        self.fifo_cost_source_service = None
 
     def calculate(self, date_from, date_to, products):
         start = self._date(date_from)
@@ -91,6 +92,7 @@ class PeriodProfitSummaryService:
         totals = self._empty_totals()
         fee_breakdown = {}
         accrual_type_breakdown = {}
+        fifo_cutover_count = 0
 
         for product in normalized_products:
 
@@ -99,7 +101,52 @@ class PeriodProfitSummaryService:
             if sku is None:
                 continue
 
-            cost, cost_state = self._resolve_cost(product)
+            fifo_mode = {"error": False, "active": False}
+            if not cost_excluded() and self.fifo_cost_source_service is not None:
+                mode_getter = getattr(
+                    self.fifo_cost_source_service, "get_scope_mode", None,
+                )
+                if not callable(mode_getter):
+                    return self._error(
+                        "PERIOD_PROFIT_FIFO_COST_MODE_UNAVAILABLE",
+                        "Режим FIFO-себестоимости недоступен",
+                    )
+                try:
+                    fifo_mode = mode_getter(
+                        product,
+                        date_from=start.isoformat(),
+                        date_to=end.isoformat(),
+                    )
+                except Exception:
+                    fifo_mode = None
+                if not isinstance(fifo_mode, dict) or fifo_mode.get("error") is not False:
+                    code = (
+                        fifo_mode.get("code") if isinstance(fifo_mode, dict) else None
+                    ) or "FIFO_COST_MODE_UNAVAILABLE"
+                    error = self._error(
+                        "PERIOD_PROFIT_FIFO_COST_MODE_UNAVAILABLE",
+                        "Не удалось безопасно определить режим себестоимости SKU",
+                    )
+                    error["fifo_reason_code"] = code
+                    return error
+                if fifo_mode.get("period_cutover_overlap") is True:
+                    error = self._error(
+                        "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE",
+                        "Период пересекает дату начальной FIFO-отсечки. "
+                        "Разделите его на периоды до и после отсечки.",
+                    )
+                    error["fifo_reason_code"] = "FIFO_PERIOD_SPANS_COST_CUTOFF"
+                    error["fifo_cutoff_date"] = fifo_mode.get("cutoff_date")
+                    return error
+            fifo_active = fifo_mode.get("active") is True
+            if fifo_active:
+                # The historical-cost pass below must not guess a current unit
+                # rate. The downstream exact-sale reconciler replaces this
+                # placeholder only after matching a complete FIFO allocation.
+                cost, cost_state = 0.0, None
+                fifo_cutover_count += 1
+            else:
+                cost, cost_state = self._resolve_cost(product)
             if cost_state == "MISSING":
                 return self._error(
                     "PERIOD_PROFIT_COST_UNAVAILABLE",
@@ -126,6 +173,11 @@ class PeriodProfitSummaryService:
             )
             if row.get("error"):
                 return row
+            if fifo_active:
+                row["cost_source"] = "FIFO_ALLOCATION_PENDING"
+                row["fifo_cogs_reconciliation_required"] = True
+            elif not cost_excluded() and self.fifo_cost_source_service is not None:
+                row["cost_source"] = "LEGACY_DATED_COST"
 
             if not self._merge_totals(totals, row):
                 return self._aggregate_error()
@@ -289,6 +341,8 @@ class PeriodProfitSummaryService:
                 if account_level_ozon_accruals_included
                 else "OZON_ACCRUALS_COST_AND_CONFIGURED_TAX_V1"
             ),
+            "fifo_cost_cutover_sku_count": fifo_cutover_count,
+            "fifo_cogs_reconciliation_required": fifo_cutover_count > 0,
         }
 
     def _calculate_account_period(

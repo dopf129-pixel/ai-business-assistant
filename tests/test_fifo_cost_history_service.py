@@ -1,0 +1,163 @@
+from datetime import date, datetime, timezone
+
+from services.fifo_cost_anchor_service import FifoCostAnchorService
+from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_cost_rate_service import FifoCostRateService
+from services.fifo_cost_repository import FifoCostRepository
+from services.ozon_account_repository import make_store_tenant_scope
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
+
+
+IDENTITY = {
+    "store_id": "store-a",
+    "product_id": "product-101",
+    "offer_id": "hook-2",
+    "sku": "3921245627",
+}
+
+
+def _source(captured_at="2026-11-06T12:00:00Z"):
+    return {
+        "kind": "OWNER_CONFIRMATION",
+        "method": "OWNER_CONFIRMED_TEST_RECEIPT",
+        "status": "OWNER_CONFIRMED",
+        "completeness": "OWNER_CONFIRMED",
+        "provenance": "OWNER_CONFIRMED",
+        "coverage_status": "OWNER_CONFIRMED",
+        "captured_at": captured_at,
+        "references": [],
+    }
+
+
+def _setup(tmp_path):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "fifo-history.sqlite",
+        now_provider=lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+    )
+    anchor_service = FifoCostAnchorService(repository)
+    preview = anchor_service.preview_opening_anchor(
+        **IDENTITY,
+        inventory_cutoff="2026-11-05",
+        cost_layers=[
+            {
+                "sequence": 1, "unit_cost_rub": "5.00",
+                "ozon_units": 2, "transit_units": 0, "home_units": 0,
+            },
+            {
+                "sequence": 2, "unit_cost_rub": "10.00",
+                "ozon_units": 1, "transit_units": 0, "home_units": 1,
+            },
+        ],
+        ozon_units_include_reserved_confirmed=True,
+        transit_not_in_ozon_confirmed=True,
+    )
+    assert preview["error"] is False
+    committed = anchor_service.commit_opening_anchor(
+        preview_id=preview["preview_id"],
+        active_preview_id=preview["preview_id"],
+        idempotency_key="history-anchor01",
+    )
+    assert committed["error"] is False
+    return repository
+
+
+def test_fifo_history_returns_empty_scope_without_guessing_a_queue(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        service = FifoCostHistoryService(
+            FifoCostRepository(db_path=tmp_path / "fifo-empty-history.sqlite")
+        )
+        result = service.get_sku_history(**IDENTITY, as_of_date=date(2026, 11, 6))
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is False
+    assert result["queue_initialized"] is False
+    assert result["layers"] == []
+    assert result["rates"] == []
+    assert result["next_unit_cost_rub"] is None
+
+
+def test_fifo_history_separates_old_finite_next_unit_and_planned_rate(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = _setup(tmp_path)
+        rate_service = FifoCostRateService(repository)
+        preview = rate_service.preview_new_cost(
+            **IDENTITY,
+            effective_date="2026-11-07",
+            purchase_cost_rub="12.00",
+            delivery_cost_rub="2.00",
+            packaging_cost_rub="1.00",
+            old_home_units=1,
+            expected_revision=1,
+        )
+        assert preview["error"] is False
+        committed = rate_service.confirm_new_cost(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="history-rate-change01",
+        )
+        assert committed["error"] is False
+
+        result = FifoCostHistoryService(repository).get_sku_history(
+            **IDENTITY, as_of_date=date(2026, 11, 6),
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["queue_initialized"] is True
+    assert result["revision"] == 2
+    assert result["cutoff_date"] == "2026-11-05"
+    assert result["remaining_status"] == "AT_CONFIRMED_SNAPSHOT"
+    assert result["next_unit_cost_rub"] == "5.00"
+    assert result["next_unit_cost_basis"] == "FINITE_FIFO_LAYER"
+    assert [row["remaining_units"] for row in result["layers"]] == [2, 1, 1]
+    assert result["next_planned_rate"]["unit_cost_rub"] == "15.00"
+    assert result["next_planned_rate"]["status"] == "PLANNED"
+    assert {row["provenance_label"] for row in result["layers"]} == {
+        "подтверждено владельцем",
+    }
+    assert not any(
+        any("id" in key.lower() or "fingerprint" in key.lower() for key in row)
+        for row in result["layers"] + result["rates"]
+    )
+
+
+def test_history_does_not_claim_remaining_units_after_unreplayed_movement(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = _setup(tmp_path)
+        preview = repository.preview_command(
+            **IDENTITY,
+            events=[{
+                "kind": "INVENTORY_TRANSFER",
+                "quantity": 1,
+                "effective_date": "2026-11-06",
+                "location_from": "HOME",
+                "location_to": "TRANSIT",
+            }],
+            source=_source(),
+            expected_revision=1,
+        )
+        assert preview["error"] is False
+        committed = repository.commit_command(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="history-movement01",
+        )
+        assert committed["error"] is False
+        result = FifoCostHistoryService(repository).get_sku_history(
+            **IDENTITY, as_of_date=date(2026, 11, 6),
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["movement_count"] == 1
+    assert result["remaining_status"] == "REPLAY_REQUIRED"
+    assert result["next_unit_cost_rub"] is None
+    assert all(row["remaining_units"] is None for row in result["layers"])
+

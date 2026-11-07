@@ -25,6 +25,12 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 from services.planning_unit_economics_experiment_adapter import (
     PlanningUnitEconomicsExperimentAdapter,
 )
+from services.fifo_planning_quantity_allocation_service import (
+    FifoPlanningQuantityAllocationService,
+)
+from services.planning_sales_mix_cost_snapshot_adapter import (
+    PlanningSalesMixCostSnapshotAdapter,
+)
 from services.unit_economics_experiment_state_machine import (
     UnitEconomicsExperimentStateMachine,
 )
@@ -5455,7 +5461,7 @@ class PlanningWorkspaceRepository:
     def _payload(self, payload, scope, *, allow_legacy_sales_mix=False):
         if not isinstance(payload, dict) or set(payload) - {
             "plan_kind", "items", "sales_mix", "schema_version", "calculation_version",
-            "target_margin_percent",
+            "target_margin_percent", "sales_mix_cost_snapshot",
         }:
             return None
         kind = payload.get("plan_kind")
@@ -5706,6 +5712,14 @@ class PlanningWorkspaceRepository:
             sales_mix, normalized_items, allow_legacy=allow_legacy_sales_mix,
         ):
             return None
+        raw_cost_snapshot = payload.get("sales_mix_cost_snapshot")
+        cost_snapshot = None
+        if raw_cost_snapshot is not None:
+            cost_snapshot = PlanningSalesMixCostSnapshotAdapter().normalize(
+                raw_cost_snapshot, normalized_items, sales_mix,
+            )
+            if cost_snapshot is None:
+                return None
         target = self._decimal_string(payload.get("target_margin_percent"), nullable=True)
         if target is False:
             return None
@@ -5713,12 +5727,15 @@ class PlanningWorkspaceRepository:
             from decimal import Decimal
             if not Decimal("0") <= Decimal(target) <= Decimal("100"):
                 return None
-        return {
+        normalized_payload = {
             "plan_kind": kind, "items": normalized_items,
             "sales_mix": sales_mix,
             "schema_version": schema, "calculation_version": calc,
             "target_margin_percent": target,
         }
+        if cost_snapshot is not None:
+            normalized_payload["sales_mix_cost_snapshot"] = cost_snapshot
+        return normalized_payload
 
     @classmethod
     def _clean_sources(cls, sources):
@@ -5790,6 +5807,12 @@ class PlanningWorkspaceRepository:
                 clean_completeness[key] = cls._short_text(value, 24)
                 if clean_completeness[key] is None:
                     return None
+                continue
+            if key == "cost":
+                clean_cost = cls._clean_cost_completeness(value)
+                if clean_cost is None:
+                    return None
+                clean_completeness[key] = clean_cost
                 continue
             if not isinstance(value, dict) or set(value) - {
                 "complete", "status", "reason", "days_loaded", "calendar_days",
@@ -5915,6 +5938,136 @@ class PlanningWorkspaceRepository:
                 safe_evidence[key] = value
             cleaned["cross_docking"] = safe_evidence
         return cleaned
+
+    @classmethod
+    def _clean_cost_completeness(cls, value):
+        allowed = {
+            "complete", "amount", "method", "completeness", "reason_code",
+            "as_of_date", "cutoff_date", "stream_revision",
+            "next_layer_remaining_units", "next_planned_rate", "remaining_status",
+            "model_only", "factual_period_profit_eligible", "revision",
+            "quantity_allocation_basis",
+            "status", "reason", "days_loaded", "calendar_days",
+            "positive_sale_observations", "deduplicated_by", "rate_available",
+        }
+        if not isinstance(value, dict) or set(value) - allowed:
+            return None
+        output = {}
+        for key in ("complete", "model_only", "factual_period_profit_eligible"):
+            if key not in value:
+                continue
+            if type(value[key]) is not bool:
+                return None
+            output[key] = value[key]
+        for key in ("amount",):
+            if key in value:
+                amount = cls._decimal_string(value.get(key), nullable=True)
+                if amount is False:
+                    return None
+                output[key] = amount
+        for key in ("stream_revision", "next_layer_remaining_units"):
+            if key in value:
+                raw = value.get(key)
+                if raw is not None and (type(raw) is not int or not 0 <= raw <= 1_000_000):
+                    return None
+                output[key] = raw
+        for key, limit in (
+            ("method", 80), ("completeness", 80), ("reason_code", 80),
+            ("as_of_date", 40), ("cutoff_date", 40), ("remaining_status", 80),
+            ("revision", 128), ("status", 80), ("reason", 80),
+            ("deduplicated_by", 80),
+        ):
+            if key not in value:
+                continue
+            raw = value.get(key)
+            if key in {"as_of_date", "cutoff_date"} and raw is not None:
+                normalized = cls._timestamp_or_date(raw)
+            else:
+                normalized = cls._short_text(raw, limit, optional=True)
+            if raw is not None and normalized is None:
+                return None
+            output[key] = normalized
+        for key in ("days_loaded", "calendar_days", "positive_sale_observations"):
+            if key in value:
+                raw = value.get(key)
+                if raw is not None and (type(raw) is not int or not 0 <= raw <= 1_000_000):
+                    return None
+                output[key] = raw
+        if "rate_available" in value:
+            if type(value["rate_available"]) is not bool:
+                return None
+            output["rate_available"] = value["rate_available"]
+        if "next_planned_rate" in value:
+            raw = value.get("next_planned_rate")
+            if raw is None:
+                output["next_planned_rate"] = None
+            elif isinstance(raw, dict) and not set(raw) - {
+                "unit_cost_rub", "effective_date", "sequence",
+            }:
+                amount = cls._decimal_string(raw.get("unit_cost_rub"), nullable=True)
+                effective_date = cls._timestamp_or_date(raw.get("effective_date"))
+                sequence = raw.get("sequence")
+                if (amount is False or effective_date is None
+                        or (sequence is not None and (type(sequence) is not int or sequence < 1))):
+                    return None
+                output["next_planned_rate"] = {
+                    "unit_cost_rub": amount, "effective_date": effective_date,
+                    "sequence": sequence,
+                }
+            else:
+                return None
+        if "quantity_allocation_basis" in value:
+            basis = value.get("quantity_allocation_basis")
+            if not isinstance(basis, dict):
+                return None
+            if basis.get("status") == "AVAILABLE":
+                clean_basis = FifoPlanningQuantityAllocationService.normalize_persisted_basis(
+                    basis,
+                )
+                if clean_basis is None:
+                    return None
+                output["quantity_allocation_basis"] = clean_basis
+            elif basis.get("status") == "UNAVAILABLE":
+                allowed_basis = {
+                    "schema_version", "status", "method", "as_of_date", "cutoff_date",
+                    "revision", "remaining_status", "movement_count", "model_only",
+                    "factual_period_profit_eligible", "layers", "open_rate", "reason_code",
+                }
+                if (set(basis) - allowed_basis
+                        or type(basis.get("schema_version")) is not int
+                        or basis.get("schema_version") != FifoPlanningQuantityAllocationService.SCHEMA_VERSION
+                        or basis.get("method") != "FIFO_CURRENT_SNAPSHOT"
+                        or basis.get("layers") != []
+                        or basis.get("open_rate") is not None
+                        or basis.get("model_only") is not True
+                        or basis.get("factual_period_profit_eligible") is not False
+                        or not isinstance(basis.get("reason_code"), str)
+                        or not basis.get("reason_code")):
+                    return None
+                as_of = cls._timestamp_or_date(basis.get("as_of_date"))
+                cutoff = cls._timestamp_or_date(basis.get("cutoff_date"))
+                revision = cls._short_text(basis.get("revision"), 128)
+                movement_count = basis.get("movement_count")
+                if ((basis.get("as_of_date") is not None and as_of is None)
+                        or (basis.get("cutoff_date") is not None and cutoff is None)
+                        or revision is None
+                        or (movement_count is not None and (type(movement_count) is not int or movement_count < 0))):
+                    return None
+                reason = cls._short_text(basis.get("reason_code"), 80)
+                if reason is None:
+                    return None
+                output["quantity_allocation_basis"] = {
+                    "schema_version": FifoPlanningQuantityAllocationService.SCHEMA_VERSION,
+                    "status": "UNAVAILABLE", "method": "FIFO_CURRENT_SNAPSHOT",
+                    "as_of_date": as_of, "cutoff_date": cutoff, "revision": revision,
+                    "remaining_status": cls._short_text(basis.get("remaining_status"), 80, optional=True),
+                    "movement_count": movement_count, "model_only": True,
+                    "factual_period_profit_eligible": False, "layers": [], "open_rate": None,
+                    "reason_code": reason,
+                }
+            else:
+                return None
+        return output
 
     @staticmethod
     def _valid_sales_mix(value, items, *, allow_legacy=False):

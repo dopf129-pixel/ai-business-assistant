@@ -626,6 +626,18 @@ class AssistantButtonHandlerService:
             if callable(clearer):
                 clearer(user_id)
 
+    def clear_form_input_states_for_navigation(self, user_id):
+        """Clear non-calculator text forms after an accepted navigation action."""
+        self._clear_period_profit_custom_input_for_new_flow(
+            "main_menu", user_id,
+        )
+        self._clear_experimental_store_economics_input_for_new_flow(
+            "main_menu", user_id,
+        )
+        self._clear_external_expense_input_for_new_flow(
+            "main_menu", user_id,
+        )
+
     def handle_text(self, text, user_id=None):
         experiment_handler = getattr(
             self.unit_economics_experiment_runtime_service, "handle_text", None

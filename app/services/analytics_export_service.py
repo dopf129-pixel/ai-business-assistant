@@ -9,8 +9,14 @@ from services.period_profit_diagnostic_view_service import (
     PeriodProfitDiagnosticViewService,
 )
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+from services.fifo_planning_basis_compatibility_service import (
+    FifoPlanningBasisCompatibilityService,
+)
 from services.unit_economics_experiment_snapshot_view_service import (
     UnitEconomicsExperimentSnapshotViewService,
+)
+from services.period_profit_fifo_explanation_view_service import (
+    PeriodProfitFifoExplanationViewService,
 )
 
 
@@ -32,6 +38,7 @@ class AnalyticsExportService:
 
     def __init__(self, serializer=None):
         self.serializer = serializer or AnalyticsExportSerializer()
+        self.fifo_cost_basis = FifoPlanningBasisCompatibilityService()
 
     def export_period_profit(self, snapshot, file_format):
         if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
@@ -113,6 +120,97 @@ class AnalyticsExportService:
                         semantic="top_k_reference_not_additive",
                     ))
 
+        raw_fifo = snapshot.get("fifo_cost_explanation")
+        fifo = None
+        if raw_fifo is not None:
+            fifo = PeriodProfitFifoExplanationViewService().sanitize_projection(raw_fifo)
+            if not isinstance(fifo, dict):
+                return self._error("ANALYTICS_EXPORT_FIFO_EXPLANATION_INVALID")
+        if isinstance(fifo, dict):
+            rows.append(self._period_row(
+                "fifo_cost_summary", "total_cogs_rub",
+                value=fifo.get("total_cogs_rub"), status=fifo.get("status"),
+                unit="RUB", semantic="period_total_cogs",
+            ))
+            rows.append(self._period_row(
+                "fifo_cost_summary", "fifo_cogs_rub",
+                value=fifo.get("fifo_cogs_rub"), status=fifo.get("status"),
+                unit="RUB", semantic="fifo_cost_subtotal",
+            ))
+            for product in fifo.get("products", []):
+                if not isinstance(product, dict):
+                    continue
+                common = {
+                    "sku": product.get("sku"),
+                    "cost_mode": product.get("cost_mode"),
+                    "cutoff_date": product.get("cutoff_date"),
+                    "stream_revision": product.get("stream_revision"),
+                    "allocation_revision": product.get("allocation_revision"),
+                }
+                rows.append(self._period_row(
+                    "fifo_cost_product", "product_cogs_rub",
+                    value=product.get("product_cost_rub"),
+                    count=product.get("units_sold"), unit="RUB",
+                    current_status=product.get("status"),
+                    status=product.get("status"),
+                    semantic=product.get("reason_code") or product.get("status"),
+                    **common,
+                ))
+                for layer in product.get("layers", []):
+                    if not isinstance(layer, dict):
+                        continue
+                    rows.append(self._period_row(
+                        "fifo_cost_layer", "layer_" + str(layer.get("sequence")),
+                        current_value=layer.get("unit_cost_rub"),
+                        value=layer.get("total_cogs_rub"),
+                        count=layer.get("quantity"),
+                        status=layer.get("source_status"),
+                        unit="RUB", semantic=layer.get("basis_kind"),
+                        reference=layer.get("basis_ref"),
+                        effective_date=layer.get("effective_date"),
+                        source_confirmation=layer.get("confirmation"),
+                        source_method=layer.get("source_method"),
+                        **common,
+                    ))
+                corrections = product.get("corrections")
+                if isinstance(corrections, dict):
+                    for correction in corrections.get("revisions", []):
+                        if not isinstance(correction, dict):
+                            continue
+                        rows.append(self._period_row(
+                            "fifo_cost_correction", correction.get("period"),
+                            previous_value=correction.get("before_sku_cogs_rub"),
+                            current_value=correction.get("after_sku_cogs_rub"),
+                            delta=correction.get("delta_cogs_rub"),
+                            status=correction.get("status"), unit="RUB",
+                            semantic="saved_correction_cogs_old_and_new_result",
+                            reference=correction.get("correction_ref"),
+                            correction_revision=correction.get("correction_revision"),
+                            previous_allocation_revision=correction.get(
+                                "previous_allocation_revision"
+                            ),
+                            **common,
+                        ))
+                        for measure, before_key, after_key, delta_key in (
+                            ("tax", "before_tax_rub", "after_tax_rub", "delta_tax_rub"),
+                            ("profit", "before_profit_rub", "after_profit_rub", "delta_profit_rub"),
+                        ):
+                            rows.append(self._period_row(
+                                "fifo_cost_correction",
+                                str(correction.get("period")) + "." + measure,
+                                previous_value=correction.get(before_key),
+                                current_value=correction.get(after_key),
+                                delta=correction.get(delta_key),
+                                status=correction.get("status"), unit="RUB",
+                                semantic="saved_correction_" + measure + "_old_and_new_result",
+                                reference=correction.get("correction_ref"),
+                                correction_revision=correction.get("correction_revision"),
+                                previous_allocation_revision=correction.get(
+                                    "previous_allocation_revision"
+                                ),
+                                **common,
+                            ))
+
         top_lists = sku if isinstance(sku, dict) else {}
         metadata = {
             "periods": deepcopy(snapshot.get("periods") or {}),
@@ -144,6 +242,7 @@ class AnalyticsExportService:
                 "ambiguous_identity_count": top_lists.get("ambiguous_identity_count"),
                 "invalid_row_count": top_lists.get("invalid_row_count"),
             },
+            "fifo_cost_explanation": fifo,
             "row_count": len(rows),
         }
         return self.serializer.serialize("period_profit", file_format, columns, rows, metadata)
@@ -483,12 +582,43 @@ class AnalyticsExportService:
             self._column("tariff_price_basis", "Основа тарифной цены", "status"),
             self._column("projection", "Сохранённая проекция", "json"),
             self._column("sales_quantity", "Подтверждённое количество", "integer", "шт."),
+            self._column("fifo_cost_basis", "Снимок FIFO-себестоимости", "json"),
+            self._column("sales_mix_cost_allocation", "Распределение FIFO на объём", "json"),
         ]
         cross_docking_enabled = PlanningCrossDockingAdapter.is_current(payload)
         if cross_docking_enabled:
             columns.append(self._column("cross_docking_source", "Источник кросс-докинга", "json"))
         mix = payload.get("sales_mix")
         quantities = mix.get("quantities") if isinstance(mix, dict) else {}
+        allocation_rows = []
+        saved_cost_snapshot = payload.get("sales_mix_cost_snapshot")
+        if isinstance(saved_cost_snapshot, dict) and isinstance(saved_cost_snapshot.get("rows"), list):
+            allocation_rows = saved_cost_snapshot["rows"]
+        elif isinstance(sales_mix_projection, dict):
+            for key in ("rows", "excluded_rows"):
+                value = sales_mix_projection.get(key)
+                if isinstance(value, list):
+                    allocation_rows.extend(value)
+        allocations_by_row = {}
+        if isinstance(allocation_rows, list):
+            for allocation_row in allocation_rows:
+                if not isinstance(allocation_row, dict):
+                    continue
+                row_id = allocation_row.get("row_id")
+                if isinstance(row_id, str) and row_id:
+                    allocation = allocation_row.get("cost_allocation")
+                    if not isinstance(allocation, dict) and "method" in allocation_row:
+                        allocation = {
+                            key: allocation_row.get(key) for key in (
+                                "status", "method", "reason_code", "quantity",
+                                "basis_ref", "allocated_quantity", "total_cost_rub", "known_cost_rub",
+                                "average_cost_rub", "source_revision", "as_of_date",
+                                "cutoff_date", "lines",
+                            )
+                        }
+                        allocation["model_only"] = True
+                        allocation["factual_period_profit_eligible"] = False
+                    allocations_by_row[row_id] = deepcopy(allocation)
         rows = []
         for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("identity"), dict):
@@ -496,6 +626,13 @@ class AnalyticsExportService:
             identity = item["identity"]
             row_id = str(item.get("row_id") or identity.get("sku") or "")
             projection = deepcopy(item.get("projection") or {})
+            sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+            completeness = sources.get("completeness")
+            completeness = completeness if isinstance(completeness, dict) else {}
+            cost_basis = self.fifo_cost_basis.export_snapshot(item)
+            allocation = allocations_by_row.get(row_id)
+            if isinstance(allocation, dict):
+                allocation = self._saved_fifo_allocation_export(allocation)
             row = {
                 "row_id": row_id,
                 "product_id": identity.get("product_id"),
@@ -508,7 +645,9 @@ class AnalyticsExportService:
                 **self._unit_price_tariff_export_fields(item),
                 "projection": projection,
                 "sales_quantity": quantities.get(row_id) if isinstance(quantities, dict) else None,
+                "fifo_cost_basis": deepcopy(cost_basis),
             }
+            row["sales_mix_cost_allocation"] = allocation
             if cross_docking_enabled:
                 row["cross_docking_source"] = deepcopy(
                     (item.get("sources") or {}).get("cross_docking")
@@ -530,9 +669,42 @@ class AnalyticsExportService:
             "sales_mix_period": mix.get("period_label") if isinstance(mix, dict) else None,
             "sales_mix_confirmed": mix.get("confirmed") if isinstance(mix, dict) else None,
             "sales_mix_projection": deepcopy(sales_mix_projection),
+            "sales_mix_cost_snapshot": (
+                {
+                    key: saved_cost_snapshot.get(key)
+                    for key in (
+                        "schema_version", "status", "model_only",
+                        "factual_period_profit_eligible",
+                    )
+                }
+                if isinstance(saved_cost_snapshot, dict) else None
+            ),
             "exported_scope": "all_rows_in_exact_saved_revision",
         }
         return self.serializer.serialize("saved_plan", file_format, columns, rows, metadata)
+
+    @staticmethod
+    def _saved_fifo_allocation_export(value):
+        if not isinstance(value, dict):
+            return None
+        lines = value.get("lines")
+        safe_lines = []
+        if isinstance(lines, list):
+            for line in lines[:20]:
+                if not isinstance(line, dict):
+                    continue
+                safe_lines.append({key: line.get(key) for key in (
+                    "sequence", "kind", "effective_date", "quantity",
+                    "unit_cost_rub", "total_cost_rub",
+                )})
+        return {
+            key: value.get(key) for key in (
+                "status", "method", "reason_code", "quantity", "allocated_quantity",
+                "basis_ref", "total_cost_rub", "known_cost_rub", "average_cost_rub",
+                "source_revision", "as_of_date", "cutoff_date", "model_only",
+                "factual_period_profit_eligible",
+            ) if key in value
+        } | {"lines": safe_lines}
 
     def export_advertising_cap(self, document, caps, file_format):
         if not isinstance(document, dict) or not isinstance(caps, list) or len(caps) > 10:
@@ -1321,6 +1493,16 @@ class AnalyticsExportService:
             AnalyticsExportService._column("status", "Статус", "status"),
             AnalyticsExportService._column("unit", "Единица", "text"),
             AnalyticsExportService._column("semantic", "Семантика суммы", "status"),
+            AnalyticsExportService._column("reference", "Ссылка", "text"),
+            AnalyticsExportService._column("effective_date", "Дата основания", "text"),
+            AnalyticsExportService._column("cutoff_date", "Cutoff", "text"),
+            AnalyticsExportService._column("cost_mode", "Режим себестоимости", "status"),
+            AnalyticsExportService._column("source_confirmation", "Подтверждение источника", "status"),
+            AnalyticsExportService._column("source_method", "Метод источника", "status"),
+            AnalyticsExportService._column("stream_revision", "Ревизия FIFO", "integer"),
+            AnalyticsExportService._column("allocation_revision", "Ревизия распределения", "integer"),
+            AnalyticsExportService._column("correction_revision", "Ревизия корректировки", "integer"),
+            AnalyticsExportService._column("previous_allocation_revision", "Предыдущая ревизия распределения", "integer"),
         ]
 
     @staticmethod
@@ -1328,7 +1510,10 @@ class AnalyticsExportService:
         row = {key: None for key in (
             "section", "name", "sku", "current_value", "current_status",
             "previous_value", "previous_status", "delta", "value", "count",
-            "status", "unit", "semantic",
+            "status", "unit", "semantic", "reference", "effective_date",
+            "cutoff_date", "cost_mode", "source_confirmation", "source_method",
+            "stream_revision", "allocation_revision", "correction_revision",
+            "previous_allocation_revision",
         )}
         row.update(section=section, name=name, **values)
         return row

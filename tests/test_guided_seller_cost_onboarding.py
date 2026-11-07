@@ -49,7 +49,11 @@ def test_menu_prioritizes_only_products_without_cost():
     service = TelegramSellerCostUpdateService(_Products(), costs)
     result = service.open_menu()
     assert result["cost_coverage"] == {"configured": 1, "total": 2, "missing": 1}
-    assert result["keyboard"]["buttons"] == [_table_button(), {"text": "ART-B", "callback": "seller_cost:SKU-B"}]
+    assert result["keyboard"]["buttons"] == [
+        _table_button(),
+        {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
+        {"text": "ART-B", "callback": "seller_cost:SKU-B"},
+    ]
     assert "применение ко всей истории потребует отдельного подтверждения" in result["message"]
 
 
@@ -60,7 +64,11 @@ def test_empty_local_catalog_is_refreshed_from_ozon_before_cost_setup():
     assert result["error"] is False
     assert products.refresh_calls == 1
     assert result["cost_coverage"] == {"configured": 0, "total": 1, "missing": 1}
-    assert result["keyboard"]["buttons"] == [_table_button(), {"text": "ART-A", "callback": "seller_cost:SKU-A"}]
+    assert result["keyboard"]["buttons"] == [
+        _table_button(),
+        {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
+        {"text": "ART-A", "callback": "seller_cost:SKU-A"},
+    ]
 
 
 def test_catalog_refresh_failure_has_actionable_message():
@@ -99,6 +107,7 @@ def test_first_cost_proposes_date_and_requires_confirmation_before_writing():
     assert saved["keyboard"]["buttons"] == [
         {"text": "📊 Прибыль по этому товару", "callback": "period_profit_sku:SKU-A"},
         _table_button(),
+        {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
         {"text": "ART-B", "callback": "seller_cost:SKU-B"},
     ]
     assert costs.recorded[0]["cost_price"] == 430.0

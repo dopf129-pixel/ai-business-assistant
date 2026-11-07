@@ -18,6 +18,9 @@ from services.period_profit_operation_diagnostics import (
 from services.period_profit_diagnostic_view_service import (
     PeriodProfitDiagnosticViewService,
 )
+from services.period_profit_fifo_explanation_view_service import (
+    PeriodProfitFifoExplanationViewService,
+)
 from services.period_profit_support_diagnostic_export_service import (
     PeriodProfitSupportDiagnosticExportService,
 )
@@ -1260,6 +1263,7 @@ class AssistantPeriodProfitRuntimeService:
         sku_contribution = self._sku_snapshot_projection(
             source.get("sku_contribution")
         )
+        fifo_explanation = PeriodProfitFifoExplanationViewService().build(summary)
         return {
             "schema_version": 1,
             "scope": {
@@ -1281,6 +1285,7 @@ class AssistantPeriodProfitRuntimeService:
             "comparison_metrics": metric_projection,
             "profit_bridge": bridge,
             "sku_contribution": sku_contribution,
+            "fifo_cost_explanation": fifo_explanation,
             "coverage_status": self._safe_code(
                 (source.get("coverage") or {}).get("coverage_status")
                 if isinstance(source.get("coverage"), dict)

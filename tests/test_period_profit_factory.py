@@ -112,6 +112,10 @@ class Summary:
         self.tax_rate = tax_rate
 
 
+class FifoCostSource:
+    pass
+
+
 class TaxSummary:
     def __init__(self, base_service, tax_service, tax_policy):
         self.base_service = base_service
@@ -171,6 +175,9 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
     monkeypatch.setattr(factory, "PeriodProfitSummaryService", Summary)
+    monkeypatch.setattr(
+        factory, "FifoCostPeriodProfitSourceService", FifoCostSource,
+    )
     monkeypatch.setattr(factory, "PeriodProfitTaxPolicySummaryService", TaxSummary)
     monkeypatch.setattr(factory, "PeriodProfitQueryService", Query)
     monkeypatch.setattr(factory, "PeriodProfitFinalApplicationQueryService", FinalQuery)
@@ -186,6 +193,10 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(tax_summary.base_service.finance_service, Finance)
     assert isinstance(tax_summary.base_service.cost_service, Costs)
     assert tax_summary.base_service.tax_rate == 0.0
+    assert isinstance(
+        tax_summary.base_service.summary_service.fifo_cost_source_service,
+        FifoCostSource,
+    )
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)

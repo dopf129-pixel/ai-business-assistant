@@ -43,6 +43,47 @@ def test_margin_today_routes_account_level_period_profit():
     assert query.calls == [{"period_code": "TODAY", "compare_previous": True, "today": "2026-09-05"}]
 
 
+def test_fc28_analytics_snapshot_carries_the_same_fifo_layer_projection():
+    summary = {
+        "product_cost": 10.0,
+        "effective_cost_reconciled": True,
+        "products": [{
+            "sku": "SKU-1", "cost_source": "FIFO_ALLOCATION_REVISION",
+            "units_sold": 1, "product_cost": 10.0,
+            "fifo_cost_explanation": {
+                "cost_mode": "FIFO", "status": "CONFIRMED",
+                "reason_code": None, "cutoff_date": "2026-07-31",
+                "stream_revision": 4, "allocation_revision": 2,
+                "units_sold": 1, "product_cost_rub": "10.00",
+                "layers": [{
+                    "basis_ref": "fifo-basis-00000000000000000001",
+                    "basis_kind": "FIFO_LAYER", "sequence": 1,
+                    "effective_date": "2026-07-01",
+                    "confirmation": "OWNER_CONFIRMED",
+                    "source_method": "OWNER_CONFIRMED_FIFO_CUTOFF",
+                    "source_status": "OWNER_CONFIRMED",
+                    "coverage_status": "OWNER_CONFIRMED",
+                    "quantity": 1, "unit_cost_rub": "10.00",
+                    "total_cogs_rub": "10.00",
+                }],
+                "corrections": {
+                    "status": "NO_CORRECTION", "reason_code": None,
+                    "revisions": [],
+                },
+            },
+        }],
+    }
+
+    snapshot = AssistantPeriodProfitRuntimeService(Query())._build_analytics_snapshot(
+        {"summary": summary}, ("tenant-1", "owner-1"),
+    )
+
+    product = snapshot["fifo_cost_explanation"]["products"][0]
+    assert snapshot["fifo_cost_explanation"]["total_cogs_rub"] == "10.00"
+    assert product["allocation_revision"] == 2
+    assert product["layers"][0]["basis_ref"] == "fifo-basis-00000000000000000001"
+
+
 def test_margin_period_routes_account_level_period_profit():
     query = Query()
     AssistantPeriodProfitRuntimeService(query).handle_text(

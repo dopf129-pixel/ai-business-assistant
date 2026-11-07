@@ -8,6 +8,9 @@ from services.period_profit_sale_quantity_summary_service import (
     PeriodProfitSaleQuantitySummaryService,
 )
 from services.period_profit_cost_exclusion_context import cost_excluded
+from services.period_profit_fifo_explanation_view_service import (
+    PeriodProfitFifoExplanationViewService,
+)
 
 
 class PeriodProfitEffectiveCostSaleQuantitySummaryService(
@@ -21,6 +24,16 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
     Historical cost remains independently resolved by stable product identity and
     sale date; current mutable cost is never used as retroactive authority.
     """
+
+    def __init__(
+        self, finance_service, cost_service, tax_rate=0.06,
+        sale_quantity_ozon_client=None, fifo_cost_source_service=None,
+    ):
+        super().__init__(
+            finance_service, cost_service, tax_rate=tax_rate,
+            sale_quantity_ozon_client=sale_quantity_ozon_client,
+        )
+        self.fifo_cost_source_service = fifo_cost_source_service
 
     OFFER_KEY_PREFIX = "@offer:"
 
@@ -292,6 +305,56 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         total_units = 0
         total_product_cost = 0.0
         historical_bucket_count = 0
+        fifo_sku_count = 0
+        legacy_sku_count = 0
+        fifo_allocation_revisions = set()
+        fifo_sales_by_finance_sku = {}
+        fifo_alias_products_by_finance_sku = {}
+        fifo_source = getattr(self, "fifo_cost_source_service", None)
+        scope_identity_reader = getattr(fifo_source, "resolve_scope_identity", None)
+        if fifo_source is not None and not cost_excluded() and callable(scope_identity_reader):
+            sales_by_finance_sku = {}
+            for sale in physical_sales:
+                sales_by_finance_sku.setdefault(sale["sku"], []).append(sale)
+            groups = {}
+            for row in product_rows:
+                finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
+                if not finance_sku:
+                    continue
+                try:
+                    scope = scope_identity_reader(row)
+                except Exception:
+                    continue
+                if not isinstance(scope, dict) or scope.get("error") is not False:
+                    continue
+                scope_fields = (
+                    scope.get("store_id"), scope.get("product_id") or "",
+                    scope.get("offer_id") or "", scope.get("sku"),
+                )
+                if (
+                    not isinstance(scope_fields[0], str) or not scope_fields[0]
+                    or not isinstance(scope_fields[1], str)
+                    or not isinstance(scope_fields[2], str)
+                    or not scope_fields[1] and not scope_fields[2]
+                    or not isinstance(scope_fields[3], str) or not scope_fields[3]
+                ):
+                    # Lightweight test/compatibility sources may expose only an
+                    # active flag. Do not combine rows unless the exact stream is
+                    # proven by the scope response.
+                    continue
+                groups.setdefault(scope_fields, []).append((finance_sku, row))
+            for aliases in groups.values():
+                if len(aliases) < 2:
+                    continue
+                alias_skus = {finance_sku for finance_sku, _row in aliases}
+                grouped_sales = [
+                    sale for finance_sku in alias_skus
+                    for sale in sales_by_finance_sku.get(finance_sku, ())
+                ]
+                alias_products = [row for _finance_sku, row in aliases]
+                for finance_sku in alias_skus:
+                    fifo_sales_by_finance_sku[finance_sku] = grouped_sales
+                    fifo_alias_products_by_finance_sku[finance_sku] = alias_products
 
         for row in product_rows:
             finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
@@ -302,6 +365,96 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             revenue = self._number(row.get("revenue"), missing_zero=True)
             if None in (net_accrual, tax, revenue):
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+
+            if fifo_source is not None and not cost_excluded():
+                fifo_sales = fifo_sales_by_finance_sku.get(finance_sku)
+                if fifo_sales is None:
+                    fifo_sales = [
+                        sale for sale in physical_sales if sale["sku"] == finance_sku
+                    ]
+                fifo_alias_products = fifo_alias_products_by_finance_sku.get(
+                    finance_sku
+                )
+                try:
+                    reconcile_kwargs = {
+                        "product": row,
+                        "finance_sku": finance_sku,
+                        "date_from": start.isoformat(),
+                        "date_to": end.isoformat(),
+                        "sales": fifo_sales,
+                    }
+                    if fifo_alias_products is not None:
+                        reconcile_kwargs["finance_sku_alias_products"] = (
+                            fifo_alias_products
+                        )
+                    fifo = fifo_source.reconcile_period_sales(
+                        **reconcile_kwargs,
+                    )
+                except Exception:
+                    fifo = None
+                if not isinstance(fifo, dict) or fifo.get("error") is not False:
+                    error = self._quantity_error(
+                        "PERIOD_PROFIT_FIFO_COGS_UNAVAILABLE"
+                    )
+                    if isinstance(fifo, dict) and fifo.get("code"):
+                        error["fifo_reason_code"] = fifo["code"]
+                    return error
+                if fifo.get("active") is True:
+                    if fifo.get("complete") is not True:
+                        error = self._quantity_error(
+                            "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE"
+                        )
+                        error["fifo_reason_code"] = (
+                            fifo.get("reason_code") or "FIFO_ALLOCATION_INCOMPLETE"
+                        )
+                        return error
+                    units = fifo.get("units_sold")
+                    product_cost_value = self._number(fifo.get("product_cost"))
+                    if (
+                        type(units) is not int or units < 0
+                        or product_cost_value is None
+                    ):
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_FIFO_COGS_RESPONSE_INVALID"
+                        )
+                    profit = net_accrual - product_cost_value - tax
+                    if not isfinite(profit):
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
+                        )
+                    next_row = dict(row)
+                    next_row["units_sold"] = units
+                    next_row["product_cost"] = round(product_cost_value, 2)
+                    next_row["cost_per_unit"] = (
+                        round(product_cost_value / units, 2) if units else None
+                    )
+                    next_row["profit"] = round(profit, 2)
+                    next_row["margin_percent"] = self._margin(
+                        next_row["profit"], revenue,
+                    )
+                    if next_row["margin_percent"] is None:
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
+                        )
+                    next_row["cost_source"] = "FIFO_ALLOCATION_REVISION"
+                    next_row["fifo_cogs_reconciliation_required"] = False
+                    next_row["fifo_stream_revision"] = fifo.get("stream_revision")
+                    next_row["fifo_allocation_revision"] = fifo.get(
+                        "allocation_revision"
+                    )
+                    next_row["fifo_cutoff_date"] = fifo.get("cutoff_date")
+                    if isinstance(fifo.get("fifo_cost_explanation"), dict):
+                        next_row["fifo_cost_explanation"] = fifo[
+                            "fifo_cost_explanation"
+                        ]
+                    next_rows.append(next_row)
+                    covered_skus.add(finance_sku)
+                    total_units += units
+                    total_product_cost += product_cost_value
+                    fifo_sku_count += 1
+                    if fifo.get("allocation_revision") is not None:
+                        fifo_allocation_revisions.add(fifo["allocation_revision"])
+                    continue
 
             units = 0
             product_cost = 0.0
@@ -351,6 +504,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
 
             next_row = dict(row)
+            next_row["cost_source"] = "LEGACY_DATED_COST"
+            next_row["fifo_cogs_reconciliation_required"] = False
             next_row["units_sold"] = units
             next_row["product_cost"] = round(product_cost, 2)
             if units > 0:
@@ -364,6 +519,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             covered_skus.add(finance_sku)
             total_units += units
             total_product_cost += product_cost
+            legacy_sku_count += 1
 
         if any(sale["sku"] not in covered_skus for sale in physical_sales):
             return self._quantity_error(
@@ -399,8 +555,20 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         enriched["effective_cost_source"] = (
             "SELLER_CONFIRMED_BOUNDED_HISTORY_OR_OPERATIONAL_SWITCH"
         )
+        enriched["fifo_cogs_reconciliation_required"] = False
+        enriched["fifo_cogs_reconciled"] = True
+        enriched["fifo_cost_source_counts"] = {
+            "fifo": fifo_sku_count,
+            "legacy": legacy_sku_count,
+        }
+        enriched["fifo_allocation_revision_count"] = len(
+            fifo_allocation_revisions
+        )
         enriched["historical_cost_bucket_count"] = historical_bucket_count
         enriched["legacy_current_cost_bucket_count"] = 0
+        fifo_explanation = PeriodProfitFifoExplanationViewService().build(enriched)
+        if isinstance(fifo_explanation, dict):
+            enriched["fifo_cost_explanation"] = fifo_explanation
         return enriched
 
     def _quantity_from_identity_map(

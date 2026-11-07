@@ -59,8 +59,15 @@ class _CurrentSource:
 
 
 class _CostService:
+    def __init__(self):
+        self.current_date = None
+        self.cost = 120.0
+
+    def get_current_cost_date(self):
+        return self.current_date
+
     def get_cost(self, product_id):
-        return (product_id, "hook", "sku-1", 120.0, "RUB", "2026-10-01")
+        return (product_id, "hook", "sku-1", self.cost, "RUB", "2026-10-01")
 
 
 class _TaxConfiguration:
@@ -211,6 +218,7 @@ def _source(
     cost=None,
     tax=None,
     cross_docking_source=None,
+    cost_adapter=None,
 ):
     return UnitPriceScenarioSource(
         product_service=_ProductService(products or [{
@@ -225,7 +233,65 @@ def _source(
         tax_configuration_service=tax or _TaxConfiguration(),
         clock=lambda: datetime(2026, 10, 14, 12),
         cross_docking_source=cross_docking_source,
+        cost_adapter=cost_adapter,
     )
+
+
+class _RevisionCostAdapter:
+    def __init__(self, amount="120.00", revision="fifo-1", completeness="CONFIRMED_SNAPSHOT_MODEL_ONLY"):
+        self.amount = amount
+        self.revision = revision
+        self.completeness = completeness
+        self.calls = []
+
+    def get_current_cost_date(self):
+        return "2026-10-14"
+
+    def resolve_current_cost(self, product, *, store_id, as_of_date):
+        self.calls.append((dict(product), store_id, as_of_date))
+        basis = {
+            "method": "FIFO_FINITE_LAYER" if self.amount is not None else "FIFO_UNAVAILABLE",
+            "completeness": self.completeness,
+            "reason_code": None if self.amount is not None else "FIFO_COST_MOVEMENT_REPLAY_REQUIRED",
+            "as_of_date": as_of_date,
+            "cutoff_date": "2026-10-10",
+            "next_unit_cost_rub": self.amount,
+            "next_unit_cost_basis": "FINITE_FIFO_LAYER" if self.amount is not None else None,
+            "next_layer_remaining_units": 40 if self.amount is not None else None,
+            "next_layer_effective_date": "2026-10-01",
+            "next_planned_rate": {"unit_cost_rub": "135.00", "effective_date": "2026-10-20"},
+            "remaining_status": "PARTIAL",
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+            "cache_revision": self.revision,
+            "quantity_allocation_basis": {
+                "schema_version": 1,
+                "status": "AVAILABLE" if self.amount is not None else "UNAVAILABLE",
+                "method": "FIFO_CURRENT_SNAPSHOT",
+                "as_of_date": as_of_date,
+                "cutoff_date": "2026-10-10",
+                "revision": self.revision,
+                "remaining_status": "AT_CONFIRMED_SNAPSHOT",
+                "movement_count": 0,
+                "model_only": True,
+                "factual_period_profit_eligible": False,
+                "layers": ([{
+                    "sequence": 1, "kind": "FINITE_LAYER", "quantity": 40,
+                    "unit_cost_rub": self.amount, "effective_date": "2026-10-01",
+                }] if self.amount is not None else []),
+                "open_rate": None,
+                **({} if self.amount is not None else {
+                    "reason_code": "FIFO_COST_MOVEMENT_REPLAY_REQUIRED",
+                }),
+            },
+        }
+        return {
+            "cost_per_unit_rub": self.amount,
+            "cost_updated_at": "2026-10-01",
+            "cost_revision": self.revision,
+            "cost_method": basis["method"],
+            "cost_basis": basis,
+        }
 
 
 def test_weighted_points_share_uses_full_28_days_and_exact_sku():
@@ -393,6 +459,32 @@ def test_batch_exact_identity_cache_preserves_age_and_separates_identity_aliases
     assert current.calls and len(current.calls) == 2
 
 
+def test_price_scenario_cache_uses_new_cost_after_effective_date_without_restart():
+    current_day = [datetime(2026, 10, 14, 12)]
+    cost = _CostService()
+    cost.current_date = "2026-10-14"
+    source = _source(_SnapshotFinance({}), cost=cost)
+    source.clock = lambda: current_day[0]
+    product = {"product_id": "p1", "offer_id": "hook", "sku": "sku-1"}
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        initial = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=product
+        )
+        cost.cost = 135.0
+        current_day[0] = datetime(2026, 10, 15, 12)
+        cost.current_date = "2026-10-15"
+        effective = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=product
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert initial["cache"]["status"] == "miss"
+    assert effective["cache"]["status"] == "miss"
+    assert effective["suggested_inputs"]["cost"] == 135.0
+
+
 def test_inflight_wait_is_clamped_to_parent_remaining_time():
     class _Clock:
         now = 10.0
@@ -526,6 +618,94 @@ def test_snapshot_cache_isolated_by_tenant_and_returns_deep_copies():
     assert again["suggested_inputs"]["cost"] == 120.0
     assert again["cache"]["status"] == "hit"
     assert second["cache"]["status"] == "miss"
+    assert len(current.calls) == 2
+
+
+def test_fifo_cost_revision_refreshes_cached_scenario_and_preserves_layer_details():
+    current = _CurrentSource()
+    adapter = _RevisionCostAdapter()
+    source = _source(
+        _SnapshotFinance({}),
+        current=current,
+        cost_adapter=adapter,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first = source.load_snapshot("sku-1", user_id="user-1")
+        cached = source.load_snapshot("sku-1", user_id="user-1")
+        adapter.amount = "127.50"
+        adapter.revision = "fifo-2"
+        refreshed = source.load_snapshot("sku-1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["suggested_inputs"]["cost"] == 120.0
+    assert first["input_provenance"]["cost"] == "fifo_next_unit_cost"
+    assert first["source_completeness"]["cost"]["next_layer_remaining_units"] == 40
+    assert first["source_completeness"]["cost"]["next_planned_rate"]["unit_cost_rub"] == "135.00"
+    assert first["source_completeness"]["cost"]["cutoff_date"] == "2026-10-10"
+    assert first["source_completeness"]["cost"]["quantity_allocation_basis"]["layers"][0]["quantity"] == 40
+    assert cached["cache"]["status"] == "hit"
+    assert refreshed["suggested_inputs"]["cost"] == 127.5
+    assert refreshed["cache"]["status"] == "miss"
+    assert len(current.calls) == 2
+    assert len(source._cache) == 1
+    assert all(call[1:] == ("store-1", "2026-10-14") for call in adapter.calls)
+
+
+def test_confirmed_fifo_replay_cost_is_complete_for_planning_and_cacheable():
+    current = _CurrentSource()
+    adapter = _RevisionCostAdapter(
+        amount="42.00",
+        revision="fifo-replayed-5",
+        completeness="CONFIRMED_REPLAY_MODEL_ONLY",
+    )
+    source = _source(
+        _SnapshotFinance({}),
+        current=current,
+        cost_adapter=adapter,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first = source.load_snapshot("sku-1", user_id="user-1")
+        cached = source.load_snapshot("sku-1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["suggested_inputs"]["cost"] == 42.0
+    assert first["source_completeness"]["cost"]["completeness"] == (
+        "CONFIRMED_REPLAY_MODEL_ONLY"
+    )
+    assert first["source_completeness"]["cost"]["complete"] is True
+    assert first["source_completeness"]["cost"]["factual_period_profit_eligible"] is False
+    assert cached["cache"]["status"] == "hit"
+    assert len(current.calls) == 1
+
+
+def test_unreplayed_fifo_cost_is_unknown_and_scenario_snapshot_is_not_cached():
+    current = _CurrentSource()
+    adapter = _RevisionCostAdapter(
+        amount=None,
+        revision="fifo-incomplete",
+        completeness="REPLAY_REQUIRED",
+    )
+    source = _source(
+        _SnapshotFinance({}),
+        current=current,
+        cost_adapter=adapter,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first = source.load_snapshot("sku-1", user_id="user-1")
+        second = source.load_snapshot("sku-1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["suggested_inputs"]["cost"] is None
+    assert first["input_provenance"]["cost"] == "unknown"
+    assert first["source_completeness"]["cost"]["complete"] is False
+    assert second["cache"]["status"] == "miss"
+    assert source._cache == {}
     assert len(current.calls) == 2
 
 

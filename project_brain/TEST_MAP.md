@@ -1,3 +1,276 @@
+# 2026-11-07 — FIFO CSV и resume navigation regressions
+
+- `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.
+- Связанный профиль `tests/test_fifo_telegram_navigation_regressions.py`, `app/tests/test_seller_cost_confirmation_flow.py`, `tests/test_telegram_fifo_cost_history.py`: **44 passed in 1.25s**. Полный Windows `pytest -q`: **4,851 passed in 51.12s**. `compileall` и diff-check проходят; manifest пяти файлов `data/` совпадает до/после. Exact-head CI run [42370751926](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42370751926) passed на SHA `7896289a14a127eb097800225f28fbf0915a46da`: Windows/Linux full verification и production Docker build/runtime smoke.
+
+# 2026-11-07 — регрессии переходов FIFO-мастеров и Telegram-форм
+
+- `tests/test_fifo_telegram_navigation_regressions.py` использует production `AssistantButtonHandlerService`, Telegram adapters, `TelegramBotService` и реальный `TelegramExternalExpenseRuntimeService` на временной SQLite. Покрывает: валидный seller-cost return к другому SKU очищает FIFO draft; stale seller-cost/FIFO callbacks сохраняют чужой ввод; принятая FIFO-навигация завершает внешний расход, а stale callback его сохраняет; `/start` сбрасывает anchor/rate/late и внешний расход только после успешного допуска.
+- Профиль регрессий плюс существующие FIFO-history, external-expense, user-admission, seller-cost и return-inventory tests: **69 passed in 1.77s**. Полный Windows `pytest -q` с `PYTHONPATH=app`: **4,848 passed in 50.31s**. `compileall -q app tests` и `git diff --check` PASS; тестовые изменения `data/` восстановлены/удалены по исходному manifest. Exact-head GitHub Actions run [42366323896](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42366323896) passed for implementation SHA `899da6f7c510ec10f54254eea98a9b14916b9973` (Windows/Linux and production Docker build/runtime smoke).
+
+# 2026-11-07 — FIFO review R1–R3
+
+- `tests/test_fifo_current_unit_cost_adapter.py::test_catalog_identity_change_cannot_hide_or_duplicate_active_fifo_stream` проверяет, что смена product ID при стабильном store/SKU/offer не возвращает legacy-mode, не попадает в legacy текущую себестоимость и не создаёт ни anchor, ни zero-stock rate stream; `test_optional_product_id_enrichment_cannot_start_a_second_fifo_stream` покрывает обогащение ранее неполной identity. `FifoCostPeriodProfitSourceService` сохраняет typed `FIFO_IDENTITY_CONFLICT`.
+- `tests/test_telegram_fifo_cost_history.py::test_stale_fifo_callbacks_preserve_return_inventory_confirmation` параметризует stale history/anchor/rate/late callbacks и подтверждает, что возврат можно после них сохранить. `test_opening_return_inventory_clears_all_fifo_entry_drafts` проверяет переход из FIFO rate/late/anchor черновиков в возвраты; `test_accepted_fifo_history_navigation_clears_return_draft` проверяет успешную навигацию.
+- Связанный Windows профиль (**85 passed in 2.38s**) включает FIFO adapter/repository/Period Profit и Telegram return-inventory tests. Полный Windows `pytest -q`: **4,844 passed in 50.66s**; `compileall -q app tests`, `git diff --check` и точное восстановление manifest `data/` прошли. Exact-head run [42363101157](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42363101157) прошёл на code SHA `23d3a3420a7390684a9f4e972f6b1c5f6eeb4dce`.
+
+# 2026-11-07 — FIFO review R1–R3
+
+- `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` covers dated historical cost resolving to an inactive current FIFO stream by exact product ID or stable offer ID; conflicting catalogue indexes stay unresolved. Seller mappings accept matching stable offer IDs across product-ID changes and reject conflicts on both identities.
+- `tests/test_unit_price_scenario_telegram_runtime.py` uses the real calculator runtime and button handler to verify that stale FIFO callbacks preserve pending price input and valid history navigation clears the scenario after ticket acceptance.
+- `tests/test_telegram_fifo_cost_history.py` retains the stale rate/anchor wizard isolation regression.
+- Focused Windows profile: **97 passed**. Full Windows `pytest -q`: **4,839 passed in 50.57s**. `python -m compileall -q app tests` and `git diff --check` pass. All five files under `data/` were restored byte-for-byte with identical before/after manifest (`48465375f82c196c8e20388fa9d7f3b1752d33a6407630ac23f682ec016650cd`). Exact-head GitHub Actions run [42360261757](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42360261757) passed on implementation SHA `ccb3d4101308e225448da4965957aa3912338d3b`, including Windows/Linux full verification and production Docker build/runtime smoke.
+
+# 2026-11-07 — FIFO review R1–R3: aliases, post-commit text and stale late cancel
+
+- `tests/test_fifo_cost_period_profit_source_service.py` verifies that multiple separately confirmed finance SKU aliases for one exact catalog FIFO stream are matched against the complete allocation set and that each alias receives only its own posting COGS. Missing and unexpected allocation digests remain fail-closed; stream-wide layer explanation is not attributed to a single alias.
+- `tests/test_period_profit_fifo_cost_integration.py` verifies grouping by the exact resolved store/product/offer/catalog-SKU scope and per-finance-SKU attribution in canonical Period Profit.
+- `tests/test_telegram_fifo_cost_history.py` verifies new text reaches the assistant after anchor/rate commit while old confirmation callbacks remain idempotent. `tests/test_telegram_fifo_cost_late_entry_service.py` verifies saved late-entry drafts survive stale cancel callbacks and no longer trap later text.
+- Verification: focused profile **48 passed in 1.74s**; complete Windows suite **4,829 passed in 50.67s**; all five original `data/` files restored byte-for-byte. Exact-head CI pending publication.
+
+# 2026-11-07 — повторные FIFO review-regressions R1–R3
+
+- `tests/test_fifo_cost_period_profit_source_service.py`: allowlisted historical-SKU mapping selects the exact catalog FIFO stream for both mode lookup and allocation query; an unknown alias source blocks instead of selecting legacy cost.
+- `tests/test_telegram_fifo_cost_history.py`: stale cancel callbacks after anchor/rate commits return the committed result; anchor wizard rejects over-limit quantities and layer counts without losing the draft, and rejects aggregate event/reference overflow before preview while permitting correction of the current layer.
+- Verification: linked FIFO/Period Profit/Telegram/anchor profile **61 passed in 1.69s**; full Windows pytest **4,826 passed in 50.90s**; `compileall` and `git diff --check` PASS. Full-suite data wrapper restored **5/5** original `data/` files by SHA-256.
+
+# 2026-11-07 — follow-up FIFO review regressions R1–R3
+
+- tests/test_store_period_profit_fifo_guard.py: active/overlapping cutoff mode and FIFO scope read errors block before finance/current-cost; pre-cutoff keeps the legacy path; SalesContextProvider does not report declining sales when FIFO evidence is unavailable.
+- tests/test_fifo_cost_source_normalizer.py and tests/test_fifo_cost_source_collection_service.py: empty/FBS-only product stock rows do not become CONFIRMED_ZERO; an explicit zero FBO row preserves the existing contract.
+- tests/test_telegram_fifo_cost_history.py: the setup asks explicit oldest-first confirmation, shows layer order and quantities, and refusal deletes only the draft without writing a queue.
+- Verification: focused profile 81 passed in 1.74s; full Windows pytest -q 4,822 passed in 50.54s; compileall/diff-check PASS. All five original files under data/ match their pre-run SHA-256.
+
+# 2026-11-07 — follow-up regression coverage для FIFO review R1–R4
+
+- `tests/test_fifo_cost_rate_service.py::test_first_rate_rejects_old_home_count_larger_than_confirmed_finite_stock` проверяет отказ до записи для несовместимого остатка при первой новой ставке.
+- `tests/test_unit_price_scenario_source.py::test_confirmed_fifo_replay_cost_is_complete_for_planning_and_cacheable` проверяет полноту replay-себестоимости для планирования и кэша, сохраняя `factual_period_profit_eligible=False`.
+- `tests/test_product_unit_economics_query_cache.py::test_replayed_fifo_cost_is_displayed_as_confirmed_and_cached_for_planning` проверяет текущую карточку, кэширование и отсутствие ложного сообщения о неподставленной себестоимости.
+- `tests/test_telegram_fifo_cost_history.py` проверяет страницы FIFO для настроенных и ненастроенных SKU, callback-навигацию и округление `1.005` → `1.01` по `ROUND_HALF_UP`.
+- Проверки: связанные модули **74 passed in 3.45s**; полный Windows `pytest -q` **4,812 passed in 50.98s**; compileall/diff-check PASS; исходные хеши 5/5 файлов `data/` совпадают.
+
+# 2026-11-07 — FIFO review regressions (PR #726)
+
+- `tests/test_fifo_cost_period_profit_source_service.py` проверяет, что период до cutoff остаётся legacy, диапазон через cutoff отказывается, а период после него выбирает FIFO. `tests/test_period_profit_fifo_cost_integration.py` проверяет публичный Period Profit: исторический dated legacy результат доступен, пересекающий cutoff период блокируется.
+- `tests/test_fifo_current_unit_cost_adapter.py` покрывает persisted zero-stock cutoff, согласованный старый rate как конечный слой перед открытой ставкой, и восстановление следующей стоимости/остатка по свежему полному replay без допуска в factual COGS.
+- `tests/test_fifo_cost_allocation_repository.py` проверяет remaining units после replay; `tests/test_fifo_cost_repository.py` покрывает additive v11→v12 миграцию и единственный подтверждённый backfill zero-stock cutoff по fingerprint-цепочке.
+- `tests/test_telegram_fifo_cost_history.py` покрывает end-to-end Telegram начальный FIFO-якорь, нулевой старт по полной подтверждённой выборке Ozon, доступность планирования открытой ставки, отказ на частичном ответе и переключение между SKU/legacy/FIFO черновиками. `app/tests/test_seller_cost_confirmation_flow.py` запрещает старой форме записывать себестоимость для активного FIFO SKU.
+- `tests/test_fifo_cost_source_collection_service.py` проверяет, что ноль принимается только при явном подтверждении identity/семантики и полного нулевого транзита; запрос read-only и ограничен одной HTTP-попыткой.
+- Финальные проверки: затронутый профиль **113 passed in 3.49s**; полный `pytest -q` **4,807 passed in 50.16s**; `compileall -q app tests` и `git diff --check` PASS. Полный suite запускается без глобального storage-root override, иначе multi-tenant tests намеренно получают другой contract.
+
+# 2026-11-06 — FC35: review handoff
+
+- Пакет независимого review: `project_brain/FIFO_COST_REVIEW_HANDOFF_2026-11-06.md`. В нём зафиксированы full suite 4,792 passed, compileall/diff PASS, data manifest 6/6 и границы доверия к синтетическим источникам.
+- Финальные CI checks проверяются на актуальной голове PR #726; локальный Docker недоступен, поэтому нельзя подменять ими Docker build/smoke workflow.
+
+# 2026-11-06 — FC34: полный набор и целостность данных
+
+- Полная Windows команда `python -m pytest -q` (Python 3.12.10, pytest 8.4.2): **4,792 passed in 50.14s**. Предшествующая регрессия меню исправлена добавлением ожидаемой кнопки экспорта истории; реализация не изменялась.
+- `python -m compileall -q app tests` и `git diff --check` PASS. До/после сравнение точного снимка `data/`: 6/6 файлов одинаковы по размеру и SHA-256, 0 лишних файлов.
+- GitHub Actions run 42279830501 (exact SHA `18ee4e6e459d2aa6a324ae0ef7d5a40e6828baa5`) завершился success: Windows/Python 3.12 full suite, Ubuntu/Python 3.11 full suite, production Docker build, runtime/import smoke. Финальное обновление статуса документации запускает workflow ещё раз на новом PR head; проверяйте результат в PR #726.
+
+# 2026-11-06 — FIFO FC33: документация и owner acceptance
+
+- Added `docs/fifo-cost-history-user-guide.md` for the owner-facing mode boundaries and existing Telegram steps, plus `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for safe future validation without credentials or raw API payloads.
+- Source/wiring audit confirmed `FifoCostAnchorService` has no Telegram entry point. The guide now records that an uninitialized SKU cannot be enabled through the bot; late entry saves documentary evidence only; factual period FIFO COGS remains source-blocked. Real-owner verification remains `USER_VALIDATION_PENDING`.
+- No new test code in this documentation stage. `git diff --check` is run before commit; FC34 performs the full required test/compile/CI verification.
+
+# 2026-11-06 — FIFO FC32: независимая числовая матрица N01–N24
+
+- `tests/test_fifo_cost_allocation_service.py` checks N01/N02/N03/N08/N21 and invalid money/quantity inputs; `tests/test_fifo_cost_replay_service.py` covers chronological order, exact restore basis, duplicate sales/returns, movements, bounded replay, and the new FC32 six-permutation exact-layer invariant.
+- `tests/test_fifo_cost_source_normalizer.py`, `test_fifo_cost_anchor_service.py`, `test_fifo_cost_supply_evidence_service.py`, and `test_fifo_cost_source_collection_service.py` cover inventory/supply arithmetic, explicit zero versus unknown, duplicate evidence, exact SKU identity, partial acceptance, cutoff evidence, and shared bounded source work.
+- `tests/test_period_profit_fifo_cost_integration.py`, `test_fifo_cost_late_entry_impact_service.py`, `test_fifo_cost_late_entry_reconstruction_service.py`, `test_fifo_cost_late_entry_correction_service.py`, and `test_fifo_cost_return_repository.py` cover financial-sale dedupe, exact COGS/tax/profit effects, late corrections, returns, and fail-closed unsupported evidence.
+- `tests/test_fifo_cost_allocation_repository.py` adds a period-query-order regression and covers immutable revision summaries; `test_fifo_current_unit_cost_adapter.py`, `test_fifo_planning_quantity_allocation_service.py`, `test_current_unit_economics_integration.py`, `test_unit_price_target_planning_service.py`, `test_analytics_export_service.py`, and `test_planning_workspace_repository.py` cover N19–N22 and exact totals through current/plan/export paths. FIFO repository/backup tests cover N24 and migration rollback.
+- Linked Windows profile dynamically included every `tests/test_fifo*.py` plus the five related integration files: **406 passed in 12.25s**; changed-test `compileall` and `git diff --check` PASS; 6/6 `data/` hashes/lengths unchanged. No live APIs or bot process.
+
+# 2026-11-06 — FIFO FC31: backup/restore round-trip и migration rollback
+
+- `tests/test_fifo_cost_backup_restore.py` uses the existing `BotBackupService` with isolated project/storage roots and a synthetic tenant DB. It saves an opening layer, dated cost rate, linked accepted supply evidence, a planning document, allocation revision and late-correction audit; restores to a new root and reopens new FIFO/planning repositories, history/current-cost adapter and Telegram CSV exporter. A fresh replay returns identical allocation lines and COGS (`14.00 ₽`).
+- The same test verifies `.env` and runtime-cache omission, revision/process-local ticket behavior, old callback rejection and read-only history export. `tests/test_fifo_cost_repository.py` covers legacy/planning preservation, old-schema additive migration, successful upgrade, rollback after partial DDL failure and future-schema rejection; `tests/test_bot_backup_service.py` covers the surrounding established archive contract.
+- FC31 linked profile: **103 passed in 5.77s**; `compileall` and `git diff --check` PASS. All test state is under pytest temporary roots; the 6 files in the worktree `data/` tree are SHA-256/length-identical before and after.
+
+# 2026-11-06 — FIFO FC30: конкуренция запросов и границы операций
+
+- `tests/test_fifo_cost_source_collection_service.py::test_duplicate_concurrent_stock_collection_is_singleflight` verifies duplicate same-scope requests produce one actual source call and a bounded in-progress response. `test_concurrent_stock_collection_does_not_block_independent_scope` verifies a blocked request does not serialize a different store or exact SKU; incomplete synthetic stock evidence remains `PARTIAL`.
+- The same collector profile covers shared parent attempt/time budgets, cancellation before/during calls, bounded retry/timeout, page/checkpoint caps and stale checkpoints. Repository, rate/correction and Telegram history/late-entry tests cover revision races, stale/foreign/expired drafts and fail-closed updates; operation diagnostics cover concurrent reservations against the shared owner budget.
+- FC30 linked Windows profile: **116 passed in 4.55s**; changed-file `compileall` and `git diff --check` PASS. All API responses are synthetic and repository tests use temporary SQLite.
+
+# 2026-11-06 — FIFO FC29: versioned import and safe history export
+
+- `tests/test_seller_cost_table_service.py` covers the legacy template contract, multiple dated transitions for one SKU, duplicate same-date rejection, ambiguity/catalog/history checks, future history requiring an explicit date, CSV UTF-8/size/row/cell/column bounds, spreadsheet formula escaping, source reference/revision, stale preview rejection, FIFO-mode conflict, read-only history export and whole-history opt-in restrictions.
+- `app/tests/test_period_profit_effective_cost_current_projection.py` uses temporary SQLite to verify revision CAS inside the atomic writer transaction and an end-to-end CSV import whose source reference/revision survive evidence readback and history export.
+- `tests/test_telegram_fifo_cost_history.py` verifies revision-bound FIFO CSV export is redacted and stale tickets are refused. `tests/test_telegram_document_contract.py`, `app/tests/test_seller_cost_confirmation_flow.py` and `tests/test_guided_seller_cost_onboarding.py` cover read-only document delivery, owner confirmation and legacy menu compatibility.
+- FC29 linked Windows profile: **80 passed in 2.16s**. `compileall -q app tests` and `git diff --check` PASS. All persistence tests use temporary SQLite; no live external requests.
+
+# 2026-11-06 — FIFO FC28: отчёт периода и история коррекций
+
+- `tests/test_fifo_cost_period_explanation_service.py` covers safe basis references/provenance, exact layer and open-rate sums, period/partial completeness, and aligned versus unknown correction history with before/after COGS/tax/profit.
+- `app/tests/test_period_profit_compact_fifo_explanation.py` verifies shared compact/full Telegram projection, source/revision detail, multi-chunk output and that no content is silently truncated.
+- `tests/test_fifo_cost_allocation_repository.py` and `tests/test_fifo_cost_period_profit_source_service.py` verify persisted layer basis, exact sum reconciliation, correction history joins, and the zero-sale empty projection. `tests/test_analytics_export_service.py` verifies equivalent export rows/ref, safe fields and bounded failure behavior; runtime snapshot tests confirm no extra source calls.
+- Linked Windows profile: **49 passed in 2.05s**. `compileall -q app tests` and `git diff --check` PASS. Temporary SQLite/synthetic fixtures only; no live API or bot startup.
+
+# 2026-11-06 — FIFO FC27: frozen plans and comparisons
+
+- `tests/test_planning_sales_mix_cost_snapshot_adapter.py` verifies versioned allowlisted snapshot creation, exact FIFO re-allocation validation, redacted `basis_ref`, quantity/revision binding, and visible partial known cost when the confirmed quantity exhausts finite layers.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export` covers immutable save → restart/read → copy → updated quantity/new revision → export, rejects FIFO saves without a snapshot and rejects a stale snapshot, and confirms source calls do not increase.
+- `tests/test_planning_plan_comparison_service.py`, `tests/test_telegram_unit_price_observation_runtime.py`, and `tests/test_unit_price_observation_quality_service.py` reject mismatched/unknown FIFO bases while retaining comparability for an unchanged basis with a changed planned quantity.
+- `tests/test_analytics_export_service.py` verifies safe saved FIFO basis and allocation fields are exported. FC27 linked profile: **96 passed**; `compileall -q app tests` and `git diff --check` PASS; 59/59 baseline data files match.
+
+# 2026-11-06 — FIFO FC26: заданный объём продаж
+
+- `tests/test_fifo_planning_quantity_allocation_service.py`: N01/N03/N20/N21, exact Decimal total, rounded display average, quantity exhaustion, incomplete/movement basis, caps and allowlisted persisted basis.
+- `tests/test_fifo_current_unit_cost_adapter.py`: current finite layers + reconciled rate quantities + active open rate projection; movement/replay blocks quantity basis.
+- `tests/test_sales_mix_planning_service.py`: exact total through one aggregate TaxService call for NONE/USN income/USN income-expenses, minimum tax, manual override, mixed FIFO/legacy SKU, and partial unknown allocation.
+- `tests/test_planning_workspace_repository.py` and `tests/test_unit_price_scenario_source.py`: frozen basis projection, bounded allowlisted persistence and round-trip.
+- `tests/test_saved_planning_plan_telegram_flow.py`: saved-plan FIFO preview shows exact layer split and explanatory average; saved plan source remains frozen. Linked FC26 profile: **256 passed in 5.67s**; `compileall -q app tests`, `git diff --check`, 59/59 data manifest PASS.
+
+# 2026-11-06 — FIFO FC24 cost adapter and current-economics cache profile
+
+- `tests/test_fifo_current_unit_cost_adapter.py` checks legacy dated fallback, exact store/SKU FIFO resolution, old finite layer before a future rate, fail-closed movement replay and full history fingerprint changes after a restore-like content change.
+- `tests/test_product_unit_economics_query_cache.py` checks revision-driven immediate cache invalidation, incomplete-cost non-caching, store-scoped current output and user-visible layer/rate/completeness explanation.
+- `tests/test_unit_price_scenario_source.py` checks adapter wiring into scenario snapshots, cache hits on an unchanged revision, invalidation on a changed revision, exact store context and non-caching of unreplayed cost. `tests/test_unit_price_scenario_telegram_runtime.py` checks FIFO assumptions and distinguishes manual scenario overrides from the source basis.
+- Production wiring is covered by `tests/test_current_unit_economics_production_wiring.py`; adjacent current economics, scenario/target/grid/batch/sensitivity profile: **393 passed in 7.28s**. `compileall -q app tests` and `git diff --check` PASS. No real API or bot startup.
+
+# 2026-11-06 — FIFO cost history implementation baseline
+
+## FC23 — rate boundary and future cancellation regression profile
+
+- `tests/test_fifo_cost_rate_cancellation_service.py` covers owner/store/SKU-bound preview/confirm, append-only v10→v11 migration, idempotency, stale source/revision, refusal after a boundary event, status/history reporting, preservation of old finite layers, and replacement with a later planned rate.
+- `tests/test_telegram_fifo_cost_history.py` covers conditional cancellation controls, opaque callback bounds, explicit confirmation, refreshed audit history, stale Telegram confirmation, and selecting the newest planned rate.
+- `tests/test_fifo_cost_rate_service.py` covers same-date ambiguity against a prior rate and finite layer, and rejects future-dated stock snapshots; existing transition tests advance the synthetic request clock to the snapshot date.
+- Linked profile: `python -m pytest -q tests/test_fifo_cost_rate_cancellation_service.py tests/test_fifo_cost_history_service.py tests/test_fifo_cost_rate_service.py tests/test_fifo_cost_repository.py tests/test_fifo_cost_late_entry_correction_service.py tests/test_fifo_cost_late_entry_impact_service.py tests/test_fifo_cost_late_entry_reconstruction_service.py tests/test_telegram_fifo_cost_history.py` — **89 passed in 4.00s**. Changed modules compile; `git diff --check` PASS. Synthetic evidence and temporary SQLite only.
+
+## FC22 — late-entry impact and correction commit
+
+- `tests/test_fifo_cost_late_entry_impact_service.py` checks period coverage/fingerprints, exact sale and allocation quantity/cost reconciliation, layer-by-layer units and COGS, tax/profit deltas through the existing `TaxService`, and fail-closed behavior for returns, non-sale outflows, incomplete periods and invalid policy inputs.
+- `tests/test_fifo_cost_late_entry_correction_service.py` checks zero COGS delta when old finite layers cover all affected sales, changed source/tax snapshots and changed stream revisions, owner/store/SKU isolation, idempotent confirmation and conflicting retries. Repository regressions cover schema v9→v10 migration, append-only correction data, transaction rollback, stale preview checks, and invalidated allocation projection.
+- Linked profile: `python -m pytest -q tests/test_fifo_cost_late_entry_impact_service.py tests/test_fifo_cost_late_entry_correction_service.py tests/test_fifo_cost_late_entry_reconstruction_service.py tests/test_fifo_cost_rate_service.py tests/test_fifo_cost_repository.py` — **65 passed in 3.25s**. Tests use synthetic evidence and temporary SQLite only; no external requests or persistent user data.
+
+## FC21 — read-only reconstruction of a late FIFO cost transition
+
+- `tests/test_fifo_cost_late_entry_reconstruction_service.py` verifies the production cutoff blocker/evidence request; a complete synthetic cutoff replay; preservation of unsold old finite layers; documentary-only accepted-act quantity; no writes to FIFO revisions/rates or Period Profit; stale revision rejection; same-day date-only ambiguity; and tenant/store isolation.
+- `tests/test_telegram_fifo_cost_late_entry_service.py` verifies the public late-entry flow explains the specific historical cutoff gap, says current Ozon stock was not used as historical inventory, and identifies the owner evidence needed.
+- Linked profile: all `tests/test_fifo_cost*.py`, Telegram FIFO history/late-entry, Period Profit FIFO integration/factory and Return COGS compatibility gates: **261 passed in 8.81s**. `compileall -q app tests` and `git diff --check` PASS. Synthetic services and temporary SQLite only; production cutoff remains blocked.
+
+## FC20 — поздний ввод уже отправленной FIFO-партии
+
+- `tests/test_telegram_fifo_cost_late_entry_service.py`: безопасный диалог ввода цены/расходов/остатка старой партии/даты перехода; точные tenant/store/SKU и revision-bound draft; сбор только принятого односоставного акта, отклонение другого SKU/store, незавершённой/неполной/неоднозначной поставки; bounded continuation и callbacks; черновик не пишет FIFO-события или слои.
+- `tests/test_fifo_cost_supply_evidence_service.py`, `tests/test_fifo_cost_repository.py`, FIFO history/anchor/rate/replay tests и cross-docking/act diagnostic regressions проверяют совместимость сборщика и аддитивную миграцию schema v8→v9.
+- FC20 linked profile: **269 passed in 8.25s**; focused post-cleanup profile **36 passed in 1.47s**; `compileall` и `git diff --check` PASS. Только synthetic services и temporary SQLite; live Ozon/Telegram и запуск бота не выполнялись.
+
+## FC19 — explicit non-sale movement and separate estimated value
+
+- `tests/test_fifo_cost_movement_evidence_normalizer.py` covers redacted movement digests, exact owner source shape, dates/cutoff, non-outflow acceptance-shortfall discrepancy, pool-neutral transfer, and invalid quantities. `tests/test_fifo_cost_non_sale_movement_service.py` covers no-write preview, estimated FIFO finite-layer value, commit/replay, sale COGS separation, and append-only valuation rows.
+- `tests/test_fifo_cost_allocation_service.py` covers FIFO reduction/value of an outflow without adding it to total sales COGS and blocks valuation from unknown open-rate units. `tests/test_fifo_cost_replay_service.py` covers physical time, cutoff, explicit reason confirmation, and insufficient finite basis. FC19 originally added schema v8; FC20 regression coverage now exercises the cumulative v6→v9 additive migration and preservation of old data and append-only tables.
+- FC19 linked profile: **111 passed in 3.49s**; full project pytest: **4,676 passed in 46.45s**. Synthetic fixtures/temp SQLite only. All 59 user-data files matched baseline hashes after reverting the test-created `data/tasks.json` change and removing its lock file.
+
+## FC18 — return recovery and exact prior cost basis
+
+- `tests/test_fifo_cost_return_evidence_normalizer.py` covers exact return type/SKU/posting/quantity matching, complete source, exact supported Ozon return state, explicit non-compensated state, owner-confirmed saleable restoration, date and cutoff gates, redacted identities, and rejection of forged candidates.
+- `tests/test_fifo_cost_replay_service.py` covers full multi-layer restoration, recovery/date/cutoff/digest requirements, duplicate return identity and over-restoration. `tests/test_fifo_cost_return_repository.py` covers schema v6→v7 additive migration, multi-layer basis pinning, ambiguous partial split rejection, repeat partial single-layer returns, over-restoration, service preview/commit/retry and allocation publication.
+- Linked synthetic Windows profile: **131 passed in 3.91s** across return normalizer/replay/repository, core allocation/repository, source/anchor/rate/period-profit services and adjacent Return COGS gates. `compileall` and `git diff --check` PASS. Temporary SQLite/synthetic fixtures only; no live Ozon/Telegram calls or owner data. Cutoff remains production-gated.
+
+## FC17 — FIFO COGS в Period Profit
+
+- `tests/test_fifo_cost_period_profit_source_service.py` проверяет exact store/SKU identity, tenant scope, redacted sale digest join, allocation completeness, stale/mismatched coverage и legacy-mode lookup.
+- `tests/test_period_profit_fifo_cost_integration.py` покрывает FIFO без current-cost fallback, смешанный FIFO/dated-legacy набор, период с date-object (нормализация к ISO), повторное начисление одной продажи без повторного списания и блокировку неполного FIFO allocation. `tests/test_fifo_cost_allocation_repository.py` дополнен чтением последней revision по полному и точному однодневному интервалу; `tests/test_period_profit_factory.py` проверяет production wiring.
+- Связанный профиль: все `test_fifo_cost*.py` и `test_period_profit*.py` в `tests/` и `app/tests/` — **906 passed in 25.87s**; `compileall` и `git diff --check` PASS. Synthetic inputs/temporary SQLite only; live API, bot startup and owner data не использовались. Производственный cutoff остаётся заблокированным до source validation.
+
+## FC16 — deterministic FIFO replay and immutable allocation revisions
+
+- `tests/test_fifo_cost_replay_service.py` checks chronological query-order independence, same-day ambiguity, required physical/cutoff evidence, unsupported events, duplicate digest/timestamp, oversell, event caps, and effective-date handling for an open rate.
+- `tests/test_fifo_cost_allocation_repository.py` checks cutoff guard, schema v5→v6 migration, immutable/idempotent publication, stale revisions, complete sale coverage, source-rate integrity, separate rate-line storage, validly rehashed FIFO reordering, and confirmed-quantity exhaustion.
+- Linked profile across 13 FIFO/Telegram FIFO test files: **175 passed in 5.18s**. Compilation and `git diff --check` PASS. Tests use synthetic inputs and temporary SQLite; no live API, bot startup or owner data.
+
+## FC15 — устойчивая идентичность sale evidence
+
+- `tests/test_fifo_cost_sale_evidence_normalizer.py`: ключ не меняется при SKU rewrite для того же подтверждённого seller offer; ключ разделён по store/posting/product; повторные финансовые даты дедуплицируются и не становятся physical date; unsupported order-status authority, неизвестный product mapping, некорректное количество и даты отклоняются; без подтверждения effective-date semantics и cutoff bridge FIFO event не разрешён.
+- Вместе с `tests/test_period_profit_selected_posting_offer_identity.py`, `tests/test_period_profit_selected_quantity_scope.py`, `tests/test_finance_service_accrual_fee_breakdown.py`: **33 passed in 1.21s**; `compileall` и `git diff --check` PASS.
+- Интеграция намеренно не вызывает Ozon и не создаёт sale event: дата/общий cutoff требуют owner-response validation.
+
+## FC14 — повторные смены ставки и сверка конечных слоёв
+
+- `tests/test_fifo_cost_rate_service.py`: третья/четвёртая цены, распределение старых и предыдущей открытой ставки, reserved как subset FBO, неполный/неверный снимок, конфликт общего остатка, падение количества между сверками без переназначения на продажи, запрет переписывания старых слоёв, append-only source evidence.
+- `tests/test_fifo_cost_repository.py`: миграция v4→v5, создание таблицы сверок и запрет UPDATE/DELETE.
+- `tests/test_fifo_cost_history_service.py` и `tests/test_telegram_fifo_cost_history.py`: показ сохранённых количеств в истории и безопасное сообщение владельцу при невозможности полной сверки.
+- Связанный профиль: `tests/test_fifo_cost_rate_service.py tests/test_fifo_cost_repository.py tests/test_fifo_cost_history_service.py tests/test_telegram_fifo_cost_history.py tests/test_fifo_cost_allocation_service.py tests/test_fifo_cost_supply_evidence_service.py` — **84 passed in 2.62s**; `compileall` и `git diff --check` PASS.
+
+## FC13 — linked supply evidence and partial acceptance
+
+- `tests/test_fifo_cost_source_normalizer.py` covers strict separate declared/approved/fact values, document-date parsing, accepted-act grouping, and stable content fingerprint across identical refreshes with a different local capture time.
+- `tests/test_fifo_cost_supply_evidence_service.py` covers exact owner/store/SKU linking, idempotent identical refresh, a changed act appended as a new evidence snapshot, immutable prior evidence, redacted order/supply/act references, and no FIFO event/layer/revision or physical date created by evidence collection.
+- `tests/test_fifo_cost_repository.py` verifies v3→v4 SQLite migration and append-only source evidence; the linked collector, normalizer, repository, evidence service, anchor/rate/allocation, and cross-docking/act-diagnostic profile: **188 passed in 3.63s**. `compileall` and `git diff --check` pass. API responses are synthetic; stateful checks use pytest temporary SQLite.
+
+## FC12 — FIFO history and Telegram rate-entry
+
+- `tests/test_fifo_cost_history_service.py` covers empty queues, confirmed next finite layer, planned versus effective rate, provenance labels, and refusal to report remaining/current next-unit cost after an unreplayed movement.
+- `tests/test_telegram_fifo_cost_history.py` covers opaque callback generation/length, user/store/revision/TTL binding, safe visible labels, exact-SKU return actions, menu compatibility, Decimal component entry, explicit home-zero/quantity input, no invented new-batch quantity, idempotent confirmation, stale store rejection, and unchanged finite layers/cutoff after an actual temporary-SQLite rate commit.
+- Linked Windows profile also includes existing FIFO anchor/rate/repository/allocation/source tests, guided legacy seller-cost menu, seller-cost confirmation/switch/display tests, and unit-price navigation regression: **108 passed in 2.91s**. `compileall` and `git diff --check` PASS. No live Ozon/Telegram calls, bot startup, or persistent owner data.
+
+# 2026-11-06 — FC11 timely new cost rate
+
+- `tests/test_fifo_cost_rate_service.py` covers no-write rate preview, all-in cost components, explicit home remainder, unchanged finite FIFO layers, atomic append-only rate commit, idempotent confirmation, stale draft replacement, owner/store scope, date ordering, and stale stock/cost revision rejection. N02 covers the narrow confirmed-zero first-rate path versus unknown transit; it asserts that no fake receipt/event/layer is created and the factual cutoff stays blocked.
+- `tests/test_fifo_cost_repository.py` verifies the additive atomic v2→v3 schema migration preserves prior streams and the append-only rate-history contract.
+- Linked Windows profile (`test_fifo_cost_rate_service.py`, repository, allocation, source normalizer/collector, client contract and anchor) at FC11 code checkpoint `1b138766`: **127 passed in 2.79s**. `compileall` and `git diff --check` PASS. Temporary SQLite and synthetic inputs only; no live API or bot.
+
+# 2026-11-06 — FC10 owner-confirmed opening anchor
+
+- `tests/test_fifo_cost_anchor_service.py` verifies a no-write preview, explicit multi-price FIFO ordering, per-layer Ozon/transit/home counts, explicit confirmed home zero, reserved-included Ozon count confirmation, non-overlapping transit confirmation, date-only cutoff, persisted digest references for zero zones, atomic commit, latest projection totals and repeated-anchor rejection.
+- Invalid/missing/boolean/fractional/negative counts, unsupported money floats, ambiguous layer order, partial zones, unconfirmed stock semantics, unproven transit overlap and invalid cutoff reject before preview. Repository tests enforce an exclusive opening-anchor command, exact owner provenance and capture time, date-only effective fields, per-zone location/cutoff, and preserve idempotency/CAS behavior. Invalid optional identifiers cannot silently fall back to another identifier.
+- Linked Windows profile including FC09 collection/client, FC08 normalizer, FIFO kernel and repository: **113 passed in 2.24s**. Module compile and `git diff --check` PASS. Temporary SQLite/synthetic inputs only; no live API or bot.
+
+# 2026-11-06 — FC09 bounded FIFO source collection
+
+- `tests/test_fifo_cost_source_collection_service.py` covers exact owner/store/SKU scope, read-only FBO collection, two-page resumable supply search, complete negative lookup only after terminal pagination, opaque single-use and expiring checkpoint, source fingerprint, repeated cursor/order conflict, rate limit, cancellation, parent deadline/request caps, child-call reservation, timeout mid-operation, duplicate concurrent callback and SKU mismatch. It uses synthetic client responses only.
+- `tests/test_fifo_cost_client_contract.py` verifies `/v4/product/info/stocks` forwards bounded pagination/retry/observer options and rejects invalid page size before any request.
+- Linked Windows profile including source normalizer, FIFO kernel/repository and existing cross-docking supply/act regressions: **117 passed in 2.28s**. `compileall` and `git diff --check` PASS. No live API, bot, or owner database used. Exact-head CI is deferred to FC34.
+
+# 2026-11-06 — FC08 FIFO stock/supply evidence normalization
+
+- `tests/test_fifo_cost_source_normalizer.py` covers allowlisted exact product/SKU identity, `total_items` and explicit page completeness, strict integer counts, `present` vs reserved semantics, non-overlapping transit evidence, and distinct invalid/partial/empty/confirmed-zero/conflict/unavailable outcomes.
+- Supply tests reconcile `fact_quantity` SKU lines with accepted-act summaries without summing both views, deduplicate repeated representations by hashed supply/act identity, allow multiple partial accepted acts only for one SKU, and block mismatches, unidentified units, unknown act states, incomplete responses and multi-SKU supplies. Stock evidence also requires an explicit catalog product-to-SKU mapping confirmation before exposing counts as complete.
+- Synthetic Windows profile: **25 passed**; module compilation and `git diff --check` PASS. No live Ozon/Telegram calls or owner data.
+
+- Baseline for the FIFO implementation branch: full Windows `python -m pytest` at spec head `b842e4a812334938e5178de8f4ae158d2b36735c` — **4,442 passed in 45.02s**.
+- The run is baseline evidence only, not FIFO verification. Subsequent FIFO regression profiles are listed under their stage headings below; FC01 added isolated SQLite reproductions for the dated/current projection defects.
+- Local `data/`, `.runtime-data/`, and root database hashes were captured before the run and matched after restoring only test-created changes.
+
+# 2026-11-06 — FC04 pure FIFO allocation kernel
+
+- `tests/test_fifo_cost_allocation_service.py` covers N01/N02/N03/N08/N21, finite-layer FIFO order, rate-only unknown purchase quantity, explicit confirmed-zero versus unknown anchor, exact return allocation basis, cutoff/source/order gates, decimal rounding, invalid values, and bounded/failing iterators. The kernel has no storage, Ozon, Telegram, or planning dependencies.
+- `tests/test_fifo_cost_repository.py` covers additive schema migration on an existing database, preservation of legacy cost and `planning_schema` data, unchanged SQLite `user_version`, repeat initialization, append-only evidence guards, rollback after a mid-migration DDL failure, future-version rejection, tenant/store database isolation, FC06→FC07 schema upgrade, read-only preview, exact idempotent retry, payload/source-reference fingerprint mismatch, stale owner/SKU/store callbacks, per-stream CAS concurrency, bounded Decimal/time/reference validation and atomic multi-event rollback. All databases are temporary fixtures.
+- Focused Windows result: **27 passed**. Module compile and `git diff --check` PASS. Synthetic-only inputs; no owner data or live calls.
+
+# 2026-11-06 — FC05 effective-date resolver and current cost caches
+
+- `app/tests/test_period_profit_effective_cost_current_projection.py` isolates single/batch/future/late switch timelines in temporary SQLite, including an old database row whose timestamp/value can be a shadowed future projection. It proves current `get_cost` and `get_all_costs` advance on an injected date boundary without restart.
+- `tests/test_current_unit_economics_integration.py` and `tests/test_unit_price_scenario_source.py` verify that cached current-card and price-scenario results use a fresh cache scope after the effective date changes.
+- Linked Windows profile covering the new tests, legacy current timestamp, dated cost timeline/identity fallback, cost confirmation, Telegram switch, CSV import, card, and price scenario: **93 passed**. No live Ozon/Telegram calls or persistent owner data.
+
+# 2026-11-06 — FIFO FC01 isolated source audit
+
+- A temporary isolated SQLite harness ran three scenarios against `PeriodProfitEffectiveCostService`: future single switch, late older switch after a future switch, and a batch spanning today/tomorrow. It observed current projection **25 vs dated 20** for future single/batch, and current projection **18 vs dated 20** after late insertion of an older cost. The future single write also surfaced through `SELLER_CONFIRMED_LEGACY_CURRENT_TIMESTAMP` for today.
+- These are audit reproductions, not passing regression tests. Runtime behavior is unchanged; FC05 must add permanent assertions for the corrected contract.
+- Full writer/reader and cache map: `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`.
+
+# 2026-11-06 — FIFO FC02 аудит источников cutoff
+
+- Добавлен `tests/fixtures_fifo_cutoff_gap_v1.json`, синтетический отрицательный пример для сценария: продажа уже уменьшила остаток до local capture-time, а финансовое начисление появилось позже. Fixture требует fail-closed `INVENTORY_CUTOFF_UNRECONCILED`, если физическое время выбытия и общий watermark не подтверждены.
+- Это контрактный fixture, не ответ API и не данные владельца. Runtime-код и живые Seller API-запросы не менялись.
+- Матрица official docs и ограничений текущих адаптеров: `project_brain/FIFO_COST_SOURCE_AUDIT_2026-11-06.md`.
+
+# 2026-11-06 — FIFO FC03 контракты и архитектура
+
+- Добавлены `project_brain/FIFO_COST_CONTRACTS_2026-11-06.md` и Decision 066: отдельный tenant-local фактический журнал, append-only revisions, per-SKU cutover, денежные/количественные контракты и обязательная блокировка неразрешённого cutoff.
+- Архитектурная структура и обязательные ссылки проверены локальным валидатором; `git diff --check` PASS. Это документационный этап, runtime-тестов нет; тесты FIFO-ядра начинаются в FC04.
+
+# 2026-11-06 — план проверок FIFO себестоимости
+
+- В LUNA_FIFO_COST_HISTORY_TASK_2026-11-06.md заданы N01–N24: суммы FIFO, несколько старых слоёв, reserve/transit overlap, delayed accrual cutoff, однократность физической продажи, late correction, возвраты, current/future dated cost, scoped callbacks/CAS, планирование Q, frozen revisions и backup/restore.
+- Это план будущих регрессий, а не выполненные тесты. FC00–FC35 не начаты.
+- Для самого ТЗ проверяются структура этапов, ссылки на существующие точки интеграции, числовые примеры и git diff --check. Производственный код этой веткой не меняется; результаты pytest/CI фиксируются отдельно по фактическому запуску.
+- Проверка самого документа: 36 уникальных этапов, зависимости на более ранние этапы, 24 сценария, существующие точки интеграции, UTF-8 и числовые примеры — PASS; git diff --check — PASS. Локальный pytest для документационной правки не запускался; полный набор проверяет автоматический CI PR.
+
 # 2026-11-05 — регрессии повторного review PR #724
 
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_price_grid_reports_missing_cost_without_claiming_confirmed_commission_is_unknown` проверяет, что отсутствие себестоимости не маскируется сообщением о неподтверждённой комиссии при подтверждённой тарифной ставке.
@@ -6247,6 +6520,13 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `app/tests/test_seller_cost_confirmation_flow.py` проверяет возврат после подтверждённой себестоимости к тому же SKU, одноразовость callback и отказ после переключения магазина. `tests/test_unit_price_scenario_telegram_runtime.py::test_current_unit_economics_detail_has_entry_to_same_calculator_runtime` сохраняет SKU при входе в сценарий, а `test_manual_commission_at_candidate_price_preserves_price_cost_and_advertising` — цену, себестоимость и рекламу после ручного тарифа.
 - Final linked Windows profile across query, Telegram UI, current integration, historical pre-ad, seller-cost flow and calculator runtime: **98 passed in 1.95s**. Production `py_compile`, `git diff --check` PASS; owner data hash unchanged and lock absent. No live request or bot.
 
+# FC25 — frozen FIFO unit cost in price planning
+
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_price_grid_uses_one_frozen_fifo_next_unit_cost_and_keeps_candidate_tariffs` runs the public Telegram grid flow, changes the fake underlying source revision after opening, and proves every price candidate retains the original next-unit cost and source revision while commission changes at the 100 ₽ tariff boundary. The result shows the 80-unit layer limit and labels the calculation as one-unit planning.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_scenario_cost_overrides_fifo_reference_without_changing_its_basis` confirms a manual 23 ₽ cost is applied to every candidate while FIFO 20 ₽ and its revision remain read-only reference evidence.
+- `tests/test_unit_price_sensitivity_service.py::test_fifo_next_unit_cost_and_revision_are_frozen_across_price_sensitivity_cells` preserves cost and revision across sensitivity cells; unknown advertising leaves after-ad profit unavailable while the independent pre-ad margin remains available.
+- Linked Windows/Python 3.12 profile: `tests/test_unit_price_scenario_telegram_runtime.py tests/test_unit_price_sensitivity_service.py` — **80 passed in 1.27s**. `python -m compileall -q app tests` and `git diff --check` PASS. No live Ozon/Telegram calls, bot startup, or data changes.
+
 # MA18 — налоговое основание и provenance в current/history/experiment views
 
 - `tests/test_product_unit_economics_query.py`, `tests/test_product_unit_economics_historical_pre_ad_margin.py`, and `tests/test_current_unit_economics_integration.py` retain the current tax-policy and historical recorded-tax basis, source periods, and legacy outputs.
@@ -6267,3 +6547,4 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_sales_mix_planning_service.py::test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero` проверяет смесь одного SKU с подтверждённым нулём и другого с положительным STORAGE; `test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix` сохраняет подтверждённый кросс-докинг при неизвестной рекламе. Неизвестная реклама оставляет количество/выручку и маржу до рекламы, но не выдаёт after-ad totals.
 - `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
 - Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.
+

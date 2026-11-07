@@ -1,5 +1,9 @@
 # Architecture Decisions
 
+## Decision 066 — FIFO cost ledger, finance-SKU aliases, and inventory cutoff gate
+
+Keep factual FIFO evidence in a dedicated append-only repository using the existing tenant SQLite database, separate from Planning Workspace and legacy mutable cost. Do not auto-backfill old cost rows. FIFO cutover is per exact store/SKU; historical finance-SKU aliases retain separate sale identities, are reconciled as one complete exact-stream set, then receive per-alias COGS attribution. Immutable events and allocation revisions use CAS/idempotency. If the stock/physical-sale cutoff is not proven, `INVENTORY_CUTOFF_UNRECONCILED` blocks FIFO COGS from factual Period Profit. Existing finance, TaxService, Return COGS and saved-plan owners remain unchanged. Details: `DECISIONS_066.md` and `FIFO_COST_CONTRACTS_2026-11-06.md`.
+
 ## Decision 065 — owner decisions are immutable experiment evidence
 
 Keep recommendations as deterministic projections of validated immutable phase results. Rank only each candidate's latest assessed result when the exact baseline and frozen economics are shared. Persist owner decisions in an additive tenant-scoped append-only Planning Workspace ledger bound to the exact current result revision; use CAS, idempotency, a finite quota and immutable triggers. A decision based on a comparison must also match the latest phase-state, control-event and collection revisions atomically. Completion requires a current terminal owner choice, while continuing leaves the experiment in review. Choices never call Ozon or change a seller price. Details: `DECISIONS_065.md` and `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.

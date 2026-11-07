@@ -1,5 +1,6 @@
 from copy import deepcopy
 from decimal import Decimal
+import pytest
 
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.tax_service import TaxService
@@ -71,6 +72,192 @@ def _service():
     tax = _CountingTaxService()
     scenario = UnitPriceScenarioService(tax)
     return SalesMixPlanningService(scenario, tax), tax
+
+
+def _fifo_cost_source(amount="20.00", *, layers=None, open_rate=None, revision="fifo-rev-1"):
+    return {
+        "completeness": {
+            "cost": {
+                "complete": True,
+                "amount": amount,
+                "method": "FIFO_FINITE_LAYER",
+                "revision": revision,
+                "quantity_allocation_basis": {
+                    "schema_version": 1,
+                    "status": "AVAILABLE",
+                    "method": "FIFO_CURRENT_SNAPSHOT",
+                    "as_of_date": "2026-11-06",
+                    "cutoff_date": "2026-11-05",
+                    "revision": revision,
+                    "remaining_status": "AT_CONFIRMED_SNAPSHOT",
+                    "movement_count": 0,
+                    "model_only": True,
+                    "factual_period_profit_eligible": False,
+                    "layers": layers or [{
+                        "sequence": 1, "kind": "FINITE_LAYER", "quantity": 80,
+                        "unit_cost_rub": amount, "effective_date": "2026-11-05",
+                    }],
+                    "open_rate": open_rate,
+                },
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("mode", "tax_rate", "expected_tax"),
+    [
+        ("USN_INCOME", "6", "600.00"),
+        ("USN_INCOME_MINUS_EXPENSES", "15", "1185.00"),
+        ("NONE", None, "0.00"),
+    ],
+)
+def test_fc26_fifo_quantity_total_flows_through_existing_aggregate_tax_service(
+    mode, tax_rate, expected_tax,
+):
+    service, tax = _service()
+    inputs = _sample_inputs(
+        price="100", cost="20", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0", tax_mode=mode, tax_rate=tax_rate,
+        minimum_tax_rate="1",
+    )
+    item = _item("SKU-FIFO", inputs)
+    item["sources"] = _fifo_cost_source(
+        open_rate={"unit_cost_rub": "25.00", "effective_date": "2026-11-06"},
+    )
+    item["provenance"] = {"cost": "fifo_next_unit_cost"}
+
+    result = service.calculate(
+        [item], quantities={"SKU-FIFO": 100}, period_label="2026-11-01 — 2026-11-30",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["status"] == "COMPLETE"
+    assert result["components"]["cost_of_goods"] == "2100.00"
+    assert result["components"]["profit_before_tax"] == "7900.00"
+    assert result["pre_ad_margin"]["profit_before_tax_rub"] == "7900.00"
+    assert result["pre_ad_margin"]["expense_scope"]["known_non_ad_expenses_rub"]["COGS"] == "2100.00"
+    assert result["tax"] == expected_tax
+    assert result["profit"] == str(Decimal("7900.00") - Decimal(expected_tax))
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 7900.0
+    assert result["rows"][0]["cost_allocation"]["average_cost_rub"] == "21.00"
+    assert result["rows"][0]["cost_allocation"]["factual_period_profit_eligible"] is False
+
+
+def test_fc26_minimum_tax_uses_exact_fifo_aggregate_profit():
+    service, tax = _service()
+    inputs = _sample_inputs(
+        price="100", cost="99", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0", tax_mode="USN_INCOME_MINUS_EXPENSES", tax_rate="15",
+        minimum_tax_rate="1",
+    )
+    item = _item("SKU-MIN-TAX", inputs)
+    item["sources"] = _fifo_cost_source(
+        amount="99.00",
+        open_rate={"unit_cost_rub": "100.00", "effective_date": "2026-11-06"},
+    )
+    item["provenance"] = {"cost": "fifo_next_unit_cost"}
+
+    result = service.calculate(
+        [item], quantities={"SKU-MIN-TAX": 100}, period_label="2026-11-01 — 2026-11-30",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["components"]["cost_of_goods"] == "9920.00"
+    assert result["components"]["profit_before_tax"] == "80.00"
+    assert result["tax"] == "100.00"
+    assert tax.calls[0]["gross_profit"] == 80.0
+
+
+def test_fc26_manual_cost_override_does_not_consume_or_replace_fifo_basis():
+    service, _tax = _service()
+    item = _item("SKU-MANUAL", _sample_inputs(
+        cost="17", price="100", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+    item["sources"] = _fifo_cost_source(
+        open_rate={"unit_cost_rub": "25.00", "effective_date": "2026-11-06"},
+    )
+    item["provenance"] = {"cost": "manual_seller_assumption"}
+    before = deepcopy(item["sources"])
+
+    result = service.calculate(
+        [item], quantities={"SKU-MANUAL": 100}, period_label="2026-11-01 — 2026-11-30",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["components"]["cost_of_goods"] == "1700.00"
+    assert result["rows"][0]["cost_allocation"]["status"] == "MANUAL_SCENARIO_OVERRIDE"
+    assert result["rows"][0]["cost_allocation"]["reference_fifo_revision"] == "fifo-rev-1"
+    assert result["rows"][0]["cost_allocation"]["lines"] == []
+    assert item["sources"] == before
+
+
+def test_fc26_multi_sku_mix_keeps_legacy_cost_and_fifo_totals_exact():
+    service, tax = _service()
+    fifo = _item("SKU-FIFO-MIX", _sample_inputs(
+        price="100", cost="20", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+    fifo["sources"] = _fifo_cost_source(
+        open_rate={"unit_cost_rub": "25.00", "effective_date": "2026-11-06"},
+    )
+    fifo["provenance"] = {"cost": "fifo_next_unit_cost"}
+    legacy = _item("SKU-LEGACY-MIX", _sample_inputs(
+        price="50", cost="10", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+
+    result = service.calculate(
+        [fifo, legacy], quantities={"SKU-FIFO-MIX": 100, "SKU-LEGACY-MIX": 2},
+        period_label="2026-11-01 — 2026-11-30", expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["status"] == "COMPLETE"
+    assert result["components"]["cost_of_goods"] == "2120.00"
+    assert result["components"]["revenue"] == "10100.00"
+    assert len(tax.calls) == 1
+
+
+def test_fc26_unallocatable_fifo_quantity_makes_mix_partial_instead_of_using_next_unit_times_q():
+    service, tax = _service()
+    fifo = _item("SKU-FIFO-PARTIAL", _sample_inputs(
+        price="100", cost="20", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+    fifo["sources"] = _fifo_cost_source(layers=[{
+        "sequence": 1, "kind": "FINITE_LAYER", "quantity": 80,
+        "unit_cost_rub": "20.00", "effective_date": "2026-11-05",
+    }])
+    fifo["provenance"] = {"cost": "fifo_next_unit_cost"}
+    legacy = _item("SKU-LEGACY-PARTIAL", _sample_inputs(
+        price="50", cost="10", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+
+    result = service.calculate(
+        [fifo, legacy], quantities={"SKU-FIFO-PARTIAL": 100, "SKU-LEGACY-PARTIAL": 2},
+        period_label="2026-11-01 — 2026-11-30", expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["status"] == "PARTIAL"
+    assert result["components"]["cost_of_goods"] == "20.00"
+    assert result["profit"] is None
+    assert result["tax"] is None
+    assert result["excluded_rows"][0]["reason"] == "FIFO_QUANTITY_ALLOCATION_INCOMPLETE"
+    partial_cost = result["excluded_rows"][0]["cost_allocation"]
+    assert partial_cost["status"] == "PARTIAL"
+    assert partial_cost["allocated_quantity"] == 80
+    assert partial_cost["known_cost_rub"] == "1600.00"
+    assert len(tax.calls) == 0
 
 
 def test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once():

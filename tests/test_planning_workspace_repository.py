@@ -168,6 +168,67 @@ def test_scope_isolated_by_owner_and_store(tmp_path):
         reset_current_tenant_user_id(token)
 
 
+def test_fifo_quantity_basis_round_trips_as_bounded_allowlisted_plan_source(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "fifo-plan-basis.sqlite")
+    payload = _payload()
+    payload["items"][0]["inputs"].update({"cost": "20.00"})
+    payload["items"][0]["provenance"]["cost"] = "fifo_next_unit_cost"
+    payload["items"][0]["sources"]["completeness"]["cost"] = {
+        "complete": True,
+        "amount": "20.00",
+        "method": "FIFO_FINITE_LAYER",
+        "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+        "as_of_date": "2026-11-06",
+        "cutoff_date": "2026-11-05",
+        "stream_revision": 3,
+        "revision": "a" * 64,
+        "model_only": True,
+        "factual_period_profit_eligible": False,
+        "quantity_allocation_basis": {
+            "schema_version": 1,
+            "status": "AVAILABLE",
+            "method": "FIFO_CURRENT_SNAPSHOT",
+            "as_of_date": "2026-11-06",
+            "cutoff_date": "2026-11-05",
+            "revision": "a" * 64,
+            "remaining_status": "AT_CONFIRMED_SNAPSHOT",
+            "movement_count": 0,
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+            "layers": [{
+                "sequence": 1, "kind": "FINITE_LAYER", "quantity": 80,
+                "unit_cost_rub": "20.00", "effective_date": "2026-11-05",
+            }],
+            "open_rate": {
+                "unit_cost_rub": "25.00", "effective_date": "2026-11-06",
+            },
+        },
+    }
+    token = _context()
+    try:
+        saved = _save(repo, "fifo-basis-save001", payload=payload)
+        assert saved["error"] is False, saved
+        read = repo.get_document(saved["document_id"])
+    finally:
+        reset_current_tenant_user_id(token)
+
+    normalized = read["document"]["payload"]["items"][0]["sources"]["completeness"]["cost"]
+    basis = normalized["quantity_allocation_basis"]
+    assert basis["layers"] == [{
+        "sequence": 1, "kind": "FINITE_LAYER", "quantity": 80,
+        "unit_cost_rub": "20.00", "effective_date": "2026-11-05",
+    }]
+    assert basis["open_rate"]["unit_cost_rub"] == "25.00"
+    assert basis["revision"] == "a" * 64
+
+    payload["items"][0]["sources"]["completeness"]["cost"][
+        "quantity_allocation_basis"
+    ]["layers"][0]["ozon_sku"] = "must-not-persist"
+    assert PlanningWorkspaceRepository._clean_cost_completeness(
+        payload["items"][0]["sources"]["completeness"]["cost"]
+    ) is None
+
+
 def test_repeated_save_is_idempotent_and_stale_revision_conflicts(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "seller.sqlite")
     token = _context()

@@ -593,9 +593,28 @@ class OzonClient:
 
     def get_product_stocks(
         self,
-        product_id
+        product_id,
+        limit=100,
+        timeout=20,
+        max_attempts=3,
+        total_timeout=75,
+        request_attempt_observer=None,
     ):
-
+        page_limit = limit if type(limit) is int else 0
+        if not 1 <= page_limit <= 100:
+            return {
+                "error": True,
+                "code": "OZON_PRODUCT_STOCKS_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+            "total_timeout": total_timeout,
+        }
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
         return self._post(
             "/v4/product/info/stocks",
             {
@@ -606,8 +625,9 @@ class OzonClient:
                         )
                     ]
                 },
-                "limit": 100
-            }
+                "limit": page_limit
+            },
+            **options,
         )
 
     def get_accruals_by_day(

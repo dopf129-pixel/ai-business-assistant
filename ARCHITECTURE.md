@@ -2,6 +2,12 @@
 
 # Архитектура проекта
 
+## FIFO-себестоимость: поздний ввод уже отправленной партии (FC20)
+
+Отдельный `TelegramFifoCostLateEntryService` принимает себестоимость и расходы партии, остаток старой партии дома, ID поставки и подтверждённый акт для точного SKU. Ограниченный read-only collector ищет завершённую заявку и принятый односоставный акт в правильном магазине; при неполном поиске владелец может продолжить тем же ID. Дата документа `created_date` хранится только как дата документа, отдельно от времени получения и введённой владельцем даты фактического перехода.
+
+Подтверждение создаёт только append-only черновик позднего ввода в FIFO schema v9. Он привязан к владельцу, магазину, SKU и ожидаемой ревизии потока; сырой ID поставки/акта не сохраняется. FC20 не создаёт слой/событие поступления, не меняет остатки, стоимость в Period Profit, налоги или прибыль. Реконструкция исторического FIFO и оценка влияния остаются следующими отдельными этапами FC21–22; cutoff gate остаётся закрыт.
+
 ---
 
 ## Общая схема
@@ -327,6 +333,49 @@ app/services/cost_service.py
 - дату обновления.
 
 Себестоимость сохраняется в SQLite.
+
+### FIFO cost rate reconciliation
+
+Subsequent owner-confirmed rates are append-only revisions in the FIFO-owned
+tables in the same tenant-local SQLite database. A later rate cannot rewrite
+older finite layers: a complete exact-SKU stock snapshot and explicit owner
+confirmation reconcile the prior open rate only. If movements require replay,
+the source is incomplete, or totals conflict with prior evidence, the preview
+fails closed. This remains separate from the legacy `ProductCostService` and
+does not feed factual Period Profit while the cutoff bridge is unresolved.
+
+### FIFO physical sale evidence
+
+`FifoCostSaleEvidenceNormalizer` produces a domain-separated digest from the
+tenant store, Ozon posting number, and confirmed stable seller offer/product
+identity. The catalog SKU and financial accrual dates are not part of that
+identity. It keeps accrual dates separate from the physical effective date and
+only marks an event eligible when physical-date semantics and the shared
+inventory/finance cutoff bridge are explicitly confirmed. It does not call
+Ozon or write an event.
+
+### FIFO replay and allocation publication
+
+`FifoCostReplayService` is a pure bounded coordinator over the deterministic
+`FifoCostAllocationService`. It sorts only evidence that establishes causal
+order and refuses ambiguous time, duplicate sale identity, unsupported
+movement, incomplete coverage or an exhausted confirmed queue. `FifoCostRepository`
+rebuilds the expected allocation from immutable source rows and compares the
+whole preview inside the same `BEGIN IMMEDIATE` transaction that checks source
+fingerprint and stream/allocation revisions. Allocation headers and finite/open
+rate lines are append-only; a changed ledger makes the prior projection stale.
+This protects persistence from a modified preview even if its caller recomputes
+the preview hash. Physical sale/cutoff evidence remains owner-validation gated,
+so the replay backend can produce production Period Profit COGS only after the
+source ledger itself is complete and its cutoff is reconciled. FC17 connects the
+canonical Period Profit summary to the latest immutable allocation revision:
+each finance sale must join by exact store, stable seller product identity,
+posting digest and quantity. For an active exact-SKU FIFO cutover, a missing,
+stale or mismatched allocation fails the affected report scope closed and never
+falls back to today's mutable cost. SKUs without a FIFO cutover keep their
+existing dated-cost path. Ozon finance amounts and the canonical tax policy stay
+authoritative. Synthetic ready-branch tests do not validate live sale timing or
+the stock/finance cutoff, so current production FIFO COGS remains unavailable.
 
 ---
 
@@ -766,3 +815,11 @@ finalized snapshot. User reports may contain the owner's business figures,
 while support diagnostics remain a separate strict allowlist. Missing values
 remain nullable with their status/reason, and historical inputs are never
 presented as fresh Ozon data.
+
+## FIFO return recovery (FC18)
+
+`FifoCostReturnEvidenceNormalizer` admits only a complete, exact-SKU customer-return record plus an explicit owner confirmation that the same quantity is saleable again. Ozon status and document timestamps do not establish the physical recovery date. `FifoCostReturnRestockService` previews the source/cutoff checks and submits one immutable return event; `FifoCostRepository` schema v7 pins that event to the prior full allocation revision and its exact original sale allocation lines. `FifoCostReplayService` restores only those pinned layer quantities, and duplicate return identities cannot restore stock twice. An ambiguous partial return across multiple cost layers or a return against an unsupported open-rate basis fails closed. This ledger path does not bypass or change the independent monetary Return COGS authorization gates, and factual Period Profit remains unavailable until the shared inventory/finance cutoff is validated.
+
+## FIFO non-sale movement evidence (FC19)
+
+`FifoCostMovementEvidenceNormalizer` keeps outflow causes explicit: owner-confirmed home shortage, Ozon disposal, supplier return, or inventory write-off. `FifoCostNonSaleMovementService` previews one immutable movement and its estimated value over known finite FIFO layers. The replay reduces remaining quantity and persists valuation lines in FIFO schema v8's separate append-only table; sales COGS and monetary Period Profit totals exclude this estimate. If the finite basis is exhausted or an open-rate quantity would be needed, the movement is blocked. Acceptance shortfall is only a declared-versus-accepted discrepancy, and a transfer among HOME/TRANSIT/OZON is pool-neutral; neither creates an outflow. Public Telegram workflow and owner/source cutoff validation remain pending.

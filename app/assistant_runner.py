@@ -25,7 +25,9 @@ from services.finance_dashboard_service import (
     FinanceDashboardService
 )
 
-from services.cost_service import ProductCostService
+from services.period_profit_effective_cost_service import (
+    PeriodProfitEffectiveCostService,
+)
 
 from services.profit_service import ProfitService
 from services.profit_dashboard_service import (
@@ -77,7 +79,7 @@ class AssistantRunner:
         self.finance_service = FinanceService()
         self.finance_dashboard = FinanceDashboardService()
 
-        self.cost_service = ProductCostService()
+        self.cost_service = PeriodProfitEffectiveCostService()
 
         self.profit_service = ProfitService()
         self.profit_dashboard = ProfitDashboardService()

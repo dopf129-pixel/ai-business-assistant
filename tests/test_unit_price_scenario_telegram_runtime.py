@@ -3,6 +3,7 @@ from threading import Event, Thread
 from unittest.mock import patch
 
 from services.assistant_keyboard_service import AssistantKeyboardService
+from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 from services.telegram_unit_price_calculator_runtime_service import (
@@ -13,6 +14,7 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
 
 
 class _ProductService:
@@ -558,6 +560,56 @@ def test_cost_display_uses_canonical_half_up_rounding_and_reconciles_scope():
     projection = price_scenario["pre_ad_margin"]
     assert projection["expense_scope"]["known_non_ad_expenses_rub"]["COGS"] == 120.01
     assert projection["expense_scope"]["known_non_ad_expenses_rub"]["ROUNDING_ADJUSTMENT"] == -0.01
+
+
+def test_assumptions_explain_fifo_layer_remaining_next_rate_and_model_only_scope():
+    runtime, source = _runtime()
+    original_load = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["input_provenance"]["cost"] = "fifo_next_unit_cost"
+        snapshot["source_completeness"]["cost"] = {
+            "complete": True,
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "as_of_date": "2026-10-14",
+            "cutoff_date": "2026-10-10",
+            "next_layer_remaining_units": 40,
+            "next_planned_rate": {
+                "unit_cost_rub": "135.00",
+                "effective_date": "2026-10-20",
+            },
+            "model_only": True,
+        }
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        assumptions = runtime.handle_callback(
+            _find_button(scenario, "Допущения и источники")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert assumptions["status"] == "UNIT_PRICE_SCENARIO_ASSUMPTIONS_READY"
+    assert "Метод себестоимости: FIFO" in assumptions["message"]
+    assert "Срез FIFO на 2026-10-14." in assumptions["message"]
+    assert "Фактическая отсечка FIFO: 2026-10-10." in assumptions["message"]
+    assert "Остаток слоя со следующей себестоимостью: 40 шт." in assumptions["message"]
+    assert "Следующая запланированная ставка: 135.00 ₽/шт. с 2026-10-20" in assumptions["message"]
+    assert "текущий FIFO-слой она не заменяет" in assumptions["message"]
+    assert "Полнота себестоимости подтверждена" in assumptions["message"]
+    assert "только в плановом сценарии" in assumptions["message"]
+    manual_lines = runtime._cost_basis_assumption_lines(
+        {"source_completeness": {"cost": {"method": "FIFO_FINITE_LAYER", "complete": True}}},
+        provenance={"cost": "manual_seller_assumption"},
+    )
+    assert any("для сверки: FIFO" in line for line in manual_lines)
+    assert any("применяется введённая вручную себестоимость" in line for line in manual_lines)
 
 
 def test_small_confirmed_expense_keeps_allocation_basis_when_unit_amount_rounds_to_zero():
@@ -1403,6 +1455,156 @@ def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for
     assert len(tariff.calls) == 1
 
 
+def test_price_grid_uses_one_frozen_fifo_next_unit_cost_and_keeps_candidate_tariffs():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    original_load_snapshot = source.load_snapshot
+    source_basis = {"amount": 20.0, "revision": "fifo-revision-1"}
+
+    def load_fifo_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["cost"] = source_basis["amount"]
+        snapshot["input_provenance"]["cost"] = "fifo_next_unit_cost"
+        snapshot["source_completeness"]["cost"] = {
+            "complete": True,
+            "amount": source_basis["amount"],
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "as_of_date": "2026-10-14",
+            "cutoff_date": "2026-10-10",
+            "stream_revision": 1,
+            "revision": source_basis["revision"],
+            "next_layer_remaining_units": 80,
+            "next_planned_rate": {
+                "unit_cost_rub": "25.00",
+                "effective_date": "2026-10-20",
+            },
+            "remaining_status": "PARTIAL",
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+        }
+        return snapshot
+
+    source.load_snapshot = load_fifo_snapshot
+    forward_calls = []
+    original_calculate = runtime.scenario_service.calculate
+
+    def capture_forward(inputs, *args, **kwargs):
+        forward_calls.append((deepcopy(inputs), deepcopy(kwargs.get("sources") or {})))
+        return original_calculate(inputs, *args, **kwargs)
+
+    runtime.scenario_service.calculate = capture_forward
+    tenant = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        source_basis.update(amount=25.0, revision="fifo-revision-2")
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1",
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон цены")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("99;101;1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    grid = result["price_planning_result"]
+    candidate_calls = [
+        (inputs, sources) for inputs, sources in forward_calls
+        if inputs.get("price") in {"99.00", "100.00", "100.01", "101.00"}
+    ]
+    candidates_by_price = {
+        inputs["price"]: inputs for inputs, _sources in candidate_calls
+    }
+    assert prompt["stage"] == "price_grid"
+    assert grid["error"] is False
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert set(candidates_by_price) == {"99.00", "100.00", "100.01", "101.00"}
+    assert all(float(candidate["cost"]) == 20 for candidate in candidates_by_price.values())
+    assert float(candidates_by_price["100.00"]["commission_rate"]) == 11
+    assert float(candidates_by_price["100.01"]["commission_rate"]) == 22
+    assert all(
+        sources["completeness"]["cost"]["revision"] == "fifo-revision-1"
+        for _inputs, sources in candidate_calls
+    )
+    assert "Все варианты используют один снимок стоимости следующей успешной единицы FIFO" in result["message"]
+    assert "Текущего слоя хватает на 80 шт." in result["message"]
+    assert "Этот расчёт оценивает одну единицу." in result["message"]
+    assert source_basis["revision"] == "fifo-revision-2"
+
+
+def test_manual_scenario_cost_overrides_fifo_reference_without_changing_its_basis():
+    runtime, source = _runtime(tariff_profile_runtime_service=_FrozenRangeTariffRuntime())
+    original_load_snapshot = source.load_snapshot
+
+    def load_fifo_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["cost"] = 20.0
+        snapshot["input_provenance"]["cost"] = "fifo_next_unit_cost"
+        snapshot["source_completeness"]["cost"] = {
+            "complete": True,
+            "amount": 20.0,
+            "method": "FIFO_FINITE_LAYER",
+            "completeness": "CONFIRMED_SNAPSHOT_MODEL_ONLY",
+            "next_layer_remaining_units": 80,
+            "next_planned_rate": {"unit_cost_rub": "25.00"},
+            "remaining_status": "PARTIAL",
+            "revision": "fifo-revision-1",
+            "model_only": True,
+            "factual_period_profit_eligible": False,
+        }
+        return snapshot
+
+    source.load_snapshot = load_fifo_snapshot
+    forward_calls = []
+    original_calculate = runtime.scenario_service.calculate
+
+    def capture_forward(inputs, *args, **kwargs):
+        forward_calls.append((deepcopy(inputs), deepcopy(kwargs.get("sources") or {})))
+        return original_calculate(inputs, *args, **kwargs)
+
+    runtime.scenario_service.calculate = capture_forward
+    tenant = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        cost_prompt = runtime.handle_callback(
+            _find_button(scenario, "Себестоимость")["callback"], user_id="user-1",
+        )
+        scenario = runtime.handle_text("23", user_id="user-1")
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1",
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон цены")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("99;101;1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    candidates = [
+        (inputs, sources) for inputs, sources in forward_calls
+        if inputs.get("price") in {"99.00", "100.00", "100.01", "101.00"}
+    ]
+    assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert prompt["stage"] == "price_grid"
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert len(candidates) == 4
+    assert all(float(inputs["cost"]) == 23 for inputs, _sources in candidates)
+    assert all(
+        inputs["cost"] != sources["completeness"]["cost"]["amount"]
+        for inputs, sources in candidates
+    )
+    assert all(
+        sources["completeness"]["cost"]["revision"] == "fifo-revision-1"
+        for _inputs, sources in candidates
+    )
+    assert "введённую вручную себестоимость" in result["message"]
+    assert "23,00 ₽/шт." in result["message"]
+    assert "показана только для сверки" in result["message"]
+
+
 def test_no_ad_price_grid_is_a_separate_mode_and_applying_it_preserves_current_ad_assumption():
     tariff = _FrozenRangeTariffRuntime()
     runtime, source = _runtime(tariff_profile_runtime_service=tariff)
@@ -1547,6 +1749,108 @@ def test_target_price_applies_only_from_current_verified_result_and_old_button_s
     assert "подставлена только в текущий сценарий" in applied["message"]
     assert stale["status"] == "UNIT_PRICE_SCENARIO_STALE"
     assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_stale_fifo_callback_keeps_real_price_scenario_and_pending_input():
+    class Assistant:
+        def ask(self, *_args):
+            return {"error": False, "message": "assistant fallback"}
+
+    class StaleRateEntry:
+        def handle_callback(self, _user_id, _callback):
+            return {
+                "error": True,
+                "handled": True,
+                "message": "Подтверждение FIFO устарело.",
+            }
+
+        def handle_text(self, _user_id, _text):
+            return {"error": False, "handled": False}
+
+    runtime, _source = _runtime()
+    tenant = _activate()
+    try:
+        opened = _select_catalog_product(runtime)
+        price_button = next(
+            button for button in opened["keyboard"]["buttons"]
+            if str(button.get("callback", "")).endswith(":price")
+        )
+        pending = runtime.handle_callback(
+            price_button["callback"], user_id="user-1",
+        )
+        handler = AssistantButtonHandlerService(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            unit_price_calculator_runtime_service=runtime,
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            button_handler=handler,
+            fifo_rate_entry_service=StaleRateEntry(),
+        )
+
+        stale = adapter.handle_button(
+            "fifo_rate:confirm:expired-ticket",
+            user_id="user-1",
+        )
+        active_after_stale = runtime.active_scenario_identity("user-1")
+        accepted_price = runtime.handle_text("400", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert pending["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert stale["error"] is True
+    assert stale["message"] == "Подтверждение FIFO устарело."
+    assert active_after_stale is not None
+    assert accepted_price["status"] in {
+        "UNIT_PRICE_SCENARIO_READY",
+        "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+    }
+    assert accepted_price["price_scenario"]["inputs"]["price"]["value"] == 400
+
+
+def test_valid_fifo_history_navigation_clears_active_price_scenario():
+    class Assistant:
+        def ask(self, *_args):
+            return {"error": False, "message": "assistant fallback"}
+
+    class ValidHistory:
+        def handle_callback(self, _user_id, _callback):
+            return {
+                "error": False,
+                "handled": True,
+                "message": "Карточка истории FIFO",
+            }
+
+    runtime, _source = _runtime()
+    tenant = _activate()
+    try:
+        _select_catalog_product(runtime)
+        assert runtime.active_scenario_identity("user-1") is not None
+        handler = AssistantButtonHandlerService(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            unit_price_calculator_runtime_service=runtime,
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=Assistant(),
+            keyboard_service=AssistantKeyboardService(),
+            button_handler=handler,
+            fifo_history_service=ValidHistory(),
+        )
+
+        opened = adapter.handle_button(
+            "fifo_history:open:valid-ticket",
+            user_id="user-1",
+        )
+        active_after_navigation = runtime.active_scenario_identity("user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert opened["error"] is False
+    assert opened["message"] == "Карточка истории FIFO"
+    assert active_after_navigation is None
 
 
 def test_comparison_applies_only_the_selected_saved_row():

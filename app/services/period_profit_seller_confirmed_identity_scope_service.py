@@ -37,6 +37,47 @@ class PeriodProfitSellerConfirmedIdentityScopeService(
         )
 
     def _recover_missing_product(self, sku, at_date):
+        mapping_status, mapped = self._recover_from_seller_confirmed_mapping(sku)
+        if mapping_status == "READY":
+            # A dated legacy cost can recover the sale value, but it cannot tell
+            # us which current FIFO stream owns a retired finance SKU. Preserve
+            # that evidence only after the seller-confirmed mapping has supplied
+            # and validated the canonical catalogue identity.
+            direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
+                self,
+                sku,
+                at_date,
+            )
+            if direct is None:
+                return mapped
+            direct_product_id = self._text(direct.get("product_id"))
+            mapped_product_id = self._text(mapped.get("product_id"))
+            direct_offer_id = self._text(direct.get("offer_id"))
+            mapped_offer_id = self._text(mapped.get("offer_id"))
+            same_product = bool(
+                direct_product_id
+                and mapped_product_id
+                and direct_product_id == mapped_product_id
+            )
+            same_stable_offer = bool(
+                direct_offer_id
+                and mapped_offer_id
+                and direct_offer_id == mapped_offer_id
+            )
+            if not same_product and not same_stable_offer:
+                self._record_sku_recovery_diagnostic(
+                    "SELLER_MAPPING_HISTORICAL_COST_PRODUCT_CONFLICT"
+                )
+                return None
+            result = dict(mapped)
+            result["cost_price"] = direct.get("cost_price")
+            result["historical_cost_evidence"] = (
+                direct.get("historical_cost_evidence") is True
+            )
+            return result
+        if mapping_status != "MISSING":
+            return None
+
         direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
             self,
             sku,
@@ -44,23 +85,74 @@ class PeriodProfitSellerConfirmedIdentityScopeService(
         )
         if direct is not None:
             result = dict(direct)
+            catalog_candidate = self._catalog_candidate_for_historical_identity(
+                direct
+            )
             result["historical_sku_identity_recovered"] = True
             result["historical_sku_identity_source"] = (
                 "SELLER_CONFIRMED_HISTORICAL_COST_IDENTITY"
                 if result.get("historical_cost_evidence") is True
                 else "SELLER_CURRENT_COST_EXACT_SKU_IDENTITY"
             )
+            if catalog_candidate is not None:
+                catalog_sku = self._text(catalog_candidate.get("sku"))
+                current_product_id = self._text(
+                    catalog_candidate.get("product_id")
+                )
+                current_offer_id = self._text(catalog_candidate.get("offer_id"))
+                if catalog_sku and current_product_id and current_offer_id:
+                    # The exact, unique current catalogue identity selects the
+                    # FIFO stream. Keep the finance SKU as the sale identity and
+                    # keep the dated cost amount recovered above.
+                    result["product_id"] = current_product_id
+                    result["offer_id"] = current_offer_id
+                    result["catalog_sku"] = catalog_sku
+                    result["historical_sku_identity_source"] = (
+                        "CONFIRMED_HISTORICAL_COST_IDENTITY_TO_CURRENT_CATALOG"
+                        if result.get("historical_cost_evidence") is True
+                        else "CONFIRMED_CURRENT_COST_IDENTITY_TO_CURRENT_CATALOG"
+                    )
             return result
-
-        mapping_status, mapped = self._recover_from_seller_confirmed_mapping(sku)
-        if mapping_status == "READY":
-            return mapped
-        if mapping_status != "MISSING":
-            return None
 
         # No explicit seller alias exists, so retain the current READ-ONLY Ozon
         # related-SKU / finance-posting recovery chain and all of its fail-closed gates.
         return super()._recover_missing_product(sku, at_date)
+
+    def _catalog_candidate_for_historical_identity(self, identity):
+        """Return one exact, unambiguous current catalogue match, if any."""
+        product_id = self._text(identity.get("product_id"))
+        offer_id = self._text(identity.get("offer_id"))
+        product_candidate = (
+            getattr(self, "_catalog_by_product_id", {}).get(product_id)
+            if product_id else None
+        )
+        offer_candidate = (
+            getattr(self, "_catalog_by_offer", {}).get(offer_id)
+            if offer_id else None
+        )
+        if product_candidate is not None and offer_candidate is not None:
+            product_sku = self._text(product_candidate.get("sku"))
+            offer_sku = self._text(offer_candidate.get("sku"))
+            product_catalog_id = self._text(product_candidate.get("product_id"))
+            offer_catalog_id = self._text(offer_candidate.get("product_id"))
+            if product_sku != offer_sku or product_catalog_id != offer_catalog_id:
+                self._record_sku_recovery_diagnostic(
+                    "HISTORICAL_COST_CATALOG_IDENTITY_CONFLICT"
+                )
+                return None
+        candidate = product_candidate or offer_candidate
+        if not isinstance(candidate, dict):
+            return None
+        candidate_product_id = self._text(candidate.get("product_id"))
+        candidate_offer_id = self._text(candidate.get("offer_id"))
+        candidate_sku = self._text(candidate.get("sku"))
+        if (
+            not candidate_product_id
+            or not candidate_offer_id
+            or not candidate_sku
+        ):
+            return None
+        return candidate
 
     def _recover_from_seller_confirmed_mapping(self, sku):
         finance_sku = self._text(sku)

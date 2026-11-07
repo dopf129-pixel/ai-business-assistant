@@ -20,20 +20,26 @@ class TelegramSellerCostUpdateService:
     TABLE_CONFIRM_ALL_HISTORY_CALLBACK = "seller_cost_table_confirm_all_history"
     UNIT_ECONOMICS_RETURN_TTL_SECONDS = 15 * 60
     UNIT_ECONOMICS_RETURN_MAX_ENTRIES = 128
+    FIFO_HISTORY_PAGE_SIZE = 20
 
-    def __init__(self, product_service, cost_service, date_provider=None, table_service=None, store_name_provider=None):
+    def __init__(self, product_service, cost_service, date_provider=None, table_service=None, store_name_provider=None, fifo_history_service=None, fifo_cost_repository=None):
         self.product_service = product_service
         self.cost_service = cost_service
         self.date_provider = date_provider or date.today
         self.table_service = table_service or SellerCostTableService(
-            product_service, cost_service, date_provider=self.date_provider
+            product_service, cost_service, date_provider=self.date_provider,
+            fifo_cost_repository=fifo_cost_repository,
         )
         self.store_name_provider = store_name_provider
+        self.fifo_history_service = fifo_history_service
+        self.fifo_cost_repository = fifo_cost_repository
         self._pending = {}
         self._pending_lock = RLock()
         self._unit_economics_returns = {}
 
-    def open_menu(self):
+    def open_menu(self, user_id=None, *, fifo_page=0):
+        if type(fifo_page) is not int or fifo_page < 0:
+            return self._error("SELLER_COST_FIFO_PAGE_INVALID")
         products = self._products()
         if isinstance(products, dict):
             return products
@@ -50,7 +56,10 @@ class TelegramSellerCostUpdateService:
                 "Для массового заполнения можно скачать таблицу. "
                 "Для первого ввода бот предложит дату действия; применение ко всей истории потребует отдельного подтверждения."
             )
-            buttons = [{"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"}]
+            buttons = [
+                {"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"},
+                {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
+            ]
             buttons += [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
             if len(missing) > len(shown):
                 message += f"\n\nПоказаны первые {len(shown)} позиций."
@@ -60,20 +69,80 @@ class TelegramSellerCostUpdateService:
                 "Теперь Period Profit сможет использовать подтверждённые значения. "
                 "Если придёт новая партия по другой цене — выберите товар ниже и обновите стоимость."
             )
-            buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in products[:20]]
+            buttons = [
+                {"text": "📤 Выгрузить историю", "callback": "seller_cost_history_export"},
+            ]
+            buttons += [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in products[:20]]
+        fifo_page_count = max(
+            1,
+            (len(products) + self.FIFO_HISTORY_PAGE_SIZE - 1)
+            // self.FIFO_HISTORY_PAGE_SIZE,
+        )
+        fifo_page = min(fifo_page, fifo_page_count - 1)
+        if self.fifo_history_service is not None and user_id is not None:
+            start = fifo_page * self.FIFO_HISTORY_PAGE_SIZE
+            fifo_products = products[start:start + self.FIFO_HISTORY_PAGE_SIZE]
+            buttons += self._fifo_history_buttons(user_id, fifo_products)
+            if fifo_page_count > 1:
+                if fifo_page > 0:
+                    buttons.append({
+                        "text": "⬅️ FIFO SKU",
+                        "callback": f"seller_cost_fifo_page:{fifo_page - 1}",
+                    })
+                if fifo_page + 1 < fifo_page_count:
+                    buttons.append({
+                        "text": "FIFO SKU ➡️",
+                        "callback": f"seller_cost_fifo_page:{fifo_page + 1}",
+                    })
+                message += f"\n\nИстория FIFO: страница {fifo_page + 1} из {fifo_page_count}."
         return {"error": False, "message": message, "cost_coverage": {"configured": configured, "total": len(products), "missing": len(missing)}, "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons}, "read_only_ozon": True}
+
+    def _fifo_history_buttons(self, user_id, products):
+        service = self.fifo_history_service
+        if service is None or user_id is None:
+            return []
+        try:
+            from services.ozon_account_repository import split_store_tenant_scope
+
+            _owner, store_id = split_store_tenant_scope(self._tenant_scope())
+        except Exception:
+            return []
+        if not store_id:
+            return []
+        buttons = []
+        for display_name, sku, product_id, offer_id in products:
+            try:
+                ticket = service.create_sku_callback(
+                    user_id=user_id,
+                    store_id=store_id,
+                    product_id=product_id,
+                    offer_id=offer_id,
+                    sku=sku,
+                    display_name=display_name,
+                )
+            except Exception:
+                continue
+            callback = ticket.get("callback") if isinstance(ticket, dict) and ticket.get("error") is False else None
+            if callback:
+                label = " ".join(str(display_name or "Товар").split())[:40]
+                buttons.append({"text": "📚 FIFO · " + (label or "Товар"), "callback": callback})
+        return buttons
 
     def export_table(self):
         return self.table_service.export_csv()
 
+    def export_history_table(self):
+        return self.table_service.export_history_csv()
+
     def import_table(self, content):
         return self.import_table_for_user(None, content)
 
-    def import_table_for_user(self, user_id, content):
+    def import_table_for_user(self, user_id, content, filename=None):
         user_key = self._user_key(user_id)
         if user_key is None:
             return self._error("SELLER_COST_TABLE_USER_REQUIRED")
-        prepared = self.table_service.import_csv(content)
+        store_id = self._active_store_id()
+        prepared = self.table_service.import_csv(content, store_id=store_id)
         if not isinstance(prepared, dict) or prepared.get("error") is not False:
             return prepared if isinstance(prepared, dict) else self._error("SELLER_COST_TABLE_INVALID")
         pending = {
@@ -81,10 +150,14 @@ class TelegramSellerCostUpdateService:
             "step": "confirm_table",
             "table_rows": prepared["rows"],
             "tenant_scope": self._tenant_scope(),
+            "store_id": store_id,
             "store_label": self._active_store_label(),
             "initial_count": prepared["initial_count"],
             "existing_count": prepared["existing_count"],
             "all_history_allowed": prepared["all_history_allowed"],
+            "source_reference": prepared.get("source_reference"),
+            "source_revision": prepared.get("source_revision"),
+            "history_revision": prepared.get("history_revision"),
         }
         with self._pending_lock:
             self._pending[user_key] = pending
@@ -346,7 +419,13 @@ class TelegramSellerCostUpdateService:
 
     def _save_pending_table(self, user_key, pending, whole_history):
         result = self.table_service.commit_import(
-            pending.get("table_rows"), whole_history=whole_history
+            pending.get("table_rows"),
+            whole_history=whole_history,
+            expected_source_revision=pending.get("source_revision"),
+            expected_history_revision=pending.get("history_revision"),
+            source_reference=pending.get("source_reference"),
+            source_revision=pending.get("source_revision"),
+            store_id=pending.get("store_id"),
         )
         if not isinstance(result, dict) or result.get("error") is not False:
             return {
@@ -376,6 +455,12 @@ class TelegramSellerCostUpdateService:
             f"Магазин: {pending['store_label']}",
             f"Позиций: {len(rows)}; новых: {pending['initial_count']}; с изменением цены: {pending['existing_count']}",
         ]
+        if pending.get("source_reference"):
+            lines.append(f"Ссылка на файл: {pending['source_reference']}")
+        if pending.get("source_revision"):
+            lines.append(f"Версия истории на preview: {pending['source_revision']}")
+        if pending.get("history_revision"):
+            lines.append(f"Ревизия записи: {pending['history_revision']}")
         for row in rows[:12]:
             lines.append(
                 f"• SKU {row['sku']} ({row['offer_id'] or 'без артикула'}): "
@@ -450,6 +535,10 @@ class TelegramSellerCostUpdateService:
         return action in actions
 
     def _save_pending_cost(self, user_key, identity, whole_history):
+        fifo_conflict = self._fifo_mode_conflict(identity)
+        if fifo_conflict is not None:
+            self._pending.pop(user_key, None)
+            return fifo_conflict
         effective_from = (
             self.INITIAL_HISTORY_DATE.isoformat()
             if whole_history
@@ -545,6 +634,54 @@ class TelegramSellerCostUpdateService:
             }
         }
 
+    def _fifo_mode_conflict(self, identity):
+        repository = self.fifo_cost_repository
+        if repository is None:
+            return None
+        store_id = self._active_store_id()
+        if not store_id:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_SCOPE_UNAVAILABLE",
+                "message": "Не удалось подтвердить активный магазин. Себестоимость не изменена.",
+                "read_only_ozon": True,
+            }
+        try:
+            mode = repository.read_cost_mode_status(
+                store_id=store_id,
+                product_id=identity.get("product_id"),
+                offer_id=identity.get("offer_id"),
+                sku=identity.get("sku"),
+            )
+        except Exception:
+            mode = None
+        if not isinstance(mode, dict) or mode.get("error") is not False:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_MODE_UNAVAILABLE",
+                "message": "Не удалось проверить FIFO-режим. Себестоимость не изменена; откройте товар заново.",
+                "read_only_ozon": True,
+            }
+        if mode.get("active") is True:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_MODE_CONFLICT",
+                "message": "Для этого SKU уже включена FIFO-история. Старая форма не записала изменения; обновите карточку FIFO.",
+                "read_only_ozon": True,
+            }
+        if mode.get("active") is not False:
+            return {
+                "error": True,
+                "handled": True,
+                "code": "SELLER_COST_FIFO_MODE_UNAVAILABLE",
+                "message": "Режим учёта товара не подтверждён. Себестоимость не изменена.",
+                "read_only_ozon": True,
+            }
+        return None
+
     @staticmethod
     def _date_confirmation_message(pending):
         return (
@@ -571,7 +708,20 @@ class TelegramSellerCostUpdateService:
         return (
             pending.get("tenant_scope") == self._tenant_scope()
             and pending.get("store_label") == self._active_store_label()
+            and (
+                pending.get("store_id") is None
+                or pending.get("store_id") == self._active_store_id()
+            )
         )
+
+    def _active_store_id(self):
+        try:
+            from services.ozon_account_repository import split_store_tenant_scope
+
+            _owner, store_id = split_store_tenant_scope(self._tenant_scope())
+            return str(store_id) if store_id else None
+        except Exception:
+            return None
 
     def _active_store_label(self):
         if callable(self.store_name_provider):
