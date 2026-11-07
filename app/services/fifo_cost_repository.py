@@ -24,6 +24,7 @@ from services.fifo_cost_allocation_service import (
 )
 from services.fifo_cost_replay_service import FifoCostReplayService, FifoDatedAllocationEvent
 from services.fifo_cost_transition_contracts import (
+    CostInputMode,
     ReportEvidence,
     SupplyDeclaration,
     SupplyObservation,
@@ -389,6 +390,7 @@ class FifoCostRepository:
             } for row in layer_rows]
             rate_rows = connection.execute(
                 """SELECT r.rate_change_id, r.rate_sequence, r.effective_date, r.unit_cost_rub,
+                          r.cost_input_mode,
                           r.purchase_cost_rub, r.delivery_cost_rub,
                           r.packaging_cost_rub, r.owner_old_home_units,
                           r.recorded_at, r.captured_at, s.provenance,
@@ -415,6 +417,7 @@ class FifoCostRepository:
                 "sequence": row["rate_sequence"],
                 "effective_date": row["effective_date"],
                 "unit_cost_rub": row["unit_cost_rub"],
+                "cost_input_mode": row["cost_input_mode"],
                 "purchase_cost_rub": row["purchase_cost_rub"],
                 "delivery_cost_rub": row["delivery_cost_rub"],
                 "packaging_cost_rub": row["packaging_cost_rub"],
@@ -3269,8 +3272,9 @@ class FifoCostRepository:
 
     def preview_cost_rate_change(
         self, *, store_id, product_id=None, offer_id=None, sku,
-        effective_date, purchase_cost_rub, delivery_cost_rub,
-        packaging_cost_rub, owner_old_home_units, expected_revision,
+        effective_date, purchase_cost_rub=None, delivery_cost_rub=None,
+        packaging_cost_rub=None, cost_input_mode=CostInputMode.COMPONENTS,
+        unit_cost_rub=None, owner_old_home_units, expected_revision,
         zero_stock_evidence=None, stock_snapshot=None,
         owner_confirms_reconciliation_scope=False,
         late_entry_correction_preview=None,
@@ -3296,16 +3300,35 @@ class FifoCostRepository:
                 or self._normalize_date(effective_date) != effective_date
             ):
                 return self._error("FIFO_RATE_EFFECTIVE_DATE_INVALID")
+            try:
+                mode = CostInputMode(cost_input_mode)
+            except (TypeError, ValueError):
+                return self._error("FIFO_RATE_COST_INPUT_INVALID")
             components = {
                 "purchase_cost_rub": self._normalize_money(purchase_cost_rub),
                 "delivery_cost_rub": self._normalize_money(delivery_cost_rub),
                 "packaging_cost_rub": self._normalize_money(packaging_cost_rub),
             }
-            if any(value is None for value in components.values()):
-                return self._error("FIFO_RATE_COMPONENTS_REQUIRED")
-            unit_cost = sum(
-                (Decimal(value) for value in components.values()), Decimal("0.00"),
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            normalized_unit_cost = self._normalize_money(unit_cost_rub)
+            if mode is CostInputMode.COMPONENTS:
+                if any(value is None for value in components.values()):
+                    return self._error("FIFO_RATE_COMPONENTS_REQUIRED")
+                unit_cost = sum(
+                    (Decimal(value) for value in components.values()), Decimal("0.00"),
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if (
+                    normalized_unit_cost is not None
+                    and normalized_unit_cost != format(unit_cost, ".2f")
+                ):
+                    return self._error("FIFO_RATE_COST_INPUT_INVALID")
+            else:
+                if normalized_unit_cost is None or any(
+                    value is not None for value in components.values()
+                ):
+                    return self._error("FIFO_RATE_COST_INPUT_INVALID")
+                unit_cost = Decimal(normalized_unit_cost)
+                if late_entry_correction_preview is not None:
+                    return self._error("FIFO_LATE_ENTRY_COST_MODE_UNSUPPORTED")
             if unit_cost > Decimal("1000000000"):
                 return self._error("FIFO_MONEY_INPUT_INVALID")
             if type(owner_old_home_units) is not int or not 0 <= owner_old_home_units <= self.MAX_COMMAND_UNITS:
@@ -3577,6 +3600,7 @@ class FifoCostRepository:
             payload = {
                 "identity_fingerprint": identity_fingerprint,
                 "effective_date": effective_date,
+                "cost_input_mode": mode.value,
                 **components,
                 "unit_cost_rub": format(unit_cost, ".2f"),
                 "owner_old_home_units": owner_old_home_units,
@@ -3660,6 +3684,7 @@ class FifoCostRepository:
                 "rate_sequence": stream_snapshot["rate_sequence"],
                 "effective_date": effective_date,
                 "unit_cost_rub": format(unit_cost, ".2f"),
+                "cost_input_mode": mode.value,
                 **components,
                 "owner_old_home_units": owner_old_home_units,
                 "finite_units_at_anchor": stream_snapshot["known_quantity"],
@@ -3951,16 +3976,17 @@ class FifoCostRepository:
                 connection.execute(
                     """INSERT INTO fifo_cost_rate_changes (
                         rate_change_id, stream_id, stream_revision, rate_sequence,
-                        effective_date, unit_cost_rub, purchase_cost_rub,
+                        effective_date, unit_cost_rub, cost_input_mode, purchase_cost_rub,
                         delivery_cost_rub, packaging_cost_rub,
                         owner_old_home_units, source_id, source_fingerprint,
                         payload_fingerprint, idempotency_key, recorded_at,
                         captured_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         rate_change_id, normalized["stream_id"], next_revision,
                         normalized["stream_snapshot"]["rate_sequence"],
                         payload["effective_date"], payload["unit_cost_rub"],
+                        payload["cost_input_mode"],
                         payload["purchase_cost_rub"], payload["delivery_cost_rub"],
                         payload["packaging_cost_rub"], payload["owner_old_home_units"],
                         normalized["source_id"], normalized["source"]["source_fingerprint"],

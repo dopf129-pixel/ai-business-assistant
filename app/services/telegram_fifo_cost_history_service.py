@@ -243,10 +243,13 @@ class TelegramFifoCostHistoryService:
                     "CANCELLED": "отменена, запись сохранена",
                 }.get(rate["status"], "статус не подтверждён")
                 captured = str(rate.get("captured_at") or "")[:10]
-                components = (
-                    f"закупка {rate['purchase_cost_rub']} + доставка {rate['delivery_cost_rub']} "
-                    f"+ упаковка {rate['packaging_cost_rub']} ₽/шт."
-                )
+                if rate.get("cost_input_mode", "COMPONENTS") == "TOTAL_LANDED":
+                    components = "полная себестоимость; разбивка компонентов не указана"
+                else:
+                    components = (
+                        f"закупка {rate['purchase_cost_rub']} + доставка {rate['delivery_cost_rub']} "
+                        f"+ упаковка {rate['packaging_cost_rub']} ₽/шт."
+                    )
                 lines.append(
                     f"• {rate['unit_cost_rub']} ₽/шт. с {rate['effective_date']} — {status}; "
                     f"{rate['provenance_label']}; {components}"
@@ -299,7 +302,7 @@ class TelegramFifoCostHistoryService:
         writer.writerow((
             "Режим", "SKU", "Тип записи", "Порядок", "Действует с",
             "Количество", "Место", "Себестоимость за шт., ₽",
-            "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
+            "Режим разбивки", "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
             "Подтверждение", "Состояние источника", "Полнота источника",
             "Ревизия FIFO", "Ревизия распределения", "Дата cutoff",
             "Ссылка строки",
@@ -327,6 +330,7 @@ class TelegramFifoCostHistoryService:
                 "quantity": layer.get("recorded_quantity"),
                 "location": layer.get("location") or "UNKNOWN",
                 "unit_cost": layer.get("unit_cost_rub"),
+                "cost_input_mode": "NOT_APPLICABLE",
                 "purchase": "", "delivery": "", "packaging": "",
                 "status": layer.get("remaining_status") or "UNKNOWN",
                 "provenance": layer.get("provenance") or "UNKNOWN",
@@ -344,6 +348,7 @@ class TelegramFifoCostHistoryService:
                 "quantity": rate.get("reconciled_quantity"),
                 "location": "UNKNOWN",
                 "unit_cost": rate.get("unit_cost_rub"),
+                "cost_input_mode": rate.get("cost_input_mode", "COMPONENTS"),
                 "purchase": rate.get("purchase_cost_rub"),
                 "delivery": rate.get("delivery_cost_rub"),
                 "packaging": rate.get("packaging_cost_rub"),
@@ -358,6 +363,7 @@ class TelegramFifoCostHistoryService:
                     "mode", "sku", "kind", "sequence", "effective_date",
                     "quantity", "unit_cost", "stream_revision",
                     "allocation_revision", "cutoff_date", "provenance",
+                    "cost_input_mode",
                 )
             }
             reference = "fifo-export-" + hashlib.sha256(
@@ -368,7 +374,8 @@ class TelegramFifoCostHistoryService:
                 row["sequence"], row["effective_date"],
                 "" if row["quantity"] is None else row["quantity"],
                 self._spreadsheet_safe(row["location"]),
-                row["unit_cost"], row["purchase"], row["delivery"], row["packaging"],
+                row["unit_cost"], row["cost_input_mode"], row["purchase"],
+                row["delivery"], row["packaging"],
                 self._spreadsheet_safe(row["status"]),
                 self._spreadsheet_safe(row["provenance"]),
                 self._spreadsheet_safe(row["source_status"]),
@@ -379,7 +386,7 @@ class TelegramFifoCostHistoryService:
         if not rows:
             writer.writerow((
                 "FIFO", self._spreadsheet_safe(ticket.get("sku")), "EMPTY", "", "",
-                "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
+                "", "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
                 "UNKNOWN", "UNKNOWN", "UNKNOWN", snapshot.get("revision"), "",
                 snapshot.get("cutoff_date") or "", "",
             ))
