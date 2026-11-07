@@ -443,8 +443,10 @@ def test_new_rate_flow_collects_components_and_confirms_without_batch_quantity()
         confirm = preview["keyboard"]["buttons"][0]["callback"]
         saved = entry.handle_callback(101, confirm)
         repeated = entry.handle_callback(101, confirm)
+        free_text = entry.handle_text(101, "new unrelated request")
         assert saved["fifo_rate_saved"] is True
         assert repeated == saved
+        assert free_text["handled"] is False
         assert len(rate_stub.confirm_payloads) == 1
         assert rate_stub.confirm_payloads[0]["active_preview_id"] == "private-preview-id"
     finally:
@@ -668,12 +670,14 @@ def test_initial_anchor_is_reachable_and_confirmed_through_telegram_adapter(tmp_
         stale_cancel = adapter.handle_button(
             confirmation["keyboard"]["buttons"][1]["callback"], user_id=101,
         )
+        free_text = adapter.handle_text("new unrelated request", user_id=101)
         snapshot = history.get_sku_history(**IDENTITY)
     finally:
         reset_current_tenant_user_id(tenant)
 
     assert saved["fifo_anchor_saved"] is True
     assert stale_cancel == saved
+    assert free_text["message"] == "assistant fallback"
     assert "не включена" in saved["message"]
     assert snapshot["queue_initialized"] is True
     assert snapshot["cutoff_date"] == "2026-11-05"

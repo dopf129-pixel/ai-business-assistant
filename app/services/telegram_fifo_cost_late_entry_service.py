@@ -93,6 +93,8 @@ class TelegramFifoCostLateEntryService:
             if pending.get("tenant_scope") != self._tenant_scope():
                 self._pending.pop(owner, None)
                 return self._stale()
+            if pending.get("step") == "committed":
+                return {"error": False, "handled": False, "read_only_ozon": True}
             if pending.get("step") == "confirm":
                 return self._confirm_prompt(pending)
             step = pending.get("step")
@@ -284,6 +286,8 @@ class TelegramFifoCostLateEntryService:
                 or pending.get("tenant_scope") != self._tenant_scope()
             ):
                 return self._stale()
+            if pending.get("step") == "committed":
+                return dict(pending["committed_result"])
             if action == "cancel":
                 self._pending.pop(owner, None)
                 return {
@@ -291,8 +295,6 @@ class TelegramFifoCostLateEntryService:
                     "message": "Поздний ввод отменён. Данные FIFO не изменены.",
                     "read_only_ozon": True,
                 }
-            if pending.get("step") == "committed":
-                return dict(pending["committed_result"])
             if pending.get("step") != "confirm":
                 return self._stale()
             frozen = dict(pending)

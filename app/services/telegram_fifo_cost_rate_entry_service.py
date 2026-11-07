@@ -111,9 +111,11 @@ class TelegramFifoCostRateEntryService:
                 self._pending.pop(owner, None)
                 return self._stale()
             step = pending["step"]
+            if step == "committed":
+                return {"error": False, "handled": False, "read_only_ozon": True}
             initial_zero_stock = pending.get("initial_zero_stock") is True
             draft_id = pending["draft_id"]
-            if step in {"confirm", "committed"}:
+            if step == "confirm":
                 return {
                     "error": False,
                     "handled": True,

@@ -232,6 +232,105 @@ def test_confirmed_historical_finance_sku_mapping_selects_catalog_fifo_stream():
     assert repository.summary_scope_calls[0]["sku"] == "current-catalog-sku"
 
 
+def test_confirmed_finance_sku_aliases_reconcile_together_and_return_per_alias_cogs():
+    aliases = [
+        {
+            "product_id": "product-1", "offer_id": "offer-1", "sku": sku,
+            "catalog_sku": "current-catalog-sku",
+            "historical_sku_identity_recovered": True,
+            "historical_sku_identity_source": (
+                "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+            ),
+        }
+        for sku in ("old-finance-sku-a", "old-finance-sku-b")
+    ]
+    allocations = [
+        {
+            "source_identity_digest": _digest(
+                posting_number="posting-a", finance_sku="old-finance-sku-a",
+            ),
+            "effective_date": "2026-11-02", "quantity": 2,
+            "total_cogs_rub": "20.00",
+        },
+        {
+            "source_identity_digest": _digest(
+                posting_number="posting-b", finance_sku="old-finance-sku-b",
+            ),
+            "effective_date": "2026-11-02", "quantity": 1,
+            "total_cogs_rub": "15.00",
+        },
+    ]
+    service = _service(_Repository(allocations=allocations))
+    sales = [
+        {"posting_number": "posting-a", "sku": "old-finance-sku-a", "quantity": 2},
+        {"posting_number": "posting-b", "sku": "old-finance-sku-b", "quantity": 1},
+    ]
+
+    by_alias = {
+        sku: service.reconcile_period_sales(
+            product=aliases[0], finance_sku=sku,
+            finance_sku_alias_products=aliases,
+            date_from="2026-11-02", date_to="2026-11-02", sales=sales,
+        )
+        for sku in ("old-finance-sku-a", "old-finance-sku-b")
+    }
+
+    assert by_alias["old-finance-sku-a"]["complete"] is True
+    assert by_alias["old-finance-sku-a"]["units_sold"] == 2
+    assert by_alias["old-finance-sku-a"]["product_cost"] == "20.00"
+    assert by_alias["old-finance-sku-b"]["complete"] is True
+    assert by_alias["old-finance-sku-b"]["units_sold"] == 1
+    assert by_alias["old-finance-sku-b"]["product_cost"] == "15.00"
+    # Stream-wide layer summaries cannot be safely attributed to one alias.
+    assert "fifo_cost_explanation" not in by_alias["old-finance-sku-a"]
+
+
+def test_alias_reconciliation_still_rejects_missing_or_unexpected_allocations():
+    aliases = [
+        {
+            "product_id": "product-1", "offer_id": "offer-1", "sku": sku,
+            "catalog_sku": "current-catalog-sku",
+            "historical_sku_identity_recovered": True,
+            "historical_sku_identity_source": (
+                "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+            ),
+        }
+        for sku in ("old-finance-sku-a", "old-finance-sku-b")
+    ]
+    sales = [
+        {"posting_number": "posting-a", "sku": "old-finance-sku-a", "quantity": 1},
+        {"posting_number": "posting-b", "sku": "old-finance-sku-b", "quantity": 1},
+    ]
+    complete_allocations = [
+        {
+            "source_identity_digest": _digest(
+                posting_number=f"posting-{letter}",
+                finance_sku=f"old-finance-sku-{letter}",
+            ),
+            "effective_date": "2026-11-02", "quantity": 1,
+            "total_cogs_rub": "10.00",
+        }
+        for letter in ("a", "b")
+    ]
+    cases = (
+        complete_allocations[:1],
+        complete_allocations + [{
+            "source_identity_digest": "f" * 64,
+            "effective_date": "2026-11-02", "quantity": 1,
+            "total_cogs_rub": "10.00",
+        }],
+    )
+
+    for allocations in cases:
+        result = _service(_Repository(allocations=allocations)).reconcile_period_sales(
+            product=aliases[0], finance_sku="old-finance-sku-a",
+            finance_sku_alias_products=aliases,
+            date_from="2026-11-02", date_to="2026-11-02", sales=sales,
+        )
+        assert result["complete"] is False
+        assert result["reason_code"] == "FIFO_ALLOCATION_SALE_COVERAGE_MISMATCH"
+
+
 def test_unconfirmed_catalog_sku_alias_blocks_instead_of_falling_back_to_legacy():
     repository = _Repository(active=False)
     service = _service(repository)

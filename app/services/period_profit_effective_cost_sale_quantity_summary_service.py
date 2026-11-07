@@ -308,6 +308,53 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         fifo_sku_count = 0
         legacy_sku_count = 0
         fifo_allocation_revisions = set()
+        fifo_sales_by_finance_sku = {}
+        fifo_alias_products_by_finance_sku = {}
+        fifo_source = getattr(self, "fifo_cost_source_service", None)
+        scope_identity_reader = getattr(fifo_source, "resolve_scope_identity", None)
+        if fifo_source is not None and not cost_excluded() and callable(scope_identity_reader):
+            sales_by_finance_sku = {}
+            for sale in physical_sales:
+                sales_by_finance_sku.setdefault(sale["sku"], []).append(sale)
+            groups = {}
+            for row in product_rows:
+                finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
+                if not finance_sku:
+                    continue
+                try:
+                    scope = scope_identity_reader(row)
+                except Exception:
+                    continue
+                if not isinstance(scope, dict) or scope.get("error") is not False:
+                    continue
+                scope_fields = (
+                    scope.get("store_id"), scope.get("product_id") or "",
+                    scope.get("offer_id") or "", scope.get("sku"),
+                )
+                if (
+                    not isinstance(scope_fields[0], str) or not scope_fields[0]
+                    or not isinstance(scope_fields[1], str)
+                    or not isinstance(scope_fields[2], str)
+                    or not scope_fields[1] and not scope_fields[2]
+                    or not isinstance(scope_fields[3], str) or not scope_fields[3]
+                ):
+                    # Lightweight test/compatibility sources may expose only an
+                    # active flag. Do not combine rows unless the exact stream is
+                    # proven by the scope response.
+                    continue
+                groups.setdefault(scope_fields, []).append((finance_sku, row))
+            for aliases in groups.values():
+                if len(aliases) < 2:
+                    continue
+                alias_skus = {finance_sku for finance_sku, _row in aliases}
+                grouped_sales = [
+                    sale for finance_sku in alias_skus
+                    for sale in sales_by_finance_sku.get(finance_sku, ())
+                ]
+                alias_products = [row for _finance_sku, row in aliases]
+                for finance_sku in alias_skus:
+                    fifo_sales_by_finance_sku[finance_sku] = grouped_sales
+                    fifo_alias_products_by_finance_sku[finance_sku] = alias_products
 
         for row in product_rows:
             finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
@@ -319,18 +366,29 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             if None in (net_accrual, tax, revenue):
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
 
-            fifo_source = getattr(self, "fifo_cost_source_service", None)
             if fifo_source is not None and not cost_excluded():
-                fifo_sales = [
-                    sale for sale in physical_sales if sale["sku"] == finance_sku
-                ]
+                fifo_sales = fifo_sales_by_finance_sku.get(finance_sku)
+                if fifo_sales is None:
+                    fifo_sales = [
+                        sale for sale in physical_sales if sale["sku"] == finance_sku
+                    ]
+                fifo_alias_products = fifo_alias_products_by_finance_sku.get(
+                    finance_sku
+                )
                 try:
+                    reconcile_kwargs = {
+                        "product": row,
+                        "finance_sku": finance_sku,
+                        "date_from": start.isoformat(),
+                        "date_to": end.isoformat(),
+                        "sales": fifo_sales,
+                    }
+                    if fifo_alias_products is not None:
+                        reconcile_kwargs["finance_sku_alias_products"] = (
+                            fifo_alias_products
+                        )
                     fifo = fifo_source.reconcile_period_sales(
-                        product=row,
-                        finance_sku=finance_sku,
-                        date_from=start.isoformat(),
-                        date_to=end.isoformat(),
-                        sales=fifo_sales,
+                        **reconcile_kwargs,
                     )
                 except Exception:
                     fifo = None

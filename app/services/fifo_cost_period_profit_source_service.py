@@ -39,6 +39,10 @@ class FifoCostPeriodProfitSourceService:
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self.normalizer = FifoCostSaleEvidenceNormalizer()
 
+    def resolve_scope_identity(self, product):
+        """Resolve the validated exact stream key without reading repository state."""
+        return self._identity_and_store(product)
+
     def get_scope_mode(self, product, *, date_from=None, date_to=None):
         scope = self._identity_and_store(product)
         if scope.get("error") is True:
@@ -94,6 +98,7 @@ class FifoCostPeriodProfitSourceService:
 
     def reconcile_period_sales(
         self, *, product, finance_sku, date_from, date_to, sales,
+        finance_sku_alias_products=None,
     ):
         scope = self._identity_and_store(product)
         if scope.get("error") is True:
@@ -137,29 +142,63 @@ class FifoCostPeriodProfitSourceService:
                 "reason_code": result.get("reason_code") or "FIFO_ALLOCATION_INCOMPLETE",
             }
 
-        mapping_confirmed = bool(
-            product.get("seller_confirmed_identity_mapping") is True
-            or (
-                self._text(product.get("sku")) == self._text(finance_sku)
-                and (scope["offer_id"] or scope["product_id"])
-            )
+        alias_products = (
+            [product] if finance_sku_alias_products is None
+            else finance_sku_alias_products
         )
-        identity = {
-            "mapping_confirmed": mapping_confirmed,
-            "offer_id": scope["offer_id"],
-            "product_id": scope["product_id"],
-        }
+        if not isinstance(alias_products, (list, tuple)) or not alias_products:
+            return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_INVALID")
+        products_by_sku = {}
+        for alias_product in alias_products:
+            alias_scope = self._identity_and_store(alias_product)
+            alias_sku = (
+                self._text(alias_product.get("sku"))
+                if isinstance(alias_product, dict) else None
+            )
+            if (
+                alias_scope.get("error") is True
+                or alias_scope != scope
+                or alias_sku is None
+                or alias_sku in products_by_sku
+            ):
+                return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_INVALID")
+            products_by_sku[alias_sku] = alias_product
+        selected_finance_sku = self._text(finance_sku)
+        if selected_finance_sku not in products_by_sku:
+            return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_INVALID")
+
         expected = {}
+        expected_sku = {}
         for sale in sales or ():
             if not isinstance(sale, dict):
                 return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_INVALID")
             quantity = sale.get("quantity")
             if type(quantity) is not int or quantity <= 0:
                 return self._incomplete("FIFO_FINANCE_SALE_QUANTITY_INVALID")
+            sale_sku = self._text(sale.get("sku"))
+            if sale_sku is None:
+                if len(products_by_sku) != 1:
+                    return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_INVALID")
+                sale_sku = next(iter(products_by_sku))
+            alias_product = products_by_sku.get(sale_sku)
+            if alias_product is None:
+                return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_INVALID")
+            mapping_confirmed = bool(
+                alias_product.get("seller_confirmed_identity_mapping") is True
+                or (
+                    self._text(alias_product.get("sku")) == sale_sku
+                    and (scope["offer_id"] or scope["product_id"])
+                )
+            )
+            identity = {
+                "mapping_confirmed": mapping_confirmed,
+                "offer_id": scope["offer_id"],
+                "product_id": scope["product_id"],
+            }
             digest = self.normalizer.build_identity_digest(
                 store_id=scope["store_id"],
                 posting_number=sale.get("posting_number"),
-                finance_sku=finance_sku,
+                finance_sku=sale_sku,
                 identity=identity,
             )
             if digest.get("error") is True:
@@ -168,10 +207,9 @@ class FifoCostPeriodProfitSourceService:
             if key in expected:
                 return self._incomplete("FIFO_FINANCE_SALE_IDENTITY_DUPLICATE")
             expected[key] = quantity
+            expected_sku[key] = sale_sku
 
         actual = {}
-        total_cogs = Decimal("0.00")
-        total_units = 0
         allocations = result.get("allocations")
         if not isinstance(allocations, list):
             return self._incomplete("FIFO_ALLOCATION_RESPONSE_INVALID")
@@ -190,14 +228,24 @@ class FifoCostPeriodProfitSourceService:
                     or digest in actual
                 ):
                     return self._incomplete("FIFO_ALLOCATION_RESPONSE_INVALID")
-                actual[digest] = quantity
-                total_units += quantity
-                total_cogs += amount
+                actual[digest] = {"quantity": quantity, "total_cogs": amount}
         except (InvalidOperation, TypeError, ValueError, OverflowError):
             return self._incomplete("FIFO_ALLOCATION_RESPONSE_INVALID")
 
-        if expected != actual:
+        if set(expected) != set(actual) or any(
+            expected[digest] != actual[digest]["quantity"]
+            for digest in expected
+        ):
             return self._incomplete("FIFO_ALLOCATION_SALE_COVERAGE_MISMATCH")
+        selected_digests = [
+            digest for digest, sale_sku in expected_sku.items()
+            if sale_sku == selected_finance_sku
+        ]
+        total_units = sum(actual[digest]["quantity"] for digest in selected_digests)
+        total_cogs = sum(
+            (actual[digest]["total_cogs"] for digest in selected_digests),
+            Decimal("0.00"),
+        )
         response = {
             "error": False,
             "active": True,
@@ -209,7 +257,9 @@ class FifoCostPeriodProfitSourceService:
             "units_sold": total_units,
             "product_cost": format(total_cogs.quantize(Decimal("0.01")), ".2f"),
         }
-        if isinstance(result.get("layers"), list):
+        # Repository layer summaries cover every finance-SKU alias in this
+        # canonical stream. They cannot be attributed to a single alias safely.
+        if len(products_by_sku) == 1 and isinstance(result.get("layers"), list):
             from services.fifo_cost_period_explanation_service import (
                 FifoCostPeriodExplanationService,
             )

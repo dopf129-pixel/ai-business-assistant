@@ -1,3 +1,10 @@
+# 2026-11-07 — FIFO review R1–R3: aliases, post-commit text and stale late cancel
+
+- `tests/test_fifo_cost_period_profit_source_service.py` verifies that multiple separately confirmed finance SKU aliases for one exact catalog FIFO stream are matched against the complete allocation set and that each alias receives only its own posting COGS. Missing and unexpected allocation digests remain fail-closed; stream-wide layer explanation is not attributed to a single alias.
+- `tests/test_period_profit_fifo_cost_integration.py` verifies grouping by the exact resolved store/product/offer/catalog-SKU scope and per-finance-SKU attribution in canonical Period Profit.
+- `tests/test_telegram_fifo_cost_history.py` verifies new text reaches the assistant after anchor/rate commit while old confirmation callbacks remain idempotent. `tests/test_telegram_fifo_cost_late_entry_service.py` verifies saved late-entry drafts survive stale cancel callbacks and no longer trap later text.
+- Verification: focused profile **48 passed in 1.74s**; complete Windows suite **4,829 passed in 50.67s**; all five original `data/` files restored byte-for-byte. Exact-head CI pending publication.
+
 # 2026-11-07 — повторные FIFO review-regressions R1–R3
 
 - `tests/test_fifo_cost_period_profit_source_service.py`: allowlisted historical-SKU mapping selects the exact catalog FIFO stream for both mode lookup and allocation query; an unknown alias source blocks instead of selecting legacy cost.

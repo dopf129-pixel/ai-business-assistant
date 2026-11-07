@@ -129,9 +129,14 @@ def test_public_late_entry_saves_redacted_revision_bound_draft_only(tmp_path):
         assert "2026-10-16" in date_prompt["message"]
         assert date_prompt["message"].count("2026-10-16") >= 2
         confirm_callback = date_prompt["keyboard"]["buttons"][0]["callback"]
+        cancel_callback = date_prompt["keyboard"]["buttons"][1]["callback"]
         saved = adapter.handle_button(confirm_callback, user_id="owner-1")
+        stale_cancel = adapter.handle_button(cancel_callback, user_id="owner-1")
+        free_text = late.handle_text("owner-1", "new unrelated request")
         assert saved["error"] is False
         assert saved["fifo_late_entry_draft_saved"] is True
+        assert stale_cancel == saved
+        assert free_text["handled"] is False
         assert "не пересчитаны" in saved["message"]
         assert "Поставка Ozon №2001" in saved["message"]
 
@@ -146,6 +151,7 @@ def test_public_late_entry_saves_redacted_revision_bound_draft_only(tmp_path):
         assert snapshot["layers"][0]["recorded_quantity"] == 25
         replayed = adapter.handle_button(confirm_callback, user_id="owner-1")
         assert replayed == saved
+        assert len(drafts["drafts"]) == 1
     finally:
         reset_current_tenant_user_id(tenant)
 

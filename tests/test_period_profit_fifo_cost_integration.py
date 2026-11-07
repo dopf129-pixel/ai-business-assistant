@@ -189,6 +189,99 @@ def test_period_profit_mixes_fifo_and_dated_legacy_per_exact_sku():
     assert result["fifo_cost_source_counts"] == {"fifo": 1, "legacy": 1}
 
 
+def test_period_profit_groups_confirmed_finance_sku_aliases_by_exact_fifo_stream():
+    class AliasAwareFifoSource:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_scope_identity(self, product):
+            return {
+                "error": False, "store_id": "store-a",
+                "product_id": product["product_id"],
+                "offer_id": product["offer_id"],
+                "sku": product["catalog_sku"],
+            }
+
+        def get_scope_mode(self, product, **_kwargs):
+            return {
+                "error": False, "active": True,
+                "store_id": "store-a",
+                "product_id": product["product_id"],
+                "offer_id": product["offer_id"],
+                "sku": product["catalog_sku"],
+            }
+
+        def reconcile_period_sales(
+            self, *, product, finance_sku, sales,
+            finance_sku_alias_products=None, **_kwargs,
+        ):
+            aliases = finance_sku_alias_products or [product]
+            self.calls.append({
+                "finance_sku": finance_sku,
+                "sales_skus": sorted(sale["sku"] for sale in sales),
+                "alias_skus": sorted(item["sku"] for item in aliases),
+            })
+            selected = [sale for sale in sales if sale["sku"] == finance_sku]
+            units = sum(sale["quantity"] for sale in selected)
+            unit_cost = {"old-finance-sku-a": 10, "old-finance-sku-b": 15}[
+                finance_sku
+            ]
+            return {
+                "error": False, "active": True, "complete": True,
+                "source": "FIFO_ALLOCATION_REVISION",
+                "stream_revision": 4, "allocation_revision": 2,
+                "cutoff_date": "2026-10-31", "units_sold": units,
+                "product_cost": format(units * unit_cost, ".2f"),
+            }
+
+    class AliasService(_MixedCostService):
+        def _load_realization_quantity_map(self, *_args, **_kwargs):
+            return {
+                ("post-old-finance-sku-a", "old-finance-sku-a"): 2,
+                ("post-old-finance-sku-b", "old-finance-sku-b"): 1,
+            }
+
+    fifo = AliasAwareFifoSource()
+    service = AliasService(
+        finance_service=_Finance(["old-finance-sku-a", "old-finance-sku-b"]),
+        cost_service=_Cost(), tax_rate=0.06, fifo_cost_source_service=fifo,
+    )
+    service._load_period_skus = lambda *_args, **_kwargs: {
+        "map": {}, "expected": set(), "fatal": None,
+    }
+    products = [{
+        "product_id": "product-shared", "offer_id": "offer-shared",
+        "sku": sku, "catalog_sku": "current-catalog-sku",
+        "historical_sku_identity_recovered": True,
+        "historical_sku_identity_source": (
+            "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+        ),
+    } for sku in ("old-finance-sku-a", "old-finance-sku-b")]
+
+    result = service.calculate("2026-11-02", "2026-11-02", products)
+
+    assert result["error"] is False, result
+    by_sku = {row["sku"]: row for row in result["products"]}
+    assert by_sku["old-finance-sku-a"]["units_sold"] == 2
+    assert by_sku["old-finance-sku-a"]["product_cost"] == 20.0
+    assert by_sku["old-finance-sku-b"]["units_sold"] == 1
+    assert by_sku["old-finance-sku-b"]["product_cost"] == 15.0
+    assert result["units_sold"] == 3
+    assert result["product_cost"] == 35.0
+    assert fifo.calls == [
+        {
+            "finance_sku": "old-finance-sku-a",
+            "sales_skus": ["old-finance-sku-a", "old-finance-sku-b"],
+            "alias_skus": ["old-finance-sku-a", "old-finance-sku-b"],
+        },
+        {
+            "finance_sku": "old-finance-sku-b",
+            "sales_skus": ["old-finance-sku-a", "old-finance-sku-b"],
+            "alias_skus": ["old-finance-sku-a", "old-finance-sku-b"],
+        },
+    ]
+
+
 def test_reaccrued_finance_sale_consumes_fifo_once_across_period_days():
     fifo = _FifoSource(["sku-fifo"])
     service = _service(["sku-fifo"], fifo)

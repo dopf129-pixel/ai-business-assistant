@@ -91,6 +91,8 @@ class TelegramFifoCostAnchorEntryService:
             if draft["tenant_scope"] != self._tenant_scope():
                 self._pending.pop(owner, None)
                 return self._failure("Магазин изменился. Черновик сброшен, данные не записаны.")
+            if draft.get("committed_result") is not None:
+                return {"error": False, "handled": False, "read_only_ozon": True}
             if draft["step"] == "confirm":
                 return self._confirmation(draft)
             step = draft["step"]
