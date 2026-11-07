@@ -24,7 +24,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL01 | Карта интеграции | VERIFIED | FL01_IMPLEMENTATION_MAP.md; 27 code/test paths exist, static map check and diff-check PASS; no runtime changes |
 | FL02 | Контракты и часы | VERIFIED | new FIFO contract profile 13 passed; combined unique FIFO profile 320 passed; compileall/diff-check PASS; data manifest matches FL00 |
 | FL03 | Миграция13 и cipher | VERIFIED | 41 passed focused; 348 passed related FIFO profile; compileall/diff-check PASS; data manifest unchanged |
-| FL04 | Repository cases/evidence | VERIFIED | 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
+| FL04 | Repository cases/evidence | VERIFIED | `a9b1374eaf96b0262ee854cb68612d6d19241717`; 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
 | FL05 | До-FIFO хранение и fault tests | NOT_STARTED | — |
 | FL06 | Полная стоимость | NOT_STARTED | — |
 | FL07 | Lifecycle случая | NOT_STARTED | — |
@@ -130,6 +130,7 @@ Source readiness:
 - Применены квоты: максимум20 активных cases на tenant/store,100 разных declarations на case,2000 observations на case. При превышении команда возвращает typed error и не продвигает case revision; предыдущие записи читаются полностью.
 - `tests/test_fifo_cost_transition_store.py`: keyword-only public API, restart/no-queue, CAS/idempotency, concurrent CAS, declaration/observation/report persistence, replay с разным payload, stale revision, чужой tenant, ciphertext redaction, append-only и quotas. Focused профиль: **63 passed in 3.80s**. Related profile (31 modules): **357 passed in 13.95s**. `compileall -q app tests` и `git diff --check` PASS.
 - Тесты использовали временные SQLite БД. `git status --short -- data` пусто; реальные data files, production DB, отчёты владельца и Ozon/Telegram API не использовались. `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; это repository foundation, а не готовый flow применения.
+- Commit FL04: `a9b1374eaf96b0262ee854cb68612d6d19241717` (`Add durable FIFO transition repository commands`).
 - Следующий этап: FL05 — fault injection в каждой записи, restart/baseline proof и подтверждение неизменности legacy/history/фактической прибыли до создания FIFO.
 
 ## PR delivery
