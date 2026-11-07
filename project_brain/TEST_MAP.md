@@ -1,7 +1,7 @@
 # 2026-11-07 — FIFO CSV и resume navigation regressions
 
 - `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.
-- Связанный профиль `tests/test_fifo_telegram_navigation_regressions.py`, `app/tests/test_seller_cost_confirmation_flow.py`, `tests/test_telegram_fifo_cost_history.py`: **44 passed in 1.25s**. Полный Windows `pytest -q`: **4,851 passed in 51.12s**. `compileall` и diff-check проходят; manifest пяти файлов `data/` совпадает до/после. Exact-head CI ожидает публикации текущих изменений.
+- Связанный профиль `tests/test_fifo_telegram_navigation_regressions.py`, `app/tests/test_seller_cost_confirmation_flow.py`, `tests/test_telegram_fifo_cost_history.py`: **44 passed in 1.25s**. Полный Windows `pytest -q`: **4,851 passed in 51.12s**. `compileall` и diff-check проходят; manifest пяти файлов `data/` совпадает до/после. Exact-head CI run [42370751926](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42370751926) passed на SHA `7896289a14a127eb097800225f28fbf0915a46da`: Windows/Linux full verification и production Docker build/runtime smoke.
 
 # 2026-11-07 — регрессии переходов FIFO-мастеров и Telegram-форм
 

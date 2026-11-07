@@ -2,7 +2,7 @@
 
 - После успешного CSV preview старые FIFO rate/late/anchor черновики закрываются; CSV черновик остаётся активным для проверки и подтверждения. Невалидный CSV не очищает текущий FIFO ввод.
 - После проверки действительного одноразового `seller_cost_resume_unit` callback FIFO черновики закрываются до пересчёта карточки целевого SKU. Stale callback оставляет текущий ввод без изменений.
-- Новый связанный профиль регрессий: **44 passed**; полный Windows `pytest -q`: **4,851 passed in 51.12s**. До/после manifest пяти файлов `data/` совпал, два новых тестовых файла удалены. Exact-head CI ожидает публикации текущих изменений.
+- Новый связанный профиль регрессий: **44 passed**; полный Windows `pytest -q`: **4,851 passed in 51.12s**. До/после manifest пяти файлов `data/` совпал, два новых тестовых файла удалены. Exact-head CI run [42370751926](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42370751926) passed на implementation SHA `7896289a14a127eb097800225f28fbf0915a46da`: Windows/Linux full verification и production Docker build/runtime smoke.
 
 # 2026-11-07 — исправлены три перехода FIFO review (PR #726)
 
