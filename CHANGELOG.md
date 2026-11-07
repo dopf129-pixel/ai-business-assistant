@@ -3,7 +3,7 @@
 - Поиск FIFO-потока теперь обнаруживает активную историю того же магазина/SKU под другой product/offer identity. Чтение и Period Profit возвращают `FIFO_IDENTITY_CONFLICT`; anchor и zero-stock rate commit не создают вторую очередь. Автоматической миграции или слияния потоков нет.
 - Возвратный Telegram-адаптер сначала передаёт FIFO callback в обработчик. Устаревшая/ошибочная кнопка не стирает возвратный черновик; только принятая FIFO history-навигация завершает его. Открытие возвратов очищает seller-cost и все три FIFO-черновика.
 - Добавлены регрессии на смену product ID, добавление ранее отсутствовавшего product ID, запрет дублирующего anchor/rate stream, stale callbacks четырёх FIFO-маршрутов и переход из rate/late/anchor мастеров в возвраты.
-- Проверки: связанный профиль **85 passed in 2.38s**; полный Windows `pytest -q` **4,844 passed in 50.66s**; `compileall -q app tests` и `git diff --check` прошли. Полный прогон изменил один исходный и создал два временных файла в `data/`; исходное содержимое восстановлено, итоговый manifest совпал. Exact-head CI запускается после публикации нового SHA.
+- Проверки: связанный профиль **85 passed in 2.38s**; полный Windows `pytest -q` **4,844 passed in 50.66s**; `compileall -q app tests` и `git diff --check` прошли. Полный прогон изменил один исходный и создал два временных файла в `data/`; исходное содержимое восстановлено, итоговый manifest совпал. Exact-head GitHub Actions run [42363101157](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42363101157) прошёл на code SHA `23d3a3420a7390684a9f4e972f6b1c5f6eeb4dce`: Windows/Linux full verification и production Docker build/runtime smoke.
 
 # 2026-11-07 — FIFO review fixes R1–R3
 

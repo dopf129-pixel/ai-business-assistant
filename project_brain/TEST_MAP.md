@@ -2,7 +2,7 @@
 
 - `tests/test_fifo_current_unit_cost_adapter.py::test_catalog_identity_change_cannot_hide_or_duplicate_active_fifo_stream` проверяет, что смена product ID при стабильном store/SKU/offer не возвращает legacy-mode, не попадает в legacy текущую себестоимость и не создаёт ни anchor, ни zero-stock rate stream; `test_optional_product_id_enrichment_cannot_start_a_second_fifo_stream` покрывает обогащение ранее неполной identity. `FifoCostPeriodProfitSourceService` сохраняет typed `FIFO_IDENTITY_CONFLICT`.
 - `tests/test_telegram_fifo_cost_history.py::test_stale_fifo_callbacks_preserve_return_inventory_confirmation` параметризует stale history/anchor/rate/late callbacks и подтверждает, что возврат можно после них сохранить. `test_opening_return_inventory_clears_all_fifo_entry_drafts` проверяет переход из FIFO rate/late/anchor черновиков в возвраты; `test_accepted_fifo_history_navigation_clears_return_draft` проверяет успешную навигацию.
-- Связанный Windows профиль (**85 passed in 2.38s**) включает FIFO adapter/repository/Period Profit и Telegram return-inventory tests. Полный Windows `pytest -q`: **4,844 passed in 50.66s**; `compileall -q app tests`, `git diff --check` и точное восстановление manifest `data/` прошли. Exact-head CI ожидает публикации нового SHA.
+- Связанный Windows профиль (**85 passed in 2.38s**) включает FIFO adapter/repository/Period Profit и Telegram return-inventory tests. Полный Windows `pytest -q`: **4,844 passed in 50.66s**; `compileall -q app tests`, `git diff --check` и точное восстановление manifest `data/` прошли. Exact-head run [42363101157](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42363101157) прошёл на code SHA `23d3a3420a7390684a9f4e972f6b1c5f6eeb4dce`.
 
 # 2026-11-07 — FIFO review R1–R3
 
