@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL07.
-Выполненных этапов:7/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries и FL06 full-cost modes VERIFIED; runtime integration и owner case ещё не завершены).
+Следующий этап: FL08.
+Выполненных этапов:8/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes и FL07 case lifecycle VERIFIED; supply/document/runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -27,7 +27,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL04 | Repository cases/evidence | VERIFIED | `a9b1374eaf96b0262ee854cb68612d6d19241717`; 63 focused / 357 related passed; compileall and diff-check PASS; `data/` unchanged |
 | FL05 | До-FIFO хранение и fault tests | VERIFIED | `a5e455f49fb81af7e67bbbd708edab9db8d8e642`; 69 focused / 370 related passed; compileall/diff-check PASS; `data/` unchanged |
 | FL06 | Полная стоимость | VERIFIED | `08472f865dedabcda3edf2c4b2e68bfc9ab2465d`; TOTAL_LANDED/COMPONENTS amount parity 14.65; null components; focused 59 / FIFO+Telegram 348 passed; compileall/diff-check/data unchanged |
-| FL07 | Lifecycle случая | NOT_STARTED | — |
+| FL07 | Lifecycle случая | VERIFIED | `5254efafe05e197564a4913c5123373ca0db13c2`; create/edit/cancel/read/list append-only & idempotent; active store/SKU CAS; focused 25 / FIFO+Telegram 352 passed; compileall/diff-check/data unchanged |
 | FL08 | Конкретные поставки | NOT_STARTED | — |
 | FL09 | Наблюдения и missing | NOT_STARTED | — |
 | FL10 | Частичная приёмка | NOT_STARTED | — |
@@ -73,6 +73,16 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 - Проверки: targeted rate/history/schema **59 passed in 2.36s**; all `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` **348 passed in 13.65s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. SQL fixtures работают в `tmp_path`; файлы владельца и реальные API не читались.
 - `IMPLEMENTATION_VERIFIED`: нет (сквозной переход ещё не реализован). `OWNER_CASE_VERIFIED`: нет; список реальных поставок и доказанный cutoff не добавлены. Нет blocker для независимого FL07.
 - Следующий этап: FL07 — append-only application service для lifecycle transition case.
+
+## Выполнение FL07 — 2026-11-08
+
+- Добавлен `app/services/fifo_cost_transition_service.py`: typed create/update/cancel/get/list orchestration над существующим `FifoCostRepository`. Create принимает только revision 1/DRAFT; update допускает только DRAFT/AWAITING_EVIDENCE и следующий revision; READY_TO_CONFIRM/APPLIED не устанавливаются владельцем. Cancel восстанавливает исходный typed case из persistent payload и создаёт новую CANCELLED revision; exact retries update/cancel возвращают repository idempotent replay.
+- Добавлены `FifoCostRepository.list_transition_cases` и `cancel_transition_case`. SQL list фильтруется текущим owner/tenant/store и опционально SKU/states; лимит — 100. `FifoCostTransitionStore.save_case` атомарно отвергает конкурирующий активный DRAFT/AWAITING/READY по тому же store/SKU; тест с двумя потоками показывает ровно одного победителя. Иные SKU/store и другие owners изолированы.
+- Dispatch date остаётся date-only fact в case payload. Lifecycle service не обращается к FIFO stream/projection/rates/events и не формирует cutoff, allocation или profit update. Контрольная запись21→14.65, old home/transit0, shipped6982 и new home NULL переживает restart, при этом `FIFO_HISTORY_NOT_INITIALIZED` сохраняется; cancel audit revision не стирается.
+- Обновлена `FL01_IMPLEMENTATION_MAP.md` новой фактической точкой application lifecycle. Изменены `fifo_cost_repository.py`, `fifo_cost_transition_store.py`; добавлены transition service и tests.
+- Код commit `5254efafe05e197564a4913c5123373ca0db13c2` (`Add FIFO transition case lifecycle service`). Проверки: focused transition service/store/schema **25 passed in 2.32s**; полный профиль `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` **352 passed in 14.01s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Тестовые БД — `tmp_path`; owner data/live API не использовались.
+- `IMPLEMENTATION_VERIFIED`: нет; полный supply → document → bridge → impact → atomic apply путь впереди. `OWNER_CASE_VERIFIED`: нет; реальные связи supply IDs и cutoff не подтверждены. Нет blocker для FL08.
+- Следующий этап: FL08 — typed declarations конкретных поставок, защищённое сохранение lookup reference и честный нераспределённый shipped total.
 
 ## Формат записи после этапа
 

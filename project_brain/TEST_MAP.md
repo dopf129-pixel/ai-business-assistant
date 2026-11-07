@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO transition case lifecycle regressions (FL07)
+
+- `tests/test_fifo_cost_transition_service.py` verifies create/edit/cancel revisions, exact idempotent update/cancel retry, durable read after service/repository restart, unknown new-home quantity retained with reason/provenance, dispatch date not activating FIFO, and terminal case audit preservation.
+- The same tests verify one active case per store/SKU, independence of another SKU, simultaneous competing creates serialized to one winner, and list filtering by tenant/store/SKU.
+- FL07 focused profile (transition service/store/schema) — **25 passed**; complete `test_fifo_cost_*.py` plus `test_telegram_fifo_cost_*.py` profile — **352 passed**. All DB fixtures are under `tmp_path`; project `data/` remains unchanged.
+
 # 2026-11-08 — FIFO total landed rate regressions (FL06)
 
 - `tests/test_fifo_cost_rate_service.py::test_component_and_total_landed_rate_share_amount_contract_and_keep_nulls` verifies equal normalized `14.65` totals for component input (`10 + 3 + 1.65`) and total input, mode-bound persistence with null components, snapshot readback, and no extra FIFO layer/event.

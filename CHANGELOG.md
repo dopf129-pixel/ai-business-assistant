@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO transition case lifecycle (FL07)
+
+- Added typed application operations for creating, editing, cancelling, reading, and listing late-entry cases. Case updates/cancellation append immutable revisions and support exact idempotent retries.
+- The existing repository now lists cases within the active tenant/store and enforces one active transition per store/SKU inside `BEGIN IMMEDIATE`; simultaneous competing creates cannot both succeed. Dispatch date remains owner evidence and does not create a FIFO cutoff, event, or rate.
+- Verification: focused transition lifecycle/store/schema profile **25 passed**; complete FIFO cost + Telegram FIFO profile **352 passed**; compileall, diff-check, and `git diff --exit-code -- data` PASS.
+
 # 2026-11-08 — FIFO rate inputs support TOTAL_LANDED (FL06)
 
 - Existing rate-entry service now accepts either the existing `COMPONENTS` breakdown or one explicit `TOTAL_LANDED` amount. Mixed/incomplete inputs fail closed; the same amount normalizes to the same unit cost.

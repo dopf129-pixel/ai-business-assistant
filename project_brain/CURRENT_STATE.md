@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO late-entry completion FL07
+
+- FL00–FL07 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. New `FifoCostTransitionService` coordinates typed case create/update/cancel/read/list through existing `FifoCostRepository`. Every update or cancellation writes an append-only case revision; exact retries are idempotent.
+- Active case uniqueness is enforced atomically by tenant/store/SKU inside the repository transaction. Read/list APIs remain tenant/store/SKU scoped. Dispatch date is stored as a date-only owner fact and does not initialize FIFO, cutoff, allocation, or profit mode.
+- FL07 code commit: `5254efafe05e197564a4913c5123373ca0db13c2`. Verification: focused **25 passed**, complete FIFO/Telegram FIFO **352 passed**, compileall/diff-check PASS; `data/` unchanged. Next FL08: declarations for concrete supplies and encrypted lookup references. `IMPLEMENTATION_VERIFIED` and `OWNER_CASE_VERIFIED` remain false.
+
 # 2026-11-08 — FIFO late-entry completion FL06
 
 - FL00–FL06 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. Rate entry supports `COMPONENTS` and `TOTAL_LANDED` through one monetary amount contract. The validated pair `10.00 + 3.00 + 1.65` / `14.65` yields equal `14.65 ₽/unit`; total-only records persist null component amounts.
