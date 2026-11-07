@@ -103,12 +103,6 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         callback_text = str(callback or "")
         try:
             if callback_text.startswith("fifo_anchor:") and self.fifo_anchor_entry_service is not None:
-                if self.seller_cost_service is not None:
-                    self.seller_cost_service.clear_pending(user_id)
-                if self.fifo_rate_entry_service is not None:
-                    self.fifo_rate_entry_service.clear_pending(user_id)
-                if self.fifo_late_entry_service is not None:
-                    self.fifo_late_entry_service.clear_pending(user_id)
                 return self.fifo_anchor_entry_service.handle_callback(
                     user_id, callback_text,
                 )
@@ -221,17 +215,12 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                     return refresher(sku, user_id=user_id)
                 return super().handle_button("unit_economics:" + sku, user_id)
             if callback_text.startswith("fifo_history:") and self.fifo_history_service is not None:
-                if self.seller_cost_service is not None:
-                    self.seller_cost_service.clear_pending(user_id)
-                if self.fifo_rate_entry_service is not None:
-                    self.fifo_rate_entry_service.clear_pending(user_id)
-                if self.fifo_late_entry_service is not None:
-                    self.fifo_late_entry_service.clear_pending(user_id)
-                if self.fifo_anchor_entry_service is not None:
-                    self.fifo_anchor_entry_service.clear_pending(user_id)
                 result = self.fifo_history_service.handle_callback(user_id, callback_text)
                 if not isinstance(result, dict) or type(result.get("error")) is not bool:
                     return {"error": True, "message": "INVALID_FIFO_HISTORY_RESULT", "read_only_ozon": True}
+                if result.get("error") is not False or result.get("handled") is not True:
+                    return result
+                self._clear_seller_cost_and_fifo_pending(user_id)
                 if result.get("action") == "start_new_rate" and self.fifo_rate_entry_service is not None:
                     return self.fifo_rate_entry_service.start(
                         user_id,
@@ -262,20 +251,8 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                     )
                 return result
             if callback_text.startswith("fifo_late:") and self.fifo_late_entry_service is not None:
-                if self.fifo_anchor_entry_service is not None:
-                    self.fifo_anchor_entry_service.clear_pending(user_id)
-                if self.seller_cost_service is not None:
-                    self.seller_cost_service.clear_pending(user_id)
-                if self.fifo_rate_entry_service is not None:
-                    self.fifo_rate_entry_service.clear_pending(user_id)
                 return self.fifo_late_entry_service.handle_callback(user_id, callback_text)
             if callback_text.startswith("fifo_rate:") and self.fifo_rate_entry_service is not None:
-                if self.fifo_anchor_entry_service is not None:
-                    self.fifo_anchor_entry_service.clear_pending(user_id)
-                if self.seller_cost_service is not None:
-                    self.seller_cost_service.clear_pending(user_id)
-                if self.fifo_late_entry_service is not None:
-                    self.fifo_late_entry_service.clear_pending(user_id)
                 return self.fifo_rate_entry_service.handle_callback(user_id, callback_text)
             if callback_text.startswith("seller_cost:"):
                 if self.fifo_rate_entry_service is not None:
@@ -298,3 +275,14 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         except Exception:
             return {"error": True, "message": "SELLER_COST_BUTTON_FLOW_FAILED", "read_only_ozon": True}
         return super().handle_button(callback, user_id)
+
+    def _clear_seller_cost_and_fifo_pending(self, user_id):
+        for service in (
+            self.seller_cost_service,
+            self.fifo_rate_entry_service,
+            self.fifo_late_entry_service,
+            self.fifo_anchor_entry_service,
+        ):
+            clearer = getattr(service, "clear_pending", None)
+            if callable(clearer):
+                clearer(user_id)

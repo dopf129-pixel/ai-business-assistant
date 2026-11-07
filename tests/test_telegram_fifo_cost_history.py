@@ -686,6 +686,77 @@ def test_initial_anchor_is_reachable_and_confirmed_through_telegram_adapter(tmp_
     assert snapshot["layers"][2]["recorded_quantity"] == 3
 
 
+def test_stale_rate_confirmation_does_not_clear_another_skus_anchor_draft(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history = _anchored_history(tmp_path)
+        ui = TelegramFifoCostHistoryService(history)
+        rate_entry = TelegramFifoCostRateEntryService(
+            history,
+            FifoCostRateService(repository),
+            date_provider=lambda: date(2026, 11, 7),
+        )
+        anchor_entry = TelegramFifoCostAnchorEntryService(
+            history,
+            FifoCostAnchorService(repository),
+            date_provider=lambda: date(2026, 11, 7),
+        )
+        adapter = SellerCostTelegramAdapter(
+            assistant=_Assistant(),
+            keyboard_service=None,
+            button_handler=_ButtonHandler(),
+            seller_cost_service=_LegacySellerCostService(),
+            fifo_history_service=ui,
+            fifo_rate_entry_service=rate_entry,
+            fifo_anchor_entry_service=anchor_entry,
+        )
+
+        first_ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Первая партия",
+        )
+        first_card = adapter.handle_button(first_ticket["callback"], user_id=101)
+        new_rate = next(
+            button["callback"]
+            for button in first_card["keyboard"]["buttons"]
+            if button["callback"].startswith("fifo_history:new:")
+        )
+        adapter.handle_button(new_rate, user_id=101)
+        for value in ("12", "2", "1", "0"):
+            rate_preview = adapter.handle_text(value, user_id=101)
+        old_rate_confirmation = rate_preview["keyboard"]["buttons"][0]["callback"]
+
+        second_identity = {
+            "store_id": "store-a",
+            "product_id": "product-202",
+            "offer_id": "hook-202",
+            "sku": "sku-202",
+        }
+        second_ticket = ui.create_sku_callback(
+            user_id=101, **second_identity, display_name="Другой товар",
+        )
+        second_card = adapter.handle_button(second_ticket["callback"], user_id=101)
+        start_anchor = next(
+            button["callback"]
+            for button in second_card["keyboard"]["buttons"]
+            if button["callback"].startswith("fifo_history:anchor:")
+        )
+        adapter.handle_button(start_anchor, user_id=101)
+        layer_count_prompt = adapter.handle_text("2026-11-06", user_id=101)
+        assert layer_count_prompt["error"] is False
+        assert "парт" in layer_count_prompt["message"].lower()
+
+        stale = adapter.handle_button(old_rate_confirmation, user_id=101)
+        after_stale_callback = adapter.handle_text("1", user_id=101)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert stale["error"] is True
+    assert "устарело" in stale["message"].lower()
+    assert after_stale_callback["error"] is False
+    assert after_stale_callback["message"] != "assistant fallback"
+    assert after_stale_callback.get("handled") is True
+
+
 def test_initial_anchor_order_rejection_clears_draft_without_writing(tmp_path):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:

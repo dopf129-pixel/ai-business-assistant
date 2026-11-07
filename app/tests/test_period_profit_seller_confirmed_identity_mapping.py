@@ -15,6 +15,9 @@ from services.assistant_period_profit_runtime_service import (  # noqa: E402
 from services.period_profit_identity_confirmation_runtime_service import (  # noqa: E402
     PeriodProfitIdentityConfirmationRuntimeService,
 )
+from services.fifo_cost_period_profit_source_service import (  # noqa: E402
+    FifoCostPeriodProfitSourceService,
+)
 from services.period_profit_seller_confirmed_identity_scope_service import (  # noqa: E402
     PeriodProfitSellerConfirmedIdentityScopeService,
 )
@@ -74,6 +77,37 @@ class _MappingRepository:
             "current_sku": self.sku,
             "current_offer_id": self.offer_id,
         }
+
+
+class _MissingMappingRepository:
+    def get_mapping(self, finance_sku):
+        return {
+            "error": False,
+            "status": "SELLER_PRODUCT_IDENTITY_MAPPING_MISSING",
+            "finance_sku": finance_sku,
+            "mapping_confirmed": False,
+            "seller_confirmed": False,
+        }
+
+
+class _HistoricalCostService(_CurrentCostService):
+    def get_historical_cost_evidence(self, *_args, **_kwargs):
+        return {
+            "error": False,
+            "status": "PRODUCT_COST_HISTORY_READY",
+            "historical_cost_confirmed": True,
+            "product_id": CURRENT_PRODUCT_ID,
+            "sku": OLD_SKU,
+            "offer_id": OFFER_ID,
+            "cost_price": 30.0,
+            "currency": "RUB",
+        }
+
+
+class _HistoricalSummary:
+    def __init__(self):
+        self.cost_service = _HistoricalCostService()
+        self.tax_rate = 0.06
 
 
 class _Recorder:
@@ -301,6 +335,62 @@ def test_scope_fails_closed_when_confirmed_mapping_conflicts_with_catalog():
     assert (
         "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_SELLER_MAPPING_PRODUCT_CONFLICT"
         in service._sku_recovery_diagnostic_codes
+    )
+
+
+def test_historical_cost_identity_uses_confirmed_catalog_alias_for_fifo_scope():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MappingRepository(),
+    )
+    service._catalog_by_sku = {
+        CURRENT_SKU: {
+            "product_id": CURRENT_PRODUCT_ID,
+            "sku": CURRENT_SKU,
+            "offer_id": OFFER_ID,
+        }
+    }
+
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+    fifo_source = FifoCostPeriodProfitSourceService(
+        tenant_scope_provider=lambda: "owner-1::ozon::store-a",
+    )
+    scope = fifo_source.resolve_scope_identity(recovered)
+
+    assert recovered["sku"] == OLD_SKU
+    assert recovered["catalog_sku"] == CURRENT_SKU
+    assert recovered["historical_cost_evidence"] is True
+    assert recovered["cost_price"] == 30.0
+    assert recovered["historical_sku_identity_source"] == (
+        "SELLER_CONFIRMED_PRODUCT_IDENTITY_MAPPING"
+    )
+    assert scope["error"] is False
+    assert scope["sku"] == CURRENT_SKU
+
+
+def test_unmapped_historical_cost_identity_cannot_be_treated_as_inactive_fifo():
+    service = PeriodProfitSellerConfirmedIdentityScopeService(
+        _HistoricalSummary(),
+        finance_service=object(),
+        sku_ozon_client=None,
+        identity_mapping_repository=_MissingMappingRepository(),
+    )
+    recovered = service._recover_missing_product(OLD_SKU, "2026-11-06")
+    fifo_source = FifoCostPeriodProfitSourceService(
+        tenant_scope_provider=lambda: "owner-1::ozon::store-a",
+    )
+
+    scope = fifo_source.get_scope_mode(
+        recovered,
+        date_from="2026-11-06",
+        date_to="2026-11-06",
+    )
+
+    assert scope["error"] is True
+    assert scope["code"] == (
+        "FIFO_COST_HISTORICAL_SKU_CANONICAL_IDENTITY_UNRESOLVED"
     )
 
 

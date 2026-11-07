@@ -292,6 +292,18 @@ class FifoCostPeriodProfitSourceService:
         if not sku or not product_id and not offer_id:
             return self._error("FIFO_COST_PRODUCT_IDENTITY_INVALID")
         catalog_sku = self._text(product.get("catalog_sku"))
+        if (
+            product.get("historical_sku_identity_recovered") is True
+            and product.get("historical_sku_identity_source")
+            == "SELLER_CONFIRMED_HISTORICAL_COST_IDENTITY"
+            and not catalog_sku
+        ):
+            # A retired finance SKU's dated cost identity does not prove that
+            # there is no active FIFO stream under its current catalogue SKU.
+            # Fail closed instead of treating the unknown stream as legacy mode.
+            return self._error(
+                "FIFO_COST_HISTORICAL_SKU_CANONICAL_IDENTITY_UNRESOLVED"
+            )
         if catalog_sku and catalog_sku != sku:
             source = self._text(product.get("historical_sku_identity_source"))
             if (

@@ -37,6 +37,35 @@ class PeriodProfitSellerConfirmedIdentityScopeService(
         )
 
     def _recover_missing_product(self, sku, at_date):
+        mapping_status, mapped = self._recover_from_seller_confirmed_mapping(sku)
+        if mapping_status == "READY":
+            # A dated legacy cost can recover the sale value, but it cannot tell
+            # us which current FIFO stream owns a retired finance SKU. Preserve
+            # that evidence only after the seller-confirmed mapping has supplied
+            # and validated the canonical catalogue identity.
+            direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
+                self,
+                sku,
+                at_date,
+            )
+            if direct is None:
+                return mapped
+            if self._text(direct.get("product_id")) != self._text(
+                mapped.get("product_id")
+            ):
+                self._record_sku_recovery_diagnostic(
+                    "SELLER_MAPPING_HISTORICAL_COST_PRODUCT_CONFLICT"
+                )
+                return None
+            result = dict(mapped)
+            result["cost_price"] = direct.get("cost_price")
+            result["historical_cost_evidence"] = (
+                direct.get("historical_cost_evidence") is True
+            )
+            return result
+        if mapping_status != "MISSING":
+            return None
+
         direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
             self,
             sku,
@@ -51,12 +80,6 @@ class PeriodProfitSellerConfirmedIdentityScopeService(
                 else "SELLER_CURRENT_COST_EXACT_SKU_IDENTITY"
             )
             return result
-
-        mapping_status, mapped = self._recover_from_seller_confirmed_mapping(sku)
-        if mapping_status == "READY":
-            return mapped
-        if mapping_status != "MISSING":
-            return None
 
         # No explicit seller alias exists, so retain the current READ-ONLY Ozon
         # related-SKU / finance-posting recovery chain and all of its fail-closed gates.

@@ -1,3 +1,9 @@
+# 2026-11-07 — FIFO review R1–R2
+
+- `app/tests/test_period_profit_seller_confirmed_identity_mapping.py` covers dated historical cost plus confirmed canonical alias, and verifies an unmapped historical finance SKU fails closed before FIFO can be treated inactive.
+- `tests/test_telegram_fifo_cost_history.py::test_stale_rate_confirmation_does_not_clear_another_skus_anchor_draft` runs real history/rate/anchor services through the adapter and verifies stale callback isolation.
+- Focused Windows profile: **49 passed**. Full Windows `pytest -q`: **4,832 passed in 52.27s**. `python -m compileall -q app tests` and `git diff --check` passed. The five pre-existing files under `data/` were restored byte-for-byte and their aggregate SHA-256 manifest matched. Exact-head CI is pending publication.
+
 # 2026-11-07 — FIFO review R1–R3: aliases, post-commit text and stale late cancel
 
 - `tests/test_fifo_cost_period_profit_source_service.py` verifies that multiple separately confirmed finance SKU aliases for one exact catalog FIFO stream are matched against the complete allocation set and that each alias receives only its own posting COGS. Missing and unexpected allocation digests remain fail-closed; stream-wide layer explanation is not attributed to a single alias.
