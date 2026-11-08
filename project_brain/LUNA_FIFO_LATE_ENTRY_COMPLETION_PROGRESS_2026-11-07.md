@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL33.
-Выполненных этапов:32/36 (FL00–FL32 VERIFIED на кодовых и синтетических проверках; далее FL33–FL35: документация/owner acceptance, полный CI и PR delivery).
+Следующий этап: FL34.
+Выполненных этапов:33/36 (FL00–FL33 VERIFIED на кодовых и синтетических/documentation checks; далее FL34–FL35: полный CI и независимый review/PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -53,7 +53,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL30 | Числовая матрица | VERIFIED | `2dec7566` + `1c17f4df`; linked profile 1094 passed; acceptance/review profile 39 passed; compileall/diff/data-preservation PASS |
 | FL31 | Security/isolation/navigation | VERIFIED | code/test `cd2aeb2e`; atomic apply 11 passed; linked profile 582 passed in 26.33s; compileall, diff-check, tracked `data/` unchanged PASS |
 | FL32 | Backup/migration/restart | VERIFIED | code/test `818df7b2`; backup/schema profile 9 passed; linked profile 583 passed in 26.48s; compileall/diff/data manifest PASS |
-| FL33 | Owner guide | NOT_STARTED | — |
+| FL33 | Owner guide | VERIFIED | Updated owner guide, acceptance checklist and Decision 066 with exact source gaps; no code changes; live owner acceptance remains pending |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
 
@@ -388,6 +388,13 @@ Source readiness:
 - Совместимость: `tests/test_fifo_cost_transition_schema_v13.py` подтверждает миграцию v12→v13, rollback/foreign keys и v13→v14; существующий backup round-trip подтверждает frozen saved-plan snapshot. Все stateful данные создаются только внутри `tmp_path`; проектная `data/` не трогалась.
 - Code/test commit: `818df7b2` (`Verify FIFO late-entry backup restore`). Targeted backup/schema: **9 passed in 1.54s**; linked FIFO/Telegram/Period Profit/navigation/external-expense profile: **583 passed in 26.48s**; compileall, `git diff --check`, tracked `data/` check PASS. Manifest до и после: 6 файлов, 89,184 bytes, SHA-256 `602553deb79d4cca559df8a3b0e0c6d412a5aaf1aa8a2978362875d3820fb3ca`.
 - Только тестовая интеграция; runtime contracts и бизнес-правила не менялись, новый ADR не нужен. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Next: FL33 — точная инструкция владельцу, required-document list, краткая безопасная диагностика и явное разделение кода от фактической приёмки.
+
+## Выполнение FL33 — 2026-11-08
+
+- Обновлены `docs/fifo-cost-history-user-guide.md` и `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md`: точно описан late-entry menu flow и безопасные нажатия, выбор `TOTAL_LANDED` при известной только полной себестоимости, сохранение неизвестного нового домашнего остатка, загрузка источников в выбранное дело и read-only кнопка `🔍 Проверить готовность`.
+- Зафиксирован реальный owner case без изменения его статуса: старая/новая стоимость 21/14.65 ₽ за продаваемую упаковку, дата первой отправки 05.11, 6,982 owner-declared, старый дом/отдельный транзит 0, новая домашняя партия неизвестна, 148 на приёмке. Отчёт остатков 07.11 даёт 1,191 доступную единицу с FBS-return bucket, отдельная таблица владельца — 1,192 без доказанного server-as-of; расхождение не усредняется. Ведомость 04–05.11 балансируется, но не доказывает exact physical sales, и 06–07.11 не покрывает.
+- Перечень required evidence теперь конкретен: полный per-supply ID/SKU/quantity/status list; акты и `fact_quantity`; свежие пост-05.11 turnover/stock buckets с source time; exact dated physical sales/returns/non-sale bridge; согласованный timezone/cutoff. Missing/lagging data не трактуются как ноль. В `DECISIONS_066.md` и summary сохранён жёсткий cutoff gate; никакого нового бизнеса правила не введено.
+- Изменены только документация и project brain; runtime code/tests не менялись. Проверка Markdown: **3 relative links checked, missing=0**; `git diff --check` PASS; `git diff --exit-code -- data` PASS. `USER_VALIDATION_PENDING=true`; `SOURCE_BLOCKED=true`. Next: FL34 — exact-head full CI and per-PR independent verification.
 
 ## PR delivery
 

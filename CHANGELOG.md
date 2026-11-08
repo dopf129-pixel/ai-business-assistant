@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL33: owner late-entry guide and evidence checklist
+
+- Updated the owner guide and acceptance plan with the exact 05.11 late-entry flow, `TOTAL_LANDED` guidance for the known 14.65 ₽ full unit cost, and an explicit instruction to leave the uncounted new-home quantity unknown.
+- Documented the inspected sources and unresolved `1,191` vs `1,192` stock discrepancy, the turnover report's coverage only through 05.11, the 148-unit RECEIVING caveat, and the missing per-supply identities/acts/physical-sale bridge. The safe `🔍 Проверить готовность` path is documented as read-only.
+- Updated Decision 066 status: synthetic FL00–FL32 verification does not merge/deploy the branch or unlock the factual FIFO COGS gate. Owner acceptance remains pending.
+
 # 2026-11-08 — FIFO FL32: late-entry backup and restore round-trip
 
 - Added a normal backup/restore integration regression containing concurrent late-entry cases in `DRAFT`, `AWAITING_EVIDENCE`, and `APPLIED`, including the encrypted supply lookup reference. The same test verifies a wrong Fernet key does not erase or relabel the declared supply as absent.

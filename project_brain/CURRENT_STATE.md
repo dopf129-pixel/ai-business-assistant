@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL33: owner instructions separate knowns from missing evidence
+
+- The owner guide now describes the actual late-entry review flow, `TOTAL_LANDED` for a single known full unit cost, exact SKU/case binding, report preview, supply refresh and read-only readiness/recalculation actions.
+- The acceptance checklist records the 05.11 case: costs 21/14.65 ₽, 6,982 owner-declared units, old home/transit zero, new-home unknown and one 148-unit RECEIVING declaration. It separately identifies 1,191 from the inspected stock report and 1,192 from the owner's Google Sheet; neither is promoted to cutoff stock.
+- Explicit missing evidence is listed: actual per-supply IDs/quantities and acceptance acts; post-05.11 turnover and complete dated stock buckets; exact physical-sale/return/non-sale bridge and confirmed cutoff. Decision 066 remains strict: `USER_VALIDATION_PENDING`, `SOURCE_BLOCKED`.
+
 # 2026-11-08 — FIFO FL32: backup/restore preserves late-entry state
 
 - A normal backup/restore round-trip now has regression coverage for separate `DRAFT`, `AWAITING_EVIDENCE`, and `APPLIED` cases, a tenant-encrypted supply lookup, the current v14 schema, and a saved planning snapshot.

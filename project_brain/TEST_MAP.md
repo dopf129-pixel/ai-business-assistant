@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO FL33 owner acceptance map
+
+- Manual owner acceptance instructions: `docs/fifo-cost-history-user-guide.md` and `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md`. They document the exact menu sequence, known values, source periods and remaining evidence without asking for credentials/raw JSON.
+- Static contract reference: `project_brain/DECISIONS_066.md`; no new business/architecture decision and no code/test change was made in FL33. Owner live validation is explicitly not performed; `USER_VALIDATION_PENDING` and `SOURCE_BLOCKED` remain.
+
 # 2026-11-08 — FIFO FL32 backup/restore and migration map
 
 - `tests/test_fifo_cost_backup_restore.py::test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply` round-trips DRAFT/AWAITING_EVIDENCE/APPLIED cases through the normal archive service, retains the encrypted reference, proves the wrong key does not turn a declaration into an absent supply, and verifies exact apply replay makes no new FIFO writes. Existing sibling backup test preserves a saved planning snapshot.
