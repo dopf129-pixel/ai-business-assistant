@@ -44,6 +44,7 @@ def _reconstruction(*, before_cost="100.00", after_cost="150.00", returns=0):
             }],
         }],
         "sale_effective_dates": {"event-sale-1": "2026-09-12"},
+        "sale_identity_digests_by_event": {"event-sale-1": "e" * 64},
         "related_return_count": returns,
         "non_sale_outflow_count": 0,
         "candidate_outflows": [],
@@ -54,9 +55,10 @@ def _reconstruction(*, before_cost="100.00", after_cost="150.00", returns=0):
 
 def _summary(*, current_sku_cost="100.00", total_cost="200.00", net_accrual="500.00"):
     return {
-        "period": "2026-09",
+        "period": "2026-10",
         "complete": True,
         "source_fingerprint": "d" * 64,
+        "sale_identity_digests": ["e" * 64],
         "revenue": "1000.00",
         "discount_points": "0.00",
         "net_accrual": net_accrual,
@@ -87,9 +89,9 @@ def test_late_entry_impact_calculates_cogs_tax_and_profit_using_income_tax_polic
     assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_READY"
     assert result["complete"] is True
     assert result["periods"] == [{
-        "period": "2026-09",
-        "start_date": "2026-09-12",
-        "end_date": "2026-09-12",
+        "period": "2026-10",
+        "physical_sale_start_date": "2026-09-12",
+        "physical_sale_end_date": "2026-09-12",
         "units": 2,
         "before_units_by_basis": {"layer:layer-old": 2},
         "after_units_by_basis": {"rate:rate-candidate": 2},
@@ -232,7 +234,11 @@ def test_late_entry_impact_requires_complete_snapshots_for_every_affected_period
         tax_policy_result=_policy(),
     )
 
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_CANDIDATE_ONLY"
     assert result["reason_code"] == "FIFO_PERIOD_SUMMARY_COVERAGE_INCOMPLETE"
+    assert result["candidate_total_cogs_rub"] == "150.00"
+    assert "periods" not in result
+    assert "delta_profit_rub" not in repr(result)
 
 
 def test_late_entry_impact_does_not_infer_zero_from_incomplete_period_source():
@@ -244,6 +250,7 @@ def test_late_entry_impact_does_not_infer_zero_from_incomplete_period_source():
         tax_policy_result=_policy(),
     )
 
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_CANDIDATE_ONLY"
     assert result["reason_code"] == "FIFO_PERIOD_SUMMARY_UNAVAILABLE"
 
 
@@ -254,6 +261,7 @@ def test_late_entry_impact_rejects_baseline_that_does_not_match_replay():
         tax_policy_result=_policy(),
     )
 
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_CANDIDATE_ONLY"
     assert result["reason_code"] == "FIFO_PERIOD_COGS_BASELINE_MISMATCH"
 
 
@@ -267,7 +275,119 @@ def test_late_entry_impact_rejects_different_sale_coverage_or_quantity():
         tax_policy_result=_policy(),
     )
 
-    assert result["reason_code"] == "FIFO_ALLOCATION_EVENT_COVERAGE_MISMATCH"
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_BLOCKED"
+    assert result["reason_code"] == "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+    assert result["complete"] is False
+
+
+def test_late_entry_without_before_baseline_returns_candidate_cost_only_by_financial_period():
+    reconstruction = _reconstruction()
+    reconstruction["before_complete"] = False
+    reconstruction["before_reason_code"] = "HISTORY_GAP"
+    reconstruction["before_allocations"] = []
+    reconstruction["before_total_cogs_rub"] = None
+    result = FifoCostLateEntryImpactService().preview(
+        reconstruction=reconstruction,
+        period_summaries=[_summary()],
+        tax_policy_result={"error": False, "configured": False},
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_CANDIDATE_ONLY"
+    assert result["reason_code"] == "HISTORY_GAP"
+    assert result["candidate_total_cogs_rub"] == "150.00"
+    assert result["candidate_periods"] == [{
+        "period": "2026-10",
+        "units": 2,
+        "candidate_cogs_rub": "150.00",
+        "candidate_units_by_basis": {"rate:rate-candidate": 2},
+        "candidate_cogs_by_basis_rub": {"rate:rate-candidate": "150.00"},
+        "physical_sale_start_date": "2026-09-12",
+        "physical_sale_end_date": "2026-09-12",
+        "completeness": "CANDIDATE_ONLY",
+    }]
+    assert "delta_cogs_rub" not in result
+    assert "tax" not in repr(result)
+    assert "profit" not in repr(result)
+
+
+def test_late_entry_never_treats_physical_date_as_financial_period():
+    result = FifoCostLateEntryImpactService().preview(
+        reconstruction=_reconstruction(),
+        period_summaries=[_summary()],
+        tax_policy_result=_policy(),
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_READY"
+    assert result["periods"][0]["period"] == "2026-10"
+    assert result["periods"][0]["physical_sale_start_date"] == "2026-09-12"
+
+    moved_financial_summary = _summary()
+    moved_financial_summary["period"] = "2026-11"
+    moved = FifoCostLateEntryImpactService().preview(
+        reconstruction=_reconstruction(),
+        period_summaries=[moved_financial_summary],
+        tax_policy_result=_policy(),
+    )
+    assert moved["periods"][0]["period"] == "2026-11"
+    assert moved["periods"][0]["physical_sale_start_date"] == "2026-09-12"
+    assert moved["financial_period_mapping_fingerprint"] != (
+        result["financial_period_mapping_fingerprint"]
+    )
+
+
+def test_late_entry_impact_covers_every_financial_period_in_dependent_sale_horizon():
+    reconstruction = _reconstruction(before_cost="100.00", after_cost="150.00")
+    reconstruction["before_total_cogs_rub"] = "150.00"
+    reconstruction["candidate_total_cogs_rub"] = "210.00"
+    reconstruction["before_allocations"].append({
+        "event_id": "event-sale-2", "quantity": 1,
+        "total_cost_rub": "50.00", "lines": [{
+            "layer_id": "layer-old", "rate_change_id": None,
+            "quantity": 1, "unit_cost_rub": "50.00", "total_cost_rub": "50.00",
+        }],
+    })
+    reconstruction["candidate_allocations"].append({
+        "event_id": "event-sale-2", "quantity": 1,
+        "total_cost_rub": "60.00", "lines": [{
+            "layer_id": None, "rate_change_id": "rate-candidate",
+            "quantity": 1, "unit_cost_rub": "60.00", "total_cost_rub": "60.00",
+        }],
+    })
+    reconstruction["sale_effective_dates"]["event-sale-2"] = "2026-10-02"
+    reconstruction["sale_identity_digests_by_event"]["event-sale-2"] = "f" * 64
+    october = _summary()
+    october["current_sku_product_cost"] = "100.00"
+    october["current_total_product_cost"] = "200.00"
+    november = _summary(current_sku_cost="50.00", total_cost="100.00")
+    november.update(period="2026-11", sale_identity_digests=["f" * 64])
+    result = FifoCostLateEntryImpactService().preview(
+        reconstruction=reconstruction,
+        period_summaries=[october, november],
+        tax_policy_result=_policy(),
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_READY", result.get("reason_code")
+    assert [(row["period"], row["units"]) for row in result["periods"]] == [
+        ("2026-10", 2), ("2026-11", 1),
+    ]
+    assert [row["delta_cogs_rub"] for row in result["periods"]] == [
+        "50.00", "10.00",
+    ]
+
+
+def test_late_entry_requires_complete_financial_sale_identity_mapping():
+    summary = _summary()
+    summary.pop("sale_identity_digests")
+    result = FifoCostLateEntryImpactService().preview(
+        reconstruction=_reconstruction(),
+        period_summaries=[summary],
+        tax_policy_result=_policy(),
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_CANDIDATE_ONLY"
+    assert result["reason_code"] == "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+    assert result["candidate_total_cogs_rub"] == "150.00"
+    assert result["candidate_periods"] == []
 
 
 def test_n10_late_rate_change_reprices_40_units_without_hard_coding_profit_delta():

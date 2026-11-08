@@ -2267,13 +2267,18 @@ class FifoCostRepository:
             before = self._preview_allocation_from_connection(
                 connection, stream_id, **common,
             )
+            sale_event_rows = connection.execute(
+                """SELECT event_id, effective_date, source_identity_digest
+                   FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='PHYSICAL_SALE'""",
+                (stream_id,),
+            ).fetchall()
             event_dates = {
-                row["event_id"]: row["effective_date"]
-                for row in connection.execute(
-                    """SELECT event_id, effective_date FROM fifo_cost_events
-                       WHERE stream_id=? AND event_kind='PHYSICAL_SALE'""",
-                    (stream_id,),
-                ).fetchall()
+                row["event_id"]: row["effective_date"] for row in sale_event_rows
+            }
+            sale_identity_digests = {
+                row["event_id"]: row["source_identity_digest"]
+                for row in sale_event_rows
             }
             related_returns = connection.execute(
                 """SELECT COUNT(*) FROM fifo_cost_events
@@ -2365,6 +2370,7 @@ class FifoCostRepository:
                     else None
                 ),
                 "sale_effective_dates": event_dates,
+                "sale_identity_digests_by_event": sale_identity_digests,
                 "related_return_count": related_returns,
                 "non_sale_outflow_count": non_sale_outflows,
                 "period_profit_changed": False,
@@ -4992,6 +4998,7 @@ class FifoCostRepository:
         digest_fields = (
             "preview_fingerprint", "source_set_fingerprint",
             "reconstruction_fingerprint", "tax_policy_fingerprint",
+            "financial_period_mapping_fingerprint",
         )
         if any(not cls._valid_digest(value.get(field)) for field in digest_fields):
             return "FIFO_LATE_ENTRY_IMPACT_INVALID"

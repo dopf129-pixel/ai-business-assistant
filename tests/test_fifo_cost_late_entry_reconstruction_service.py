@@ -297,6 +297,10 @@ def test_fl21_replays_exact_return_basis_and_outflow_without_counting_outflow_as
         assert result["candidate_total_cogs_rub"] == "74.65"
         assert result["candidate_rate_units"] == 1
         first_sale, second_sale = result["candidate_allocations"]
+        assert result["sale_identity_digests_by_event"] == {
+            first_sale["event_id"]: sale_digest,
+            second_sale["event_id"]: _sale_digest("posting-after"),
+        }
         assert result["sale_effective_dates"][first_sale["event_id"]] == "2026-11-02"
         assert result["sale_effective_dates"][second_sale["event_id"]] == "2026-11-06"
         assert first_sale["total_cost_rub"] == "40.00"

@@ -268,6 +268,7 @@ def _seed_correction(repository):
     service = FifoCostLateEntryCorrectionService(repository, now_provider=lambda: NOW)
     periods = [{
         "period": "2026-11", "complete": True, "source_fingerprint": "d" * 64,
+        "sale_identity_digests": ["a" * 64],
         "revenue": "1000.00", "discount_points": "0.00", "net_accrual": "500.00",
         "current_total_product_cost": "100.00", "current_sku_product_cost": "100.00",
     }]
