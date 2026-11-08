@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL28: cutoff partition in Period Profit
+
+- Period Profit can combine confirmed legacy cost for physical sales through the cutoff with FIFO COGS for post-cutoff sales, selected by exact finance sale identity while preserving the financial recognition period. The same stream, allocation, cutoff-mapping revisions appear in the canonical explanation and export projection.
+- Missing or incomplete bridge coverage fails closed for periods touching cutoff. Schema v14 adds append-only cutoff sale mapping evidence atomically with transition apply. A late TRANSIT→OZON delivery is verified as a movement and does not create another receipt/opening layer.
+- FL28 focused set: **60 passed**; linked FIFO/Telegram/Period Profit profile: **1085 passed in 44.01s**; compileall, diff-check, and unchanged `data/` passed. Synthetic only; owner case remains unverified.
+
 # 2026-11-08 — FIFO current economics and cache revisions (FL27)
 
 - Current unit economics continues to use the effective legacy cost while a transition is only draft/ready. After atomic `APPLIED`, the current-cost adapter observes the new FIFO history revision and the query cache is refreshed by its exact cost revision.

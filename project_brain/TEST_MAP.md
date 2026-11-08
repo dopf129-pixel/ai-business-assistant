@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL28: Period Profit across cutoff
+
+- `tests/test_fifo_cost_period_profit_source_service.py` validates exact finance-ID selection, pre/post mapping, incomplete bridge rejection, complete-through coverage, and later FIFO allocations. Missing mapping cannot be replaced with an allocation date for a financial period touching cutoff.
+- `tests/test_fifo_cost_transition_atomic_apply.py` verifies mapping rows and metadata commit atomically with transition apply, append-only guards, rollback at all injected write boundaries, and pre/post physical-date classification. `tests/test_fifo_cost_transition_schema_v13.py` verifies additive v13→v14 migration.
+- `tests/test_period_profit_fifo_cost_integration.py` checks the N21/N27-style mixed result (2×21.00 + 3×14.65 = 85.95 ₽ COGS), matching stream/allocation/mapping revisions in report explanation/export. `tests/test_fifo_cost_history_service.py` verifies late shipment transfer adds no cost layer.
+- Focused profile **60 passed**; complete linked FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. Compileall/diff-check/data-preservation PASS; fixtures use temporary SQLite.
+
 # 2026-11-08 — FIFO FL27 consumers/cache regressions
 
 - `tests/test_fifo_late_entry_current_consumers.py` covers current cost/cache staying at legacy 21.00 ₽ across a persisted READY transition and switching to FIFO 14.65 ₽ only after atomic `APPLIED`; the exact cost revision forces a fresh unit-economics query, and runtime apply requests revision-aware detail invalidation.

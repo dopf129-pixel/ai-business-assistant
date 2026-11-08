@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL28: factual Period Profit cutoff partition
+
+- `FifoCostRepository` schema v14 persists append-only mapping revisions between exact finance sale identities and physical cutoff dates, in the existing tenant FIFO database. Transition apply stores the mapping atomically with its rate, allocation and case commit.
+- Period Profit now joins pre-cutoff dated legacy cost and post-cutoff FIFO allocation by sale identity, not by financial period date. A touching-cutoff period fails closed without complete bridge coverage. Explanation and sanitized export retain the same stream/allocation/mapping revisions.
+- FL28 focused checks **60 passed**; linked FIFO/Telegram/Period Profit **1085 passed in 44.01s**; compileall, diff-check and `data/` unchanged passed. Synthetic data only; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; PR CI pending.
+
 # 2026-11-08 — FIFO FL27: current unit economics and plans
 
 - Черновик/READY перехода не меняет текущую себестоимость: до атомарного применения продолжается legacy effective-dated значение. После `APPLIED` общий FIFO adapter получает новую точную history revision, а query cache текущей экономики сразу перестраивается по cost revision.

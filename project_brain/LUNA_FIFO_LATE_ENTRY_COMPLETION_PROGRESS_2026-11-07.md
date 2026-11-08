@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL28.
-Выполненных этапов:27/36 (FL00–FL27 VERIFIED на кодовых и синтетических проверках; далее FL28–FL35: Period Profit, history/refresh, acceptance, reliability и PR delivery).
+Следующий этап: FL29.
+Выполненных этапов:28/36 (FL00–FL28 VERIFIED на кодовых и синтетических проверках; далее FL29–FL35: история/обновление, матрица, изоляция, backup/restart, документация, полный CI и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` содержит FL24–FL27 и основана на exact PR2 head. Последний code checkpoint FL27 `81266ad3` (текущий docs checkpoint в работе); linked profile **617 passed**. FL26 code `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; FL25 `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; FL24 `ee98230286354e21e1f2cf5ca307391c97d6171f`. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -48,7 +48,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL25 | Durable мастер | VERIFIED | code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked profile 537 passed; compileall/diff-check/data unchanged PASS |
 | FL26 | Разные подтверждения | VERIFIED | `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; focused 57 passed in 4.38s; linked FIFO/Telegram/Period Profit 545 passed in 24.43s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL27 | Current/plans/cache | VERIFIED | code `81266ad3`; focused 72 passed; linked FIFO/Telegram/Period Profit/current unit economics/saved plans 617 passed in 27.93s; compileall/diff-check/data unchanged PASS; synthetic only |
-| FL28 | Period Profit | NOT_STARTED | — |
+| FL28 | Period Profit | VERIFIED | code `5afe569d01313ea8ac15b0689a12314893238c38`; focused 60 passed; linked FIFO/Telegram/Period Profit 1085 passed in 44.01s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL29 | History/refresh/cancel | NOT_STARTED | — |
 | FL30 | Числовая матрица | NOT_STARTED | — |
 | FL31 | Security/isolation/navigation | NOT_STARTED | — |
@@ -57,6 +57,16 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
 
+## Выполнение FL28 — 2026-11-08
+
+- `FifoCostRepository` schema v14 stores the exact finance-sale ↔ physical-cutoff partition as append-only mapping-set and mapping rows, in the existing tenant database. The mapping set is committed atomically with the transition's rate/allocation and `APPLIED` state; rollback fault tests include both mapping tables. v13→v14 migration and append-only update/delete guards are covered.
+- Period Profit now selects FIFO allocations by exact finance sale identity, not by physical event date. A financial period may therefore join pre-cutoff legacy cost at its proven physical date with post-cutoff FIFO COGS while retaining the financial recognition period for tax/profit. Bridge, allocation, stream and mapping revisions flow into one canonical explanation/export projection.
+- A financial period touching cutoff fails closed if its bridge is missing/incomplete or omits a sale covered through the bridge watermark. Allocations after `complete_through` remain eligible only with a post-cutoff physical date. No silent fallback infers the mixed partition from an allocation date.
+- Numeric integration regression: legacy 2×21.00 ₽ + FIFO 3×14.65 ₽ = 85.95 ₽ COGS; 5 units and 62.05 ₽ profit; stream/allocation/mapping revisions 4/2/3 match the explanation and sanitized export. Late TRANSIT→OZON of two old units creates no receipt layer or second opening.
+- Focused set across Period Profit, FIFO source/repository, atomic apply, migration and movement: **60 passed**. Linked `test_fifo_cost_*.py`, `test_telegram_fifo_cost_*.py`, and `test_period_profit*.py`: **1085 passed in 44.01s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS; synthetic SQLite only, no live Ozon/Telegram calls or bot start.
+- Code commit `5afe569d01313ea8ac15b0689a12314893238c38` (`Integrate cutoff partitions into period profit`). Schema v14 is an additive extension of Decision 066; financial, tax, Return COGS and plan-snapshot owners remain unchanged. Real owner data remains unverified; no FIFO value is applied to the real store from synthetic fixtures.
+- Next: FL29 — history, cancellation and refresh behavior around APPLIED revisions.
+
 ## Выполнение FL27 — 2026-11-08
 
 - `ProductUnitEconomicsQueryService` уже строил cache key по точному `cost_revision` и удалял прежний кэш того же tenant/store/product/offer/SKU/date. Это подтверждено integrated regression: готовый, но не применённый transition оставляет старую effective-dated себестоимость `21.00 ₽` и cache hit; atomic apply меняет источник на FIFO `14.65 ₽`, revision и query становятся cache miss, прежний snapshot удаляется.
@@ -64,7 +74,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 - Telegram expense detail snapshots теперь хранят точные store/product/offer/SKU, cost revision и allocation revision. На открытии callback локально пересчитывает текущие revisions без Ozon/Telegram HTTP; stale или недоступная ревизия закрывает старую расшифровку. После успешного runtime apply hook удаляет только snapshots точной identity, чьи revisions уже устарели; snapshot другой SKU или текущей revision сохраняется.
 - Добавлено `tests/test_fifo_late_entry_current_consumers.py`; расширен `tests/test_product_unit_economics_telegram_ui.py`. Focused consumer/UI/cache/saved-plan suite: **72 passed in 3.02s**. Связанный `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`, unit-economics UI/cache и saved planning profile: **617 passed in 27.93s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS; только synthetic temporary SQLite.
 - Code commit `81266ad3` (`Bind FIFO consumer caches to cost revisions`). Архитектура — minor extension existing revision cache and Telegram ephemeral snapshot validation; schema/DB version, plan contract, financial calculations and `DECISIONS.md` не менялись. Apply invalidation hook подключён к runtime; production positive apply orchestration и Period Profit bridge — FL28. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
-- Следующий этап: FL28 — end-to-end Period Profit bridge/allocation; сохранить exact revision в объяснении и экспорте, не применять новый FIFO cost к неподтверждённым периодам.
+- FL28 завершён; далее FL29 — bounded history, cancellation and refresh behavior.
 
 ## Выполнение FL26 — 2026-11-08
 
