@@ -139,9 +139,25 @@ def test_fc32_every_input_order_preserves_layer_totals_and_consumes_units_once(s
         ) == 8
 
 
-def test_fc16_date_only_events_on_same_day_are_not_given_guessed_fifo_order(service):
-    result = _preview(service, [
+def test_fl20_same_day_date_only_sales_pass_when_every_order_uses_the_same_layer(service):
+    events = [
         _sale("sale-a", 1, "2026-11-02", "1" * 64),
+        _sale("sale-b", 1, "2026-11-02", "2" * 64),
+    ]
+    layers = [FifoCostLayer("same-layer", "10.00", 2)]
+    result = _preview(service, events, layers=layers)
+    reordered = _preview(service, list(reversed(events)), layers=layers)
+
+    assert result["complete"] is True
+    assert result["total_cogs_rub"] == "20.00"
+    assert [row["event_id"] for row in result["allocations"]] == ["sale-a", "sale-b"]
+    assert all(row["lines"][0]["layer_id"] == "same-layer" for row in result["allocations"])
+    assert result["preview_fingerprint"] == reordered["preview_fingerprint"]
+
+
+def test_fl20_same_day_date_only_sales_block_when_layer_order_changes_sale_cogs(service):
+    result = _preview(service, [
+        _sale("sale-a", 2, "2026-11-02", "1" * 64),
         _sale("sale-b", 1, "2026-11-02", "2" * 64),
     ])
 
@@ -184,7 +200,7 @@ def test_fc16_duplicate_identity_and_equal_timestamp_are_blocked(service):
         _sale("sale-b", 1, "2026-11-03", "1" * 64),
     ])
     same_instant = _preview(service, [
-        _sale("sale-a", 1, "2026-11-02", "1" * 64,
+        _sale("sale-a", 2, "2026-11-02", "1" * 64,
               effective_at="2026-11-02T10:00:00Z"),
         _sale("sale-b", 1, "2026-11-02", "2" * 64,
               effective_at="2026-11-02T10:00:00+00:00"),
@@ -192,6 +208,52 @@ def test_fc16_duplicate_identity_and_equal_timestamp_are_blocked(service):
 
     assert duplicate["reason_code"] == "FIFO_SALE_IDENTITY_DUPLICATE"
     assert same_instant["reason_code"] == "EVENT_ORDER_UNRESOLVED"
+
+
+def test_fl20_many_same_day_sales_use_bounded_invariance_proof_when_first_layer_covers_all(service):
+    events = [
+        _sale(f"sale-{index:02}", 1, "2026-11-02", f"{index + 1:064x}")
+        for index in range(6)
+    ]
+
+    result = _preview(
+        service, events,
+        layers=[FifoCostLayer("same-layer", "10.00", 6)],
+    )
+
+    assert result["complete"] is True
+    assert result["total_cogs_rub"] == "60.00"
+    assert all(row["lines"][0]["layer_id"] == "same-layer" for row in result["allocations"])
+
+
+def test_fl20_many_same_day_sales_that_cross_cost_layers_are_not_assigned_by_id_order(service):
+    events = [
+        _sale(f"sale-{index:02}", 1, "2026-11-02", f"{index + 1:064x}")
+        for index in range(6)
+    ]
+    result = _preview(
+        service, events,
+        layers=[
+            FifoCostLayer("cheap-layer", "10.00", 2),
+            FifoCostLayer("expensive-layer", "20.00", 4),
+        ],
+    )
+
+    assert result["complete"] is False
+    assert result["reason_code"] == "EVENT_ORDER_UNRESOLVED"
+    assert result["allocations"] == []
+
+
+def test_fl20_mixed_date_only_and_timed_sales_preserve_time_constraints_and_block_if_result_changes(service):
+    result = _preview(service, [
+        _sale("sale-date-only", 2, "2026-11-02", "1" * 64),
+        _sale("sale-timed", 1, "2026-11-02", "2" * 64,
+              effective_at="2026-11-02T10:00:00Z"),
+    ])
+
+    assert result["complete"] is False
+    assert result["reason_code"] == "EVENT_ORDER_UNRESOLVED"
+    assert result["allocations"] == []
 
 
 def test_fc16_incomplete_allocation_is_not_mislabeled_complete(service):
