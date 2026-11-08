@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL30: persist acceptance-act evidence through restart
+
+- The late-entry supply refresh now saves the allowlisted acceptance-act facts it already reads: opaque act digests, document date, declared/approved/fact quantities, source fingerprints, and capture time. A fresh review service reconstructs accepted quantities from that durable evidence.
+- Explicit zero accepted units remain distinct from unavailable or missing act evidence. Status and acceptance evidence remain separate; saving either does not create stock, FIFO layers, cost, or profit changes. No database migration was needed because the existing append-only transition payload already stores typed evidence.
+- Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).
+- FL30 numeric controls and the new durable-refresh regression pass; linked FIFO/Telegram/Period Profit profile: **1094 passed**. Synthetic fixtures only; owner-case verification and remote CI remain pending.
+
 # 2026-11-08 — FIFO FL29: transition history, cancellation, and refresh safety
 
 - Code commit: 0bcb13d8cfd4704429a08999e7a014a2c4275e8a; independent architecture review is required because this adds a repository/service read path and Telegram history/export integration.

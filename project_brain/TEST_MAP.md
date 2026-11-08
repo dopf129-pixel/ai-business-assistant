@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO FL30 numeric matrix and durable acceptance regressions
+
+- Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).
+- `tests/test_fifo_cost_transition_supply_refresh_durable_acceptance.py`: production-shaped refresh saves complete per-act evidence and a new review/repository instance restores its acceptance result. Parameterized `0` and `100` accepted-unit cases prove explicit zero differs from missing evidence; final partial receipt is a discrepancy, and FIFO remains uninitialized with no stock write.
+- `tests/test_fifo_cost_transition_observations.py`, `tests/test_fifo_cost_transition_review_service.py`, `tests/test_fifo_cost_transition_supply_reconciliation_service.py`, and `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py`: backward-compatible status-only observations, durable typed act payload, read reconstruction, source/declaration binding, correction and cumulative receipt behavior.
+- `tests/test_fifo_cost_late_entry_impact_service.py` and `tests/test_fifo_cost_replay_service.py`: independently calculated Decimal controls for N21/N23/N24/N25/N27/N29; all N01–N40 cases are mapped in `project_brain/FIFO_LATE_ENTRY_NUMERICAL_ACCEPTANCE_FL30_2026-11-08.md`.
+- Linked FIFO/Telegram/Period Profit profile: **1094 passed in 44.41s**. Focused acceptance/review/reconciliation profile: **39 passed in 2.04s**. `compileall -q app tests`, `git diff --check`, and tracked `data/` diff passed. Synthetic SQLite and generated API fixtures only.
+
 # 2026-11-08 — FIFO FL29 history, cancellation, and refresh regressions
 
 - `tests/test_fifo_cost_transition_service.py`: cancellation remains idempotent and append-only after restart; encrypted supply declaration evidence remains readable after cancellation; bounded revision pages retain exact order and exclude case/raw lookup IDs; delayed source clock cannot move case `updated_at` backward.

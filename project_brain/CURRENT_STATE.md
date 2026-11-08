@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO FL30: acceptance evidence survives refresh and restart
+
+- `FifoCostTransitionSupplyRefreshService` now passes complete act evidence into the existing append-only transition observation. The case stores only allowlisted per-act digests and quantities; raw act/supply IDs remain transient and are not persisted in the transition payload.
+- Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).
+- Review reconstructs the source act snapshots and reruns cumulative acceptance reconciliation after a fresh repository/service instance. Explicit zero is confirmed only when a complete accepted act contains zero; no act evidence stays unknown. Acceptance remains documentary evidence and never writes an inventory movement or activates FIFO.
+- Numeric crosswalk N01–N40: linked profile **1094 passed in 44.41s**; acceptance refresh/restart and linked reconciliation tests **39 passed in 2.04s**; compileall, diff-check, and tracked `data/` diff passed. Aggregate current `data/` manifest SHA-256: `4e540517654f0ab646dd704b8fb4f0cd7fdce93132b866ff961eae26414f8e07` (six files; content not printed). Synthetic only.
+- This change extends the transition observation contract and public review assembly; classify as **Architecture Review Required**. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; FL31 remains next.
+
 # 2026-11-08 — FIFO FL29: история переходов, отмена и refresh
 
 - Код FL29: 0bcb13d8cfd4704429a08999e7a014a2c4275e8a; требуется независимый архитектурный review публичного history path и Telegram export integration.
