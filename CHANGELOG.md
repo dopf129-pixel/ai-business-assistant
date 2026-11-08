@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO FL34: align full-suite verification fixtures
+
+- Updated the Period Profit export fixture for the explicit `mixed_cutoff_sku_count` field and updated the Telegram factory test double for the FIFO transition cache invalidation hook.
+- The first isolated full-suite attempt exposed eight harness-only failures caused by an overridden storage root or a worker dependency path missing from the disposable checkout; the corrected rerun is pending. Three focused regressions pass.
+
 # 2026-11-08 — FIFO FL33: owner late-entry guide and evidence checklist
 
 - Updated the owner guide and acceptance plan with the exact 05.11 late-entry flow, `TOTAL_LANDED` guidance for the known 14.65 ₽ full unit cost, and an explicit instruction to leave the uncounted new-home quantity unknown.

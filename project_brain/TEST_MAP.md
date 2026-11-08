@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL34 full-suite verification setup
+
+- `tests/test_analytics_export_service.py::test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_versions` now asserts the current `mixed_cutoff_sku_count=0` projection in both JSON and CSV metadata.
+- `tests/test_product_decision_verified_guidance_telegram_wiring_v1061_v1070.py::test_v1070_factory_shares_history_with_readonly_verifier` now gives its factory test double the production FIFO cache invalidation method.
+- Three targeted regressions pass. Initial isolated full run: **5094 passed, 10 failed**; eight failures came from the harness's explicit storage-root override and worker dependency path, not assertions against runtime behavior. Corrected full-suite rerun is pending.
+
 # 2026-11-08 — FIFO FL33 owner acceptance map
 
 - Manual owner acceptance instructions: `docs/fifo-cost-history-user-guide.md` and `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md`. They document the exact menu sequence, known values, source periods and remaining evidence without asking for credentials/raw JSON.

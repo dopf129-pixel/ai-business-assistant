@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL34.
-Выполненных этапов:33/36 (FL00–FL33 VERIFIED на кодовых и синтетических/documentation checks; далее FL34–FL35: полный CI и независимый review/PR delivery).
+Следующий этап: FL34 — повторить полный набор тестов на обновлённой тестовой голове без принудительной подмены storage root и с доступной worker dependency directory, затем проверить точные PR heads/CI.
+Выполненных этапов:33/36; FL34 IN_PROGRESS. Первый изолированный full run: 5094 passed, 10 failed; восемь были вызваны только параметрами harness (storage-root override и worker dependency path), два обнаружили устаревшие тестовые fixtures. Обе fixture-коррекции внесены; targeted checks: 3 passed. FL35 ещё не начат.
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -54,7 +54,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL31 | Security/isolation/navigation | VERIFIED | code/test `cd2aeb2e`; atomic apply 11 passed; linked profile 582 passed in 26.33s; compileall, diff-check, tracked `data/` unchanged PASS |
 | FL32 | Backup/migration/restart | VERIFIED | code/test `818df7b2`; backup/schema profile 9 passed; linked profile 583 passed in 26.48s; compileall/diff/data manifest PASS |
 | FL33 | Owner guide | VERIFIED | Updated owner guide, acceptance checklist and Decision 066 with exact source gaps; no code changes; live owner acceptance remains pending |
-| FL34 | Полный CI | NOT_STARTED | — |
+| FL34 | Полный CI | IN_PROGRESS | Initial full suite at `2509e9c3`: 5094 passed/10 failed; 8 harness-only, 2 stale fixtures corrected; targeted updated tests 3 passed. Full rerun and exact-head remote checks pending |
 | FL35 | Review handoff | NOT_STARTED | — |
 
 ## Выполнение FL29 — 2026-11-08

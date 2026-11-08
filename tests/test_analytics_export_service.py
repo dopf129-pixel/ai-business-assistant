@@ -68,6 +68,7 @@ def test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_v
         "legacy_cogs_rub": "0.00",
         "fifo_sku_count": 1,
         "confirmed_fifo_sku_count": 1,
+        "mixed_cutoff_sku_count": 0,
         "cutoff_dates": ["2026-07-31"],
         "products": [{
             "sku": "SKU-1", "cost_mode": "FIFO", "status": "CONFIRMED",

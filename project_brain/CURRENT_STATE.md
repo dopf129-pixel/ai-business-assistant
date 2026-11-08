@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO FL34 full-suite verification is in progress
+
+- Updated two existing test fixtures to match the current exported FIFO explanation and factory wiring. The first full-suite attempt ran 5,094 tests successfully and exposed 10 failures: eight were caused by the verification harness overriding project storage defaults or omitting the isolated worker dependencies; two fixture mismatches are corrected and pass targeted checks.
+- Next verification uses a fresh detached checkout with no storage-root override and the required test-only dependency directory. No product/runtime behavior changed. Owner validation and source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
+
 # 2026-11-08 — FIFO FL33: owner instructions separate knowns from missing evidence
 
 - The owner guide now describes the actual late-entry review flow, `TOTAL_LANDED` for a single known full unit cost, exact SKU/case binding, report preview, supply refresh and read-only readiness/recalculation actions.
