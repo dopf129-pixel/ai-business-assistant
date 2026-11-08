@@ -5,6 +5,10 @@
 - READY cases reopen read-only after a process restart. Historical finance SKU aliases are accepted only with a seller-confirmed mapping bound to the current product/offer; otherwise the bridge remains blocked.
 - Review follow-up is **not merge-ready**: the production Telegram factory still does not assemble a cutoff bridge or inject atomic apply, and replay still rejects multiple active cost rates. No current-head CI has run for these local corrections.
 
+# 2026-11-09 — FIFO temporal boundary contracts
+
+- Added immutable, validated rate-boundary and dated-boundary values for the upcoming multi-rate FIFO replay. The existing single-rate allocation interface remains available. Replay behavior is still in progress; see the FIFO review-blocker execution journal for stage results.
+
 # 2026-11-08 — FIFO FL34–FL35: exact stack checks and review packet
 
 - Full isolated Windows pytest passed **5,104 tests in 75.99s** on integration code/test SHA `4771794e4372c5443ab65cee349d2e673508118e`. Compileall, diff-check and tracked `data/` integrity passed.

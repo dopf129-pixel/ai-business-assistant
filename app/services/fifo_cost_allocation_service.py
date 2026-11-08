@@ -21,6 +21,13 @@ _MAX_LAYERS_PER_STREAM = 100_000
 _MAX_REPLAY_ALLOCATION_LINES = 250_000
 
 
+def _is_digest(value):
+    return (
+        isinstance(value, str) and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
 @dataclass(frozen=True)
 class FifoCostLayer:
     """A finite, confirmed cost layer in FIFO order."""
@@ -69,6 +76,73 @@ class FifoOutflowEvent:
     event_id: str
     quantity: int
     reason_code: str
+
+
+@dataclass(frozen=True)
+class FifoRateBoundaryEvent:
+    """Proof-bound switch from one unknown-quantity unit rate to another.
+
+    The event itself does not add inventory. Later boundaries carry exact
+    balances established by an independent stock/physical-sale reconciliation.
+    """
+
+    event_id: str
+    new_rate_change_id: str
+    new_unit_cost_rub: Decimal | str | int
+    previous_rate_change_id: str | None
+    previous_rate_remaining_units: int | None
+    expected_older_finite_units: int | None
+    reconciliation_evidence_fingerprint: str
+
+    def __post_init__(self):
+        for field_name in ("event_id", "new_rate_change_id"):
+            value = getattr(self, field_name)
+            if (
+                not isinstance(value, str) or not value.strip()
+                or len(value.strip()) > _MAX_IDENTIFIER_LENGTH
+            ):
+                raise ValueError("FIFO_RATE_CHAIN_CONFLICT")
+            object.__setattr__(self, field_name, value.strip())
+        if self.previous_rate_change_id is not None:
+            value = self.previous_rate_change_id
+            if (
+                not isinstance(value, str) or not value.strip()
+                or len(value.strip()) > _MAX_IDENTIFIER_LENGTH
+            ):
+                raise ValueError("FIFO_RATE_CHAIN_CONFLICT")
+            object.__setattr__(self, "previous_rate_change_id", value.strip())
+            if value.strip() == self.new_rate_change_id:
+                raise ValueError("FIFO_RATE_CHAIN_CONFLICT")
+        if isinstance(self.new_unit_cost_rub, (bool, float)) or not isinstance(
+            self.new_unit_cost_rub, (Decimal, str, int),
+        ):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+        try:
+            cost = Decimal(self.new_unit_cost_rub).quantize(
+                _CENT, rounding=ROUND_HALF_UP,
+            )
+        except (InvalidOperation, TypeError, ValueError, OverflowError):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN") from None
+        if not cost.is_finite() or cost < 0 or cost > Decimal("1000000000.00"):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+        object.__setattr__(self, "new_unit_cost_rub", cost)
+        if not _is_digest(self.reconciliation_evidence_fingerprint):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+
+        first_boundary = self.previous_rate_change_id is None
+        previous_units = self.previous_rate_remaining_units
+        finite_units = self.expected_older_finite_units
+        if first_boundary:
+            if previous_units is not None or finite_units is not None:
+                raise ValueError("FIFO_RATE_CHAIN_CONFLICT")
+            return
+        if (
+            isinstance(previous_units, bool) or not isinstance(previous_units, int)
+            or previous_units < 0
+            or isinstance(finite_units, bool) or not isinstance(finite_units, int)
+            or finite_units < 0
+        ):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
 
 
 @dataclass(frozen=True)

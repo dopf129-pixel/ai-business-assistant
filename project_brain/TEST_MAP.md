@@ -4,6 +4,11 @@
 - `tests/test_fifo_cost_transition_production_workflow.py`: captures the absent durable evidence reader, common production workflow builder, ApplyService wiring and physical-sales import route. Initial red baseline fails on the current code and must pass only after FR12–FR27. These tests are not a passing CI claim; they must be separated into the dependent PR scope as recorded in the FR progress journal.
 - Initial baseline: six expected failures in 1.28s. No skip/xfail; temporary SQLite only. Later results must be recorded against their exact code SHA.
 
+# 2026-11-09 — FIFO temporal boundary DTOs (FR04)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py` now validates typed rate boundary values, finite/missing balance distinctions, money and digest constraints, explicit date/timezone boundary forms, and compatibility of the existing single-open-rate allocation API.
+- Isolated linked profile: **70 passed, 2 deselected**; only MR02/MR03 replay-result cases are deferred to FR05–FR06. `compileall` passed for the touched service/test modules. This is a local stage result, not full-suite or CI verification.
+
 # 2026-11-08 — FIFO review-fix regression map
 
 - `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.

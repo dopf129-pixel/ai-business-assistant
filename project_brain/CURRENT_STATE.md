@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR03
+# 2026-11-09 — FIFO review-blocker execution FR00–FR04
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00 baseline and FR01 correction checkpoint are complete; FR02 reproduced missing temporal multi-rate and production evidence/apply paths. Local corrections are separately committed as `49442244`; task/journal as `8e6b528c`; implementation branch `codex/fifo-review-rate-replay-20261108` starts from published #730 head `8e6b528c`.
-- Six FR02 red-baseline checks failed for the expected absent contracts on the prior code. They are not passing product tests and are not ready for publication. FR03 DTO/numeric contracts and Decision 066 addendum are being recorded before implementation. PR #730 is still NOT READY TO MERGE; current owner case stays `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR03 baseline, correction checkpoint and design contracts are complete. FR04 adds validated typed temporal rate boundary values while preserving the legacy single-rate allocation. Local correction checkpoint is `49442244`; implementation branch `codex/fifo-review-rate-replay-20261108` starts from published #730 head `8e6b528c`.
+- FR02's six red-baseline checks remain known gaps; two pure multi-rate result tests await FR05–FR06. FR04 linked pure suite: 70 passed, 2 replay cases excluded pending implementation; compileall passed. PR #730 is still NOT READY TO MERGE; owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

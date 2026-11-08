@@ -14,15 +14,24 @@ from decimal import Decimal
 import hashlib
 import json
 from typing import Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.fifo_cost_allocation_service import (
     FifoCostAllocationService,
     FifoCostLayer,
     FifoOutflowEvent,
     FifoOpenCostRate,
+    FifoRateBoundaryEvent,
     FifoRestockEvent,
     FifoSaleEvent,
 )
+
+
+def _valid_digest(value):
+    return (
+        isinstance(value, str) and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
 
 
 @dataclass(frozen=True)
@@ -37,6 +46,61 @@ class FifoDatedAllocationEvent:
     cutoff_bridge_confirmed: bool = False
     saleable_recovery_confirmed: bool = False
     movement_reason_confirmed: bool = False
+
+
+@dataclass(frozen=True)
+class FifoDatedRateBoundaryEvent:
+    """A rate change with an explicit physical-time boundary and proof link."""
+
+    event: FifoRateBoundaryEvent
+    effective_at: str | None
+    effective_date: str | None
+    store_timezone: str
+    boundary_kind: str
+    boundary_evidence_fingerprint: str
+
+    def __post_init__(self):
+        if not isinstance(self.event, FifoRateBoundaryEvent):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+        if not isinstance(self.store_timezone, str) or not self.store_timezone.strip():
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+        timezone_name = self.store_timezone.strip()
+        try:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN") from None
+        object.__setattr__(self, "store_timezone", timezone_name)
+        if not _valid_digest(self.boundary_evidence_fingerprint):
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+        if self.boundary_evidence_fingerprint != self.event.reconciliation_evidence_fingerprint:
+            raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+
+        if self.boundary_kind == "EXACT_INSTANT":
+            if self.effective_at is None or self.effective_date is not None:
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+            if not isinstance(self.effective_at, str):
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+            try:
+                parsed = datetime.fromisoformat(
+                    self.effective_at.replace("Z", "+00:00"),
+                )
+            except ValueError:
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN") from None
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+            return
+
+        if self.boundary_kind == "END_OF_LOCAL_DATE":
+            if self.effective_at is not None or not isinstance(self.effective_date, str):
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+            try:
+                parsed_date = date.fromisoformat(self.effective_date)
+            except ValueError:
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN") from None
+            if parsed_date.isoformat() != self.effective_date:
+                raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
+            return
+        raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
 
 
 class FifoCostReplayService:

@@ -6,7 +6,7 @@
 
 ## Resume
 
-- Следующий этап FR04: добавить immutable typed rate-boundary DTO и строгую валидацию, сохранив single-rate compatibility.
+- Следующий этап FR05: реализовать pure allocation kernel с chronological boundaries, материализацией только residual и lineage; закрыть MR01–MR07 без SQLite.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -26,8 +26,8 @@
 | FR01 | DONE | 2026-11-09; отдельный checkpoint `49442244cbad9f679455562196c7b47b74790b6b`; 7 FIFO/Telegram модулей существующих исправлений: **86 passed in 7.14s** с Python проекта и локальными зависимостями; manifest data до/после совпал. |
 | FR02 | DONE | Добавлены temporal replay и production-workflow red regressions; baseline на старом коде: **6 failed in 1.28s** с ожидаемыми причинами — отсутствие rate-boundary DTO, evidence service injection и общей production factory/apply wiring. Тесты не помечены skip/xfail. |
 | FR03 | DONE | Создан `FR03_CONTRACTS_2026-11-08.md`, добавлен узкий Decision 066 addendum и red-test map; Decimal MR01–MR15 + canonical TaxService checks PASS. |
-| FR04 | IN_PROGRESS | Добавить `FifoRateBoundaryEvent` и `FifoDatedRateBoundaryEvent`, проверить invalid/idempotent/scope/order input, сохранив wrapper single-rate API. |
-| FR05 | NOT_STARTED | Allocation kernel |
+| FR04 | DONE | Добавлены typed boundary DTOs и stable `TransitionReasonCode`; strict money/digest/nullable-balance/date/timezone/proof validation. Legacy allocation API unchanged. Linked pure suite: **70 passed, 2 replay cases excluded because FR05–FR06 are next**. |
+| FR05 | IN_PROGRESS | Implement chronological pure allocation with boundary residual materialization, finite balances and lineage; close MR01–MR07 without SQLite. |
 | FR06 | NOT_STARTED | Temporal replay |
 | FR07 | NOT_STARTED | Migration |
 | FR08 | NOT_STARTED | Repository adapter |
@@ -88,3 +88,10 @@
 - `project_brain/DECISIONS_066.md` получил узкий append-only addendum: temporal boundaries materialize only proven predecessor residual; source/cutoff gate and owner blocking remain unchanged. `TEST_MAP.md` lists FR02 red-baseline cases without representing them as passing CI. `CURRENT_STATE.md` now records execution and branch state.
 - Independent `Decimal` arithmetic passed for MR01–MR07/MR12–MR15; direct existing canonical `TaxService.calculate` passed NONE, USN income, USN income-minus-expenses and minimum-tax checks. TaxService unchanged. No pytest run in FR03; it is a contracts/doc stage.
 - Existing `data/` manifest from FR00 remains the baseline; no task mutated owner data. No real APIs, DBs, or bot run.
+
+## FR04 — 2026-11-09
+
+- `app/services/fifo_cost_allocation_service.py`: immutable `FifoRateBoundaryEvent` validates IDs, Decimal money, digest and first-vs-later residual/finite balance nullability. `app/services/fifo_cost_replay_service.py`: immutable `FifoDatedRateBoundaryEvent` validates exact timestamp offset or date-only local-end boundary, valid IANA zone and matching evidence fingerprint.
+- `TransitionReasonCode` now includes the fixed stable replay/evidence failure codes. No replay algorithm, DB schema, production wiring, or source gate changed in FR04.
+- Tests: pure allocation+temporal DTO and existing replay profiles **70 passed, 2 deselected** (only MR02/MR03 behavior awaiting FR05/FR06); `compileall` on changed modules PASS. Test fixtures are pure/in-memory, no SQLite or live source.
+- Follow-up: integrate `rate_boundaries` into the pure kernel in FR05, then temporal sorting in FR06. Existing single-rate callers must remain green.

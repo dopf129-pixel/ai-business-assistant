@@ -5,11 +5,21 @@ They intentionally fail on the single-open-rate baseline until FR04–FR06 land.
 """
 
 from datetime import datetime
+from decimal import Decimal
 
-from services.fifo_cost_allocation_service import FifoCostLayer, FifoSaleEvent
+import pytest
+
+from services.fifo_cost_allocation_service import (
+    FifoCostAllocationService,
+    FifoCostLayer,
+    FifoOpenCostRate,
+    FifoRateBoundaryEvent,
+    FifoSaleEvent,
+)
 from services.fifo_cost_replay_service import (
     FifoCostReplayService,
     FifoDatedAllocationEvent,
+    FifoDatedRateBoundaryEvent,
 )
 
 
@@ -129,11 +139,106 @@ def test_mr03_accepts_stock_decrease_explained_by_the_full_sale_bridge():
 
 
 def test_rate_boundary_date_uses_the_store_local_calendar_boundary():
-    import services.fifo_cost_allocation_service as allocation_module
-
-    assert getattr(allocation_module, "FifoRateBoundaryEvent", None) is not None, (
-        "Temporal rate boundary contract is not implemented"
+    boundary = FifoRateBoundaryEvent(
+        event_id="r1-boundary",
+        new_rate_change_id="r1",
+        new_unit_cost_rub="14.654",
+        previous_rate_change_id=None,
+        previous_rate_remaining_units=None,
+        expected_older_finite_units=None,
+        reconciliation_evidence_fingerprint="1" * 64,
     )
-    # The domain boundary is local date end, not UTC midnight. The concrete
-    # ordering assertions are exercised through the real replay in FR06.
-    assert datetime.fromisoformat("2026-11-07T23:59:59+03:00").date().isoformat() == "2026-11-07"
+    dated = FifoDatedRateBoundaryEvent(
+        event=boundary,
+        effective_at=None,
+        effective_date="2026-11-07",
+        store_timezone="Europe/Moscow",
+        boundary_kind="END_OF_LOCAL_DATE",
+        boundary_evidence_fingerprint="1" * 64,
+    )
+
+    assert boundary.new_unit_cost_rub.as_tuple().exponent == -2
+    assert dated.boundary_kind == "END_OF_LOCAL_DATE"
+    # A timestamp on the same local date precedes the end-of-date boundary.
+    timestamp = datetime.fromisoformat("2026-11-07T23:59:59+03:00")
+    assert timestamp.date().isoformat() == dated.effective_date
+
+
+@pytest.mark.parametrize("kwargs,code", [
+    ({"new_unit_cost_rub": True}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+    ({"new_unit_cost_rub": float("nan")}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+    ({"new_unit_cost_rub": "-0.01"}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+    ({"previous_rate_change_id": "r1", "previous_rate_remaining_units": True,
+      "expected_older_finite_units": 1}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+    ({"previous_rate_change_id": "r1", "previous_rate_remaining_units": 1,
+      "expected_older_finite_units": None}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+    ({"previous_rate_change_id": None, "previous_rate_remaining_units": 0,
+      "expected_older_finite_units": 0}, "FIFO_RATE_CHAIN_CONFLICT"),
+    ({"previous_rate_change_id": "r2"}, "FIFO_RATE_CHAIN_CONFLICT"),
+    ({"reconciliation_evidence_fingerprint": "A" * 64}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+])
+def test_rate_boundary_rejects_untrusted_values(kwargs, code):
+    values = {
+        "event_id": "boundary-r2",
+        "new_rate_change_id": "r2",
+        "new_unit_cost_rub": "16.00",
+        "previous_rate_change_id": "r1",
+        "previous_rate_remaining_units": 10,
+        "expected_older_finite_units": 98,
+        "reconciliation_evidence_fingerprint": "2" * 64,
+    }
+    values.update(kwargs)
+    with pytest.raises(ValueError, match=code):
+        FifoRateBoundaryEvent(**values)
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"effective_at": "2026-11-07T10:00:00", "effective_date": None,
+     "boundary_kind": "EXACT_INSTANT"},
+    {"effective_at": "2026-11-07T10:00:00Z", "effective_date": "2026-11-07",
+     "boundary_kind": "EXACT_INSTANT"},
+    {"effective_at": None, "effective_date": "2026-02-30",
+     "boundary_kind": "END_OF_LOCAL_DATE"},
+    {"effective_at": None, "effective_date": "2026-11-07",
+     "boundary_kind": "EXACT_INSTANT"},
+    {"effective_at": None, "effective_date": "2026-11-07",
+     "boundary_kind": "END_OF_LOCAL_DATE", "store_timezone": "Mars/Olympus"},
+    {"effective_at": None, "effective_date": "2026-11-07",
+     "boundary_kind": "END_OF_LOCAL_DATE", "boundary_evidence_fingerprint": "3" * 64},
+])
+def test_dated_rate_boundary_requires_explicit_timezone_and_matching_proof(kwargs):
+    boundary = FifoRateBoundaryEvent(
+        event_id="boundary-r2",
+        new_rate_change_id="r2",
+        new_unit_cost_rub="16.00",
+        previous_rate_change_id="r1",
+        previous_rate_remaining_units=10,
+        expected_older_finite_units=98,
+        reconciliation_evidence_fingerprint="2" * 64,
+    )
+    values = {
+        "event": boundary,
+        "effective_at": None,
+        "effective_date": "2026-11-07",
+        "store_timezone": "Europe/Moscow",
+        "boundary_kind": "END_OF_LOCAL_DATE",
+        "boundary_evidence_fingerprint": "2" * 64,
+    }
+    values.update(kwargs)
+    with pytest.raises(ValueError, match="FIFO_RATE_BOUNDARY_UNPROVEN"):
+        FifoDatedRateBoundaryEvent(**values)
+
+
+def test_legacy_single_open_rate_kernel_contract_remains_available():
+    result = FifoCostAllocationService().allocate(
+        layers=(FifoCostLayer("old", "21.00", 1),),
+        events=(FifoSaleEvent("sale", 2),),
+        anchor_status="CONFIRMED",
+        cutoff_status="RECONCILED",
+        event_order_status="PROVEN",
+        source_completeness="COMPLETE",
+        open_rate=FifoOpenCostRate("r1", "14.65"),
+    )
+
+    assert result.complete is True
+    assert result.total_cogs_rub == Decimal("35.65")
