@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-08 — Связанные FIFO-возвраты и выбытия (FL21)
+
+- Поздний replay принимает точные поддержанные возвраты/выбытия по существующим return/non-sale validators; связанные возвраты восстанавливают исходный FIFO basis, а несбытовые движения остаются вне проданных единиц и финансового Return COGS.
+- Неизвестное происхождение по-прежнему блокирует replay. Existing Return COGS authority не меняется и защищена также при нормализации сохраняемого impact.
+- Проверки: FL21 **82 focused passed**; linked FIFO/Telegram/Period Profit **515 passed**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Synthetic-only; owner case не проверен.
+
 ## 2026-11-08 — FIFO deterministic replay (FL20)
 
 - Replay permits same-date or equal-instant events only when bounded permutation checks prove identical per-event allocations. Order-dependent groups fail closed; large simple groups pass only through a conservative single-layer proof. Analysis exhaustion is an explicit blocker.

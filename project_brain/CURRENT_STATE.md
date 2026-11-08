@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL21: связанные возвраты и выбытия
+
+- Поздний replay учитывает только точные возвраты с подтверждённым saleable-restock lineage и прочие движения, прошедшие существующие append-only validators. Возврат восстанавливает сохранённые исходные слои; неизвестный источник блокирует replay.
+- Несбытовые выбытия отдельны от продаж, их количества и COGS; Return COGS authorization не меняется. Продажи до новой ставки не могут получить новую стоимость; same-date transition проверяется фактическим replay и FL20-инвариантностью.
+- FL21 code SHA `5ccf00a53c06ca32983106fd1a894c925d2a9630`; 82 focused и 515 linked FIFO/Telegram/Period Profit тестов passed. Синтетическая реализация; owner-case cutoff и реальные доказательства остаются не подтверждены. Далее FL22 — финансовые периоды и расчёт налогового эффекта.
+
 # 2026-11-08 — FIFO deterministic replay FL20
 
 - `FifoCostReplayService` assesses ambiguous same-date/equal-instant event orders using the existing allocation kernel. It allows a tie only when bounded valid permutations preserve every per-event layer/cost allocation and inventory totals; order-sensitive ties return `EVENT_ORDER_UNRESOLVED` without allocations. Oversized analysis fails closed with `FIFO_REPLAY_ORDER_ANALYSIS_LIMIT`; a large simple group is accepted only when one FIFO layer provably covers it.

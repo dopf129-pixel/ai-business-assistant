@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL21: возвратная основа и несбытовые выбытия
+
+- `tests/test_fifo_cost_replay_service.py`: linked return restores original layer across late-rate boundary; non-sale outflow consumes physical FIFO but is not emitted as a sale; pre-effective sale cannot use open rate.
+- `tests/test_fifo_cost_late_entry_reconstruction_service.py`: end-to-end synthetic return restock + non-sale outflow + late rate + subsequent sale; replay preserves return basis and excludes outflow from sold COGS. Invalid-origin return remains guarded by existing return repository/normalizer tests.
+- `tests/test_fifo_cost_late_entry_impact_service.py` and `tests/test_fifo_cost_repository.py`: linked-return/outflow counts are accepted only as validated metadata, and a persisted impact cannot change Return COGS authority or include outflow in sales COGS.
+- FL21 focused replay/impact/reconstruction/return/repository profile: **82 passed in 3.33s**. Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **515 passed in 20.94s**. `compileall`, diff-check and unchanged `data/` PASS. Synthetic only.
+
 # 2026-11-08 — FIFO deterministic replay regressions (FL20)
 
 - `tests/test_fifo_cost_replay_service.py` covers same-day sales that are invariant when one layer covers all units, cross-layer ties that remain `EVENT_ORDER_UNRESOLVED`, stable fingerprints under reversed report-row order, equal instants, mixed date-only/timed constraints, and large groups with/without a single-layer proof.

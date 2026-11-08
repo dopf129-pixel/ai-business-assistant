@@ -1,3 +1,9 @@
+# 2026-11-08 — Связанные FIFO-возвраты и выбытия (FL21)
+
+- Поздний replay больше не блокируется только из-за наличия поддержанных возвратов или несбытовых выбытий. Возврат требует уже подтверждённой связи с продажей и восстанавливает исходную FIFO-основу; неизвестный и невалидный источник остаётся заблокированным существующими валидаторами.
+- Несбытовое выбытие сохраняется отдельно от проданных единиц/COGS. FL21 не меняет Return COGS authority; сохранение impact отклоняет попытки изменить этот флаг.
+- FL21: целевой профиль **82 passed**, связанный FIFO/Telegram/Period Profit профиль **515 passed**; `compileall`, `git diff --check`, и неизменность `data/` PASS. Только синтетические данные.
+
 # 2026-11-08 — Детерминированный replay FIFO-перехода (FL20)
 
 - Replay permits same-date or equal-instant events only when bounded permutation checks prove identical per-event allocations. Order-dependent groups fail closed; large simple groups pass only through a conservative single-layer proof. Analysis exhaustion is an explicit blocker.

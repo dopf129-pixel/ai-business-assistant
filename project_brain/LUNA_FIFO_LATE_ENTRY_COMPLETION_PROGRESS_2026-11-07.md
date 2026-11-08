@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL21.
-Выполненных этапов:21/36 (FL00–FL20 VERIFIED на кодовых и синтетических проверках; далее FL21–FL35: returns/impact/atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL22.
+Выполненных этапов:22/36 (FL00–FL21 VERIFIED на кодовых и синтетических проверках; далее FL22–FL35: period impact/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 code `2b216dc6eeda57144c2ae0183e423e39b8a32afd`. PR2 current exact HEAD will be recorded after the documentation checkpoint commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -41,7 +41,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL18 | Cutoff bridge | VERIFIED | `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused 36 passed; linked FIFO/Telegram 496 passed; compileall/diff-check/data-preservation PASS; synthetic only |
 | FL19 | Начальная активация proposal | VERIFIED | `a9a20e00627c0644b0a6b1d5b21592a37fd53df4`; dedicated 6 passed; focused 29 passed; linked FIFO/Telegram/Period Profit 502 passed; compileall/diff-check/data-preservation PASS; synthetic only |
 | FL20 | Deterministic replay | VERIFIED | code `be6e7959`; 21 replay tests, linked profile 506 passed; compileall/diff/data-preservation PASS |
-| FL21 | Возвраты/выбытия | NOT_STARTED | — |
+| FL21 | Возвраты/выбытия | VERIFIED | code `5ccf00a53c06ca32983106fd1a894c925d2a9630`; focused 82 passed; linked FIFO/Telegram/Period Profit 515 passed; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL22 | Period impact | NOT_STARTED | — |
 | FL23 | Atomic apply | NOT_STARTED | — |
 | FL24 | Меню доFIFO | NOT_STARTED | — |
@@ -56,6 +56,15 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
+
+## Выполнение FL21 — 2026-11-08
+
+- Removed the blanket late-reconstruction rejection for any supported return, non-sale movement, or same-day event; the existing FIFO kernel/repository now decides completeness and order from exact persisted evidence. A saleable return remains bound by `FifoCostReturnRestockService`, exact originating sale allocation, explicit owner-confirmed recovery, and original saved layer basis. Existing Return COGS authorization is unchanged.
+- Non-sale outflow participates only as physical inventory consumption and is returned in a separate valuation field. It never changes financial sold units or per-period sales COGS. Impact/persistence validate exact counts, outflow totals, and flags that keep both Return COGS authority and sales COGS isolated.
+- Added an end-to-end synthetic reconstruction with an existing sale, owner-confirmed exact return restock, home-shortage outflow, late rate, and later sale. The return consumes its original layer basis; the new 14.65 rate applies only after 05.11; no new/unknown return lineage bypasses prior validators. A test initially attempted to UPDATE an append-only event and SQLite correctly rejected it; that invalid test mutation was removed.
+- FL21 code commit: `5ccf00a53c06ca32983106fd1a894c925d2a9630` (`Replay supported FIFO returns and outflows`). Focused replay/impact/reconstruction/return/repository selection: **82 passed in 3.33s**; linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **515 passed in 20.94s**; `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Only synthetic SQLite fixtures; no owner DB/files, live API, or bot.
+- Architecture review required: core replay and repository impact contract changed (>300 LOC). `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`.
+- Next: FL22. Critical contract check before implementation: physical dates must order FIFO events while canonical financial recognition assigns COGS/tax/profit to the finance period. No current field in the FL18 physical bridge may be silently reused as financial date; missing sale-to-financial-period mapping must remain explicit and block delta.
 
 ## Выполнение FL20 — 2026-11-08
 
