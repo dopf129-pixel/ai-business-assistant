@@ -1,7 +1,8 @@
-# 2026-11-08 — FIFO FL34 full-suite verification is in progress
+# 2026-11-08 — FIFO FL34–FL35: local verification green, final packet CI pending
 
-- Updated existing test fixtures for the current exported FIFO explanation and factory wiring. In the corrected isolated full run, 5,103 tests passed; the synchronized apply-race test exposed nondeterministic clocks between its preview repository and two concurrent repositories. All three now share the injected test clock, and the race passes in isolation.
-- Final verification uses a fresh detached checkout with no storage-root override and the required test-only dependency directory. No product/runtime behavior changed. Owner validation and source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
+- Full isolated Windows pytest passed **5,104 tests in 75.99s** on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`; `compileall`, `git diff --check` and tracked `data/` diff passed. Remote Verify runs 42433357867 (PR #728), 42480102151 (PR #729), and 42480112108 (the earlier PR #730 head) passed Windows/Linux and production Docker smoke.
+- PRs #728–#730 are open as a dependent stack. A new independent review packet advances PR #730 beyond the SHA of run 42480112108, so that older run is explicitly not treated as final CI; the new PR #730 SHA must receive fresh green checks.
+- No runtime behavior changed in the verification/packet commits. Owner validation/source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
 
 # 2026-11-08 — FIFO FL33: owner instructions separate knowns from missing evidence
 

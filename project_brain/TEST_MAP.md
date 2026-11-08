@@ -1,9 +1,11 @@
-# 2026-11-08 — FIFO FL34 full-suite verification setup
+# 2026-11-08 — FIFO FL34 full-suite and FL35 review packet
 
 - `tests/test_analytics_export_service.py::test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_versions` now asserts the current `mixed_cutoff_sku_count=0` projection in both JSON and CSV metadata.
 - `tests/test_product_decision_verified_guidance_telegram_wiring_v1061_v1070.py::test_v1070_factory_shares_history_with_readonly_verifier` now gives its factory test double the production FIFO cache invalidation method.
 - `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` now injects the same fake clock into both independent repositories, preventing its preview TTL from depending on wall time.
-- Four targeted regressions pass. Initial isolated full run: **5094 passed, 10 failed**; eight were harness-only (storage-root override or omitted isolated worker dependencies), and two fixtures were stale. Corrected full run: **5103 passed, 1 failed** due to the race test's mixed clocks; that test now passes in isolation and a final full rerun is pending.
+- The first full-run failures were diagnosed and corrected without changing runtime behavior: eight came from test-harness storage/dependency isolation, two from stale fixtures, and the subsequent single race failure from mixing a frozen preview clock with system clocks. The updated deterministic race and export/factory tests pass.
+- Final isolated Windows pytest on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`: **5104 passed in 75.99s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Review packet: `project_brain/FIFO_LATE_ENTRY_INDEPENDENT_REVIEW_PACKET_2026-11-08.md`.
+- Exact-head Verify runs: PR #728 SHA `5b4f8588` run 42433357867 PASS; PR #729 SHA `7abf5d79` run 42480102151 PASS; initial PR #730 SHA `4771794e` run 42480112108 PASS. The packet commit advances PR #730; use its latest successful run for the actual final head.
 
 # 2026-11-08 — FIFO FL33 owner acceptance map
 
