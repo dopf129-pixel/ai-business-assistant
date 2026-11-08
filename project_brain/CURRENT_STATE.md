@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR07
+# 2026-11-09 — FIFO review-blocker execution FR00–FR08
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR07 are complete. FR06 adds proof-ordered store-local rate replay; FR07 adds FIFO schema v16 for append-only evidence, exact confirmations and rate balances. The implementation branch `codex/fifo-review-rate-replay-20261108` starts from published #730 head `8e6b528c`.
-- Schema migration plus FR04–FR06 replay regression profile: **104 passed in 2.78s**; touched-file compileall, diff-check and all five tracked user-data hashes passed. Planning `PRAGMA user_version` remains unchanged. PR #730 remains NOT READY TO MERGE; owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR08 are complete. FR06 adds proof-ordered store-local rate replay; FR07 adds FIFO schema v16; FR08 connects repository allocation, validation, persistence, remaining-balance reads and source fingerprints to a complete multi-rate chain while preserving legacy single-rate fingerprints.
+- FR08 linked FIFO profile: **134 passed in 7.34s**; changed modules compile, `git diff --check` passes, and all five tracked user-data hashes match the FR00 manifest. Planning `PRAGMA user_version` remains unchanged. PR #730 remains NOT READY TO MERGE; owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used. Full-suite/exact-head CI remains for FR30.
 
 # 2026-11-08 — FIFO review corrections in progress
 

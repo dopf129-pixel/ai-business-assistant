@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Исполнение FR00–FR07 продолжается.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR08 выполнены; далее FR09.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Следующий этап FR08: подключить multi-rate allocation/replay к FIFO repository и снять старый лимит двух ставок без изменения неподдержанных путей.
+- Текущий этап FR09 NOT_STARTED: проверить и расширить обычное изменение себестоимости после late entry через prefix replay на выбранной границе; уменьшение stock принимать только при полном bridge.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -30,7 +30,7 @@
 | FR05 | DONE | Pure kernel: MR01–MR07 and linked allocator/replay profile: **77 passed, 2 replay-adapter cases deselected**; compileall and diff-check PASS. |
 | FR06 | DONE | Store-local temporal ordering, exact/local-date boundaries, bounded ambiguity analysis, stable duplicate/permutation fingerprints; **86 passed in 1.39s** across temporal replay and legacy allocator/replay profiles. |
 | FR07 | DONE | Schema v16; additive tables/indexes/FK/immutable guards/quotas; local migrations and replay profile 104 passed. |
-| FR08 | NOT_STARTED | Repository adapter |
+| FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; code SHA `f3d00b3c` + uncommitted FR08 stage |
 | FR09 | NOT_STARTED | Rate commit/replay |
 | FR10 | NOT_STARTED | Returns/non-sale |
 | FR11 | NOT_STARTED | Readers/gateB |
@@ -60,6 +60,15 @@
 Дата; этап; base/head SHA; изменённые функции; контракты; команда и среда проверки; фактический результат; original data manifest before/after; ссылки PR/CI; ограничения; следующий этап.
 
 Старые результаты 110/5115 tests не являются проверкой нового кода. При подготовке этого ТЗ pytest и live API не запускались.
+
+## FR08 — 2026-11-09
+
+- Реализация: `app/services/fifo_cost_repository.py` загружает ограниченную полную цепочку active rates, исключая отменённые ставки; проверяет последовательность, дату каждой границы, exact predecessor reconciliation, complete-through bridge/cutoff mapping и matching physical-sale rows. Неполные доказательства блокируют replay. `app/services/fifo_cost_replay_service.py` сохраняет derived rate lineage в формате allocation line. Репозиторий валидирует все active rate IDs, пишет schema-v16 остатки по каждой ставке и читает projection после нового экземпляра.
+- Source fingerprint расширяет полный proof bundle только при multi-rate цепочке. Для no-rate/single-rate путь сохраняет старую форму и прежний fingerprint, чтобы не делать существующие allocation revisions stale после обновления.
+- Добавлен `tests/test_fifo_cost_repository_multi_rate_replay.py`: положительный synthetic MR01–MR03 chain проверяет COGS 92.30 / 1614.20 / 166.00 ₽, остатки 0 / 0 / неизвестно, persisted linkage и готовность publication guard. Negative regressions: отсутствующая reconciliation, неполная cutoff mapping и новая mapping revision после preview (stale append не пишет строки).
+- Проверка на изменённом коде: `tests/test_fifo_cost_repository_multi_rate_replay.py`, `test_fifo_cost_allocation_repository.py`, `test_fifo_cost_rate_service.py`, `test_fifo_cost_temporal_rate_replay.py`, `test_fifo_cost_replay_service.py`, `test_fifo_cost_transition_schema_v13.py`, `test_fifo_cost_late_entry_reconstruction_service.py`, `test_fifo_cost_transition_atomic_apply.py`, `test_fifo_cost_return_repository.py` — **134 passed in 7.34s**. `compileall` для двух изменённых сервисов — PASS; `git diff --check` — PASS.
+- Data manifest до/после: history `520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; profiles `8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; tasks `6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; tax `F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; users `2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`. `git diff -- data` пустой. `.fl12-deps/` не изменялась и не добавлялась.
+- Ограничение: synthetic repository fixture создаёт rate/reconciliation/mapping rows напрямую для изоляции adapter boundary; создание новых ставок через публичные application methods — критерий FR09. Реальные данные владельца и внешние API не использовались. Следующий шаг — FR09.
 
 ## Проверка подготовки ТЗ — 09.11.2026
 

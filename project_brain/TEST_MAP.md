@@ -25,6 +25,11 @@
 - `tests/test_fifo_cost_transition_schema_v13.py` keeps prior v12 rate-table rebuild, v13 cutoff-mapping, and v14 period-confirmation migration coverage aligned with the new current schema version.
 - Combined v16/schema migration and FR04–FR06 replay profile: **104 passed in 2.78s**. Touched-file compileall, `git diff --check`, and tracked `data/` integrity passed. Local targeted evidence only; exact-head CI and full suite remain for FR30.
 
+# 2026-11-09 — FIFO repository multi-rate replay (FR08)
+
+- `tests/test_fifo_cost_repository_multi_rate_replay.py` checks a synthetic three-rate chain through repository replay/persistence and a fresh repository reader, including exact allocation costs, materialized predecessor balances, current unknown balance and publication guard. Negative cases cover a missing reconciliation, missing cutoff mapping, and a mapping revision changed after preview.
+- Linked repository, allocator, replay, rate, schema, late-entry, atomic-apply and return regressions: **134 passed in 7.34s**. Changed modules compile; `git diff --check` and five owner-data hash checks pass. All mutable database fixtures are under `tmp_path`; this is local targeted verification, not full-suite/remote CI or owner-case validation.
+
 # 2026-11-08 — FIFO review-fix regression map
 
 - `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.

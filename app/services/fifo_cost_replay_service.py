@@ -805,8 +805,9 @@ class FifoCostReplayService:
             line.basis_kind == "OPEN_RATE"
             or (open_rate is not None and line.layer_id == open_rate.layer_id)
         )
+        is_rate_basis = include_rate_basis and line.rate_change_id is not None
         result = {
-            "layer_id": None if is_open_rate else line.layer_id,
+            "layer_id": None if (is_open_rate or is_rate_basis) else line.layer_id,
             "rate_change_id": (
                 line.rate_change_id or (line.layer_id if is_open_rate else None)
             ),

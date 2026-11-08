@@ -19,12 +19,15 @@ from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.fifo_cost_allocation_service import (
-    FifoCostLayer, FifoOpenCostRate, FifoOutflowEvent, FifoRestoreSlice, FifoRestockEvent,
-    FifoSaleEvent,
+    FifoCostLayer, FifoOpenCostRate, FifoOutflowEvent, FifoRateBoundaryEvent,
+    FifoRestoreSlice, FifoRestockEvent, FifoSaleEvent,
 )
-from services.fifo_cost_replay_service import FifoCostReplayService, FifoDatedAllocationEvent
+from services.fifo_cost_replay_service import (
+    FifoCostReplayService, FifoDatedAllocationEvent, FifoDatedRateBoundaryEvent,
+)
 from services.fifo_cost_transition_contracts import (
     CostInputMode,
+    DEFAULT_STORE_TIMEZONE,
     ReportEvidence,
     SupplyDeclaration,
     SupplyObservation,
@@ -39,6 +42,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 class FifoCostRepository:
     SCHEMA_VERSION = 16
+    MAX_RATE_CHAIN = 100_000
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -1873,7 +1877,7 @@ class FifoCostRepository:
         ).fetchone()[0]
         if allocation_revision != payload["base_allocation_revision"]:
             raise ValueError("FIFO_REVISION_CONFLICT")
-        self._validate_allocation_lines(
+        rate_chain = self._validate_allocation_lines(
             connection, stream_id, normalized,
             stream_revision=next_revision,
             allocation_revision=allocation_revision,
@@ -1948,6 +1952,9 @@ class FifoCostRepository:
                      line["layer_id"], line["quantity"], line["unit_cost_rub"],
                      line["total_cost_rub"], outflow["valuation_method"]),
                 )
+        self._persist_rate_balance_rows(
+            connection, allocation_id, normalized, rate_chain,
+        )
         if self._replayed_remaining_layers(
             connection, stream_id, next_allocation_revision,
         ) is None:
@@ -2174,6 +2181,21 @@ class FifoCostRepository:
                             connection, stream_id, allocation["revision"],
                         )
                     )
+                    rate_balance_count = connection.execute(
+                        """SELECT COUNT(*) FROM fifo_cost_allocation_rate_balances
+                           WHERE allocation_id=(
+                               SELECT allocation_id FROM fifo_cost_allocations
+                               WHERE stream_id=? AND revision=?
+                                 AND status='COMPLETE' AND cutoff_status='RECONCILED'
+                           )""",
+                        (stream_id, allocation["revision"]),
+                    ).fetchone()[0]
+                    if rate_balance_count:
+                        latest_allocation["replayed_rate_balances"] = (
+                            self._replayed_remaining_rate_balances(
+                                connection, stream_id, allocation["revision"],
+                            )
+                        )
                 else:
                     latest_allocation["replayed_remaining_layers"] = None
             cutoff_date = connection.execute(
@@ -2276,6 +2298,72 @@ class FifoCostRepository:
             "effective_date": row["effective_date"],
             "provenance": row["provenance"],
             "location": row["location_to"],
+        } for row in rows]
+
+    @classmethod
+    def _replayed_remaining_rate_balances(cls, connection, stream_id, allocation_revision):
+        allocation = connection.execute(
+            """SELECT allocation_id FROM fifo_cost_allocations
+               WHERE stream_id=? AND revision=? AND status='COMPLETE'
+                 AND cutoff_status='RECONCILED' LIMIT 1""",
+            (stream_id, allocation_revision),
+        ).fetchone()
+        if allocation is None:
+            return None
+        rows = connection.execute(
+            """SELECT b.ordinal, b.rate_change_id, b.remaining_units,
+                      b.unit_cost_rub, b.reconciliation_reference,
+                      b.reconciliation_fingerprint, b.original_basis_kind,
+                      b.original_basis_reference, b.origin_sale_event_id,
+                      r.rate_sequence, r.unit_cost_rub AS source_unit_cost
+               FROM fifo_cost_allocation_rate_balances AS b
+               JOIN fifo_cost_rate_changes AS r
+                 ON r.rate_change_id=b.rate_change_id
+               WHERE b.allocation_id=? ORDER BY b.ordinal LIMIT 100001""",
+            (allocation["allocation_id"],),
+        ).fetchall()
+        active = connection.execute(
+            """SELECT r.rate_change_id, r.rate_sequence, r.unit_cost_rub
+               FROM fifo_cost_rate_changes AS r
+               WHERE r.stream_id=? AND NOT EXISTS (
+                   SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                   WHERE c.stream_id=r.stream_id
+                     AND c.rate_change_id=r.rate_change_id
+               ) ORDER BY r.rate_sequence LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if (
+            len(rows) > cls.MAX_RATE_CHAIN or len(active) > cls.MAX_RATE_CHAIN
+            or len(rows) != len(active)
+            or [row["rate_change_id"] for row in rows]
+            != [row["rate_change_id"] for row in active]
+        ):
+            return None
+        if any(
+            row["ordinal"] != row["rate_sequence"]
+            or cls._normalize_money(row["unit_cost_rub"])
+            != cls._normalize_money(row["source_unit_cost"])
+            or not cls._valid_digest(row["reconciliation_fingerprint"])
+            or not isinstance(row["reconciliation_reference"], str)
+            or not row["reconciliation_reference"]
+            or row["original_basis_kind"] not in {
+                "RATE_BOUNDARY", "MATERIALIZED_RATE_BALANCE", "RETURN_RESTORED",
+            }
+            or not row["original_basis_reference"]
+            or (row["origin_sale_event_id"] is not None
+                and row["original_basis_kind"] != "RETURN_RESTORED")
+            or (row["remaining_units"] is not None and (
+                type(row["remaining_units"]) is not int or row["remaining_units"] < 0
+            ))
+            for row in rows
+        ):
+            return None
+        return [{
+            "sequence": row["ordinal"],
+            "unit_cost_rub": cls._normalize_money(row["unit_cost_rub"]),
+            "remaining_units": row["remaining_units"],
+            "basis_kind": row["original_basis_kind"],
+            "reconciliation_fingerprint": row["reconciliation_fingerprint"],
         } for row in rows]
 
     def read_allocation_guard(self, *, store_id, product_id=None, offer_id=None, sku):
@@ -2382,7 +2470,6 @@ class FifoCostRepository:
                 and untrusted_sale_count == 0
                 and anchor_cutoff_date is not None
                 and unsupported_event_count == 0
-                and rate_count <= 1
                 and cutoff_mismatch_sale_count == 0
             ):
                 replay = self._preview_allocation_from_connection(
@@ -2408,7 +2495,9 @@ class FifoCostRepository:
                 "untrusted_sale_count": untrusted_sale_count,
                 "anchor_cutoff_date": anchor_cutoff_date,
                 "unsupported_event_count": unsupported_event_count,
-                "unsupported_rate_transition_count": max(0, rate_count - 1),
+                "unsupported_rate_transition_count": (
+                    max(0, rate_count - 1) if not replay_ready else 0
+                ),
                 "rate_cancellation_count": rate_cancellation_count,
                 "cutoff_mismatch_sale_count": cutoff_mismatch_sale_count,
                 "replay_reason_code": (
@@ -2422,7 +2511,6 @@ class FifoCostRepository:
                     and untrusted_sale_count == 0
                     and anchor_cutoff_date is not None
                     and unsupported_event_count == 0
-                    and rate_count <= 1
                     and cutoff_mismatch_sale_count == 0
                     and replay_ready
                 ),
@@ -3347,7 +3435,7 @@ class FifoCostRepository:
                 connection.rollback()
                 return self._error("FIFO_REVISION_CONFLICT")
 
-            self._validate_allocation_lines(
+            rate_chain = self._validate_allocation_lines(
                 connection, stream_id, normalized,
                 stream_revision=stream["revision"],
                 allocation_revision=current_allocation_revision,
@@ -3377,17 +3465,27 @@ class FifoCostRepository:
                     basis_allocation_id = None
                     basis_line_number = None
                     if origin_id is not None:
-                        if line["layer_id"] is None:
-                            raise ValueError("FIFO_ALLOCATION_BASIS_MISSING")
-                        basis = connection.execute(
-                            """SELECT l.allocation_id, l.line_number
-                               FROM fifo_cost_allocation_lines AS l
-                               JOIN fifo_cost_allocations AS a
-                                 ON a.allocation_id=l.allocation_id
-                               WHERE a.stream_id=? AND l.event_id=? AND l.layer_id=?
-                               ORDER BY a.revision DESC, l.line_number LIMIT 1""",
-                            (stream_id, origin_id, line["layer_id"]),
-                        ).fetchone()
+                        if line["layer_id"] is not None:
+                            basis = connection.execute(
+                                """SELECT l.allocation_id, l.line_number
+                                   FROM fifo_cost_allocation_lines AS l
+                                   JOIN fifo_cost_allocations AS a
+                                     ON a.allocation_id=l.allocation_id
+                                   WHERE a.stream_id=? AND l.event_id=? AND l.layer_id=?
+                                   ORDER BY a.revision DESC, l.line_number LIMIT 1""",
+                                (stream_id, origin_id, line["layer_id"]),
+                            ).fetchone()
+                        else:
+                            basis = connection.execute(
+                                """SELECT l.allocation_id, l.line_number
+                                   FROM fifo_cost_allocation_rate_lines AS l
+                                   JOIN fifo_cost_allocations AS a
+                                     ON a.allocation_id=l.allocation_id
+                                   WHERE a.stream_id=? AND l.event_id=?
+                                     AND l.rate_change_id=?
+                                   ORDER BY a.revision DESC, l.line_number LIMIT 1""",
+                                (stream_id, origin_id, line["rate_change_id"]),
+                            ).fetchone()
                         if basis is None:
                             raise ValueError("FIFO_ALLOCATION_BASIS_MISSING")
                         basis_allocation_id = basis["allocation_id"]
@@ -3424,18 +3522,35 @@ class FifoCostRepository:
             for outflow in normalized["outflows"]:
                 for line in outflow["lines"]:
                     outflow_line_number += 1
-                    connection.execute(
-                        """INSERT INTO fifo_cost_allocation_outflow_lines (
-                            allocation_id, line_number, event_id, layer_id,
-                            quantity, unit_cost_rub, estimated_value_rub,
-                            valuation_method
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            allocation_id, outflow_line_number, outflow["event_id"],
-                            line["layer_id"], line["quantity"], line["unit_cost_rub"],
-                            line["total_cost_rub"], outflow["valuation_method"],
-                        ),
-                    )
+                    if line["rate_change_id"] is None:
+                        connection.execute(
+                            """INSERT INTO fifo_cost_allocation_outflow_lines (
+                                allocation_id, line_number, event_id, layer_id,
+                                quantity, unit_cost_rub, estimated_value_rub,
+                                valuation_method
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                allocation_id, outflow_line_number, outflow["event_id"],
+                                line["layer_id"], line["quantity"], line["unit_cost_rub"],
+                                line["total_cost_rub"], outflow["valuation_method"],
+                            ),
+                        )
+                    else:
+                        connection.execute(
+                            """INSERT INTO fifo_cost_allocation_rate_lines (
+                                allocation_id, line_number, event_id, rate_change_id,
+                                quantity, unit_cost_rub, total_cost_rub,
+                                basis_allocation_id, basis_line_number
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)""",
+                            (
+                                allocation_id, outflow_line_number, outflow["event_id"],
+                                line["rate_change_id"], line["quantity"],
+                                line["unit_cost_rub"], line["total_cost_rub"],
+                            ),
+                        )
+            self._persist_rate_balance_rows(
+                connection, allocation_id, normalized, rate_chain,
+            )
             result = {
                 "allocation_id": allocation_id,
                 "allocation_revision": allocation_revision,
@@ -7319,7 +7434,7 @@ class FifoCostRepository:
     def _normalize_allocation_preview(cls, preview, idempotency_key):
         if not isinstance(preview, dict):
             return "FIFO_ALLOCATION_PREVIEW_INVALID"
-        expected_preview_keys = {
+        base_preview_keys = {
             "error", "complete", "status", "reason_code", "cutoff_status",
             "anchor_cutoff_date", "open_rate_effective_date", "stream_revision",
             "expected_allocation_revision", "source_set_fingerprint",
@@ -7327,6 +7442,14 @@ class FifoCostRepository:
             "remaining_confirmed_units", "restored_units",
             "allocations", "outflows", "preview_fingerprint",
         }
+        multirate_keys = {
+            "rate_balances", "complete_through", "store_timezone",
+            "rate_boundary_set_fingerprint",
+        }
+        has_multirate = multirate_keys.issubset(preview)
+        expected_preview_keys = base_preview_keys | (
+            multirate_keys if has_multirate else set()
+        )
         if set(preview) != expected_preview_keys:
             return "FIFO_ALLOCATION_PREVIEW_INVALID"
         if not isinstance(idempotency_key, str) or not cls._IDEMPOTENCY_KEY.fullmatch(idempotency_key):
@@ -7360,6 +7483,57 @@ class FifoCostRepository:
         }
         if cls._sha256(material) != preview_fingerprint:
             return "FIFO_ALLOCATION_PREVIEW_INVALID"
+        normalized_rate_balances = None
+        if has_multirate:
+            from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+            rate_balances = preview.get("rate_balances")
+            timezone_name = preview.get("store_timezone")
+            complete_through = cls._normalize_date(preview.get("complete_through"))
+            boundary_fingerprint = preview.get("rate_boundary_set_fingerprint")
+            if (
+                not isinstance(rate_balances, dict) or not rate_balances
+                or len(rate_balances) > cls.MAX_RATE_CHAIN
+                or complete_through is None
+                or not isinstance(timezone_name, str) or not timezone_name.strip()
+                or not cls._valid_digest(boundary_fingerprint)
+            ):
+                return "FIFO_ALLOCATION_PREVIEW_INVALID"
+            try:
+                ZoneInfo(timezone_name)
+            except (ZoneInfoNotFoundError, ValueError):
+                return "FIFO_ALLOCATION_PREVIEW_INVALID"
+            normalized_rate_balances = {}
+            for rate_id, row in rate_balances.items():
+                if (
+                    not isinstance(rate_id, str) or not rate_id.strip()
+                    or len(rate_id) > 160 or not isinstance(row, dict)
+                    or set(row) != {
+                        "remaining_units", "unit_cost_rub",
+                        "reconciliation_evidence_fingerprint",
+                    }
+                ):
+                    return "FIFO_ALLOCATION_PREVIEW_INVALID"
+                remaining_units = row.get("remaining_units")
+                unit_cost = cls._normalize_money(row.get("unit_cost_rub"))
+                evidence_fingerprint = row.get(
+                    "reconciliation_evidence_fingerprint",
+                )
+                if (
+                    (remaining_units is not None and (
+                        type(remaining_units) is not int
+                        or remaining_units < 0
+                        or remaining_units > cls.MAX_COMMAND_UNITS
+                    ))
+                    or unit_cost is None
+                    or not cls._valid_digest(evidence_fingerprint)
+                ):
+                    return "FIFO_ALLOCATION_PREVIEW_INVALID"
+                normalized_rate_balances[rate_id] = {
+                    "remaining_units": remaining_units,
+                    "unit_cost_rub": unit_cost,
+                    "reconciliation_evidence_fingerprint": evidence_fingerprint,
+                }
         allocations = preview.get("allocations")
         if not isinstance(allocations, list) or len(allocations) > 100_000:
             return "FIFO_REPLAY_INPUT_LIMIT"
@@ -7383,13 +7557,17 @@ class FifoCostRepository:
             normalized_lines, seen_layers = [], set()
             sale_units, sale_cost = 0, Decimal("0.00")
             for line in lines:
-                if not isinstance(line, dict) or set(line) != {
+                line_keys = {
                     "layer_id", "rate_change_id", "quantity", "unit_cost_rub",
                     "total_cost_rub", "origin_sale_event_id",
-                }:
+                }
+                if has_multirate:
+                    line_keys.add("basis_kind")
+                if not isinstance(line, dict) or set(line) != line_keys:
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
                 layer_id, line_quantity = line.get("layer_id"), line.get("quantity")
                 rate_change_id = line.get("rate_change_id")
+                basis_kind = line.get("basis_kind")
                 unit_cost = cls._normalize_money(line.get("unit_cost_rub"))
                 line_total = cls._normalize_money(line.get("total_cost_rub"))
                 origin = line.get("origin_sale_event_id")
@@ -7398,7 +7576,20 @@ class FifoCostRepository:
                     ("rate", rate_change_id) if isinstance(rate_change_id, str) else None
                 )
                 if (
-                    (layer_id is None) == (rate_change_id is None)
+                    (
+                        ((layer_id is None) == (rate_change_id is None))
+                        if not has_multirate else
+                        basis_kind not in {
+                            "FINITE_LAYER", "OPEN_RATE", "MATERIALIZED_RATE_BALANCE",
+                            "RETURN_RESTORED",
+                        }
+                        or (basis_kind == "FINITE_LAYER" and (
+                            layer_id is None or rate_change_id is not None
+                        ))
+                        or (basis_kind in {
+                            "OPEN_RATE", "MATERIALIZED_RATE_BALANCE", "RETURN_RESTORED",
+                        } and (layer_id is not None or rate_change_id is None))
+                    )
                     or (layer_id is not None and (
                         not isinstance(layer_id, str) or not layer_id or len(layer_id) > 160
                     ))
@@ -7419,12 +7610,15 @@ class FifoCostRepository:
                 )
                 if calculated != Decimal(line_total):
                     return "FIFO_ALLOCATION_TOTAL_MISMATCH"
-                normalized_lines.append({
+                normalized_line = {
                     "layer_id": layer_id, "rate_change_id": rate_change_id,
                     "quantity": line_quantity,
                     "unit_cost_rub": unit_cost, "total_cost_rub": line_total,
                     "origin_sale_event_id": origin,
-                })
+                }
+                if has_multirate:
+                    normalized_line["basis_kind"] = basis_kind
+                normalized_lines.append(normalized_line)
                 sale_units += line_quantity
                 sale_cost += Decimal(line_total)
             if sale_units != quantity or sale_cost != Decimal(sale_total):
@@ -7470,38 +7664,62 @@ class FifoCostRepository:
             normalized_lines = []
             seen_layers = set()
             for line in lines:
-                if not isinstance(line, dict) or set(line) != {
+                line_keys = {
                     "layer_id", "rate_change_id", "quantity", "unit_cost_rub",
                     "total_cost_rub", "origin_sale_event_id",
-                }:
+                }
+                if has_multirate:
+                    line_keys.add("basis_kind")
+                if not isinstance(line, dict) or set(line) != line_keys:
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
                 layer_id = line.get("layer_id")
+                rate_change_id = line.get("rate_change_id")
                 line_quantity = line.get("quantity")
                 unit_cost = cls._normalize_money(line.get("unit_cost_rub"))
                 line_total = cls._normalize_money(line.get("total_cost_rub"))
                 origin = line.get("origin_sale_event_id")
+                basis_kind = line.get("basis_kind")
                 if (
-                    not isinstance(layer_id, str) or not layer_id or len(layer_id) > 160
-                    or line.get("rate_change_id") is not None
-                    or layer_id in seen_layers or type(line_quantity) is not int
+                    (
+                        not isinstance(layer_id, str) or not layer_id
+                        or len(layer_id) > 160 or rate_change_id is not None
+                        if not has_multirate else
+                        basis_kind not in {
+                            "FINITE_LAYER", "MATERIALIZED_RATE_BALANCE",
+                        }
+                        or (basis_kind == "FINITE_LAYER" and (
+                            not isinstance(layer_id, str) or not layer_id
+                            or len(layer_id) > 160 or rate_change_id is not None
+                        ))
+                        or (basis_kind == "MATERIALIZED_RATE_BALANCE" and (
+                            layer_id is not None or not isinstance(rate_change_id, str)
+                            or not rate_change_id or len(rate_change_id) > 160
+                        ))
+                    )
+                    or (layer_id if rate_change_id is None else rate_change_id) in seen_layers
+                    or type(line_quantity) is not int
                     or line_quantity < 1 or unit_cost is None or line_total is None
                     or (origin is not None and (
                         not isinstance(origin, str) or not origin or len(origin) > 160
                     ))
                 ):
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
-                seen_layers.add(layer_id)
+                seen_layers.add(layer_id if rate_change_id is None else rate_change_id)
                 if (Decimal(unit_cost) * line_quantity).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 ) != Decimal(line_total):
                     return "FIFO_ALLOCATION_TOTAL_MISMATCH"
                 line_units += line_quantity
                 line_value += Decimal(line_total)
-                normalized_lines.append({
+                normalized_line = {
                     "layer_id": layer_id, "rate_change_id": None,
                     "quantity": line_quantity, "unit_cost_rub": unit_cost,
                     "total_cost_rub": line_total, "origin_sale_event_id": origin,
-                })
+                }
+                if has_multirate:
+                    normalized_line["rate_change_id"] = rate_change_id
+                    normalized_line["basis_kind"] = basis_kind
+                normalized_lines.append(normalized_line)
             if line_units != quantity or line_value != Decimal(estimated):
                 return "FIFO_ALLOCATION_TOTAL_MISMATCH"
             outflow_units += quantity
@@ -7532,6 +7750,13 @@ class FifoCostRepository:
             "total_cogs_rub": grand_total,
             "non_sale_outflow_value_rub": normalized_outflow_total,
         }
+        if has_multirate:
+            payload.update({
+                "rate_balances": normalized_rate_balances,
+                "complete_through": complete_through,
+                "store_timezone": preview["store_timezone"].strip(),
+                "rate_boundary_set_fingerprint": boundary_fingerprint,
+            })
         return {**payload, "payload_fingerprint": cls._sha256(payload)}
 
     @classmethod
@@ -7540,6 +7765,7 @@ class FifoCostRepository:
         allocation_revision, source_fingerprint, cutoff_status,
     ):
         allocations = preview["allocations"]
+        rate_chain = None
         anchor = connection.execute(
             """SELECT COUNT(DISTINCT inventory_cutoff), MIN(inventory_cutoff)
                FROM fifo_cost_events
@@ -7559,17 +7785,6 @@ class FifoCostRepository:
         ).fetchone()[0]
         if unsupported_events:
             raise ValueError("FIFO_REPLAY_UNSUPPORTED_EVENT")
-        rate_count = connection.execute(
-            """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
-               WHERE r.stream_id=? AND NOT EXISTS (
-                   SELECT 1 FROM fifo_cost_rate_cancellations AS c
-                   WHERE c.stream_id=r.stream_id
-                     AND c.rate_change_id=r.rate_change_id
-               )""",
-            (stream_id,),
-        ).fetchone()[0]
-        if rate_count > 1:
-            raise ValueError("FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED")
         source_sales = connection.execute(
             """SELECT event_id, effective_date, inventory_cutoff FROM fifo_cost_events
                WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
@@ -7682,6 +7897,275 @@ class FifoCostRepository:
             or preview["non_sale_outflow_value_rub"] != expected["non_sale_outflow_value_rub"]
         ):
             raise ValueError("FIFO_ALLOCATION_REPLAY_MISMATCH")
+        multirate_keys = {
+            "rate_balances", "complete_through", "store_timezone",
+            "rate_boundary_set_fingerprint",
+        }
+        if multirate_keys.intersection(preview):
+            if not multirate_keys.issubset(preview):
+                raise ValueError("FIFO_ALLOCATION_PREVIEW_INVALID")
+            rate_chain = cls._load_rate_boundary_chain(
+                connection, stream_id, anchor_cutoff_date=anchor_cutoff,
+            )
+            if rate_chain.get("error"):
+                raise ValueError(rate_chain.get("reason_code") or "FIFO_RATE_CHAIN_CONFLICT")
+            if (
+                preview["rate_balances"] != expected.get("rate_balances")
+                or preview["complete_through"] != expected.get("complete_through")
+                or preview["store_timezone"] != expected.get("store_timezone")
+                or preview["rate_boundary_set_fingerprint"]
+                != expected.get("rate_boundary_set_fingerprint")
+                or set(preview["rate_balances"])
+                != {row["rate_change_id"] for row in rate_chain["rates"]}
+            ):
+                raise ValueError("FIFO_ALLOCATION_REPLAY_MISMATCH")
+        return rate_chain
+
+    @classmethod
+    def _persist_rate_balance_rows(cls, connection, allocation_id, preview, rate_chain):
+        if rate_chain is None:
+            return
+        rates = rate_chain["rates"]
+        reconciliations = rate_chain["reconciliations"]
+        balances = preview.get("rate_balances")
+        if not isinstance(balances, dict) or set(balances) != {
+            row["rate_change_id"] for row in rates
+        }:
+            raise ValueError("FIFO_RATE_BALANCE_MISMATCH")
+        for index, rate in enumerate(rates):
+            rate_id = rate["rate_change_id"]
+            balance = balances[rate_id]
+            if index < len(rates) - 1:
+                evidence = reconciliations[rate["rate_sequence"] + 1]
+                basis_kind = "MATERIALIZED_RATE_BALANCE"
+                reference = evidence["reconciliation_id"]
+                evidence_fingerprint = evidence["source_fingerprint"]
+            elif rate["rate_sequence"] == 1:
+                basis_kind = "RATE_BOUNDARY"
+                reference = rate_id
+                evidence_fingerprint = rate["source_fingerprint"]
+            else:
+                evidence = reconciliations[rate["rate_sequence"]]
+                basis_kind = "RATE_BOUNDARY"
+                reference = evidence["reconciliation_id"]
+                evidence_fingerprint = evidence["source_fingerprint"]
+            if (
+                not cls._valid_digest(evidence_fingerprint)
+                or balance.get("remaining_units") is None
+                and index < len(rates) - 1
+            ):
+                raise ValueError("FIFO_RATE_BALANCE_MISMATCH")
+            connection.execute(
+                """INSERT INTO fifo_cost_allocation_rate_balances (
+                    allocation_id, ordinal, rate_change_id, remaining_units,
+                    unit_cost_rub, reconciliation_reference,
+                    reconciliation_fingerprint, original_basis_kind,
+                    original_basis_reference, origin_sale_event_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+                (
+                    allocation_id, rate["rate_sequence"], rate_id,
+                    balance["remaining_units"], balance["unit_cost_rub"],
+                    reference, evidence_fingerprint, basis_kind, reference,
+                ),
+            )
+
+    @classmethod
+    def _load_rate_boundary_chain(
+        cls, connection, stream_id, *, anchor_cutoff_date,
+    ):
+        """Load every active rate and prove each transition from immutable rows."""
+        rates = connection.execute(
+            """SELECT r.rate_change_id, r.rate_sequence, r.effective_date,
+                      r.unit_cost_rub, r.source_fingerprint, r.payload_fingerprint
+               FROM fifo_cost_rate_changes AS r
+               WHERE r.stream_id=? AND NOT EXISTS (
+                   SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                   WHERE c.stream_id=r.stream_id
+                     AND c.rate_change_id=r.rate_change_id
+               )
+               ORDER BY r.rate_sequence LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rates) > cls.MAX_RATE_CHAIN:
+            return {"error": True, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
+        if len(rates) <= 1:
+            return {
+                "error": False, "rates": rates, "boundaries": (),
+                "complete_through": None, "store_timezone": DEFAULT_STORE_TIMEZONE,
+                "reconciliations": {}, "mapping_set": None,
+            }
+
+        cutoff_date = cls._normalize_date(anchor_cutoff_date)
+        if cutoff_date is None:
+            return {"error": True, "reason_code": "INVENTORY_CUTOFF_UNRECONCILED"}
+        reconciliations = connection.execute(
+            """SELECT reconciliation_id, transition_rate_sequence,
+                      reconciled_rate_sequence, effective_date,
+                      reconciled_total_units, older_finite_units,
+                      prior_rate_units, source_fingerprint
+               FROM fifo_cost_rate_reconciliations
+               WHERE stream_id=? ORDER BY transition_rate_sequence LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(reconciliations) > cls.MAX_RATE_CHAIN:
+            return {"error": True, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
+        recon_by_transition = {
+            row["transition_rate_sequence"]: row for row in reconciliations
+        }
+        expected_transition_sequences = set(range(2, len(rates) + 1))
+        if (
+            len(recon_by_transition) != len(reconciliations)
+            or set(recon_by_transition) != expected_transition_sequences
+            or rates[0]["rate_sequence"] != 1
+        ):
+            return {"error": True, "reason_code": "FIFO_RATE_CHAIN_CONFLICT"}
+
+        for index, rate in enumerate(rates):
+            expected_sequence = index + 1
+            effective_date = cls._normalize_date(rate["effective_date"])
+            if (
+                rate["rate_sequence"] != expected_sequence
+                or effective_date is None or effective_date <= cutoff_date
+                or (index and effective_date <= rates[index - 1]["effective_date"])
+            ):
+                return {"error": True, "reason_code": "FIFO_RATE_CHAIN_CONFLICT"}
+            if index == 0:
+                continue
+            previous = rates[index - 1]
+            reconciliation = recon_by_transition[expected_sequence]
+            if (
+                reconciliation["reconciled_rate_sequence"] != previous["rate_sequence"]
+                or reconciliation["effective_date"] != effective_date
+                or not cls._valid_digest(reconciliation["source_fingerprint"])
+                or type(reconciliation["prior_rate_units"]) is not int
+                or type(reconciliation["older_finite_units"]) is not int
+                or reconciliation["reconciled_total_units"]
+                != reconciliation["prior_rate_units"]
+                + reconciliation["older_finite_units"]
+            ):
+                return {"error": True, "reason_code": "FIFO_RATE_CHAIN_CONFLICT"}
+
+        mapping_set = connection.execute(
+            """SELECT mapping_set_id, mapping_revision, cutoff_date,
+                      complete_through, bridge_fingerprint, mapping_count
+               FROM fifo_cost_cutoff_sale_mapping_sets
+               WHERE stream_id=? ORDER BY mapping_revision DESC LIMIT 1""",
+            (stream_id,),
+        ).fetchone()
+        if (
+            mapping_set is None
+            or mapping_set["cutoff_date"] != cutoff_date
+            or cls._normalize_date(mapping_set["complete_through"]) is None
+            or not cls._valid_digest(mapping_set["bridge_fingerprint"])
+        ):
+            return {"error": True, "reason_code": "FIFO_RATE_BOUNDARY_UNPROVEN"}
+        mappings = connection.execute(
+            """SELECT source_identity_digest, quantity, physical_effective_date,
+                      partition
+               FROM fifo_cost_cutoff_sale_mappings
+               WHERE mapping_set_id=? ORDER BY source_identity_digest LIMIT 100001""",
+            (mapping_set["mapping_set_id"],),
+        ).fetchall()
+        if (
+            len(mappings) > 100_000
+            or len(mappings) != mapping_set["mapping_count"]
+        ):
+            return {"error": True, "reason_code": "FIFO_SOURCE_INCOMPLETE"}
+        post_cutoff_mapping = {
+            row["source_identity_digest"]: (
+                row["quantity"], row["physical_effective_date"],
+            )
+            for row in mappings if row["partition"] == "POST_CUTOFF"
+        }
+        if len(post_cutoff_mapping) != sum(
+            row["partition"] == "POST_CUTOFF" for row in mappings
+        ):
+            return {"error": True, "reason_code": "FIFO_RATE_CHAIN_CONFLICT"}
+        sales = connection.execute(
+            """SELECT source_identity_digest, quantity, effective_date
+               FROM fifo_cost_events WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(sales) > 100_000:
+            return {"error": True, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
+        event_mapping = {}
+        for sale in sales:
+            digest = sale["source_identity_digest"]
+            effective_date = cls._normalize_date(sale["effective_date"])
+            if (
+                not cls._valid_digest(digest) or effective_date is None
+                or digest in event_mapping
+            ):
+                return {"error": True, "reason_code": "FIFO_SOURCE_INCOMPLETE"}
+            event_mapping[digest] = (sale["quantity"], effective_date)
+        if event_mapping != post_cutoff_mapping:
+            return {"error": True, "reason_code": "FIFO_SOURCE_INCOMPLETE"}
+
+        complete_through = mapping_set["complete_through"]
+        replay_dates = [
+            row["effective_date"] for row in sales
+        ] + [row["effective_date"] for row in rates]
+        if any(
+            cls._normalize_date(day) is None or day > complete_through
+            for day in replay_dates
+        ):
+            return {"error": True, "reason_code": "FIFO_SOURCE_INCOMPLETE"}
+
+        boundaries = []
+        for index, rate in enumerate(rates):
+            reconciliation = (
+                None if index == 0
+                else recon_by_transition[rate["rate_sequence"]]
+            )
+            evidence_fingerprint = (
+                rate["source_fingerprint"] if reconciliation is None
+                else reconciliation["source_fingerprint"]
+            )
+            if not cls._valid_digest(evidence_fingerprint):
+                return {"error": True, "reason_code": "FIFO_RATE_BOUNDARY_UNPROVEN"}
+            boundary_id = "rate_boundary_" + cls._sha256({
+                "stream_id": stream_id,
+                "rate_change_id": rate["rate_change_id"],
+                "evidence_fingerprint": evidence_fingerprint,
+            })[:40]
+            try:
+                event = FifoRateBoundaryEvent(
+                    event_id=boundary_id,
+                    new_rate_change_id=rate["rate_change_id"],
+                    new_unit_cost_rub=rate["unit_cost_rub"],
+                    previous_rate_change_id=(
+                        rates[index - 1]["rate_change_id"] if index else None
+                    ),
+                    previous_rate_remaining_units=(
+                        reconciliation["prior_rate_units"]
+                        if reconciliation is not None else None
+                    ),
+                    expected_older_finite_units=(
+                        reconciliation["older_finite_units"]
+                        if reconciliation is not None else None
+                    ),
+                    reconciliation_evidence_fingerprint=evidence_fingerprint,
+                )
+                boundaries.append(FifoDatedRateBoundaryEvent(
+                    event=event,
+                    effective_at=None,
+                    effective_date=rate["effective_date"],
+                    store_timezone=DEFAULT_STORE_TIMEZONE,
+                    boundary_kind="END_OF_LOCAL_DATE",
+                    boundary_evidence_fingerprint=evidence_fingerprint,
+                ))
+            except (TypeError, ValueError):
+                return {"error": True, "reason_code": "FIFO_RATE_BOUNDARY_UNPROVEN"}
+        return {
+            "error": False,
+            "rates": rates,
+            "boundaries": tuple(boundaries),
+            "complete_through": complete_through,
+            "store_timezone": DEFAULT_STORE_TIMEZONE,
+            "reconciliations": recon_by_transition,
+            "mapping_set": mapping_set,
+        }
 
     @classmethod
     def _preview_allocation_from_connection(
@@ -7986,26 +8470,50 @@ class FifoCostRepository:
                 movement_reason_confirmed=True,
             ))
         rate_rows = connection.execute(
-            """SELECT r.rate_change_id, r.effective_date, r.unit_cost_rub
+            """SELECT r.rate_change_id, r.rate_sequence, r.effective_date,
+                      r.unit_cost_rub
                FROM fifo_cost_rate_changes AS r
                WHERE r.stream_id=? AND NOT EXISTS (
                    SELECT 1 FROM fifo_cost_rate_cancellations AS c
                    WHERE c.stream_id=r.stream_id
                      AND c.rate_change_id=r.rate_change_id
                )
-               ORDER BY r.rate_sequence LIMIT 2""",
+               ORDER BY r.rate_sequence LIMIT 100001""",
             (stream_id,),
         ).fetchall()
+        if len(rate_rows) > cls.MAX_RATE_CHAIN:
+            return {"complete": False, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
+        if len(rate_rows) == 1 and rate_rows[0]["rate_sequence"] != 1:
+            return {"complete": False, "reason_code": "FIFO_RATE_CHAIN_CONFLICT"}
         if hypothetical_open_rate is not None and rate_rows:
             return {
                 "complete": False,
                 "reason_code": "FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED",
             }
         if len(rate_rows) > 1:
-            return {
-                "complete": False,
-                "reason_code": "FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED",
-            }
+            chain = cls._load_rate_boundary_chain(
+                connection, stream_id, anchor_cutoff_date=anchor_cutoff_date,
+            )
+            if chain.get("error"):
+                return {
+                    "complete": False,
+                    "reason_code": chain.get("reason_code")
+                    or "FIFO_RATE_CHAIN_CONFLICT",
+                }
+            return FifoCostReplayService().preview(
+                layers=layers,
+                events=sales,
+                stream_revision=stream_revision,
+                expected_allocation_revision=allocation_revision,
+                source_set_fingerprint=source_fingerprint,
+                anchor_cutoff_date=anchor_cutoff_date,
+                anchor_status=anchor_status,
+                cutoff_status=cutoff_status,
+                source_completeness="COMPLETE",
+                rate_boundaries=chain["boundaries"],
+                complete_through=chain["complete_through"],
+                store_timezone=chain["store_timezone"],
+            )
         open_rate = None
         open_rate_date = None
         if hypothetical_open_rate is not None:
@@ -8071,6 +8579,48 @@ class FifoCostRepository:
             if len(rows) > 100_000:
                 raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
             material[name] = [dict(row) for row in rows]
+        active_rates = connection.execute(
+            """SELECT r.rate_change_id FROM fifo_cost_rate_changes AS r
+               WHERE r.stream_id=? AND NOT EXISTS (
+                   SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                   WHERE c.stream_id=r.stream_id
+                     AND c.rate_change_id=r.rate_change_id
+               ) ORDER BY r.rate_sequence LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(active_rates) > cls.MAX_RATE_CHAIN:
+            raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
+        if len(active_rates) > 1:
+            chain_queries = {
+                "rates": "SELECT rate_change_id, rate_sequence, effective_date, "
+                    "unit_cost_rub, source_id, source_fingerprint, "
+                    "payload_fingerprint FROM fifo_cost_rate_changes "
+                    "WHERE stream_id=? ORDER BY rate_sequence",
+                "reconciliations": "SELECT reconciliation_id, stream_revision, "
+                    "transition_rate_sequence, reconciled_rate_sequence, effective_date, "
+                    "reconciled_total_units, older_finite_units, prior_rate_units, "
+                    "fbo_units, reserved_units, transit_units, home_units, "
+                    "source_fingerprint, captured_at, created_at "
+                    "FROM fifo_cost_rate_reconciliations WHERE stream_id=? "
+                    "ORDER BY transition_rate_sequence",
+                "mapping_sets": "SELECT mapping_set_id, mapping_revision, cutoff_date, "
+                    "complete_through, bridge_fingerprint, mapping_count, created_at "
+                    "FROM fifo_cost_cutoff_sale_mapping_sets WHERE stream_id=? "
+                    "ORDER BY mapping_revision",
+                "sale_mappings": "SELECT m.mapping_set_id, m.source_identity_digest, "
+                    "m.quantity, m.physical_effective_date, m.partition "
+                    "FROM fifo_cost_cutoff_sale_mappings AS m "
+                    "JOIN fifo_cost_cutoff_sale_mapping_sets AS s "
+                    "ON s.mapping_set_id=m.mapping_set_id WHERE s.stream_id=? "
+                    "ORDER BY s.mapping_revision, m.source_identity_digest",
+            }
+            chain_material = {"active_rate_ids": [row["rate_change_id"] for row in active_rates]}
+            for name, query in chain_queries.items():
+                rows = connection.execute(query + " LIMIT 100001", (stream_id,)).fetchall()
+                if len(rows) > 100_000:
+                    raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
+                chain_material[name] = [dict(row) for row in rows]
+            material["rate_boundary_chain_v1"] = chain_material
         if hypothetical_rate is not None:
             if not isinstance(hypothetical_rate, dict) or set(hypothetical_rate) != {
                 "rate_change_id", "rate_sequence", "effective_date", "unit_cost_rub",
