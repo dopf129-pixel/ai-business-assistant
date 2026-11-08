@@ -85,6 +85,7 @@ from services.telegram_fifo_cost_late_entry_service import TelegramFifoCostLateE
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.telegram_fifo_cost_anchor_entry_service import TelegramFifoCostAnchorEntryService
 from services.telegram_fifo_cost_report_import_service import TelegramFifoCostReportImportService
+from services.telegram_fifo_cost_transition_runtime_service import TelegramFifoCostTransitionRuntimeService
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
@@ -642,6 +643,11 @@ def create_telegram_assistant():
     telegram_fifo_cost_report_import_service = TelegramFifoCostReportImportService(
         repository=fifo_cost_repository,
     )
+    telegram_fifo_cost_transition_runtime_service = TelegramFifoCostTransitionRuntimeService(
+        transition_service=fifo_cost_transition_service,
+        history_service=fifo_cost_history_service,
+        report_import_service=telegram_fifo_cost_report_import_service,
+    )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
         cost_service=period_profit_cost_service,
@@ -678,6 +684,7 @@ def create_telegram_assistant():
             telegram_fifo_cost_late_entry_service,
             telegram_fifo_cost_anchor_entry_service,
             telegram_fifo_cost_report_import_service,
+            telegram_fifo_cost_transition_runtime_service,
         )
     )
 

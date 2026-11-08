@@ -341,6 +341,7 @@ class TelegramFifoCostHistoryService:
                     self._case_tickets[(owner, token)] = {
                         "tenant_scope": ticket["tenant_scope"],
                         "identity": dict(ticket["identity"]),
+                        "display_name": ticket["display_name"],
                         "case_id": case_id,
                         "case_revision": item["case_revision"],
                         "expires_at": now + self.TTL_SECONDS,
@@ -388,6 +389,7 @@ class TelegramFifoCostHistoryService:
             "handled": True,
             "action": "resume_transition_wizard",
             "identity": dict(ticket["identity"]),
+            "display_name": ticket.get("display_name") or "Товар",
             "case_id": ticket["case_id"],
             "case_revision": result["case_revision"],
             "case": result["case"],

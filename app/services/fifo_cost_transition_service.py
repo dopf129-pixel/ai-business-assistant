@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
+import json
 import re
 
 from services.fifo_cost_repository import FifoCostRepository
@@ -128,6 +129,97 @@ class FifoCostTransitionService:
             return self._error("FIFO_TRANSITION_CASE_NOT_READY")
         return self.repository.save_transition_case(
             case=case, expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def update_owner_inputs(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_revision, updates, idempotency_key, state=None,
+    ):
+        """CAS-save a narrow set of typed owner-entered transition facts."""
+        allowed = {
+            "dispatch_date", "old_unit_cost_rub", "new_unit_cost_rub",
+            "cost_components", "owner_old_home_units", "owner_old_transit_units",
+            "new_home_quantity", "declared_shipped_units",
+        }
+        if not isinstance(updates, dict) or not updates or set(updates) - allowed:
+            return self._error("FIFO_TRANSITION_OWNER_INPUT_INVALID")
+        current = self.get_case(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if current.get("error"):
+            return current
+        if current.get("case_revision") != expected_revision:
+            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        try:
+            case = self._case_from_payload(current["case"])
+            if case.state not in self._EDITABLE_STATES:
+                return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+            unknown_values = dict(case.unknown_values)
+            optional_fields = {
+                "dispatch_date", "old_unit_cost_rub", "new_unit_cost_rub",
+                "owner_old_home_units", "owner_old_transit_units",
+                "new_home_quantity", "declared_shipped_units",
+            }
+            for name, value in updates.items():
+                if name in optional_fields:
+                    if value is None:
+                        unknown_values[name] = UnknownValue(
+                            TransitionReasonCode.SOURCE_PROOF_UNAVAILABLE,
+                            EvidenceSourceKind.OWNER_INPUT,
+                        )
+                    else:
+                        unknown_values.pop(name, None)
+            next_state = case.state if state is None else (
+                state if isinstance(state, TransitionState) else TransitionState(str(state))
+            )
+            if next_state not in self._EDITABLE_STATES:
+                return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+            fingerprint_payload = {
+                "prior": case.metadata.source_fingerprint,
+                "revision": expected_revision + 1,
+                "updates": {
+                    key: (
+                        {
+                            "purchase_cost_rub": str(value.purchase_cost_rub),
+                            "delivery_cost_rub": str(value.delivery_cost_rub),
+                            "packaging_cost_rub": str(value.packaging_cost_rub),
+                        }
+                        if isinstance(value, CostComponents)
+                        else None if value is None else str(value)
+                    )
+                    for key, value in sorted(updates.items())
+                },
+                "state": next_state.value,
+            }
+            source_fingerprint = hashlib.sha256(
+                json.dumps(
+                    fingerprint_payload, sort_keys=True, separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            metadata = replace(
+                case.metadata,
+                source_fingerprint=source_fingerprint,
+                completeness=EvidenceCompleteness.PARTIAL,
+            )
+            updated = replace(
+                case,
+                metadata=metadata,
+                case_revision=expected_revision + 1,
+                state=next_state,
+                updated_at=max(utc_now(self._now_provider), case.updated_at),
+                unknown_values=unknown_values,
+                **updates,
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            reason = getattr(exc, "reason_code", None)
+            if reason is not None:
+                return self._error(reason.value)
+            return self._error("FIFO_TRANSITION_OWNER_INPUT_INVALID")
+        return self.update_case(
+            case=updated,
+            expected_revision=expected_revision,
             idempotency_key=idempotency_key,
         )
 
