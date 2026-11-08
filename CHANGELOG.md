@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO late-entry resumable wizard (FL25)
+
+- Added the durable owner-input wizard for FIFO late-entry cases, including TOTAL_LANDED and COMPONENTS paths, CAS revisions after confirmed input blocks, typed supply declarations, case-bound report selection, and resume from saved cases after process restart. New home quantity stays unknown; draft input does not activate FIFO or alter profit.
+- FL25 linked FIFO/Telegram/Period Profit profile: **537 passed**; compileall, diff-check, and unchanged `data/` checks passed. Synthetic SQLite only; no owner data, live APIs, or bot run.
+
 # 2026-11-08 — FIFO late-entry access before queue initialization (FL24)
 
 - The uninitialized FIFO card now exposes late-party entry and unfinished changes without hiding the transition behind `queue_initialized`. Initial anchor and zero-start actions remain available; an active scoped transition blocks zero-start. Existing FIFO/profit state is unchanged.

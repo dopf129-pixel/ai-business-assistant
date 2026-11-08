@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL24.
-Выполненных этапов:24/36 (FL00–FL23 VERIFIED на кодовых и синтетических проверках; далее FL24–FL35: consumers, UI, acceptance, reliability и PR delivery).
+Следующий этап: FL26.
+Выполненных этапов:25/36 (FL00–FL25 VERIFIED на кодовых и синтетических проверках; далее FL26–FL35: подтверждения, consumers, acceptance, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. Последний code checkpoint FL23 `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; code-profile: **531 passed**. FL14 `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; FL22 `4290c961c60326e21d65559da18757466675a02f`. Перед resume сначала читать `git rev-parse HEAD`; текущие docs checkpoint ещё предстоит закоммитить. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` содержит FL24–FL25 и основана на exact PR2 head. Последний code checkpoint FL25 `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked profile: **537 passed**. FL24 code `ee98230286354e21e1f2cf5ca307391c97d6171f`, docs `e3a81d32545d2dcc04283c479091906befa1c47d`. PR3 documentation checkpoint FL25 is in progress; PRs not yet pushed. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -44,8 +44,8 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL21 | Возвраты/выбытия | VERIFIED | code `5ccf00a53c06ca32983106fd1a894c925d2a9630`; focused 82 passed; linked FIFO/Telegram/Period Profit 515 passed; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL22 | Period impact | VERIFIED | code `4290c961c60326e21d65559da18757466675a02f`; focused 37 passed, linked FIFO/Telegram/Period Profit 521 passed; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL23 | Atomic apply | VERIFIED | `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; dedicated 10 passed, linked profile 531 passed |
-| FL24 | Меню доFIFO | NOT_STARTED | — |
-| FL25 | Durable мастер | NOT_STARTED | — |
+| FL24 | Меню до FIFO | VERIFIED | code `ee98230286354e21e1f2cf5ca307391c97d6171f`; linked profile 533 passed |
+| FL25 | Durable мастер | VERIFIED | code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked profile 537 passed; compileall/diff-check/data unchanged PASS |
 | FL26 | Разные подтверждения | NOT_STARTED | — |
 | FL27 | Current/plans/cache | NOT_STARTED | — |
 | FL28 | Period Profit | NOT_STARTED | — |
@@ -315,10 +315,17 @@ Source readiness:
 - Изменены `app/services/telegram_fifo_cost_history_service.py`, production factory; добавлены 2 regressions в `tests/test_telegram_fifo_cost_history.py`. Code commit `ee98230286354e21e1f2cf5ca307391c97d6171f` (`Expose FIFO late-entry before initialization`). Целевой Telegram history file: **31 passed in 1.10s**; linked FIFO/Telegram/Period Profit profile **533 passed in 22.87s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Synthetic temporary SQLite; no owner files/DB, live APIs, or bot launch.
 - Класс: **Architecture Review Required** — production UI routing расширено, >300 строк с тестами, новая owner-bound callback lifecycle. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; проверена только synthetic regression. Далее FL25 — durable resumable wizard; текущие mode/resume actions будут подключены к runtime и после каждого meaningful step сохраняться в case revision.
 
+## Выполнение FL25 — 2026-11-08
+
+- Добавлен `TelegramFifoCostTransitionRuntimeService`, подключённый через production factory и seller/return-inventory adapters. Он запускает case из действия FL24 либо возобновляет DRAFT/AWAITING_EVIDENCE по точной identity/revision. После каждого подтверждённого блока `update_owner_inputs` выполняет CAS-save в append-only case revisions; TOTAL_LANDED остаётся без выдуманных components, COMPONENTS сохраняет 10.00+3.00+1.65=14.65.
+- Мастер требует старую цену, новую цену, дату первой отправки, старые домашний/отдельный транзитный остатки и объявленный объём отправленной новой партии. `new_home_quantity` не спрашивается и остаётся `None`. Поставки сохраняются отдельными типами ORDER/SUPPLY с подтверждением количества и bounded sum; callback не содержит reference ID. Документ открывается через существующий импорт с привязкой к текущему case, scope и revision. Никакое действие FL25 не применяет FIFO или прибыль.
+- Интеграционные регрессии включают resume после создания нового runtime instance, COMPONENTS/TOTAL parity and no decomposition, три ссылки 6234+600+148=6982, report selection, unknown new-home, callback size, unconfirmed/cross-store text and callback rejection. Final dedicated runtime + history + report-import + transition-service profile: **44 passed in 2.97s**; linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py` profile: **537 passed in 23.90s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS; fixtures use only temporary synthetic SQLite.
+- Code commit `6be4485eca93bfd94e903bc3576913a2e0d86b2a` (`Add resumable FIFO late-entry wizard`). Documentation/checkpoint commit follows this entry. Class: **Architecture Review Required** — new runtime application service and production adapter/factory integration. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; no real owner reports/database, Ozon/Telegram requests, bot run, merge, or deployment.
+
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
 | 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
 | 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after FL20 documentation checkpoint; CI not yet queried | NOT_RUN |
-| 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | PR2 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | FL24 code `ee98230286354e21e1f2cf5ca307391c97d6171f`; documentation checkpoint pending | NOT_RUN |
+| 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | PR2 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | FL25 code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; docs checkpoint pending | NOT_RUN |

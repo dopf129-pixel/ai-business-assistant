@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO FL25 Telegram transition wizard
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers explicit input confirmation and durable revision increments, 21.00→14.65 TOTAL_LANDED with no fabricated component breakdown, 10+3+1.65 COMPONENTS total parity, unknown new-home quantity, restart/resume, separate ORDER/SUPPLY declarations summing to 6,982, case-bound opaque report selection, and rejected cross-store text/callbacks.
+- Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **537 passed**. `compileall -q app tests`, `git diff --check`, and unchanged `data/` checks PASS. Only temporary synthetic SQLite; no live source calls.
+
 # 2026-11-08 — FIFO FL24 Telegram routing regressions
 
 - `tests/test_telegram_fifo_cost_history.py` verifies uninitialized card keeps anchor/zero-start while exposing late-entry and draft-list actions; TOTAL_LANDED/COMPONENTS mode routing; active transition blocks zero-start without FIFO writes; resume callback is opaque, bounded to Telegram's 64-byte limit, and rejected for another Telegram user.
