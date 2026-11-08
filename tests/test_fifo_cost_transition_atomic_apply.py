@@ -430,6 +430,152 @@ def test_changed_tax_stock_bridge_and_return_coverage_never_partially_apply(tmp_
         reset_current_tenant_user_id(tenant)
 
 
+def test_transition_bridge_ledger_requires_exact_linked_return_event():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    base = build_cutoff_bridge()
+    sale = base.post_cutoff_events[0]
+    movement = FifoCutoffMovementReference(
+        movement_kind="RETURN",
+        movement_fingerprint=source_fingerprint("atomic-linked-return"),
+        source_identity_digest=source_fingerprint("atomic-linked-return-id"),
+        linked_sale_identity_digest=sale.source_identity_digest,
+        quantity=1,
+        effective_date="2026-11-09",
+    )
+    bridge = replace(
+        base, complete_through="2026-11-09",
+        linked_returns_non_sale_movements=(movement,),
+    )
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("""CREATE TABLE fifo_cost_events (
+            event_id TEXT, stream_id TEXT, event_kind TEXT,
+            source_identity_digest TEXT, quantity INTEGER, effective_date TEXT,
+            supersedes_event_id TEXT, reason_code TEXT
+        )""")
+        connection.execute(
+            """INSERT INTO fifo_cost_events VALUES
+               ('sale-event-1', 'stream-1', 'PHYSICAL_SALE', ?, ?, ?, NULL, NULL)""",
+            (sale.source_identity_digest, sale.quantity, sale.physical_effective_date),
+        )
+
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) == "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+
+        connection.execute(
+            """INSERT INTO fifo_cost_events VALUES
+               ('return-event-1', 'stream-1', 'SALEABLE_RETURN_RESTOCK', ?, ?, ?,
+                'sale-event-1', NULL)""",
+            (movement.source_identity_digest, movement.quantity, movement.effective_date),
+        )
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) is None
+
+        connection.execute(
+            "UPDATE fifo_cost_events SET quantity=2 WHERE event_id='return-event-1'",
+        )
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) == "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+    finally:
+        connection.close()
+
+
+def test_transition_bridge_ledger_rejects_return_without_proven_causal_order():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    base = build_cutoff_bridge()
+    sale = base.post_cutoff_events[0]
+    movement = FifoCutoffMovementReference(
+        movement_kind="RETURN",
+        movement_fingerprint=source_fingerprint("atomic-same-day-return"),
+        source_identity_digest=source_fingerprint("atomic-same-day-return-id"),
+        linked_sale_identity_digest=sale.source_identity_digest,
+        quantity=1,
+        effective_date=sale.physical_effective_date,
+    )
+    bridge = replace(base, linked_returns_non_sale_movements=(movement,))
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("""CREATE TABLE fifo_cost_events (
+            event_id TEXT, stream_id TEXT, event_kind TEXT,
+            source_identity_digest TEXT, quantity INTEGER, effective_date TEXT,
+            supersedes_event_id TEXT, reason_code TEXT
+        )""")
+        connection.execute(
+            """INSERT INTO fifo_cost_events VALUES
+               ('sale-event-1', 'stream-1', 'PHYSICAL_SALE', ?, ?, ?, NULL, NULL)""",
+            (sale.source_identity_digest, sale.quantity, sale.physical_effective_date),
+        )
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) == "FIFO_TRANSITION_MOVEMENT_ORDER_UNRESOLVED"
+    finally:
+        connection.close()
+
+
+def test_ordinary_fifo_rate_change_remains_available_after_one_late_transition(tmp_path):
+    from services.fifo_cost_rate_service import FifoCostRateService
+    from services.fifo_cost_source_normalizer import FifoStockSnapshot
+
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, clock = (
+        _prepared_repository(tmp_path)
+    )
+    try:
+        applied = _commit(repository, bridge, impact, prepared)
+        assert applied["error"] is False, applied
+        history = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert history["error"] is False
+        assert len(history["rates"]) == 1
+
+        repository._now_provider = lambda: datetime(
+            2026, 11, 10, 12, tzinfo=timezone.utc,
+        )
+        stock = FifoStockSnapshot(
+            status="COMPLETE", source_status="COMPLETE",
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            captured_at="2026-11-10T12:00:00Z", source_as_of=None,
+            pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=98, reserved_units=0, available_units=98,
+            transit_units=0, transit_status="DISJOINT_CONFIRMED",
+            source_fingerprint="e" * 64, issue_codes=(), anchor_eligible=False,
+        )
+        rate_service = FifoCostRateService(repository)
+        next_preview = rate_service.preview_new_cost(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            effective_date="2026-11-10", unit_cost_rub="9.50",
+            cost_input_mode="TOTAL_LANDED", old_home_units=0,
+            expected_revision=history["revision"], stock_snapshot=stock,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert next_preview["error"] is False, next_preview
+        committed = rate_service.confirm_new_cost(
+            preview_id=next_preview["preview_id"],
+            active_preview_id=next_preview["preview_id"],
+            idempotency_key="post-late-ordinary-rate-001",
+        )
+        assert committed["error"] is False, committed
+        updated = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert [item["unit_cost_rub"] for item in updated["rates"]] == [
+            "14.65", "9.50",
+        ]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_uninitialized_fifo_preview_is_read_only_and_atomic_cutover_applies_once(
     tmp_path,
 ):

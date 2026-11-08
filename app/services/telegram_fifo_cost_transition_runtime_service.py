@@ -192,7 +192,7 @@ class TelegramFifoCostTransitionRuntimeService:
         if (
             not isinstance(case, dict) or case.get("error") is not False
             or case.get("case_revision") != expected_case_revision
-            or case.get("state") not in self._EDITABLE_STATES
+            or case.get("state") not in self._EDITABLE_STATES | {"READY_TO_CONFIRM"}
             or not self._case_matches_identity(case.get("case"), identity)
         ):
             return self._failure(
@@ -203,6 +203,11 @@ class TelegramFifoCostTransitionRuntimeService:
             case["case_revision"],
         ):
             return self._failure("Черновик не удалось загрузить в мастер. Откройте список изменений заново.")
+        if case.get("state") == "READY_TO_CONFIRM":
+            # A sealed READY preview is immutable. After restart, reopen its
+            # summary so the owner can inspect/reconfirm it; never resume the
+            # editable field wizard for a non-editable case.
+            return self._show_summary(owner)
         return self._prompt_next(owner)
 
     def handle_text(self, user_id, text):

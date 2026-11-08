@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from hashlib import sha256
 from threading import RLock
 from time import monotonic
@@ -11,6 +12,7 @@ from services.fifo_cost_report_import_worker_client import (
     FifoCostReportImportWorkerClient,
 )
 from services.fifo_cost_transition_contracts import (
+    PeriodProvenance,
     ReportType,
     ScopeIdentity,
     TransitionState,
@@ -86,7 +88,7 @@ class TelegramFifoCostReportImportService:
         if len(parts) != 3 or parts[0] != self.CALLBACK_PREFIX:
             return {"error": False, "handled": False, "read_only_ozon": True}
         action, token = parts[1:]
-        if action not in {"select", "confirm", "cancel"} or not self._valid_token(token):
+        if action not in {"select", "confirm", "confirm_period", "cancel"} or not self._valid_token(token):
             return self._error("FIFO_REPORT_CALLBACK_INVALID")
         key = (owner, tenant, token)
         now = self._monotonic()
@@ -121,7 +123,7 @@ class TelegramFifoCostReportImportService:
                 return self._error("FIFO_REPORT_PREVIEW_STALE")
             if preview.get("confirmed_result") is not None:
                 return dict(preview["confirmed_result"], replayed=True)
-        return self._confirm(key, preview)
+        return self._confirm(key, preview, confirm_period=(action == "confirm_period"))
 
     def handle_document(self, user_id, content, filename=None):
         owner, tenant, error = self._identity(user_id)
@@ -229,19 +231,25 @@ class TelegramFifoCostReportImportService:
             if parsed.issue_codes else ""
         )
         confirm = f"{self.CALLBACK_PREFIX}:confirm:{preview_token}"
+        confirm_period = f"{self.CALLBACK_PREFIX}:confirm_period:{preview_token}"
         cancel = f"{self.CALLBACK_PREFIX}:cancel:{preview_token}"
+        buttons = [
+            ("✅ Добавить как непроверенный период", confirm),
+        ]
+        if report.period_from and report.period_to:
+            buttons.append(("📅 Подтвердить период из имени файла", confirm_period))
+        buttons.append(("Отменить предпросмотр", cancel))
         return {
             "error": False,
             "handled": True,
             "code": "FIFO_REPORT_PREVIEW_READY",
             "message": (
                 f"Предпросмотр: {label}; {status_text}. Период: {period}."
-                f"{issue_text}\nДоказательство пока не записано. Подтверждение добавит этот отчёт в выбранное дело."
+                f"{issue_text}\nПериод из имени файла сам по себе не подтверждён. "
+                "Подтвердите его отдельной кнопкой только если даты соответствуют отчёту; "
+                "иначе сохраните файл как непроверенный кандидат."
             ),
-            "keyboard": self._keyboard(
-                ("✅ Добавить отчёт в дело", confirm),
-                ("Отменить предпросмотр", cancel),
-            ),
+            "keyboard": self._keyboard(*buttons),
             "issue_count": len(parsed.issue_codes),
             "read_only_ozon": True,
         }
@@ -256,8 +264,14 @@ class TelegramFifoCostReportImportService:
                 self._selections.pop((owner, tenant, token), None)
         return {"error": False, "read_only_ozon": True}
 
-    def _confirm(self, key, preview):
+    def _confirm(self, key, preview, *, confirm_period=False):
         report = preview["report"]
+        if confirm_period:
+            if not report.period_from or not report.period_to:
+                return self._error("FIFO_REPORT_PERIOD_CONFIRMATION_UNAVAILABLE")
+            report = replace(
+                report, period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+            )
         scope = preview["scope"]
         evidence = self.repository.read_transition_evidence(
             case_id=preview["case_id"], store_id=scope.store_id,
@@ -268,11 +282,30 @@ class TelegramFifoCostReportImportService:
             for item in evidence.get("items", []):
                 if (item.get("file_sha256") == report.file_sha256
                         and item.get("report_type") == report.report_type.value):
+                    if (
+                        confirm_period
+                        and item.get("period_provenance") != "OWNER_CONFIRMED"
+                    ):
+                        continue
+                    if (
+                        confirm_period
+                        and (
+                            item.get("period_from") != report.period_from
+                            or item.get("period_to") != report.period_to
+                        )
+                    ):
+                        continue
                     result = {
                         "error": False,
                         "handled": True,
-                        "code": "FIFO_REPORT_EVIDENCE_ALREADY_SAVED",
-                        "message": "Этот отчёт уже добавлен в выбранное дело.",
+                        "code": (
+                            "FIFO_REPORT_PERIOD_ALREADY_CONFIRMED"
+                            if confirm_period else "FIFO_REPORT_EVIDENCE_ALREADY_SAVED"
+                        ),
+                        "message": (
+                            "Этот период уже отдельно подтверждён владельцем."
+                            if confirm_period else "Этот отчёт уже добавлен в выбранное дело."
+                        ),
                         "read_only_ozon": True,
                     }
                     with self._lock:
@@ -292,7 +325,8 @@ class TelegramFifoCostReportImportService:
                 code="FIFO_REPORT_PREVIEW_STALE",
             )
         idempotency_key = "report_" + sha256(
-            f"{preview['case_id']}\0{report.report_type.value}\0{report.file_sha256}".encode()
+            f"{preview['case_id']}\0{report.report_type.value}\0{report.file_sha256}"
+            f"\0{report.period_provenance.value}\0{report.period_from}\0{report.period_to}".encode()
         ).hexdigest()[:40]
         saved = self.repository.append_report_evidence(
             case_id=preview["case_id"], report=report,
@@ -313,7 +347,11 @@ class TelegramFifoCostReportImportService:
             "error": False,
             "handled": True,
             "code": saved.get("code", "FIFO_TRANSITION_EVIDENCE_SAVED"),
-            "message": "Отчёт добавлен как доказательство. Период из имени файла остаётся кандидатом до отдельного подтверждения.",
+            "message": (
+                "Период отчёта отдельно подтверждён владельцем; исходный файл и его первая редакция сохранены."
+                if confirm_period else
+                "Отчёт сохранён. Период из имени файла остаётся кандидатом до отдельного подтверждения."
+            ),
             "case_revision": saved.get("case_revision"),
             "read_only_ozon": True,
         }

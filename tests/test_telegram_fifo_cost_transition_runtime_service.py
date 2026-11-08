@@ -370,6 +370,44 @@ def test_components_cost_mode_preview_shows_components_without_reinterpreting_pr
         reset_current_tenant_user_id(tenant)
 
 
+def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        class ReadyTransitions:
+            def get_case(self, *, case_id, **identity):
+                return {
+                    "error": False,
+                    "case_id": case_id,
+                    "case_revision": 9,
+                    "state": "READY_TO_CONFIRM",
+                    "case": {"metadata": {"scope": dict(identity)}},
+                }
+
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None,
+        )
+        summary_calls = []
+        runtime._show_summary = lambda owner: summary_calls.append(owner) or {
+            "error": False, "message": "sealed READY summary",
+        }
+
+        result = runtime.resume_case(
+            101,
+            identity=IDENTITY,
+            display_name="Крючки",
+            case_id="case-ready-restart",
+            expected_case_revision=9,
+        )
+
+        assert result["message"] == "sealed READY summary"
+        assert summary_calls == ["101"]
+        session = runtime._sessions["101"]
+        assert session["state"] == "READY_TO_CONFIRM"
+        assert "step" not in session
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_supply_refresh_picker_is_paginated_and_callback_has_no_reference_ids(tmp_path):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:

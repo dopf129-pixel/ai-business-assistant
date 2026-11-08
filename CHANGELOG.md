@@ -1,8 +1,15 @@
+# 2026-11-08 — FIFO late-entry review corrections
+
+- Same-file owner period confirmation now persists as a separate immutable report-period decision, so an imported report can be confirmed without rewriting or colliding with its original evidence.
+- Cutoff bridge movement checks now preserve supported, exact linked return/non-sale evidence and reject ambiguous origins, duplicated quantities, and unsupported transfer movements. An ordinary cost change after a late-entry replay is accepted only after the current persisted allocation is independently rebuilt and reconciled.
+- READY cases reopen read-only after a process restart. Historical finance SKU aliases are accepted only with a seller-confirmed mapping bound to the current product/offer; otherwise the bridge remains blocked.
+- Review follow-up is **not merge-ready**: the production Telegram factory still does not assemble a cutoff bridge or inject atomic apply, and replay still rejects multiple active cost rates. No current-head CI has run for these local corrections.
+
 # 2026-11-08 — FIFO FL34–FL35: exact stack checks and review packet
 
 - Full isolated Windows pytest passed **5,104 tests in 75.99s** on integration code/test SHA `4771794e4372c5443ab65cee349d2e673508118e`. Compileall, diff-check and tracked `data/` integrity passed.
 - Exact-head Verify runs for PR #728 (`42433357867`) and PR #729 (`42480102151`) passed Windows/Linux verification and Linux production Docker smoke. PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed run [42480784925](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480784925) on both platforms and Docker smoke.
-- Added an independent review packet with stack refs, changed-files map, FL00–FL35 crosswalk, migration/rollback and positive atomic-commit review guidance, numeric controls and owner-data limitations. PRs #728–#730 were marked ready. This status commit advances PR #730 again; verify its latest exact-head run in the PR before merge.
+- Added an independent review packet with stack refs, changed-files map, FL00–FL35 crosswalk, migration/rollback and positive atomic-commit review guidance, numeric controls and owner-data limitations. PRs #728–#730 were marked ready at that point; this was superseded by the follow-up review status above.
 - The full-suite harness corrections were test-only: sync the current export projection, provide the production invalidation method in the factory test double, and inject one fixed clock into both concurrent confirmation repositories.
 
 # 2026-11-08 — FIFO FL33: owner late-entry guide and evidence checklist

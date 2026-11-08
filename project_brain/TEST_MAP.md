@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO review-fix regression map
+
+- `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.
+- `tests/test_fifo_cost_cutoff_bridge_service.py` and `tests/test_fifo_cost_transition_atomic_apply.py`: exact linked returns/non-sale movements are validated against persisted source events and origin sale chronology; unsupported/duplicate/over-quantity cases fail closed.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py`: a READY case reopened by a fresh runtime remains a read-only summary, not an editable wizard; confirmed callbacks retain their exact scope/revision guards. `tests/test_fifo_cost_transition_service.py` injects one fixed clock into the repository and service on restart so case timestamps do not depend on wall-clock order.
+- `tests/test_fifo_cost_rate_service.py`: first ordinary rate after late-entry is accepted only after current allocation replay, source fingerprint, stream revision and finite remaining layers all reconcile. Multiple active-rate replay remains unsupported and is recorded as an open review issue.
+- Verification: focused profile **110 passed in 8.23s**; full Windows pytest in a disposable worktree **5,115 passed in 61.10s**; `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS after restoring the one test-mutated `data/tasks.json` from Git. Final full suite ran with the temporary copy as its actual working directory. Current-head remote CI has not run on this local correction set.
+
 # 2026-11-08 — FIFO FL34 full-suite and FL35 review packet
 
 - `tests/test_analytics_export_service.py::test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_versions` now asserts the current `mixed_cutoff_sku_count=0` projection in both JSON and CSV metadata.
@@ -5,7 +13,7 @@
 - `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` now injects the same fake clock into both independent repositories, preventing its preview TTL from depending on wall time.
 - The first full-run failures were diagnosed and corrected without changing runtime behavior: eight came from test-harness storage/dependency isolation, two from stale fixtures, and the subsequent single race failure from mixing a frozen preview clock with system clocks. The updated deterministic race and export/factory tests pass.
 - Final isolated Windows pytest on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`: **5104 passed in 75.99s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Review packet: `project_brain/FIFO_LATE_ENTRY_INDEPENDENT_REVIEW_PACKET_2026-11-08.md`.
-- Exact-head Verify runs: PR #728 SHA `5b4f8588` run 42433357867 PASS; PR #729 SHA `7abf5d79` run 42480102151 PASS; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` run 42480784925 PASS (Windows/Linux full verification and Linux Docker build/runtime smoke). This journal/status update advances PR #730; verify the newest exact-head run in its Checks.
+- Historical exact-head Verify runs: PR #728 SHA `5b4f8588` run 42433357867 PASS; PR #729 SHA `7abf5d79` run 42480102151 PASS; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` run 42480784925 PASS (Windows/Linux full verification and Linux Docker build/runtime smoke). These runs predate and do not cover the local review corrections documented at the top of this file.
 
 # 2026-11-08 — FIFO FL33 owner acceptance map
 

@@ -131,7 +131,10 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path, monkeypa
         assert repeated_update["replayed"] is True
 
         restarted = FifoCostTransitionService(
-            FifoCostRepository(db_path=repository.db_path),
+            FifoCostRepository(
+                db_path=repository.db_path,
+                now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+            ),
             now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
         )
         durable = restarted.get_case(

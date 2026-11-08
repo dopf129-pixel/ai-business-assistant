@@ -1,5 +1,18 @@
 # Luna FIFO late entry — журнал
 
+## 2026-11-09 — follow-up specification for the open review blockers
+
+Continuation is prescribed in [FR00–FR31](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md) with a separate [progress/Resume](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). Start with FR00 to preserve the existing local corrections, then implement temporal multi-rate replay and the production evidence/preview/commit path in the new task's dependency order. This supersedes the earlier Resume order below. The specification does not mark either blocker fixed or authorize merge/deployment/live API/bot launch. Owner acceptance remains separate.
+
+## Исправления независимого review — 2026-11-08
+
+- Исправлены подтверждённые локальные дефекты: повторное подтверждение периода для того же отчёта теперь сохраняется отдельной append-only записью; cutoff bridge поддерживает только доказанные точные возвраты/выбытия и проверяет исходную продажу, хронологию и объём; READY после restart открывается только как read-only summary; исторические SKU-псевдонимы не отбрасываются молча и требуют seller-confirmed привязки к текущим product/offer; первая обычная ставка после позднего перехода допускается только после полного повторного replay текущего allocation.
+- Проверки: FIFO-focused profile **110 passed in 8.23s**; полный Windows pytest в disposable worktree с корректной рабочей папкой **5,115 passed in 61.10s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` — PASS. Первые isolated attempts выявили отсутствие локальных worker-зависимостей в копии, незамороженные часы repository в одном тесте и запуск PowerShell из source checkout; `data/tasks.json` был изменён тестом и восстановлен из Git по прежнему выбору владельца. Финальный прогон запускался из temporary worktree.
+- Review остаётся **BLOCKED / NOT READY TO MERGE** по двум доказанным пробелам: production factory не формирует cutoff bridge и не подключает atomic apply service, поэтому Telegram-путь не может дойти до READY/APPLIED; replay отвергает более одной active rate, поэтому последовательные дальнейшие изменения стоимости не поддержаны. Предыдущие CI на SHA `5178d501` не проверяют эти локальные изменения; full suite и exact-head remote CI ещё не запускались.
+- Сохранены `data/` и существующий незатреканный `.fl12-deps/`. Не использовались файлы/БД владельца, live Ozon/Telegram, запуск бота, merge или deploy.
+
+Resume: сначала закрыть production proof/preview/commit orchestration с positive-path тестом через production factory; затем поддержать deterministic replay с несколькими последующими ставками либо не заявлять FL20 завершённым. После изменений — linked FIFO/Telegram/Period Profit suite, isolated full `pytest`, current-SHA CI и обновлённый independent review packet. Не сливать PR #730.
+
 Дата подготовки: 2026-11-07.
 ТЗ: LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md.
 Матрица: FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md.

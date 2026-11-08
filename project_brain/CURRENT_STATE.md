@@ -1,7 +1,18 @@
+# 2026-11-09 — FIFO blocker completion specification prepared
+
+- Prepared execution specification and empty progress log: [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), [Resume/progress](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). The task fixes temporal multi-rate replay and a durable production bridge/preview/atomic-apply path, with contracts, MR01–MR22 numeric/behavior controls and dependent PR packaging.
+- This is documentation preparation only. Existing local review corrections remain uncommitted and must be preserved first. Implementation has not started; PR #730 remains NOT READY TO MERGE; owner validation remains pending. Previous pytest/CI results do not verify the future FR implementation.
+
+# 2026-11-08 — FIFO review corrections in progress
+
+- Applied local corrections for report period confirmation, exact linked return bridge validation, restart-safe READY review, seller-confirmed historical finance SKU aliases, the first ordinary rate change after a verified late-entry replay, and deterministic repository clocks in the lifecycle regression. Schema v15 stores owner period confirmation separately and append-only from the source report. The FIFO-focused regression profile passes **110 tests**; isolated full Windows pytest passes **5,115 tests in 61.10s**; compileall and data-preservation checks pass.
+- Independent review found two remaining implementation gaps: (1) production factory/runtime never builds and supplies the cutoff bridge or atomic apply service, so the user-facing path cannot reach READY/APPLIED; (2) deterministic replay still rejects more than one active rate, so successive ordinary rate changes after late entry are not supported. The current branch must not be merged until these are addressed or explicitly removed from the promised scope with review approval.
+- The first isolated attempts exposed setup issues: a local worker dependency directory was absent from the disposable copy, then PowerShell was still in the source checkout and a test changed `data/tasks.json`. That file was restored from Git per the owner's earlier choice and `git diff --exit-code -- data` was rerun. The final full test ran with the temporary copy as its actual working directory and passed. No owner-provided business records, live Ozon/Telegram calls, bot process, merge, or deployment was used. Exact-head CI has not run on these local corrections; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+
 # 2026-11-08 — FIFO FL34–FL35: local verification green, final packet CI pending
 
 - Full isolated Windows pytest passed **5,104 tests in 75.99s** on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`; `compileall`, `git diff --check` and tracked `data/` diff passed. Remote Verify runs 42433357867 (PR #728), 42480102151 (PR #729), and 42480112108 (the earlier PR #730 head) passed Windows/Linux and production Docker smoke.
-- PRs #728–#730 are open and ready as a dependent stack. PR #728 and #729 exact heads are green; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed exact-head run 42480784925 (Windows/Linux full verification and production Docker smoke). This status/journal commit advances PR #730; its newest exact-head run is authoritative in the PR.
+- At the time of that earlier check, PRs #728–#730 were marked ready; that status was superseded by the review correction entry above. PR #728 and #729 exact heads were green; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed exact-head run 42480784925, which does not cover the current local corrections.
 - No runtime behavior changed in the verification/review-packet/status commits. Owner validation/source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
 
 # 2026-11-08 — FIFO FL33: owner instructions separate knowns from missing evidence

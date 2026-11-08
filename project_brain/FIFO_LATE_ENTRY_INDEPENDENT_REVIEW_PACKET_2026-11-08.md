@@ -8,13 +8,26 @@ Execution log: [LUNA_FIFO_LATE_ENTRY_COMPLETION_PROGRESS_2026-11-07.md](LUNA_FIF
 
 ## Delivery stack and review boundary
 
-These are three dependent PRs. Review and merge them in order; do not merge a dependent PR before its base. Exact current PR #730 head and its current full-verification run are authoritative in the PR header/Checks. An earlier green run on a superseded head is not evidence for a later head. This status-sync commit advances PR #730; check its newest exact-head run before merge.
+These are three dependent PRs. Review and merge them in order; do not merge a dependent PR before its base. PRs #728 and #729 have earlier exact-head green runs. PR #730 is **not ready to merge**: independent review found production wiring and multi-rate replay gaps, and the correction set below has not yet been committed or verified on a current head. Earlier green runs do not cover these changes.
 
 | PR | Scope | Base | Head at stack publication | Changed files | State |
 |---|---|---|---|---:|---|
 | [#728](https://github.com/dopf129-pixel/ai-business-assistant/pull/728) | FL00–FL11: foundation, case/evidence store, supply observations | `main` `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | 33 | Ready for review; exact-head CI green |
 | [#729](https://github.com/dopf129-pixel/ai-business-assistant/pull/729) | FL12–FL23: reports, reconciliation, replay, atomic apply | PR #728 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | `7abf5d79d608bf377f79df3b425b50d73de4d81c` | 44 | Ready for review; exact-head CI green |
-| [#730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35: Telegram, consumers, Period Profit, acceptance and this packet | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Use current PR #730 header SHA | 48 | Ready for review; exact-head CI is linked from the PR; verify after this status-sync commit |
+| [#730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35: Telegram, consumers, Period Profit, acceptance and this packet | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Previous published SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89`; local corrections are uncommitted | 48 + local follow-up | **Not ready**; production bridge/apply wiring and multiple-rate replay remain unresolved; current exact-head CI pending |
+
+## Follow-up review corrections — 2026-11-08
+
+| Finding | Status | Evidence / remaining work |
+|---|---|---|
+| P1 — production positive path absent: factory does not provide a cutoff-bridge evidence builder or atomic apply orchestration; `assess()` still passes `cutoff_bridge=None` | **Open** | The current UI can save and inspect evidence but cannot reach a real READY/APPLIED path. Implement persisted owner-document bridge input, production assembly, and repository preview/commit wiring; exercise it through production factory. |
+| P1 — same report cannot be imported then owner-confirmed for its period | **Fixed locally** | Separate immutable report-period confirmation evidence and idempotency; tests cover original report preservation and same-file confirmation. |
+| P1 — any return/non-sale movement blocks transition | **Fixed locally with fail-closed limits** | Typed exact movement proof is accepted only when it matches persisted events and the originating sale; unsupported transfer, missing origin, duplicate or over-quantity movement still blocks. |
+| P2 — READY cannot resume after restart | **Fixed locally** | Fresh runtime resumes as read-only summary; it never reopens the sealed case as editable. |
+| P2 — later ordinary cost change fails after a late-entry replay | **Partially fixed locally** | One ordinary rate can follow a complete, source-matched replay. More than one active rate still returns `FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED`; add multi-rate segment replay and regressions before claiming FL20 complete. |
+| P2 — historical finance SKU aliases are silently lost | **Fixed locally** | Exact historical aliases now require seller-confirmed mapping bound to current product/offer; missing mapping raises an explicit bridge blocker. |
+
+Local correction verification: FIFO-focused profile **110 passed in 8.23s**; full Windows pytest in a disposable worktree **5,115 passed in 61.10s**; compileall, diff check and unchanged tracked `data/` pass after restoring the initial harness-mutated `data/tasks.json` from Git. Remote CI and current exact-head verification remain pending. Do not merge PR #730 yet.
 
 The branch PR1 head has GitHub Verify run [42433357867](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42433357867) with Windows verification and Linux full verification plus production Docker build/runtime smoke all successful. PR2 head run [42480102151](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480102151) has the same checks successful. Integration SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed [42480784925](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480784925); this status-sync commit advances PR #730 again, so use the newest successful run shown on that PR.
 
@@ -51,7 +64,7 @@ Each PR also changes its focused regression tests, `CHANGELOG.md`, `project_brai
 
 ### Positive commit path (review closely)
 
-The supported path is: context-bound wizard save → persisted owner declarations and allowlisted reports → complete readiness/source proof → exact sale/cutoff bridge → deterministic replay and independent period/tax impact → sealed READY preview → `commit_transition_case` revalidates case revision, preview fingerprint/expiry, evidence set, tax policy, stock/return bridge and current FIFO revision inside a write transaction → rate, opening layers, replay allocation, sale mappings, audit and case revision commit together. The competing confirm must fail closed. `test_two_concurrent_confirms_apply_one_fifo_transition`, write-boundary fault injection, stale evidence tests and exact replay after backup/restore cover the positive path and rollback boundaries.
+The **intended** path is: context-bound wizard save → persisted owner declarations and allowlisted reports → complete readiness/source proof → exact sale/cutoff bridge → deterministic replay and independent period/tax impact → sealed READY preview → `commit_transition_case` revalidates case revision, preview fingerprint/expiry, evidence set, tax policy, stock/return bridge and current FIFO revision inside a write transaction → rate, opening layers, replay allocation, sale mappings, audit and case revision commit together. The repository commit and rollback boundaries have synthetic tests, but the production Telegram runtime does not yet assemble the bridge or invoke this commit path. Therefore those tests do **not** prove a usable production positive path; this is an open P1 review finding.
 
 ## Architecture and persistence
 

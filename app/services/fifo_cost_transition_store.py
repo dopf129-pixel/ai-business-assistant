@@ -336,6 +336,67 @@ class FifoCostTransitionStore:
             report_id = "report_" + cls._digest(
                 f"{case_id}:{report.report_type.value}:{report.file_sha256}"
             )[:40]
+            existing = connection.execute(
+                """SELECT report_evidence_id, parser_version, source_kind,
+                          completeness, source_fingerprint, cell_references_json,
+                          normalized_fields_json
+                   FROM fifo_cost_report_evidence
+                   WHERE case_id=? AND report_type=? AND file_sha256=?""",
+                (case_id, report.report_type.value, report.file_sha256),
+            ).fetchone()
+            if existing is not None:
+                same_document = (
+                    existing["report_evidence_id"] == report_id
+                    and existing["parser_version"] == report.parser_version
+                    and existing["source_kind"] == report.metadata.source_kind.value
+                    and existing["completeness"] == report.metadata.completeness.value
+                    and existing["source_fingerprint"] == report.metadata.source_fingerprint
+                    and existing["cell_references_json"] == cls._json(
+                        list(report.cell_references), cls.MAX_EVIDENCE_PAYLOAD_BYTES,
+                    )
+                    and existing["normalized_fields_json"] == cls._json(
+                        cls._json_value(report.normalized_fields),
+                        cls.MAX_EVIDENCE_PAYLOAD_BYTES,
+                    )
+                )
+                if not same_document:
+                    return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_CONFLICT"}
+                if (
+                    report.period_provenance.value != "OWNER_CONFIRMED"
+                    or report.period_from is None or report.period_to is None
+                ):
+                    return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_ALREADY_SAVED"}
+
+                confirmation_fingerprint = cls._digest(cls._json({
+                    "report_evidence_id": report_id,
+                    "period_from": report.period_from,
+                    "period_to": report.period_to,
+                    "period_provenance": "OWNER_CONFIRMED",
+                    "parser_version": report.parser_version,
+                }, cls.MAX_EVIDENCE_PAYLOAD_BYTES))
+                latest = connection.execute(
+                    """SELECT confirmation_revision, source_fingerprint
+                       FROM fifo_cost_report_period_confirmations
+                       WHERE report_evidence_id=?
+                       ORDER BY confirmation_revision DESC LIMIT 1""",
+                    (report_id,),
+                ).fetchone()
+                if latest is None or latest["source_fingerprint"] != confirmation_fingerprint:
+                    revision = 1 if latest is None else latest["confirmation_revision"] + 1
+                    confirmation_id = "period_" + cls._digest(
+                        f"{report_id}:{revision}:{confirmation_fingerprint}"
+                    )[:40]
+                    connection.execute(
+                        """INSERT INTO fifo_cost_report_period_confirmations (
+                            period_confirmation_id, report_evidence_id, case_id,
+                            confirmation_revision, period_from, period_to,
+                            period_provenance, source_fingerprint, confirmed_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'OWNER_CONFIRMED', ?, ?)""",
+                        (confirmation_id, report_id, case_id, revision,
+                         report.period_from, report.period_to,
+                         confirmation_fingerprint, report.captured_at),
+                    )
+                return {"evidence_id": report_id}
             connection.execute(
                 """INSERT INTO fifo_cost_report_evidence (
                     report_evidence_id, case_id, report_type, period_from, period_to,
@@ -764,12 +825,25 @@ class FifoCostTransitionStore:
                      FROM fifo_cost_supply_observations
                      WHERE case_id=? ORDER BY captured_at, observation_id LIMIT ?"""
         elif kind == "REPORT_EVIDENCE":
-            sql = """SELECT report_evidence_id AS evidence_id, report_type,
-                            period_from, period_to, period_provenance, captured_at,
-                            file_sha256, parser_version, source_kind, completeness,
-                            cell_references_json, normalized_fields_json
-                     FROM fifo_cost_report_evidence
-                     WHERE case_id=? ORDER BY captured_at, report_evidence_id LIMIT ?"""
+            sql = """SELECT r.report_evidence_id AS evidence_id, r.report_type,
+                            COALESCE(c.period_from, r.period_from) AS period_from,
+                            COALESCE(c.period_to, r.period_to) AS period_to,
+                            CASE WHEN c.period_confirmation_id IS NOT NULL
+                                 THEN 'OWNER_CONFIRMED' ELSE r.period_provenance END
+                                AS period_provenance,
+                            r.captured_at, r.file_sha256, r.parser_version,
+                            r.source_kind, r.completeness, r.cell_references_json,
+                            r.normalized_fields_json
+                     FROM fifo_cost_report_evidence AS r
+                     LEFT JOIN fifo_cost_report_period_confirmations AS c
+                       ON c.period_confirmation_id=(
+                           SELECT latest.period_confirmation_id
+                           FROM fifo_cost_report_period_confirmations AS latest
+                           WHERE latest.report_evidence_id=r.report_evidence_id
+                           ORDER BY latest.confirmation_revision DESC LIMIT 1
+                       )
+                     WHERE r.case_id=?
+                     ORDER BY r.captured_at, r.report_evidence_id LIMIT ?"""
         else:
             return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_KIND_INVALID"}
         rows = connection.execute(sql, (case_id, limit)).fetchall()
