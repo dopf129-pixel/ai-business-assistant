@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL27 consumers/cache regressions
+
+- `tests/test_fifo_late_entry_current_consumers.py` covers current cost/cache staying at legacy 21.00 ₽ across a persisted READY transition and switching to FIFO 14.65 ₽ only after atomic `APPLIED`; the exact cost revision forces a fresh unit-economics query, and runtime apply requests revision-aware detail invalidation.
+- `tests/test_product_unit_economics_telegram_ui.py` covers stale rendered-detail rejection when either cost/allocation revision changes, exact identity/revision invalidation, and preservation of current-revision and other-SKU snapshots.
+- Existing `tests/test_product_unit_economics_query_cache.py` verifies immediate exact-cost-revision cache refresh. Existing `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export` verifies frozen old plan assumptions across restart/copy/new plan revisions. Existing FL26 review tests verify TOTAL_LANDED is not decomposed.
+- Focused profile: **72 passed**. Linked FIFO/Telegram/Period Profit/current unit economics/saved plans: **617 passed in 27.93s**. Compileall, `git diff --check`, and `git diff --exit-code -- data` PASS; temporary synthetic SQLite only.
+
 # 2026-11-08 — FIFO FL26 Telegram review/actions
 
 - `tests/test_fifo_cost_transition_review_service.py`: read-only reconstruction from exact scoped durable evidence, readiness stays non-applicable, ciphertext/reference fields remain hidden, source report and declarations retain typed provenance, confirmed layer view excludes unknown/replay-required quantities.

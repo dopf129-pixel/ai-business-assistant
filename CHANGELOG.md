@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO current economics and cache revisions (FL27)
+
+- Current unit economics continues to use the effective legacy cost while a transition is only draft/ready. After atomic `APPLIED`, the current-cost adapter observes the new FIFO history revision and the query cache is refreshed by its exact cost revision.
+- Rendered Telegram expense details now retain exact product/store, cost and allocation revisions. Stale callbacks are rejected, and successful transition apply invalidates only matching snapshots whose revisions are no longer current. Saved planning documents remain frozen historical assumptions.
+- FL27 consumer/cache/planning profile: **72 passed**; linked FIFO, Telegram, Period Profit, current unit economics and saved planning profile: **617 passed**. Compileall, diff-check, and unchanged `data/` checks passed. Synthetic database only; owner case remains unverified.
+
 # 2026-11-08 — FIFO late-entry readiness and review actions (FL26)
 
 - Added scoped read-only reconstruction of saved FIFO transition evidence, explicit readiness requirements and a recalculation preview with owner/source provenance, confirmed layers, coverage limits, and a clear separation between unit-cost difference and actual profit.

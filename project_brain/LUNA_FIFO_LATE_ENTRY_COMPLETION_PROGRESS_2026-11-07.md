@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL27.
-Выполненных этапов:26/36 (FL00–FL26 VERIFIED на кодовых и синтетических проверках; далее FL27–FL35: consumers, acceptance, reliability и PR delivery).
+Следующий этап: FL28.
+Выполненных этапов:27/36 (FL00–FL27 VERIFIED на кодовых и синтетических проверках; далее FL28–FL35: Period Profit, history/refresh, acceptance, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` содержит FL24–FL26 и основана на exact PR2 head. Последний code checkpoint FL26 `1e9ccb95d06974ebacf9b00186341dd399d40cfb` (с добавочным UI/review commit `b6ccc4569fd66f349f80f2a3bb84fb6505ce5e6a`); linked profile: **545 passed**. FL25 code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; FL24 code `ee98230286354e21e1f2cf5ca307391c97d6171f`, docs `e3a81d32545d2dcc04283c479091906befa1c47d`. FL26 documentation checkpoint in progress; PRs not yet pushed. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` содержит FL24–FL27 и основана на exact PR2 head. Последний code checkpoint FL27 `81266ad3` (текущий docs checkpoint в работе); linked profile **617 passed**. FL26 code `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; FL25 `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; FL24 `ee98230286354e21e1f2cf5ca307391c97d6171f`. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -47,7 +47,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL24 | Меню до FIFO | VERIFIED | code `ee98230286354e21e1f2cf5ca307391c97d6171f`; linked profile 533 passed |
 | FL25 | Durable мастер | VERIFIED | code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked profile 537 passed; compileall/diff-check/data unchanged PASS |
 | FL26 | Разные подтверждения | VERIFIED | `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; focused 57 passed in 4.38s; linked FIFO/Telegram/Period Profit 545 passed in 24.43s; compileall/diff-check/data unchanged PASS; synthetic only |
-| FL27 | Current/plans/cache | NOT_STARTED | — |
+| FL27 | Current/plans/cache | VERIFIED | code `81266ad3`; focused 72 passed; linked FIFO/Telegram/Period Profit/current unit economics/saved plans 617 passed in 27.93s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL28 | Period Profit | NOT_STARTED | — |
 | FL29 | History/refresh/cancel | NOT_STARTED | — |
 | FL30 | Числовая матрица | NOT_STARTED | — |
@@ -56,6 +56,15 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
+
+## Выполнение FL27 — 2026-11-08
+
+- `ProductUnitEconomicsQueryService` уже строил cache key по точному `cost_revision` и удалял прежний кэш того же tenant/store/product/offer/SKU/date. Это подтверждено integrated regression: готовый, но не применённый transition оставляет старую effective-dated себестоимость `21.00 ₽` и cache hit; atomic apply меняет источник на FIFO `14.65 ₽`, revision и query становятся cache miss, прежний snapshot удаляется.
+- `SavedPlanningPlanService` продолжает открывать сохранённую ревизию как frozen historical assumptions (`recalculated_on_read=false`). Existing FL27 plan regression повторно прогнана: старый FIFO basis и sales-mix allocation сохраняются после restart/copy, новые revisions не переписывают ранее сохранённую стоимость. Новый расчёт получает live revision из общей FIFO adapter. `TOTAL_LANDED` отображается одной итоговой ставкой без fabricated components (FL26 review regression).
+- Telegram expense detail snapshots теперь хранят точные store/product/offer/SKU, cost revision и allocation revision. На открытии callback локально пересчитывает текущие revisions без Ozon/Telegram HTTP; stale или недоступная ревизия закрывает старую расшифровку. После успешного runtime apply hook удаляет только snapshots точной identity, чьи revisions уже устарели; snapshot другой SKU или текущей revision сохраняется.
+- Добавлено `tests/test_fifo_late_entry_current_consumers.py`; расширен `tests/test_product_unit_economics_telegram_ui.py`. Focused consumer/UI/cache/saved-plan suite: **72 passed in 3.02s**. Связанный `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`, unit-economics UI/cache и saved planning profile: **617 passed in 27.93s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS; только synthetic temporary SQLite.
+- Code commit `81266ad3` (`Bind FIFO consumer caches to cost revisions`). Архитектура — minor extension existing revision cache and Telegram ephemeral snapshot validation; schema/DB version, plan contract, financial calculations and `DECISIONS.md` не менялись. Apply invalidation hook подключён к runtime; production positive apply orchestration и Period Profit bridge — FL28. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+- Следующий этап: FL28 — end-to-end Period Profit bridge/allocation; сохранить exact revision в объяснении и экспорте, не применять новый FIFO cost к неподтверждённым периодам.
 
 ## Выполнение FL26 — 2026-11-08
 

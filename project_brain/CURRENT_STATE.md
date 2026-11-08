@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL27: current unit economics and plans
+
+- Черновик/READY перехода не меняет текущую себестоимость: до атомарного применения продолжается legacy effective-dated значение. После `APPLIED` общий FIFO adapter получает новую точную history revision, а query cache текущей экономики сразу перестраивается по cost revision.
+- Telegram snapshot расшифровки хранит точные store/product/offer/SKU, cost revision и allocation revision. После apply invalidator удаляет только устаревший snapshot этой identity; каждый callback дополнительно сверяет обе revision и закрывается при изменении или недоступном источнике. Новые owner/API запросы при этом не делаются.
+- Сохранённые планы остаются историческими immutable revisions; свежий расчёт получает новый FIFO basis. `TOTAL_LANDED` остаётся одной суммой без созданной ботом разбивки компонентов.
+- FL27 code `81266ad3`; focused **72 passed**, linked profile **617 passed in 27.93s**, compileall/diff-check/`data/` unchanged PASS. Только временные synthetic SQLite; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Production apply orchestration и financial Period Profit integration продолжаются в FL28.
+
 # 2026-11-08 — FIFO FL26: раздельные действия, readiness и preview
 
 - Добавлен read-only reconstruction сохранённых declarations/observations/reports и readiness для точного owner/store/SKU дела. Preview различает owner-ввод, source as-of/period provenance, подтверждённые FIFO-слои, TOTAL_LANDED/COMPONENTS и не выдаёт разницу себестоимости за прибыль.
