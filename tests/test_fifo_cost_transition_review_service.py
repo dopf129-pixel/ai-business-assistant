@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from services.fifo_cost_history_service import FifoCostHistoryService
@@ -76,6 +77,35 @@ def test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready(tmp_path):
         )
         assert hidden["error"] is False
         assert all("encrypted_lookup_reference" not in item for item in hidden["items"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_readiness_can_reopen_ready_case_without_marking_it_applicable(tmp_path, monkeypatch):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
+    try:
+        _repository, _history, transition, _runtime, review = _services(tmp_path)
+        case_id = _create_case(_runtime)
+        original_get_case = transition.get_case
+
+        def ready_read(*, case_id, **identity):
+            result = original_get_case(case_id=case_id, **identity)
+            if result.get("error") is False:
+                result = dict(result)
+                case_payload = dict(result["case"])
+                case_payload["state"] = "READY_TO_CONFIRM"
+                result["case"] = case_payload
+                result["state"] = "READY_TO_CONFIRM"
+            return result
+
+        monkeypatch.setattr(transition, "get_case", ready_read)
+        result = review.assess(case_id=case_id, identity=IDENTITY)
+
+        assert result["error"] is False, result
+        assert result["case_state"] == "READY_TO_CONFIRM"
+        assert result["readiness"].case_state_before == "READY_TO_CONFIRM"
+        assert result["ready_to_apply"] is False
+        assert result["preview_only"] is True
     finally:
         reset_current_tenant_user_id(tenant)
 
