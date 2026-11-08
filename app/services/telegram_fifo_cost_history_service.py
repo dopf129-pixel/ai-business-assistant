@@ -19,10 +19,15 @@ class TelegramFifoCostHistoryService:
     TTL_SECONDS = 15 * 60
     MAX_TICKETS = 1024
 
-    def __init__(self, history_service=None, rate_cancellation_service=None):
+    def __init__(
+        self, history_service=None, rate_cancellation_service=None,
+        transition_service=None,
+    ):
         self.history_service = history_service or FifoCostHistoryService()
         self.rate_cancellation_service = rate_cancellation_service
+        self.transition_service = transition_service
         self._tickets = {}
+        self._case_tickets = {}
         self._lock = RLock()
 
     def create_sku_callback(
@@ -47,6 +52,7 @@ class TelegramFifoCostHistoryService:
         with self._lock:
             self._purge_expired(now)
             self._tickets[(owner, token)] = {
+                "owner_key": owner,
                 "tenant_scope": tenant_scope,
                 "store_id": str(store_id),
                 "product_id": str(product_id) if product_id is not None else None,
@@ -73,8 +79,11 @@ class TelegramFifoCostHistoryService:
         if action not in {
             "open", "history", "new", "late", "correct", "sku",
             "anchor", "zero_rate", "cancel_rate", "confirm_rate_cancel", "export",
+            "drafts", "late_total", "late_components", "resume",
         }:
             return {"error": False, "handled": False, "read_only_ozon": True}
+        if action == "resume":
+            return self._resume_transition_case(owner, token)
         ticket = self._validated_ticket(owner, token)
         if isinstance(ticket, dict) and ticket.get("error") is True:
             return ticket
@@ -109,6 +118,19 @@ class TelegramFifoCostHistoryService:
         if action == "zero_rate":
             if ticket["queue_initialized"] is True:
                 return self._render_sku_card(ticket)
+            if self.transition_service is not None:
+                active = self._active_transition_cases(ticket)
+                if active is None:
+                    return self._message_result(
+                        "Не удалось проверить незавершённые изменения. Нулевой старт не начат; FIFO не изменена.",
+                        ticket["token"],
+                    )
+                if active:
+                    return self._message_result(
+                        "Нулевой старт запрещён: для SKU есть незавершённые сведения о новой партии. "
+                        "Сначала продолжите или отмените это изменение, чтобы товар в пути не потерялся.",
+                        ticket["token"],
+                    )
             return {
                 "error": False,
                 "handled": True,
@@ -120,11 +142,7 @@ class TelegramFifoCostHistoryService:
             }
         if action == "late":
             if ticket["queue_initialized"] is not True:
-                return self._message_result(
-                    "Сначала зафиксируйте начальный FIFO-остаток для этого SKU. "
-                    "Позднюю партию пока нельзя безопасно восстановить.",
-                    ticket["token"],
-                )
+                return self._transition_mode_prompt(ticket)
             return {
                 "error": False,
                 "handled": True,
@@ -134,6 +152,32 @@ class TelegramFifoCostHistoryService:
                 "expected_revision": ticket["revision"],
                 "read_only_ozon": True,
             }
+        if action in {"late_total", "late_components"}:
+            if ticket["queue_initialized"] is True:
+                return self._render_sku_card(ticket)
+            active = self._active_transition_cases(ticket)
+            if active is None:
+                return self._message_result(
+                    "Не удалось проверить незавершённые изменения. Новый черновик не создан.",
+                    ticket["token"],
+                )
+            if active:
+                return self._render_transition_drafts(ticket)
+            return {
+                "error": False,
+                "handled": True,
+                "action": "start_transition_wizard",
+                "cost_input_mode": (
+                    "TOTAL_LANDED" if action == "late_total" else "COMPONENTS"
+                ),
+                "identity": ticket["identity"],
+                "display_name": ticket["display_name"],
+                "expected_revision": ticket["revision"],
+                "message": "Открываю сохранение сведений о уже отправленной партии.",
+                "read_only_ozon": True,
+            }
+        if action == "drafts":
+            return self._render_transition_drafts(ticket)
         if action == "correct":
             return self._message_result(
                 "Исправление сохранённой записи пока недоступно. Старую запись нельзя заменить "
@@ -198,6 +242,156 @@ class TelegramFifoCostHistoryService:
                 ticket["token"],
                 queue_initialized=snapshot["queue_initialized"],
             ),
+            "read_only_ozon": True,
+        }
+
+    def _active_transition_cases(self, ticket):
+        if self.transition_service is None:
+            return None
+        result = self.transition_service.list_cases(
+            store_id=ticket["identity"]["store_id"],
+            sku=ticket["identity"]["sku"],
+            states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"),
+            limit=20,
+        )
+        if (
+            not isinstance(result, dict) or result.get("error") is not False
+            or not isinstance(result.get("cases"), list)
+        ):
+            return None
+        expected = ticket["identity"]
+        cases = []
+        for item in result.get("cases", ()):
+            payload = item.get("case") if isinstance(item, dict) else None
+            metadata = payload.get("metadata") if isinstance(payload, dict) else None
+            scope = metadata.get("scope") if isinstance(metadata, dict) else None
+            if not isinstance(item, dict) or not isinstance(scope, dict):
+                return None
+            # Repository listing is already owner/tenant scoped; the payload
+            # intentionally does not persist the owner identity a second time.
+            if all(scope.get(key) == expected.get(key) for key in (
+                "store_id", "product_id", "offer_id", "sku",
+            )):
+                cases.append(item)
+        return cases
+
+    def _transition_mode_prompt(self, ticket):
+        if self.transition_service is None:
+            return self._message_result(
+                "Сохранение сведений о новой партии пока недоступно. Текущая FIFO не изменена.",
+                ticket["token"],
+            )
+        return {
+            "error": False,
+            "handled": True,
+            "message": (
+                "Партия уже отправлена до настройки FIFO. Выберите, как зафиксировать "
+                "её итоговую себестоимость. Черновик не изменит текущие расчёты."
+            ),
+            "keyboard": {
+                "error": False,
+                "type": "inline_keyboard",
+                "buttons": [
+                    {"text": "Указать итоговую себестоимость", "callback": f"{self.CALLBACK_PREFIX}:late_total:{ticket['token']}"},
+                    {"text": "Разбить на закупку, доставку и упаковку", "callback": f"{self.CALLBACK_PREFIX}:late_components:{ticket['token']}"},
+                    {"text": "🗂 Незавершённые изменения", "callback": f"{self.CALLBACK_PREFIX}:drafts:{ticket['token']}"},
+                    {"text": "↩️ К SKU", "callback": f"{self.CALLBACK_PREFIX}:sku:{ticket['token']}"},
+                ],
+            },
+            "read_only_ozon": True,
+        }
+
+    def _render_transition_drafts(self, ticket):
+        cases = self._active_transition_cases(ticket)
+        if cases is None:
+            return self._message_result(
+                "Не удалось безопасно прочитать незавершённые изменения. Данные не изменены.",
+                ticket["token"],
+            )
+        if not cases:
+            message = "Для этого SKU нет незавершённых изменений."
+            buttons = []
+        else:
+            message = (
+                f"🗂 Незавершённые изменения · {ticket['display_name']} · SKU {ticket['sku']}\n"
+                "Они сохранены отдельно и пока не меняют FIFO или расчёт прибыли."
+            )
+            buttons = []
+            now = monotonic()
+            for index, item in enumerate(cases[:20], start=1):
+                if (
+                    not isinstance(item.get("case_id"), str)
+                    or type(item.get("case_revision")) is not int
+                    or not isinstance(item.get("state"), str)
+                ):
+                    return self._message_result(
+                        "В незавершённом изменении обнаружены неполные данные. Ничего не изменено.",
+                        ticket["token"],
+                    )
+                case_id = item["case_id"]
+                token = uuid4().hex[:12]
+                owner = ticket.get("owner_key")
+                if not owner:
+                    return self._message_result(
+                        "Не удалось создать безопасную кнопку продолжения. Данные не изменены.",
+                        ticket["token"],
+                    )
+                with self._lock:
+                    self._purge_expired(now)
+                    self._case_tickets[(owner, token)] = {
+                        "tenant_scope": ticket["tenant_scope"],
+                        "identity": dict(ticket["identity"]),
+                        "case_id": case_id,
+                        "case_revision": item["case_revision"],
+                        "expires_at": now + self.TTL_SECONDS,
+                    }
+                    while len(self._case_tickets) > self.MAX_TICKETS:
+                        oldest = min(
+                            self._case_tickets,
+                            key=lambda key: self._case_tickets[key]["expires_at"],
+                        )
+                        self._case_tickets.pop(oldest, None)
+                buttons.append({
+                    "text": f"Продолжить изменение {index} · {item['state']}",
+                    "callback": f"{self.CALLBACK_PREFIX}:resume:{token}",
+                })
+            buttons.append({"text": "➕ Новая партия отправлена", "callback": f"{self.CALLBACK_PREFIX}:late:{ticket['token']}"})
+        buttons.append({"text": "↩️ К SKU", "callback": f"{self.CALLBACK_PREFIX}:sku:{ticket['token']}"})
+        return {
+            "error": False,
+            "handled": True,
+            "message": message,
+            "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
+            "read_only_ozon": True,
+        }
+
+    def _resume_transition_case(self, owner, token):
+        if owner is None or not token or self.transition_service is None:
+            return self._stale_ticket()
+        now = monotonic()
+        with self._lock:
+            self._purge_expired(now)
+            ticket = self._case_tickets.get((owner, token))
+        if not isinstance(ticket, dict) or ticket.get("tenant_scope") != self._tenant_scope():
+            return self._stale_ticket()
+        result = self.transition_service.get_case(
+            case_id=ticket["case_id"], **ticket["identity"],
+        )
+        if (
+            not isinstance(result, dict) or result.get("error") is not False
+            or result.get("case_revision") != ticket["case_revision"]
+            or result.get("state") not in {"DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"}
+        ):
+            return self._stale_ticket()
+        return {
+            "error": False,
+            "handled": True,
+            "action": "resume_transition_wizard",
+            "identity": dict(ticket["identity"]),
+            "case_id": ticket["case_id"],
+            "case_revision": result["case_revision"],
+            "case": result["case"],
+            "message": "Продолжаю сохранённые сведения о партии.",
             "read_only_ozon": True,
         }
 
@@ -564,6 +758,8 @@ class TelegramFifoCostHistoryService:
             buttons = [
                 {"text": "📦 Зафиксировать начальный остаток", "callback": f"{cls.CALLBACK_PREFIX}:anchor:{token}"},
                 {"text": "🆕 Начать с нулевого остатка", "callback": f"{cls.CALLBACK_PREFIX}:zero_rate:{token}"},
+                {"text": "📦 Новая партия уже отправлена", "callback": f"{cls.CALLBACK_PREFIX}:late:{token}"},
+                {"text": "🗂 Незавершённые изменения", "callback": f"{cls.CALLBACK_PREFIX}:drafts:{token}"},
                 {"text": "↩️ К SKU", "callback": f"{cls.CALLBACK_PREFIX}:sku:{token}"},
             ]
             return {"error": False, "type": "inline_keyboard", "buttons": buttons}
@@ -632,9 +828,10 @@ class TelegramFifoCostHistoryService:
         }
 
     def _purge_expired(self, now):
-        for key, ticket in list(self._tickets.items()):
-            if ticket["expires_at"] <= now:
-                self._tickets.pop(key, None)
+        for mapping in (self._tickets, self._case_tickets):
+            for key, ticket in list(mapping.items()):
+                if ticket["expires_at"] <= now:
+                    mapping.pop(key, None)
 
     @staticmethod
     def _user_key(value):

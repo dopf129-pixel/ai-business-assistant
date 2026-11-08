@@ -613,6 +613,7 @@ def create_telegram_assistant():
     telegram_fifo_cost_history_service = TelegramFifoCostHistoryService(
         fifo_cost_history_service,
         FifoCostRateCancellationService(fifo_cost_repository),
+        transition_service=fifo_cost_transition_service,
     )
     fifo_cost_source_collection_service = FifoCostSourceCollectionService(
         ozon_client=OzonClient(),
