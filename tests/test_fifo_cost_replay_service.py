@@ -294,6 +294,56 @@ def test_fl21_linked_return_and_non_sale_outflow_before_rate_are_replayed_as_phy
     assert result["outflows"][0]["event_id"] == "movement-linked"
 
 
+def test_n27_pre_cutoff_sales_are_not_consumed_again_from_opening_fifo(service):
+    pre_cutoff_cogs = Decimal("2") * Decimal("21.00")
+    assert pre_cutoff_cogs == Decimal("42.00")
+
+    result = _preview(
+        service,
+        [_sale("sale-after-cutoff", 4, "2026-11-08", "4" * 64)],
+        layers=[FifoCostLayer("old-opening", "21.00", 3)],
+        open_rate=FifoOpenCostRate("new-rate", "14.65"),
+        open_rate_effective_date="2026-11-07",
+    )
+
+    independently_expected_post_cutoff = (
+        Decimal("3") * Decimal("21.00") + Decimal("1") * Decimal("14.65")
+    )
+    assert independently_expected_post_cutoff == Decimal("77.65")
+    assert result["complete"] is True
+    assert result["total_cogs_rub"] == "77.65"
+    assert result["allocations"][0]["quantity"] == 4
+    assert [line["total_cost_rub"] for line in result["allocations"][0]["lines"]] == [
+        "63.00", "14.65",
+    ]
+
+
+def test_n29_old_stock_withdrawal_is_not_a_sale_and_new_sale_uses_remaining_fifo(service):
+    result = _preview(
+        service,
+        [
+            _outflow("old-stock-withdrawal", 1, "2026-11-04", "5" * 64),
+            _sale("sale-after-withdrawal", 3, "2026-11-06", "6" * 64),
+        ],
+        layers=[FifoCostLayer("old-layer", "21.00", 3)],
+        open_rate=FifoOpenCostRate("new-rate", "14.65"),
+        open_rate_effective_date="2026-11-05",
+    )
+
+    independently_expected_sale_cogs = (
+        Decimal("2") * Decimal("21.00") + Decimal("1") * Decimal("14.65")
+    )
+    assert independently_expected_sale_cogs == Decimal("56.65")
+    assert result["complete"] is True
+    assert result["total_cogs_rub"] == "56.65"
+    assert result["non_sale_outflow_value_rub"] == "21.00"
+    assert result["outflows"][0]["quantity"] == 1
+    assert result["allocations"][0]["quantity"] == 3
+    assert [line["total_cost_rub"] for line in result["allocations"][0]["lines"]] == [
+        "42.00", "14.65",
+    ]
+
+
 def test_fl21_open_rate_cannot_cost_a_sale_before_effective_date(service):
     result = _preview(
         service,

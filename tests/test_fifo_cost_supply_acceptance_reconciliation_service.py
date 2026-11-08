@@ -132,6 +132,27 @@ def test_two_distinct_acceptance_acts_sum_but_duplicate_snapshots_do_not(service
     assert result.act_reference_digests == tuple(sorted(two_acts.act_refs))
 
 
+def test_explicit_zero_acceptance_is_not_confused_with_missing_act_evidence(service):
+    explicit_zero = _snapshot([(7001, 0)], minute=1)
+    absent = _snapshot([], minute=2)
+
+    confirmed = service.reconcile(
+        snapshots=[explicit_zero], target_sku=SKU, declared_quantity=100,
+    )
+    unavailable = service.reconcile(
+        snapshots=[absent], target_sku=SKU, declared_quantity=100,
+    )
+
+    assert explicit_zero.status == "CONFIRMED_ZERO"
+    assert confirmed.status == "PARTIALLY_ACCEPTED"
+    assert confirmed.accepted_quantity == 0
+    assert confirmed.unaccepted_quantity == 100
+    assert absent.status == "EMPTY"
+    assert unavailable.status == "PARTIAL"
+    assert unavailable.accepted_quantity is None
+    assert unavailable.unaccepted_quantity is None
+
+
 def test_final_accepted_shortage_is_discrepancy_and_requires_confirmed_movement(service):
     result = service.reconcile(
         snapshots=[_snapshot([(7001, 98)], minute=1)],

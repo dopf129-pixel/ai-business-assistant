@@ -16,8 +16,11 @@ from services.fifo_cost_transition_activation_proposal_service import (
 )
 from services.fifo_cost_source_normalizer import (
     FifoActiveSupplySnapshot,
+    FifoCostSourceNormalizer,
+    FifoSupplyActSnapshot,
 )
 from services.fifo_cost_transition_contracts import (
+    AcceptedQuantityKind,
     CostComponents,
     CostInputMode,
     EvidenceCompleteness,
@@ -30,6 +33,7 @@ from services.fifo_cost_transition_contracts import (
     TransitionReasonCode,
     TransitionState,
     SupplyDeclaration,
+    SupplyActEvidence,
     SupplyObservation,
     SupplyReferenceKind,
     UnknownValue,
@@ -487,7 +491,7 @@ class FifoCostTransitionService:
     def record_supply_observation(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         declaration_id, reference_id, snapshot, expected_case_revision,
-        idempotency_key,
+        idempotency_key, act_snapshot=None,
     ) -> dict:
         """Append a redacted status observation for its exact supply declaration.
 
@@ -563,6 +567,111 @@ class FifoCostTransitionService:
             if any(item.get("lookup_reference_available") is not True for item in matching):
                 return self._error("FIFO_TRANSITION_LOOKUP_REFERENCE_UNAVAILABLE")
 
+            accepted_quantity = None
+            accepted_kind = None
+            act_reference_digest = None
+            act_version_digest = None
+            act_captured_at = None
+            act_source_fingerprint = None
+            act_source_supply_reference_digest = None
+            act_order_reference_digest = None
+            act_evidence = ()
+            source_fingerprint = snapshot.source_fingerprint
+            if act_snapshot is not None:
+                if not isinstance(act_snapshot, FifoSupplyActSnapshot):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                latest_declaration = max(
+                    matching, key=lambda item: item.get("evidence_revision", 0),
+                )
+                declared_units = latest_declaration.get("declared_shipped_units")
+                if (
+                    snapshot.presence != "PRESENT"
+                    or snapshot.normalized_status != "ACCEPTED"
+                    or snapshot.source_status != "COMPLETE"
+                    or act_snapshot.status not in {"COMPLETE", "CONFIRMED_ZERO"}
+                    or act_snapshot.source_status != "COMPLETE"
+                    or act_snapshot.store_id != store_id
+                    or act_snapshot.supply_ref
+                    != FifoCostSourceNormalizer._digest("SUPPLY", normalized_reference)
+                    or act_snapshot.order_ref != snapshot.order_ref
+                    or act_snapshot.captured_at is None
+                    or act_snapshot.source_fingerprint is None
+                    or act_snapshot.evidence_fingerprint is None
+                    or not isinstance(act_snapshot.units_by_sku, tuple)
+                    or len(act_snapshot.units_by_sku) != 1
+                    or act_snapshot.units_by_sku[0][0] != str(sku)
+                    or not isinstance(act_snapshot.act_evidence, tuple)
+                ):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                act_payload = {
+                    "store_id": act_snapshot.store_id,
+                    "order_ref": act_snapshot.order_ref,
+                    "supply_ref": act_snapshot.supply_ref,
+                    "act_refs": list(sorted(act_snapshot.act_refs)),
+                    "act_evidence": [
+                        {
+                            "act_ref": item.act_ref,
+                            "act_type": item.act_type,
+                            "act_state": item.act_state,
+                            "created_date": item.created_date,
+                            "declared_quantity": item.declared_quantity,
+                            "approved_quantity": item.approved_quantity,
+                            "fact_quantity": item.fact_quantity,
+                        }
+                        for item in act_snapshot.act_evidence
+                    ],
+                    "units_by_sku": [list(item) for item in act_snapshot.units_by_sku],
+                    "status": act_snapshot.status,
+                }
+                if (
+                    FifoCostSourceNormalizer._fingerprint(act_payload)
+                    != act_snapshot.evidence_fingerprint
+                    or FifoCostSourceNormalizer._fingerprint({
+                        **act_payload, "captured_at": act_snapshot.captured_at,
+                    }) != act_snapshot.source_fingerprint
+                ):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                from services.fifo_cost_supply_acceptance_reconciliation_service import (
+                    FifoCostSupplyAcceptanceReconciliationService,
+                )
+
+                reconciled = FifoCostSupplyAcceptanceReconciliationService().reconcile(
+                    snapshots=(act_snapshot,), target_sku=str(sku),
+                    declared_quantity=declared_units,
+                )
+                if (
+                    reconciled.status not in {"COMPLETE", "PARTIALLY_ACCEPTED"}
+                    or reconciled.accepted_quantity != act_snapshot.units_by_sku[0][1]
+                    or not reconciled.act_reference_digests
+                ):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                accepted_quantity = reconciled.accepted_quantity
+                accepted_kind = AcceptedQuantityKind.DOCUMENT_LINES
+                act_reference_digest = FifoCostSourceNormalizer._fingerprint(
+                    list(sorted(act_snapshot.act_refs)),
+                )
+                act_version_digest = act_snapshot.evidence_fingerprint
+                act_captured_at = act_snapshot.captured_at
+                act_source_fingerprint = act_snapshot.source_fingerprint
+                act_source_supply_reference_digest = act_snapshot.supply_ref
+                act_order_reference_digest = act_snapshot.order_ref
+                act_evidence = tuple(
+                    SupplyActEvidence(
+                        act_ref=item.act_ref,
+                        act_type=item.act_type,
+                        act_state=item.act_state,
+                        created_date=item.created_date,
+                        declared_quantity=item.declared_quantity,
+                        approved_quantity=item.approved_quantity,
+                        fact_quantity=item.fact_quantity,
+                    )
+                    for item in act_snapshot.act_evidence
+                )
+                source_fingerprint = FifoCostSourceNormalizer._fingerprint({
+                    "status": snapshot.source_fingerprint,
+                    "acts": act_snapshot.source_fingerprint,
+                })
+
             normalized_status = NormalizedSupplyStatus(snapshot.normalized_status)
             presence = EvidencePresence(snapshot.presence)
             completeness = (
@@ -574,7 +683,7 @@ class FifoCostTransitionService:
                 scope=case.metadata.scope,
                 source_kind=EvidenceSourceKind.OZON_API,
                 completeness=completeness,
-                source_fingerprint=snapshot.source_fingerprint,
+                source_fingerprint=source_fingerprint,
                 store_timezone=case.metadata.store_timezone,
             )
             unknown_reason = (
@@ -586,10 +695,11 @@ class FifoCostTransitionService:
                 "declared_quantity": UnknownValue(
                     unknown_reason, EvidenceSourceKind.OZON_API,
                 ),
-                "accepted_quantity": UnknownValue(
-                    unknown_reason, EvidenceSourceKind.OZON_API,
-                ),
             }
+            if accepted_quantity is None:
+                unknown_values["accepted_quantity"] = UnknownValue(
+                    unknown_reason, EvidenceSourceKind.OZON_API,
+                )
             observation = SupplyObservation(
                 metadata=metadata,
                 declaration_id=declaration_id,
@@ -598,14 +708,19 @@ class FifoCostTransitionService:
                 raw_status=snapshot.raw_status,
                 normalized_status=normalized_status,
                 declared_quantity=None,
-                accepted_quantity=None,
-                accepted_quantity_kind=None,
-                act_reference_digest=None,
-                act_version_digest=None,
+                accepted_quantity=accepted_quantity,
+                accepted_quantity_kind=accepted_kind,
+                act_reference_digest=act_reference_digest,
+                act_version_digest=act_version_digest,
                 scope_complete=snapshot.scope_complete,
                 pagination_complete=snapshot.pagination_complete,
                 presence=presence,
                 unknown_values=unknown_values,
+                act_captured_at=act_captured_at,
+                act_source_fingerprint=act_source_fingerprint,
+                act_source_supply_reference_digest=act_source_supply_reference_digest,
+                act_order_reference_digest=act_order_reference_digest,
+                act_evidence=act_evidence,
             )
         except (TypeError, ValueError, KeyError) as exc:
             reason = getattr(exc, "reason_code", None)

@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from services.fifo_cost_source_normalizer import (
+    FifoCostSourceNormalizer,
+    FifoSupplyActEvidence,
+    FifoSupplyActSnapshot,
+)
+from services.fifo_cost_supply_acceptance_reconciliation_service import (
+    FifoCostSupplyAcceptanceReconciliationService,
+)
 from services.fifo_cost_report_import_service import FifoCostReportImportService
 from services.fifo_cost_stock_management_import_service import (
     FifoCostStockManagementImportService,
@@ -22,6 +30,7 @@ from services.fifo_cost_transition_contracts import (
     AcceptedQuantityKind,
     EvidencePresence,
     NormalizedSupplyStatus,
+    SupplyActEvidence,
 )
 from services.fifo_cost_transition_opening_proposal_service import (
     FifoCostTransitionOpeningProposalService,
@@ -30,6 +39,7 @@ from services.fifo_cost_transition_readiness_service import (
     FifoCostTransitionReadinessService,
 )
 from services.fifo_cost_transition_supply_reconciliation_service import (
+    FifoSupplyAcceptanceSnapshot,
     FifoCostTransitionSupplyReconciliationService,
 )
 
@@ -50,6 +60,7 @@ class FifoCostTransitionReviewService:
         supply_reconciliation_service=None,
         opening_proposal_service=None,
         readiness_service=None,
+        acceptance_reconciliation_service=None,
     ):
         self.transition_service = transition_service
         self.history_service = history_service
@@ -62,6 +73,10 @@ class FifoCostTransitionReviewService:
             opening_proposal_service or FifoCostTransitionOpeningProposalService()
         )
         self.readiness_service = readiness_service or FifoCostTransitionReadinessService()
+        self.acceptance_reconciliation_service = (
+            acceptance_reconciliation_service
+            or FifoCostSupplyAcceptanceReconciliationService()
+        )
 
     def assess(
         self, *, case_id, identity, owner_confirmed_cutoff_date=None,
@@ -82,6 +97,9 @@ class FifoCostTransitionReviewService:
                 return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
             declarations = self._read_declarations(case_id, identity, scope)
             observations = self._read_observations(case_id, identity, scope)
+            acceptance_snapshots = self._build_acceptance_snapshots(
+                observations, declarations, scope,
+            )
             reports = self._read_reports(case_id, identity, scope)
             history = self.history_service.get_sku_history(**identity)
             if not isinstance(history, dict) or history.get("error") is not False:
@@ -99,7 +117,7 @@ class FifoCostTransitionReviewService:
                 owner_declared_total=case.declared_shipped_units,
                 declarations=declarations,
                 observations=observations,
-                acceptance_snapshots=(),
+                acceptance_snapshots=acceptance_snapshots,
                 stock_reports=stock_reports,
             )
             proposal = self.opening_proposal_service.propose(
@@ -211,8 +229,119 @@ class FifoCostTransitionReviewService:
                 pagination_complete=payload["pagination_complete"],
                 presence=EvidencePresence(payload["presence"]),
                 unknown_values=self._unknown_values(payload.get("unknown_values")),
+                act_captured_at=payload.get("act_captured_at"),
+                act_source_fingerprint=payload.get("act_source_fingerprint"),
+                act_source_supply_reference_digest=payload.get(
+                    "act_source_supply_reference_digest",
+                ),
+                act_order_reference_digest=payload.get("act_order_reference_digest"),
+                act_evidence=tuple(
+                    SupplyActEvidence(**item)
+                    for item in payload.get("act_evidence", ())
+                ),
             ))
         return tuple(observations)
+
+    def _build_acceptance_snapshots(self, observations, declarations, scope):
+        """Rebuild acceptance from immutable, allowlisted act evidence only."""
+        declarations_by_id = {}
+        for declaration in declarations:
+            previous = declarations_by_id.get(declaration.declaration_id)
+            if previous is None or declaration.revision > previous.revision:
+                declarations_by_id[declaration.declaration_id] = declaration
+        observations_by_id = {}
+        for observation in observations:
+            if observation.act_evidence:
+                observations_by_id.setdefault(observation.declaration_id, []).append(observation)
+        result = []
+        for declaration_id, rows in sorted(observations_by_id.items()):
+            declaration = declarations_by_id.get(declaration_id)
+            if declaration is None:
+                raise ValueError("FIFO_TRANSITION_ACCEPTANCE_BINDING_INVALID")
+            rows.sort(key=lambda item: (item.act_captured_at or "", item.captured_at))
+            act_snapshots = []
+            for observation in rows:
+                act_evidence = tuple(FifoSupplyActEvidence(
+                    act_ref=item.act_ref,
+                    act_type=item.act_type,
+                    act_state=item.act_state,
+                    created_date=item.created_date,
+                    declared_quantity=item.declared_quantity,
+                    approved_quantity=item.approved_quantity,
+                    fact_quantity=item.fact_quantity,
+                ) for item in observation.act_evidence)
+                references = tuple(sorted(item.act_ref for item in act_evidence))
+                quantity = observation.accepted_quantity
+                status = "CONFIRMED_ZERO" if quantity == 0 else "COMPLETE"
+                payload = {
+                    "store_id": scope.store_id,
+                    "order_ref": observation.act_order_reference_digest,
+                    "supply_ref": observation.act_source_supply_reference_digest,
+                    "act_refs": list(references),
+                    "act_evidence": [{
+                        "act_ref": item.act_ref,
+                        "act_type": item.act_type,
+                        "act_state": item.act_state,
+                        "created_date": item.created_date,
+                        "declared_quantity": item.declared_quantity,
+                        "approved_quantity": item.approved_quantity,
+                        "fact_quantity": item.fact_quantity,
+                    } for item in act_evidence],
+                    "units_by_sku": [[scope.sku, quantity]],
+                    "status": status,
+                }
+                expected_act_reference_digest = FifoCostSourceNormalizer._fingerprint(
+                    list(references),
+                )
+                if (
+                    observation.accepted_quantity_kind is not AcceptedQuantityKind.DOCUMENT_LINES
+                    or observation.act_reference_digest != expected_act_reference_digest
+                    or observation.act_version_digest
+                    != FifoCostSourceNormalizer._fingerprint(payload)
+                    or observation.act_source_fingerprint
+                    != FifoCostSourceNormalizer._fingerprint({
+                        **payload, "captured_at": observation.act_captured_at,
+                    })
+                ):
+                    raise ValueError("FIFO_TRANSITION_ACCEPTANCE_FINGERPRINT_INVALID")
+                act_snapshots.append(FifoSupplyActSnapshot(
+                    status=status,
+                    source_status="COMPLETE",
+                    store_id=scope.store_id,
+                    supply_ref=observation.act_source_supply_reference_digest,
+                    act_refs=references,
+                    units_by_sku=((scope.sku, quantity),),
+                    captured_at=observation.act_captured_at,
+                    effective_at=None,
+                    source_fingerprint=observation.act_source_fingerprint,
+                    issue_codes=(),
+                    order_ref=observation.act_order_reference_digest,
+                    act_evidence=act_evidence,
+                    evidence_fingerprint=observation.act_version_digest,
+                ))
+            latest_status = max(
+                (item for item in observations if item.declaration_id == declaration_id),
+                key=lambda item: (item.captured_at, item.metadata.source_fingerprint),
+            ).normalized_status
+            reconciliation = self.acceptance_reconciliation_service.reconcile(
+                snapshots=tuple(act_snapshots),
+                target_sku=scope.sku,
+                declared_quantity=declaration.declared_shipped_units,
+                final_state_confirmed=latest_status in {
+                    NormalizedSupplyStatus.ACCEPTED,
+                    NormalizedSupplyStatus.CANCELLED,
+                },
+            )
+            latest = max(rows, key=lambda item: (item.act_captured_at, item.captured_at))
+            result.append(FifoSupplyAcceptanceSnapshot(
+                metadata=latest.metadata,
+                declaration_id=declaration.declaration_id,
+                declaration_reference_digest=declaration.reference_digest,
+                captured_at=latest.act_captured_at,
+                source_as_of=latest.source_as_of,
+                reconciliation=reconciliation,
+            ))
+        return tuple(result)
 
     def _read_reports(self, case_id, identity, scope):
         result = self.repository.read_transition_evidence(
