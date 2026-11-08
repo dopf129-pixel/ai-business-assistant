@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL20.
-Выполненных этапов:20/36 (FL00–FL19 VERIFIED на кодовых и синтетических проверках; далее FL20–FL35: deterministic replay, returns/impact/atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL21.
+Выполненных этапов:21/36 (FL00–FL20 VERIFIED на кодовых и синтетических проверках; далее FL21–FL35: returns/impact/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 code `2b216dc6eeda57144c2ae0183e423e39b8a32afd`. PR2 current exact HEAD will be recorded after the documentation checkpoint commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -40,7 +40,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL17 | Readiness и missing evidence | VERIFIED | `df7c095b20d556c1b333f0157c6b6d6448fd1329`; focused 34 passed; FIFO/Telegram profile 477 passed in 20.53s; compileall/diff-check/data unchanged PASS |
 | FL18 | Cutoff bridge | VERIFIED | `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused 36 passed; linked FIFO/Telegram 496 passed; compileall/diff-check/data-preservation PASS; synthetic only |
 | FL19 | Начальная активация proposal | VERIFIED | `a9a20e00627c0644b0a6b1d5b21592a37fd53df4`; dedicated 6 passed; focused 29 passed; linked FIFO/Telegram/Period Profit 502 passed; compileall/diff-check/data-preservation PASS; synthetic only |
-| FL20 | Deterministic replay | NOT_STARTED | — |
+| FL20 | Deterministic replay | VERIFIED | code `be6e7959`; 21 replay tests, linked profile 506 passed; compileall/diff/data-preservation PASS |
 | FL21 | Возвраты/выбытия | NOT_STARTED | — |
 | FL22 | Period impact | NOT_STARTED | — |
 | FL23 | Atomic apply | NOT_STARTED | — |
@@ -56,6 +56,15 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
+
+## Выполнение FL20 — 2026-11-08
+
+- Replay now compares valid permutations of ambiguous same-date/equal-instant groups using the existing allocation kernel. It permits only groups for which every bounded valid ordering preserves per-event layer/cost allocations and inventory totals. A large group bypasses enumeration only when one remaining FIFO layer provably covers every unit; order-sensitive groups return `EVENT_ORDER_UNRESOLVED`, and bounded-analysis exhaustion returns `FIFO_REPLAY_ORDER_ANALYSIS_LIMIT`.
+- Date-only rows can occur either side of timed events on the same day, while distinct timed instants retain their constraints. Preview fingerprint and per-sale output are stable under source-row reordering. Exact finance identities remain deduplicated by the already verified FL18 bridge.
+- Added regressions for invariant same-day sales, cross-layer allocation changes, mixed date-only/timed ordering, equal instants, large invariant/order-dependent groups, and reversed report-row order.
+- FL20 code commit: `be6e7959` (`Prove FIFO replay ties are allocation invariant`). Replay file: **21 passed in 0.63s**. Linked FIFO/Telegram/Period Profit profile: **506 passed in 20.84s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. No user files/DB, live API, or bot used.
+- This is a replay service architecture extension (>300 changed lines) and requires independent architecture review in the final review packet. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; the new replay is synthetic-tested only and remains preview-only.
+- Next: FL21 — process only exactly linked supported returns and non-sale movements; preserve original return cost and existing Return COGS authorization.
 
 ## Незакрытые данные реального случая
 
@@ -275,5 +284,5 @@ Source readiness:
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
 | 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
-| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after FL18 documentation checkpoint; CI not yet queried | NOT_RUN |
+| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after FL20 documentation checkpoint; CI not yet queried | NOT_RUN |
 | 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | exact head of PR2 | planned | NOT_RUN |

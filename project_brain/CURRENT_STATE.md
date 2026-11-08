@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO deterministic replay FL20
+
+- `FifoCostReplayService` assesses ambiguous same-date/equal-instant event orders using the existing allocation kernel. It allows a tie only when bounded valid permutations preserve every per-event layer/cost allocation and inventory totals; order-sensitive ties return `EVENT_ORDER_UNRESOLVED` without allocations. Oversized analysis fails closed with `FIFO_REPLAY_ORDER_ANALYSIS_LIMIT`; a large simple group is accepted only when one FIFO layer provably covers it.
+- Replay output and preview fingerprint remain stable under report input-row reordering. Coverage includes date-only/timed constraints, cross-layer order sensitivity, equal instants, and large groups. No inventory write, FIFO activation, profit, tax, or bot workflow changed.
+- FL20 code SHA `be6e7959`; replay tests **21 passed**, linked FIFO/Telegram/Period Profit profile **506 passed in 20.84s**, `compileall`, `git diff --check`, and `git diff --exit-code -- data` PASS. Synthetic fixtures only; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+- Next: FL21, support linked returns and non-sale movements while preserving original return cost and existing Return COGS authorization.
+
 # 2026-11-08 — FIFO safe initial activation proposal FL19
 
 - Добавлен `FifoCostTransitionActivationProposalService`, подключённый через production `FifoCostTransitionService.build_activation_proposal`. Он объединяет case rate, opening evidence и proof-bound cutoff bridge только для review и не пишет ставку/слой/аллокацию.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-08 — FIFO deterministic replay (FL20)
+
+- Replay permits same-date or equal-instant events only when bounded permutation checks prove identical per-event allocations. Order-dependent groups fail closed; large simple groups pass only through a conservative single-layer proof. Analysis exhaustion is an explicit blocker.
+- Added regressions for same-layer and cross-layer ties, mixed date-only/timed evidence, equal instants, large groups, and report-row permutation stability. Duplicate finance identities remain deduplicated by the FL18 bridge.
+- FL20 replay tests: **21 passed**; linked FIFO/Telegram/Period Profit profile: **506 passed in 20.84s**; `compileall`, `git diff --check`, and unchanged `data/` PASS. Synthetic-only; owner-case validation pending.
+
 ## 2026-11-08 — Proof-bound FIFO cutoff bridge (FL18)
 
 - Added a read-only bridge joining exact Ozon realization identities with separately owner-documented physical sale dates/quantities and explicit confirmation of date semantics. It requires matching scope, complete periods, confirmed cutoff/stock snapshot, and linked returns/non-sale coverage.

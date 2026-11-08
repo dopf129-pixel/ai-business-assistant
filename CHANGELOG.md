@@ -1,3 +1,9 @@
+# 2026-11-08 — Детерминированный replay FIFO-перехода (FL20)
+
+- Replay permits same-date or equal-instant events only when bounded permutation checks prove identical per-event allocations. Order-dependent groups fail closed; large simple groups pass only through a conservative single-layer proof. Analysis exhaustion is an explicit blocker.
+- Added regressions for same-layer and cross-layer ties, mixed date-only/timed evidence, equal instants, large groups, and report-row permutation stability. Duplicate finance identities remain deduplicated by the FL18 bridge.
+- FL20 replay tests: **21 passed**; linked FIFO/Telegram/Period Profit profile: **506 passed in 20.84s**; `compileall`, `git diff --check`, and unchanged `data/` PASS. Synthetic-only; owner-case validation pending.
+
 # 2026-11-08 — Безопасное первое предложение FIFO (FL19)
 
 - Added a read-only first-activation proposal that carries old/new unit cost and confirmed stock buckets without creating a scalar FIFO opening or enabling live FIFO. Unknown new-home quantity remains unknown; declared and accepted supply quantities are not added on top of cutoff stock.

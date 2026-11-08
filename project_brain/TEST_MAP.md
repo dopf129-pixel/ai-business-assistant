@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO deterministic replay regressions (FL20)
+
+- `tests/test_fifo_cost_replay_service.py` covers same-day sales that are invariant when one layer covers all units, cross-layer ties that remain `EVENT_ORDER_UNRESOLVED`, stable fingerprints under reversed report-row order, equal instants, mixed date-only/timed constraints, and large groups with/without a single-layer proof.
+- Replay tests: **21 passed**. Linked selection of `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, and `test_period_profit_fifo_cost_integration.py`: **506 passed in 20.84s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Synthetic only; no owner files/DB or live endpoints.
+
 # 2026-11-08 — FIFO safe initial activation regressions (FL19)
 
 - `tests/test_fifo_cost_cutoff_bridge_service.py` adds FL19 coverage for a 21.00→14.65 TOTAL_LANDED candidate with old home/transit=0 and new home unknown; source buckets and declared 6,982 remain separate; accepted supply is not double-added; no scalar opening/apply; stale case/cutoff and initialized queue block; cross-store inputs redact buckets/watermark; production transition wrapper returns the preview only.
