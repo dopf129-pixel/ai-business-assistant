@@ -20,6 +20,7 @@ from services.fifo_cost_transition_contracts import (
 from services.fifo_cost_transition_opening_proposal_service import (
     FifoCostTransitionOpeningProposal,
 )
+from services.fifo_cost_cutoff_bridge_service import FifoCutoffBridgeResult
 from services.fifo_cost_transition_supply_reconciliation_service import (
     FifoCostTransitionSupplyReconciliation,
 )
@@ -102,6 +103,7 @@ class FifoCostTransitionReadinessService:
         case: TransitionCase,
         proposal: FifoCostTransitionOpeningProposal,
         supply_reconciliation: FifoCostTransitionSupplyReconciliation | None,
+        cutoff_bridge: FifoCutoffBridgeResult | None = None,
     ) -> FifoCostTransitionReadiness:
         if (
             not isinstance(case, TransitionCase)
@@ -115,6 +117,16 @@ class FifoCostTransitionReadinessService:
                     not isinstance(supply_reconciliation, FifoCostTransitionSupplyReconciliation)
                     or supply_reconciliation.scope != case.metadata.scope
                     or supply_reconciliation.case_id != case.case_id
+                )
+            )
+            or (
+                cutoff_bridge is not None
+                and (
+                    not isinstance(cutoff_bridge, FifoCutoffBridgeResult)
+                    or cutoff_bridge.scope != case.metadata.scope
+                    or cutoff_bridge.case_id != case.case_id
+                    or cutoff_bridge.case_revision != case.case_revision
+                    or cutoff_bridge.cutoff_date != proposal.confirmed_cutoff_date
                 )
             )
         ):
@@ -411,7 +423,7 @@ class FifoCostTransitionReadinessService:
                 blocks_apply=True,
             ))
 
-        if not self._has_sale_bridge():
+        if not self._has_sale_bridge(cutoff_bridge):
             add(FifoMissingRequirement(
                 code="SALE_CUTOFF_BRIDGE_REQUIRED",
                 status="MISSING",
@@ -425,11 +437,35 @@ class FifoCostTransitionReadinessService:
                 ),
                 required_period=(case.dispatch_date, proposal.confirmed_cutoff_date)
                 if case.dispatch_date and proposal.confirmed_cutoff_date else None,
-                already_saved=(),
-                known_values=MappingProxyType({"sales_bridge_implemented_in_this_stage": False}),
+                already_saved=(
+                    FifoReadinessEvidenceRef(
+                        source_type="CUTOFF_BRIDGE",
+                        fingerprint=cutoff_bridge.source_set_fingerprint,
+                        captured_at=None,
+                        source_as_of=None,
+                        period_from=case.dispatch_date,
+                        period_to=cutoff_bridge.complete_through,
+                        period_provenance="OWNER_CONFIRMED_AND_SOURCE_COVERED",
+                        saved_fields=(
+                            "cutoff", "stock_scope", "pre_cutoff_outflows",
+                            "post_cutoff_physical_events", "finance_identity_mappings",
+                        ),
+                    ),
+                ) if cutoff_bridge is not None else (),
+                known_values=MappingProxyType({
+                    "sales_bridge_verified": bool(
+                        cutoff_bridge is not None
+                        and cutoff_bridge.ready_for_fifo_event
+                        and not cutoff_bridge.unresolved_issues
+                    ),
+                    "unresolved_issues": (
+                        cutoff_bridge.unresolved_issues if cutoff_bridge is not None else ()
+                    ),
+                }),
                 explanation=(
                     "Суммарные количества и даты финансовых начислений сами по себе "
-                    "не доказывают физический FIFO-порядок продаж."
+                    "не доказывают физический FIFO-порядок продаж. Нужны точные "
+                    "posting/SKU/date/quantity и полное покрытие подтверждённым документом."
                 ),
                 blocks_apply=True,
             ))
@@ -560,9 +596,15 @@ class FifoCostTransitionReadinessService:
         )
 
     @staticmethod
-    def _has_sale_bridge():
-        # Exact posting-level event bridge is implemented in dependent FL18.
-        return False
+    def _has_sale_bridge(cutoff_bridge):
+        return bool(
+            isinstance(cutoff_bridge, FifoCutoffBridgeResult)
+            and cutoff_bridge.status == "READY"
+            and cutoff_bridge.ready_for_fifo_event is True
+            and cutoff_bridge.preview_only is True
+            and cutoff_bridge.complete_through is not None
+            and not cutoff_bridge.unresolved_issues
+        )
 
     @staticmethod
     def _latest_confirmed_end(proposal):
