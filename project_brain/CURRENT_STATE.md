@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO safe initial activation proposal FL19
+
+- Добавлен `FifoCostTransitionActivationProposalService`, подключённый через production `FifoCostTransitionService.build_activation_proposal`. Он объединяет case rate, opening evidence и proof-bound cutoff bridge только для review и не пишет ставку/слой/аллокацию.
+- Новая ставка 14,65 ₽ и прежняя 21 ₽ доступны как owner-entered candidate; TOTAL_LANDED остаётся без выдуманной разбивки компонентов. Неизвестный new-home quantity остаётся `None`. Owner-declared 6 982 сохраняется отдельно; accepted supply units не прибавляются второй раз поверх подтверждённого cutoff snapshot. Buckets не суммируются в физический FIFO opening.
+- Proposal проверяет case/store/SKU/revision, cutoff, stock fingerprint и preview-only условия. Несовпавший магазин получает пустые source buckets и без cutoff/watermark. При любых gaps proposal остаётся non-applicable; `fifo_opening_units=None`, `fifo_initialized` не изменяется, `ready_to_apply=False`.
+- FL19 code SHA `a9a20e00627c0644b0a6b1d5b21592a37fd53df4`; dedicated tests **6 passed**, focused bridge/transition **29 passed**, linked FIFO/Telegram/Period Profit **502 passed**; compileall/diff-check/data-preservation PASS. Тестовые данные synthetic; owner case не верифицирован.
+- Следующий этап FL20 — deterministic replay для предсказуемого FIFO порядка, без общей записи до FL23.
+
 # 2026-11-08 — FIFO physical-sale cutoff bridge FL18
 
 - FL18 добавляет отдельный read-only proof-bound bridge. Полный список identities из `/v1/finance/realization/posting` сопоставляется с точными строками физической даты/количества из owner-documented файла и отдельным подтверждением владельца семантики `PHYSICAL_OUTFLOW` для `Europe/Moscow`.

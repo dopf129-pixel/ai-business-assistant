@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL19.
-Выполненных этапов:19/36 (FL00–FL18 VERIFIED на кодовых и синтетических проверках; далее FL19–FL35: safe opening activation, replay/impact/atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL20.
+Выполненных этапов:20/36 (FL00–FL19 VERIFIED на кодовых и синтетических проверках; далее FL20–FL35: deterministic replay, returns/impact/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 code `2b216dc6eeda57144c2ae0183e423e39b8a32afd`. PR2 current exact HEAD will be recorded after the documentation checkpoint commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -39,7 +39,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL16 | Proposal opening | VERIFIED | `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; focused 83 passed in 3.65s; FIFO/Telegram profile 458 passed in 20.20s; compileall/diff-check/data unchanged PASS |
 | FL17 | Readiness и missing evidence | VERIFIED | `df7c095b20d556c1b333f0157c6b6d6448fd1329`; focused 34 passed; FIFO/Telegram profile 477 passed in 20.53s; compileall/diff-check/data unchanged PASS |
 | FL18 | Cutoff bridge | VERIFIED | `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused 36 passed; linked FIFO/Telegram 496 passed; compileall/diff-check/data-preservation PASS; synthetic only |
-| FL19 | Начальная активация proposal | NOT_STARTED | — |
+| FL19 | Начальная активация proposal | VERIFIED | `a9a20e00627c0644b0a6b1d5b21592a37fd53df4`; dedicated 6 passed; focused 29 passed; linked FIFO/Telegram/Period Profit 502 passed; compileall/diff-check/data-preservation PASS; synthetic only |
 | FL20 | Deterministic replay | NOT_STARTED | — |
 | FL21 | Возвраты/выбытия | NOT_STARTED | — |
 | FL22 | Period impact | NOT_STARTED | — |
@@ -260,6 +260,15 @@ Source readiness:
 - Интеграция использует существующий sale normalizer через production factory. Новый bridge service добавлен в production transition service, но UI и atomic apply не включены. Архитектурный класс: **Architecture Review Required** (новый service, изменённые contracts/wiring, >300 LOC).
 - FL18 code commit `2b216dc6eeda57144c2ae0183e423e39b8a32afd` (`Build proof-bound FIFO cutoff bridge`). Focused bridge/readiness/sale-normalizer: **36 passed**; linked FIFO/Telegram profile: **496 passed**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только synthetic fixtures, без owner files/DB и live APIs.
 - `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; реальные строки продаж и cutoff владельца ещё не проверялись. Следующий этап FL19: ограниченное opening proposal и новая ставка без прежнего manual anchor; до общего commit — proposal-only, неизвестный домашний остаток не должен становиться запасом.
+
+## Выполнение FL19 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionActivationProposalService`; production `FifoCostTransitionService.build_activation_proposal` использует его без persistence. Candidate old/new unit cost и cost input mode берутся только из сохранённой owner-input ревизии. TOTAL_LANDED не разбивается на выдуманные purchase/delivery/packaging суммы.
+- Proposal соединяется только с тем же owner/store/SKU/product/offer/case/revision, cutoff и stock fingerprint, который лежит в cutoff bridge. Cross-store или stale input блокирует proposal и не выдаёт чужие stock buckets/watermark.
+- Документированные buckets копируются раздельно и не суммируются. Shipment declarations/accepted observations служат reconciliation evidence; `accepted_supply_units_added_to_snapshot=0`, чтобы не прибавить поставку к количеству, уже покрытому cutoff snapshot. Unknown new-home остаётся `None` и не мешает показать candidate rate, но scalar `fifo_opening_units` остаётся `None`.
+- Результат всегда `preview_only=True`, `ready_to_apply=False`; существующая FIFO очередь не инициализируется. Неустранённые требования turnover, replay и new-home остаются в output. Модуль — новый service и application contract extension, **Architecture Review Required**.
+- Dedicated FL19 selection **6 passed**; focused cutoff bridge + transition service **29 passed**; linked FIFO/Telegram/Period Profit **502 passed in 20.93s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только synthetic tests/fixtures, без owner DB/files и live APIs.
+- Code commit `a9a20e00627c0644b0a6b1d5b21592a37fd53df4` (`Add safe FIFO first activation proposal`). `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Следующий этап FL20 — deterministic replay, без atomic apply.
 
 ## PR delivery
 

@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO safe initial activation regressions (FL19)
+
+- `tests/test_fifo_cost_cutoff_bridge_service.py` adds FL19 coverage for a 21.00→14.65 TOTAL_LANDED candidate with old home/transit=0 and new home unknown; source buckets and declared 6,982 remain separate; accepted supply is not double-added; no scalar opening/apply; stale case/cutoff and initialized queue block; cross-store inputs redact buckets/watermark; production transition wrapper returns the preview only.
+- FL19 dedicated selection: **6 passed**; focused bridge + transition service: **29 passed**; linked FIFO/Telegram/Period Profit profile: **502 passed**; `compileall`, `git diff --check`, unchanged `data/` PASS.
+
 # 2026-11-08 — FIFO physical-sale cutoff bridge regressions (FL18)
 
 - `tests/test_fifo_cost_cutoff_bridge_service.py` covers complete finance identity pagination, exact documented identity/date/quantity mapping, explicit owner confirmation for physical-date semantics, case/store/SKU/revision binding, cutoff boundary/timezone, report period and stock bucket completeness, unresolved returns/non-sale movements, duplicate/conflicting identities, duplicate finance rows, posting-accrual date rejection, redaction, and preview-only output.

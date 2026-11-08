@@ -6,6 +6,12 @@
 - Finance accrual dates are not promoted to physical outflow dates; recurring finance rows do not create duplicate physical sales. The bridge remains preview-only and does not write FIFO or Period Profit.
 - FL18 focused profile: **36 passed**; linked FIFO/Telegram profile: **496 passed**; compileall, diff-check, and data-preservation checks PASS. Owner-case validation remains pending.
 
+## 2026-11-08 — Безопасное первое предложение FIFO (FL19)
+
+- Added a read-only first-activation proposal that carries old/new unit cost and confirmed stock buckets without creating a scalar FIFO opening or enabling live FIFO. Unknown new-home quantity remains unknown; declared and accepted supply quantities are not added on top of cutoff stock.
+- Added case/store/revision, cutoff, and stock-fingerprint binding, plus cross-store redaction. Candidate cost remains visible when source gaps block the proposal; `ready_to_apply` stays false.
+- FL19: 6 dedicated regressions passed; linked FIFO/Telegram/Period Profit profile: **502 passed**; compileall, diff-check, and data-preservation PASS. Owner-case validation remains pending.
+
 ## 2026-11-06 — FIFO: read-only reconstruction of late cost transition (FC21)
 
 - Added a revision- and evidence-bound reconstruction preview for a late cost change. It replays only supported complete movement history and keeps the accepted supply-act quantity documentary; no FIFO stock, allocation, tax, or Period Profit is changed.

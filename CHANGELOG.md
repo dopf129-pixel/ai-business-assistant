@@ -1,3 +1,8 @@
+# 2026-11-08 — Безопасное первое предложение FIFO (FL19)
+
+- Added a read-only first-activation proposal that carries old/new unit cost and confirmed stock buckets without creating a scalar FIFO opening or enabling live FIFO. Unknown new-home quantity remains unknown; declared and accepted supply quantities are not added on top of cutoff stock.
+- Added case/store/revision, cutoff, and stock-fingerprint binding, plus cross-store redaction. Candidate cost remains visible when source gaps block the proposal; `ready_to_apply` stays false.
+- FL19: 6 dedicated regressions passed; linked FIFO/Telegram/Period Profit profile: **502 passed**; compileall, diff-check, and data-preservation PASS. Owner-case validation remains pending.
 
 # 2026-11-08 — Proof-bound FIFO cutoff bridge (FL18)
 
