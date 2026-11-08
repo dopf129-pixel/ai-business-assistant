@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO XLSX worker and contextual confirmation (FL14)
+
+- `tests/test_fifo_cost_report_import_worker_client.py` tests the managed child process on an in-memory turnover XLSX, malformed worker output, timeout termination, the three-slot concurrent import limit, and persisted-evidence byte-cap rejection.
+- `tests/test_telegram_fifo_cost_report_import_service.py` tests missing selection/no worker/no write, preview without persistence, explicit evidence confirmation, confirmation replay, failed-import retry, owner/size rejection, and stale-preview isolation from another active case.
+- `tests/test_fifo_cost_report_import_telegram_adapter.py` tests XLSX routing, unchanged CSV import path, opaque callback routing, and Telegram size rejection before download.
+- Focused FL14 parser/worker/runtime/adapter set: **47 passed in 3.08s**. Linked FIFO, Telegram FIFO, seller-cost and return-inventory profile: **462 passed in 20.51s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Fixtures use synthetic XLSX and `tmp_path`; no owner data/live endpoints were used.
+
 # 2026-11-08 — FIFO shared budget/checkpoint regressions (FL11)
 
 - `tests/test_fifo_cost_transition_supply_refresh_service.py` validates one parent budget across active status and act endpoints, caller budget tightening, PARTIAL resume, target found before final page, cross-page duplicate-ID conflict, timeout, 429, malformed page, repeated cursor, process restart, store/revision scope changes, and no observation/FIFO write on incomplete source.

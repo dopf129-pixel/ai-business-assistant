@@ -2,7 +2,7 @@
 
 ## Следующий пакет — поздний FIFO-ввод и поставки на приёмке (07.11.2026)
 
-- LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: FL00–FL13 VERIFIED в коде: baseline/integration/contracts/schema/repository/pre-FIFO/full-cost/case lifecycle/supply declarations/observations/acceptance/shared refresh budget, read-only parsers оборотной ведомости и управления остатками. Следующий этап FL14 — контекстный bounded import документа в выбранный case.
+- LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: FL00–FL14 VERIFIED в коде на synthetic checks: bounded read-only XLSX worker, маршрутизация к выбранному делу, preview/explicit confirm и сохранение CSV-маршрута. Следующий этап FL15 — сверка объявленных поставок, наблюдений и принятых количеств без объединения разных дат источника.
 - Довести существующий инструмент до полного цикла: durable case до начальной FIFO → поставки и пропадающие агрегированные наблюдения → документы → доказанный bridge → preview → atomic apply → финансовые/плановые consumers.
 - Технические решения зафиксированы в ТЗ. Зелёный CI не заменяет OWNER_CASE_VERIFIED; сведения о реальной партии сохраняются до появления недостающих документов без автоматического назначения новой стоимости всем продажам.
 - План реализации: три зависимых PR с зелёным CI и независимым review, без автоматического слияния и запуска бота.

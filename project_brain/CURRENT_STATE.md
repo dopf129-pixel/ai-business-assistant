@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO late-entry completion FL14
+
+- FL00–FL14 реализованы на уровне кода и синтетических проверок; end-to-end мост продаж, readiness, атомарное применение, полная production-приёмка и реальный owner case ещё не завершены.
+- Новый `TelegramFifoCostReportImportService` принимает XLSX только для явно выбранного редактируемого дела. До отдельного подтверждения persistent evidence и case revision не меняются. Подтверждение привязано к tenant/store/SKU/case revision, повтор callback идемпотентен, дата имени файла остаётся `FILENAME_CANDIDATE`.
+- `FifoCostReportImportWorkerClient` запускает allowlisted parser в собственном subprocess с timeout 15 секунд и глобальным пределом 3 workers; payload evidence проверяется против 262,144-byte storage cap. XLSX-маршрут отделён от прежнего CSV-потока; oversized XLSX отклоняется до скачивания при известном Telegram-размере.
+- FL14 code SHA `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused **47 passed**, linked FIFO/Telegram/seller-cost/return profile **462 passed**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. `data/` не менялась.
+- `IMPLEMENTATION_VERIFIED: нет` для всего продукта; `OWNER_CASE_VERIFIED: нет`. Реальные файлы, БД владельца, Telegram/Ozon API и запуск бота не использовались.
+
 # 2026-11-08 — FIFO late-entry completion FL11
 
 - FL00–FL11 VERIFIED в коде исполнения, но не в production и не на owner case. `FifoCostTransitionSupplyRefreshService` выполняет active status + accepted acts под общим bounded budget до 20s/10 HTTP attempts; status observations сохраняются только после завершённого чтения.

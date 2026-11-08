@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL14.
-Выполненных этапов:14/36 (FL00–FL13 VERIFIED в коде: baseline, map, contracts, schema/cipher, repository, pre-FIFO boundaries, landed cost, case lifecycle, supply declarations/observations/reconciliation, bounded refresh, turnover и stock-management parsers; contextual import, reconciliation/bridge/apply, runtime integration и owner case ещё не завершены).
+Следующий этап: FL15.
+Выполненных этапов:15/36 (FL00–FL14 VERIFIED в коде на синтетических проверках: baseline, map, contracts, schema/cipher, repository, pre-FIFO boundaries, landed cost, case lifecycle, supply declarations/observations/reconciliation, bounded refresh, read-only parsers, scoped bounded XLSX worker и preview/explicit confirm; supply reconciliation/readiness/bridge/apply, full user flow и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на FL11 `6f13a5416e0335b207a13fe51c43c356a2d118cb` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL13 и основана на exact PR1 head. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL14 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; документационный checkpoint будет следующим. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -34,7 +34,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL11 | Бюджеты/checkpoints | VERIFIED | `66d05d38`; focused 40 passed; FIFO/Telegram FIFO 388 passed; compileall/diff-check/data unchanged PASS |
 | FL12 | Ведомость parser | VERIFIED | initial code `1f209a23`; current shared parser regression 22 passed; linked FIFO/Telegram FIFO profile 423 passed; compileall/diff-check/data unchanged PASS |
 | FL13 | Остатки parser | VERIFIED | code `52a5b9fb3b3cf605b8c500003d48d254f1453337`; parser modules 35 passed (22 FL12 + 13 FL13); linked FIFO/Telegram FIFO 423 passed; compileall/diff-check/data unchanged PASS |
-| FL14 | Контекстный XLSX import | NOT_STARTED | — |
+| FL14 | Контекстный XLSX import | VERIFIED | `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused 47 passed; linked FIFO/Telegram/seller-cost/returns 462 passed; compileall/diff-check/data unchanged PASS |
 | FL15 | Сверка поставок | NOT_STARTED | — |
 | FL16 | Proposal opening | NOT_STARTED | — |
 | FL17 | Readiness и missing evidence | NOT_STARTED | — |
@@ -214,6 +214,15 @@ Source readiness:
 - Focused wrapper/source/declaration profile: **40 passed in 1.77s**. На кодовом SHA `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a` полный FIFO+Telegram FIFO профиль: **388 passed in 16.26s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS; все fixtures используют tmp_path и synthetic API, owner DB/данные/live API не тронуты.
 - Commit FL11: `66d05d38` (`Bound FIFO supply refresh and resume`). Никакие source facts этого теста не трактуются как owner-case validation: `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
 - Следующий этап: FL12 — read-only parser оборотной ведомости с cell provenance и точными control totals.
+
+## Выполнение FL14 — 2026-11-08
+
+- Добавлен `FifoCostReportImportWorkerClient`: два фиксированных report type маршрутизируются к соответствующим read-only parser-классам в отдельном managed subprocess. Hard timeout —15 секунд, предел —3 одновременных workers; превышение размера останавливается до запуска child. Parent завершает только созданный им subprocess. Worker получает ограниченное окружение без `.env`/credentials.
+- Добавлен `TelegramFifoCostReportImportService`: короткий opaque selection ticket привязан к owner/tenant/store/SKU/case/revision/type; допускаются только DRAFT/AWAITING_EVIDENCE. XLSX без выбранного дела возвращает безопасную инструкцию до вызова parser. Валидный XLSX сначала создаёт in-memory preview; persistent evidence и case revision не меняются без отдельного подтверждения. Confirm повторно проверяет scope/state/revision и использует append-only `append_report_evidence`; стабильный idempotency key предотвращает повторную запись. Stale/failure/cancel затрагивают только собственный ticket/preview. Временные билеты имеют TTL 15 минут и bounded quotas.
+- `ReturnInventoryTelegramAdapter` и production factory внедряют runtime. `SellerCostTelegramAdapter` направляет `.xlsx` в новый flow, сохраняя `.csv` импорт; Telegram handler отклоняет XLSX >10 МиБ до скачивания, когда `file_size` доступен. Имя файла, SKU и payload не публикуются в сообщения/callbacks/logs; период имени файла хранится как candidate.
+- Добавлены `test_fifo_cost_report_import_worker_client.py`, `test_telegram_fifo_cost_report_import_service.py`, `test_fifo_cost_report_import_telegram_adapter.py`. Покрыты настоящий child-process positive path, timeout, concurrency, malformed response, persisted-evidence cap, no-selection/no-write, preview/confirm/replay, ошибка с повторной попыткой, stale/cross-case изоляция, owner/size guards, CSV preservation и pre-download rejection.
+- Code commit `58ba757b52d0d92708e8d2aaa6bb88adb666f77a` (`Add scoped FIFO workbook import confirmation`). Focused parser/worker/runtime/adapter set: **47 passed in 3.08s**; связанный FIFO/Telegram/seller-cost/return-inventory профиль: **462 passed in 20.51s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Fixtures — synthetic in-memory XLSX и `tmp_path`; owner files/DB и live APIs не использовались.
+- `IMPLEMENTATION_VERIFIED` всего продукта остаётся нет; `OWNER_CASE_VERIFIED` нет. Реальный UI выбора дела будет подключён в FL24–FL26; даты/cutoff/bridge владельца не подтверждены. Следующий этап FL15 — независимая сверка declared/observed/accepted/pending/discrepancy с сохранением времени каждого источника.
 
 ## PR delivery
 
