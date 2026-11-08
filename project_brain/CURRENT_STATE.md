@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR06
+# 2026-11-09 — FIFO review-blocker execution FR00–FR07
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR05 are complete. FR06 connects dated store-local rate boundaries and physical FIFO events through the bounded temporal replay path; complete-through, timezone and boundary evidence are fingerprinted. Local correction checkpoint is `49442244`; implementation branch `codex/fifo-review-rate-replay-20261108` starts from published #730 head `8e6b528c`.
-- Temporal replay + prior allocation/replay regression profile: **86 passed in 1.39s**; compileall, diff-check and user-data hashes passed. PR #730 remains NOT READY TO MERGE; owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR07 are complete. FR06 adds proof-ordered store-local rate replay; FR07 adds FIFO schema v16 for append-only evidence, exact confirmations and rate balances. The implementation branch `codex/fifo-review-rate-replay-20261108` starts from published #730 head `8e6b528c`.
+- Schema migration plus FR04–FR06 replay regression profile: **104 passed in 2.78s**; touched-file compileall, diff-check and all five tracked user-data hashes passed. Planning `PRAGMA user_version` remains unchanged. PR #730 remains NOT READY TO MERGE; owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

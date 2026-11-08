@@ -19,6 +19,12 @@
 - `tests/test_fifo_cost_temporal_rate_replay.py` verifies local end-of-day semantics, exact timestamp timezone conversion, fail-closed same-instant ambiguity, stable permutations, identical duplicate page collapse, conflicting duplicates, and `complete_through` gating.
 - Linked temporal, existing replay and allocation profile: **86 passed in 1.39s**. Compileall, `git diff --check` and tracked `data/` integrity pass. This is a local targeted result, not full-suite or remote CI verification.
 
+# 2026-11-09 — FIFO transition evidence schema v16 (FR07)
+
+- `tests/test_fifo_cost_transition_schema_v16.py` verifies fresh v16, true additive v15→v16 objects, v12/v13/v14/v15 upgrade paths, rollback after injected DDL-stage failure, period-confirmation preservation, exact tenant/store/case FK scope, immutable evidence/confirmation rows, ciphertext requirements, physical-document bounds, 100-version and 64 MiB aggregate quotas, and nullable current-rate balance storage.
+- `tests/test_fifo_cost_transition_schema_v13.py` keeps prior v12 rate-table rebuild, v13 cutoff-mapping, and v14 period-confirmation migration coverage aligned with the new current schema version.
+- Combined v16/schema migration and FR04–FR06 replay profile: **104 passed in 2.78s**. Touched-file compileall, `git diff --check`, and tracked `data/` integrity passed. Local targeted evidence only; exact-head CI and full suite remain for FR30.
+
 # 2026-11-08 — FIFO review-fix regression map
 
 - `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.

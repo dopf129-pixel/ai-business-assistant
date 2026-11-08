@@ -57,6 +57,9 @@ def _downgrade_rate_table_to_v12(database):
             "fifo_cost_report_evidence", "fifo_cost_supply_observations",
             "fifo_cost_supply_declarations", "fifo_cost_transition_case_revisions",
             "fifo_cost_transition_cases",
+            "fifo_cost_transition_bridge_evidence",
+            "fifo_cost_transition_evidence_confirmations",
+            "fifo_cost_allocation_rate_balances",
         ):
             connection.execute(f"DROP TABLE {table}")
         connection.execute(
@@ -189,7 +192,7 @@ def test_fresh_schema_v13_accepts_only_consistent_cost_input_modes(tmp_path):
             )
         assert connection.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 15
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 16
         assert tuple(connection.execute(
             "SELECT cost_input_mode, purchase_cost_rub, delivery_cost_rub, packaging_cost_rub "
             "FROM fifo_cost_rate_changes WHERE rate_change_id='rate-total'"
@@ -220,7 +223,7 @@ def test_v12_migration_preserves_rate_values_custom_objects_and_child_foreign_ke
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 15
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 16
         assert _rate_row_digest(migrated) == before_digest
         assert migrated.execute(
             "SELECT cost_input_mode FROM fifo_cost_rate_changes WHERE rate_change_id='rate-1'"
@@ -357,7 +360,7 @@ def test_fl28_v13_schema_upgrade_adds_append_only_cutoff_sale_mappings(tmp_path)
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 15
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 16
         tables = {
             row[0] for row in migrated.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -400,7 +403,7 @@ def test_v14_upgrade_adds_append_only_report_period_confirmations(tmp_path):
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 15
+        ).fetchone()[0] == 16
         assert migrated.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name='fifo_cost_report_period_confirmations'"

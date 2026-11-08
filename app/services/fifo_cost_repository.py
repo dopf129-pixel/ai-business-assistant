@@ -38,7 +38,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 15
+    SCHEMA_VERSION = 16
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -116,6 +116,9 @@ class FifoCostRepository:
         "fifo_cost_transition_commits",
         "fifo_cost_cutoff_sale_mapping_sets",
         "fifo_cost_cutoff_sale_mappings",
+        "fifo_cost_transition_bridge_evidence",
+        "fifo_cost_transition_evidence_confirmations",
+        "fifo_cost_allocation_rate_balances",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -147,6 +150,9 @@ class FifoCostRepository:
         "fifo_cost_transition_commits",
         "fifo_cost_cutoff_sale_mapping_sets",
         "fifo_cost_cutoff_sale_mappings",
+        "fifo_cost_transition_bridge_evidence",
+        "fifo_cost_transition_evidence_confirmations",
+        "fifo_cost_allocation_rate_balances",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -8774,6 +8780,117 @@ class FifoCostRepository:
                 partition TEXT NOT NULL CHECK(partition IN ('PRE_CUTOFF', 'POST_CUTOFF')),
                 PRIMARY KEY(mapping_set_id, source_identity_digest)
             );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_transition_bridge_evidence (
+                evidence_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                identity_fingerprint TEXT NOT NULL CHECK(length(identity_fingerprint) = 64),
+                evidence_kind TEXT NOT NULL CHECK(evidence_kind IN (
+                    'PHYSICAL_SALES_DOCUMENT', 'FINANCE_IDENTITY_SNAPSHOT',
+                    'MOVEMENT_COVERAGE', 'CUTOFF_SELECTION', 'OPENING_COMPOSITION',
+                    'RATE_BOUNDARY_PROOF', 'PERIOD_SUMMARY_SNAPSHOT',
+                    'TAX_POLICY_SNAPSHOT'
+                )),
+                schema_version INTEGER NOT NULL CHECK(schema_version >= 1),
+                source_kind TEXT NOT NULL CHECK(source_kind IN (
+                    'OZON_API', 'OZON_REPORT', 'OWNER_IMPORTED',
+                    'OWNER_CONFIRMED', 'DERIVED'
+                )),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                evidence_revision INTEGER NOT NULL CHECK(evidence_revision >= 1),
+                period_from TEXT,
+                period_to TEXT,
+                as_of TEXT,
+                captured_at TEXT NOT NULL,
+                complete_through TEXT,
+                completeness TEXT NOT NULL CHECK(completeness IN (
+                    'COMPLETE', 'PARTIAL', 'UNAVAILABLE', 'STALE', 'CONFLICT',
+                    'OWNER_CONFIRMED', 'MODEL_ONLY'
+                )),
+                row_count INTEGER CHECK(row_count IS NULL OR row_count BETWEEN 1 AND 50000),
+                payload_json TEXT NOT NULL CHECK(
+                    length(CAST(payload_json AS BLOB)) <= 262144
+                ),
+                encrypted_payload BLOB NOT NULL CHECK(
+                    length(encrypted_payload) > 0 AND
+                    length(encrypted_payload) <= CASE
+                        WHEN evidence_kind='PHYSICAL_SALES_DOCUMENT' THEN 16777216
+                        ELSE 67108864
+                    END
+                ),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 8 AND 80),
+                recorded_at TEXT NOT NULL,
+                UNIQUE(evidence_id, case_id, payload_fingerprint,
+                       owner_fingerprint, scope_fingerprint),
+                UNIQUE(case_id, evidence_kind, evidence_revision),
+                UNIQUE(case_id, idempotency_key),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, case_id
+                    ),
+                CHECK((period_from IS NULL) = (period_to IS NULL)),
+                CHECK(period_from IS NULL OR period_to >= period_from),
+                CHECK(as_of IS NULL OR period_from IS NULL),
+                CHECK(evidence_kind <> 'PHYSICAL_SALES_DOCUMENT' OR row_count IS NOT NULL)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_transition_evidence_confirmations (
+                confirmation_id TEXT PRIMARY KEY,
+                evidence_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                evidence_fingerprint TEXT NOT NULL CHECK(length(evidence_fingerprint) = 64),
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                confirmation_kind TEXT NOT NULL CHECK(confirmation_kind IN (
+                    'SOURCE_SELECTION', 'PERIOD', 'PHYSICAL_SALES',
+                    'MOVEMENT_COVERAGE', 'CUTOFF_SELECTION', 'OPENING_COMPOSITION',
+                    'RATE_BOUNDARY', 'TAX_POLICY', 'EVIDENCE_REVIEW'
+                )),
+                confirmed_fields_json TEXT NOT NULL CHECK(
+                    length(CAST(confirmed_fields_json AS BLOB)) <= 65536
+                ),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                expected_case_revision INTEGER NOT NULL CHECK(expected_case_revision >= 1),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 8 AND 80),
+                confirmed_at TEXT NOT NULL,
+                UNIQUE(case_id, idempotency_key),
+                UNIQUE(evidence_id, confirmation_kind, payload_fingerprint),
+                FOREIGN KEY(evidence_id, case_id, evidence_fingerprint,
+                            owner_fingerprint, scope_fingerprint)
+                    REFERENCES fifo_cost_transition_bridge_evidence(
+                        evidence_id, case_id, payload_fingerprint,
+                        owner_fingerprint, scope_fingerprint
+                    )
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_allocation_rate_balances (
+                allocation_id TEXT NOT NULL REFERENCES fifo_cost_allocations(allocation_id),
+                ordinal INTEGER NOT NULL CHECK(ordinal >= 1),
+                rate_change_id TEXT NOT NULL REFERENCES fifo_cost_rate_changes(rate_change_id),
+                remaining_units INTEGER CHECK(remaining_units IS NULL OR remaining_units >= 0),
+                unit_cost_rub TEXT NOT NULL CHECK(length(trim(unit_cost_rub)) > 0),
+                reconciliation_reference TEXT NOT NULL CHECK(
+                    length(trim(reconciliation_reference)) BETWEEN 1 AND 160
+                ),
+                reconciliation_fingerprint TEXT NOT NULL CHECK(
+                    length(reconciliation_fingerprint) = 64
+                ),
+                original_basis_kind TEXT NOT NULL CHECK(original_basis_kind IN (
+                    'RATE_BOUNDARY', 'MATERIALIZED_RATE_BALANCE', 'RETURN_RESTORED'
+                )),
+                original_basis_reference TEXT NOT NULL CHECK(
+                    length(trim(original_basis_reference)) BETWEEN 1 AND 160
+                ),
+                origin_sale_event_id TEXT REFERENCES fifo_cost_events(event_id),
+                PRIMARY KEY(allocation_id, ordinal),
+                UNIQUE(allocation_id, rate_change_id),
+                CHECK(original_basis_kind <> 'RETURN_RESTORED' OR origin_sale_event_id IS NOT NULL)
+            );
             """
         for statement in statements.split(";"):
             if statement.strip():
@@ -8806,6 +8923,10 @@ class FifoCostRepository:
                 ON fifo_cost_transition_cases(
                     tenant_fingerprint, store_id, sku, updated_at, case_id
                 );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_transition_cases_owner_scope
+                ON fifo_cost_transition_cases(
+                    owner_fingerprint, tenant_fingerprint, store_id, case_id
+                );
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_revisions_case
                 ON fifo_cost_transition_case_revisions(case_id, case_revision);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_supply_declarations_case
@@ -8820,6 +8941,15 @@ class FifoCostRepository:
                 ON fifo_cost_transition_commits(case_id, committed_at);
             CREATE INDEX IF NOT EXISTS idx_fifo_cutoff_mapping_sets_latest
                 ON fifo_cost_cutoff_sale_mapping_sets(stream_id, mapping_revision DESC);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_evidence_case_kind
+                ON fifo_cost_transition_bridge_evidence(case_id, evidence_kind, recorded_at);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_confirmations_evidence
+                ON fifo_cost_transition_evidence_confirmations(case_id, evidence_id, confirmed_at);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_allocation_rate_balances_rate
+                ON fifo_cost_allocation_rate_balances(allocation_id, rate_change_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_allocation_rate_balances_current
+                ON fifo_cost_allocation_rate_balances(allocation_id)
+                WHERE remaining_units IS NULL;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;
@@ -8848,6 +8978,19 @@ class FifoCostRepository:
                     f"BEFORE {operation} ON {table} "
                     "BEGIN SELECT RAISE(ABORT, 'FIFO evidence is append-only'); END"
                 )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_fifo_transition_evidence_case_quota
+               BEFORE INSERT ON fifo_cost_transition_bridge_evidence
+               WHEN (SELECT COUNT(*) FROM fifo_cost_transition_bridge_evidence
+                     WHERE case_id=NEW.case_id) >= 100
+                 OR COALESCE((SELECT SUM(length(encrypted_payload))
+                              FROM fifo_cost_transition_bridge_evidence
+                              WHERE case_id=NEW.case_id), 0)
+                    + length(NEW.encrypted_payload) > 67108864
+               BEGIN
+                   SELECT RAISE(ABORT, 'quota: FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED');
+               END"""
+        )
 
     def _validate_schema_metadata(self, connection):
         row = connection.execute(
@@ -8929,6 +9072,29 @@ class FifoCostRepository:
             "fifo_cost_cutoff_sale_mappings": {
                 "mapping_set_id", "source_identity_digest", "quantity",
                 "physical_effective_date", "partition",
+            },
+            "fifo_cost_transition_bridge_evidence": {
+                "evidence_id", "case_id", "store_id", "owner_fingerprint",
+                "tenant_fingerprint", "scope_fingerprint", "identity_fingerprint",
+                "evidence_kind",
+                "schema_version", "source_kind", "source_fingerprint",
+                "evidence_revision", "period_from", "period_to", "as_of",
+                "captured_at", "completeness", "payload_json",
+                "encrypted_payload", "payload_fingerprint", "idempotency_key",
+                "recorded_at",
+            },
+            "fifo_cost_transition_evidence_confirmations": {
+                "confirmation_id", "case_id", "evidence_id",
+                "evidence_fingerprint", "confirmation_kind",
+                "confirmed_fields_json", "owner_fingerprint",
+                "scope_fingerprint", "expected_case_revision",
+                "payload_fingerprint", "idempotency_key", "confirmed_at",
+            },
+            "fifo_cost_allocation_rate_balances": {
+                "allocation_id", "ordinal", "rate_change_id", "remaining_units",
+                "unit_cost_rub", "reconciliation_reference",
+                "reconciliation_fingerprint", "original_basis_kind",
+                "original_basis_reference", "origin_sale_event_id",
             },
         }
         actual_transition_columns = {

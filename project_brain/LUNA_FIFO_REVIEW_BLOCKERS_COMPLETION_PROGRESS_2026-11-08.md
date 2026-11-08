@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Выполнение задания ещё не начато.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Исполнение FR00–FR07 продолжается.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Следующий этап FR07: добавить миграцию append-only rate-balance/evidence schema v16 после проверки текущей версии и миграционных conventions.
+- Следующий этап FR08: подключить multi-rate allocation/replay к FIFO repository и снять старый лимит двух ставок без изменения неподдержанных путей.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -29,7 +29,7 @@
 | FR04 | DONE | Добавлены typed boundary DTOs и stable `TransitionReasonCode`; strict money/digest/nullable-balance/date/timezone/proof validation. Legacy allocation API unchanged. Linked pure suite: **70 passed, 2 replay cases excluded because FR05–FR06 are next**. |
 | FR05 | DONE | Pure kernel: MR01–MR07 and linked allocator/replay profile: **77 passed, 2 replay-adapter cases deselected**; compileall and diff-check PASS. |
 | FR06 | DONE | Store-local temporal ordering, exact/local-date boundaries, bounded ambiguity analysis, stable duplicate/permutation fingerprints; **86 passed in 1.39s** across temporal replay and legacy allocator/replay profiles. |
-| FR07 | NOT_STARTED | Additive schema migration |
+| FR07 | DONE | Schema v16; additive tables/indexes/FK/immutable guards/quotas; local migrations and replay profile 104 passed. |
 | FR08 | NOT_STARTED | Repository adapter |
 | FR09 | NOT_STARTED | Rate commit/replay |
 | FR10 | NOT_STARTED | Returns/non-sale |
@@ -111,4 +111,13 @@
 - The preview fingerprint seals timezone, complete-through and canonical rate-boundary set; output exposes per-rate remaining balances, basis kind and rate IDs. No creation timestamps or host timezone participate in ordering.
 - Added FR06 checks for MR08–MR10: same-local-day sale, UTC/local date crossing with `America/Los_Angeles`, ambiguous exact-instant sale/boundary, duplicate/permutation stability, and incomplete source horizon.
 - Temporal + legacy allocator/replay suites: **86 passed in 1.39s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS; all five tracked user-data hashes match FR00. No SQLite, live API or bot process used.
-- Next: FR07 checks current FIFO schema version and additive migration constraints before editing repository schema.
+- FR07 schema migration follows as the next dependent stage.
+
+## FR07 — 2026-11-09
+
+- FIFO schema moved from v15 to v16 in the existing `FifoCostRepository`; `PRAGMA user_version` and Planning schema remain untouched. Added append-only transition evidence, exact evidence confirmations, and allocation rate-balance tables with scoped foreign keys, idempotency/uniqueness, query indexes, and generated update/delete guards.
+- Database constraints enforce the task allowlists and data bounds: metadata ≤256 KiB, confirmation JSON ≤64 KiB, physical documents ≤50,000 rows/16 MiB ciphertext, per-case evidence ≤100 versions/64 MiB encrypted payload. Composite foreign keys bind evidence to owner/tenant/store/case and each confirmation to the exact evidence/hash/owner/scope; no plaintext evidence fallback is possible because ciphertext is required. New table columns are included in repository schema validation.
+- Historical migration tests now assert schema v16. The v12 fixture removes objects introduced after v12; the v15→v16 regression removes only new tables, seeds and snapshots a v15 confirmation, then verifies successful migration. An injected index failure proves all new DDL and version updates roll back.
+- Schema/migration tests and prior FR04–FR06 replay suite: **104 passed in 2.78s**. Touched-file `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed; five owner-data SHA-256 values still match FR00. Test databases use `tmp_path`; no owner DB/files, live API or bot were used.
+- Implementation commit: pending. New files are limited to repository schema, schema regression test and historical migration expectations; `.fl12-deps/` remains untracked/unstaged.
+- Next: FR08 repository adapter for the existing proven multi-rate replay kernel.

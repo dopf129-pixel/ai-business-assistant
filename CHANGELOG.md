@@ -17,6 +17,11 @@
 
 - Added proof-ordered, store-local rate boundaries to FIFO replay with bounded ambiguity checks, stable duplicate handling, complete-through gating, and fingerprinted per-rate balances. Existing single-rate preview callers remain supported.
 
+# 2026-11-09 — FIFO transition evidence schema v16
+
+- Added additive append-only storage for typed transition evidence, exact owner confirmations, and allocation balances by cost-rate lineage. The migration keeps planning `PRAGMA user_version` unchanged and preserves existing v15 period confirmations.
+- Added owner/tenant/store/case and exact confirmation-scope foreign keys, evidence-kind and size constraints, physical-document row/ciphertext bounds, per-case aggregate quotas, lookup indexes, and immutable triggers. Legacy schema and rollback regressions pass.
+
 # 2026-11-08 — FIFO FL34–FL35: exact stack checks and review packet
 
 - Full isolated Windows pytest passed **5,104 tests in 75.99s** on integration code/test SHA `4771794e4372c5443ab65cee349d2e673508118e`. Compileall, diff-check and tracked `data/` integrity passed.
