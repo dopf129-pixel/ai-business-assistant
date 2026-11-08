@@ -12,7 +12,7 @@ import json
 import re
 import sqlite3
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from uuid import uuid4
@@ -349,6 +349,1526 @@ class FifoCostRepository:
         finally:
             if connection is not None:
                 connection.close()
+
+    def prepare_transition_preview(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, effective_date, cutoff_bridge, impact_preview,
+        tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
+    ):
+        """Seal a complete, scope-bound replay for later atomic confirmation.
+
+        The bridge and impact are rebuilt by the caller immediately before this
+        call. The repository independently rebuilds the allocation from its
+        immutable ledger and binds it to the case, current source set, tax
+        policy, cutoff bridge, and financial-period preview.
+        """
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not self._valid_transition_case_id(case_id)
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+            or not self._valid_transition_idempotency_key(idempotency_key)
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_INPUT_INVALID")
+        try:
+            from services.fifo_cost_cutoff_bridge_service import FifoCutoffBridgeResult
+
+            identity = self._normalize_identity(
+                store_id, product_id, offer_id, sku, 1,
+            )
+            if not isinstance(cutoff_bridge, FifoCutoffBridgeResult):
+                return self._error("FIFO_CUTOFF_BRIDGE_NOT_VERIFIED")
+            if not self._valid_digest(tax_policy_fingerprint):
+                return self._error("FIFO_TAX_POLICY_FINGERPRINT_INVALID")
+            bridge_error = self._validate_transition_bridge(
+                cutoff_bridge, case_id=case_id,
+                expected_case_revision=expected_case_revision,
+                identity=identity,
+                owner_id=split_store_tenant_scope(
+                    str(get_current_tenant_user_id() or "").strip(),
+                )[0],
+            )
+            if bridge_error:
+                return self._error(bridge_error)
+            impact_error = self._validate_transition_impact(
+                impact_preview, tax_policy_fingerprint=tax_policy_fingerprint,
+            )
+            if impact_error:
+                return self._error(impact_error)
+            if (
+                impact_preview.get("complete_through") is not None
+                and impact_preview.get("complete_through") != cutoff_bridge.complete_through
+            ):
+                return self._error("FIFO_TRANSITION_EVIDENCE_MISMATCH")
+            now = self._now()
+            now_text = self._iso(now)
+            connection = self.get_connection()
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                case_result = FifoCostTransitionStore.read_case(
+                    connection, case_id, scope, identity,
+                )
+                if case_result.get("error"):
+                    connection.rollback()
+                    return case_result
+                if (
+                    not (
+                        case_result["case_revision"] == expected_case_revision
+                        and case_result["state"] in {"DRAFT", "AWAITING_EVIDENCE"}
+                    )
+                    and not (
+                        case_result["case_revision"] == expected_case_revision + 1
+                        and case_result["state"] == "READY_TO_CONFIRM"
+                        and isinstance(case_result.get("case"), dict)
+                        and isinstance(case_result["case"].get("last_preview"), dict)
+                        and case_result["case"]["last_preview"].get("idempotency_key")
+                        == idempotency_key
+                    )
+                    or cutoff_bridge.case_revision != expected_case_revision
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+                case = case_result["case"]
+                cutover_recorded_at = now_text
+                last_preview = case.get("last_preview")
+                if (
+                    case_result["state"] == "READY_TO_CONFIRM"
+                    and isinstance(last_preview, dict)
+                    and last_preview.get("idempotency_key") == idempotency_key
+                ):
+                    previous_preview = connection.execute(
+                        "SELECT payload_json FROM fifo_cost_transition_previews "
+                        "WHERE preview_id=? AND case_id=?",
+                        (last_preview.get("preview_id"), case_id),
+                    ).fetchone()
+                    if previous_preview is None:
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+                    try:
+                        previous_payload = json.loads(previous_preview["payload_json"])
+                    except (TypeError, ValueError):
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+                    previous_cutover = previous_payload.get("initial_opening_cutover")
+                    if previous_cutover is not None:
+                        if not isinstance(previous_cutover, dict):
+                            connection.rollback()
+                            return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+                        cutover_recorded_at = previous_cutover.get("recorded_at")
+                case_error = self._validate_transition_case_for_apply(
+                    case, effective_date=effective_date,
+                    complete_through=cutoff_bridge.complete_through,
+                )
+                if case_error:
+                    connection.rollback()
+                    return self._error(case_error)
+                stream_id = "fifo_" + self._sha256(identity)[:40]
+                stream = connection.execute(
+                    """SELECT revision, policy_version, state
+                       FROM fifo_cost_streams
+                       WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                    (stream_id, identity["store_id"], self._sha256(identity)),
+                ).fetchone()
+                projection = connection.execute(
+                    """SELECT revision, state, known_quantity, known_cost_rub,
+                              next_unit_cost_rub, queue_complete, cutoff_status,
+                              inventory_cutoff, source_set_fingerprint
+                       FROM fifo_cost_projections WHERE stream_id=?""",
+                    (stream_id,),
+                ).fetchone()
+                staged_initial_cutover = None
+                initial_cutover_staged = False
+                if stream is None and projection is None:
+                    if initial_opening_cutover is None:
+                        connection.rollback()
+                        return self._error("FIFO_HISTORY_NOT_INITIALIZED")
+                    staged_initial_cutover = self._normalize_transition_initial_cutover(
+                        connection, initial_opening_cutover, cutoff_bridge,
+                        case, recorded_at=cutover_recorded_at,
+                    )
+                    if isinstance(staged_initial_cutover, str):
+                        connection.rollback()
+                        return self._error(staged_initial_cutover)
+                    identity_conflict = self._identity_stream_conflict(
+                        connection, identity, self._sha256(identity),
+                    )
+                    if identity_conflict is not None:
+                        connection.rollback()
+                        return identity_conflict
+                    connection.execute("SAVEPOINT transition_initial_preview")
+                    self._insert_transition_initial_cutover(
+                        connection, identity=identity, bridge=cutoff_bridge,
+                        cutover=staged_initial_cutover,
+                    )
+                    initial_cutover_staged = True
+                    stream = connection.execute(
+                        """SELECT revision, policy_version, state
+                           FROM fifo_cost_streams WHERE stream_id=?""",
+                        (stream_id,),
+                    ).fetchone()
+                    projection = connection.execute(
+                        """SELECT revision, state, known_quantity, known_cost_rub,
+                                  next_unit_cost_rub, queue_complete, cutoff_status,
+                                  inventory_cutoff, source_set_fingerprint
+                           FROM fifo_cost_projections WHERE stream_id=?""",
+                        (stream_id,),
+                    ).fetchone()
+                elif stream is None or projection is None:
+                    connection.rollback()
+                    return self._error("FIFO_HISTORY_INCOMPLETE")
+                elif initial_opening_cutover is not None:
+                    connection.rollback()
+                    return self._error("FIFO_INITIAL_CUTOVER_NOT_APPLICABLE")
+                if (
+                    stream["state"] not in {"FIFO_READY", "FIFO_PARTIAL"}
+                    or projection["revision"] != stream["revision"]
+                    or projection["queue_complete"] != 1
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_HISTORY_INCOMPLETE")
+                if (
+                    projection["cutoff_status"] != "RECONCILED"
+                    or projection["inventory_cutoff"] != cutoff_bridge.cutoff_date
+                    or cutoff_bridge.complete_through is None
+                    or cutoff_bridge.cutoff_date >= cutoff_bridge.complete_through
+                ):
+                    connection.rollback()
+                    return self._error("INVENTORY_CUTOFF_UNRECONCILED")
+                active_rates = connection.execute(
+                    """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                       WHERE r.stream_id=? AND NOT EXISTS (
+                           SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                           WHERE c.stream_id=r.stream_id
+                             AND c.rate_change_id=r.rate_change_id
+                       )""",
+                    (stream_id,),
+                ).fetchone()[0]
+                if active_rates:
+                    connection.rollback()
+                    return self._error("FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED")
+                bridge_error = self._validate_transition_bridge_ledger(
+                    connection, stream_id, cutoff_bridge,
+                )
+                if bridge_error:
+                    connection.rollback()
+                    return self._error(bridge_error)
+                evidence_fingerprint = self._transition_evidence_fingerprint(
+                    connection, case_id, case,
+                )
+                base_source_fingerprint = self._allocation_source_fingerprint(
+                    connection, stream_id, stream["revision"],
+                    stream["policy_version"], projection["cutoff_status"],
+                )
+                allocation_revision = connection.execute(
+                    "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations "
+                    "WHERE stream_id=?", (stream_id,),
+                ).fetchone()[0]
+                current_preview = self._preview_allocation_from_connection(
+                    connection, stream_id,
+                    stream_revision=stream["revision"],
+                    allocation_revision=allocation_revision,
+                    source_fingerprint=base_source_fingerprint,
+                    cutoff_status=projection["cutoff_status"],
+                    anchor_cutoff_date=projection["inventory_cutoff"],
+                )
+                if allocation_revision:
+                    normalized_current = self._normalize_allocation_preview(
+                        current_preview, "transition-current-0001",
+                    ) if current_preview else "FIFO_ALLOCATION_PREVIEW_INCOMPLETE"
+                    if isinstance(normalized_current, str):
+                        connection.rollback()
+                        return self._error(normalized_current)
+                    try:
+                        self._validate_allocation_lines(
+                            connection, stream_id, normalized_current,
+                            stream_revision=stream["revision"],
+                            allocation_revision=allocation_revision,
+                            source_fingerprint=base_source_fingerprint,
+                            cutoff_status=projection["cutoff_status"],
+                        )
+                    except ValueError as exc:
+                        connection.rollback()
+                        return self._error(str(exc))
+                event_counts = {
+                    row["event_kind"]: row["count"]
+                    for row in connection.execute(
+                        """SELECT event_kind, COUNT(*) AS count
+                           FROM fifo_cost_events WHERE stream_id=?
+                             AND event_kind IN ('SALEABLE_RETURN_RESTOCK', 'NON_SALE_OUTFLOW')
+                           GROUP BY event_kind""",
+                        (stream_id,),
+                    ).fetchall()
+                }
+                if (
+                    impact_preview.get("related_return_count")
+                    != event_counts.get("SALEABLE_RETURN_RESTOCK", 0)
+                    or impact_preview.get("non_sale_outflow_count")
+                    != event_counts.get("NON_SALE_OUTFLOW", 0)
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_IMPACT_MISMATCH")
+                old_unit_cost = self._normalize_money(case.get("old_unit_cost_rub"))
+                if old_unit_cost is None:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_BASELINE_COST_UNAVAILABLE")
+                # Keep baseline and candidate on the same hypothetical
+                # transition boundary. The baseline changes only the rate
+                # value to the old cost, so same-day causal checks remain
+                # identical between the two comparisons.
+                baseline_rate_date = effective_date
+                baseline_rate_id = "transition-baseline_" + self._sha256({
+                    "case_id": case_id,
+                    "case_revision": expected_case_revision,
+                    "unit_cost_rub": old_unit_cost,
+                    "cutoff": projection["inventory_cutoff"],
+                })[:40]
+                baseline_preview = self._preview_allocation_from_connection(
+                    connection, stream_id,
+                    stream_revision=stream["revision"],
+                    allocation_revision=allocation_revision,
+                    source_fingerprint=base_source_fingerprint,
+                    cutoff_status=projection["cutoff_status"],
+                    anchor_cutoff_date=projection["inventory_cutoff"],
+                    hypothetical_open_rate=FifoOpenCostRate(
+                        baseline_rate_id, old_unit_cost,
+                    ),
+                    hypothetical_open_rate_effective_date=baseline_rate_date,
+                    hypothetical_opening_layer_cost_replacement=(
+                        self._normalize_money(case.get("new_unit_cost_rub")),
+                        old_unit_cost,
+                    ) if initial_cutover_staged else None,
+                )
+                if (
+                    not baseline_preview
+                    or baseline_preview.get("complete") is not True
+                    or not self._transition_impact_matches_replay(
+                        impact_preview, baseline_preview,
+                        expected_before_cogs=baseline_preview.get("total_cogs_rub"),
+                        check_after=False,
+                    )
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_BASELINE_UNAVAILABLE")
+
+                candidate_rate_id = "rate_transition_" + self._sha256({
+                    "case_id": case_id,
+                    "case_revision": expected_case_revision,
+                    "effective_date": effective_date,
+                    "unit_cost_rub": case["new_unit_cost_rub"],
+                    "bridge": cutoff_bridge.source_set_fingerprint,
+                })[:40]
+                cost_mode = case["cost_input_mode"]
+                components = case.get("cost_components")
+                unit_cost = self._normalize_money(case["new_unit_cost_rub"])
+                if unit_cost is None:
+                    connection.rollback()
+                    return self._error("FIFO_RATE_COST_INPUT_INVALID")
+                component_values = {
+                    name: (
+                        self._normalize_money(components.get(name))
+                        if isinstance(components, dict) else None
+                    )
+                    for name in (
+                        "purchase_cost_rub", "delivery_cost_rub", "packaging_cost_rub",
+                    )
+                }
+                if cost_mode == "COMPONENTS" and any(
+                    value is None for value in component_values.values()
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_RATE_COMPONENTS_REQUIRED")
+                if cost_mode == "TOTAL_LANDED" and any(
+                    value is not None for value in component_values.values()
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_RATE_COST_INPUT_INVALID")
+                rate_sequence = connection.execute(
+                    "SELECT COALESCE(MAX(rate_sequence), 0) + 1 "
+                    "FROM fifo_cost_rate_changes WHERE stream_id=?", (stream_id,),
+                ).fetchone()[0]
+                source_fingerprint = self._sha256({
+                    "source": "OWNER_CONFIRMED_FIFO_TRANSITION",
+                    "case_id": case_id,
+                    "case_revision": expected_case_revision,
+                    "case_fingerprint": evidence_fingerprint,
+                    "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                    "tax_policy_fingerprint": tax_policy_fingerprint,
+                    "impact_fingerprint": impact_preview["preview_fingerprint"],
+                    "financial_period_mapping_fingerprint": impact_preview.get(
+                        "financial_period_mapping_fingerprint",
+                    ),
+                })
+                rate_payload = {
+                    "rate_change_id": candidate_rate_id,
+                    "rate_sequence": rate_sequence,
+                    "effective_date": effective_date,
+                    "unit_cost_rub": format(Decimal(unit_cost), ".2f"),
+                    "cost_input_mode": cost_mode,
+                    **component_values,
+                    "owner_old_home_units": case["owner_old_home_units"],
+                    "source_fingerprint": source_fingerprint,
+                    "idempotency_key": "transition-" + self._sha256({
+                        "case_id": case_id, "revision": expected_case_revision,
+                    })[:40],
+                }
+                rate_payload_fingerprint = self._sha256(rate_payload)
+                hypothetical_rate = {
+                    "rate_change_id": candidate_rate_id,
+                    "rate_sequence": rate_sequence,
+                    "effective_date": effective_date,
+                    "unit_cost_rub": unit_cost,
+                    "purchase_cost_rub": component_values["purchase_cost_rub"],
+                    "delivery_cost_rub": component_values["delivery_cost_rub"],
+                    "packaging_cost_rub": component_values["packaging_cost_rub"],
+                    "payload_fingerprint": rate_payload_fingerprint,
+                }
+                candidate_source_fingerprint = self._allocation_source_fingerprint(
+                    connection, stream_id, stream["revision"] + 1,
+                    stream["policy_version"], projection["cutoff_status"],
+                    hypothetical_rate=hypothetical_rate,
+                )
+                candidate_replay = self._preview_allocation_from_connection(
+                    connection, stream_id,
+                    stream_revision=stream["revision"] + 1,
+                    allocation_revision=allocation_revision,
+                    source_fingerprint=candidate_source_fingerprint,
+                    cutoff_status=projection["cutoff_status"],
+                    anchor_cutoff_date=projection["inventory_cutoff"],
+                    hypothetical_open_rate=FifoOpenCostRate(candidate_rate_id, unit_cost),
+                    hypothetical_open_rate_effective_date=effective_date,
+                )
+                normalized_candidate = self._normalize_allocation_preview(
+                    candidate_replay, "transition-candidate-0001",
+                ) if candidate_replay else "FIFO_ALLOCATION_PREVIEW_INCOMPLETE"
+                if isinstance(normalized_candidate, str):
+                    connection.rollback()
+                    return self._error(normalized_candidate)
+                if candidate_replay["complete"] is not True:
+                    connection.rollback()
+                    return self._error(candidate_replay.get("reason_code") or "FIFO_REPLAY_INCOMPLETE")
+                if not self._transition_impact_matches_replay(
+                    impact_preview, candidate_replay,
+                    expected_before_cogs=baseline_preview["total_cogs_rub"],
+                    expected_after_cogs=candidate_replay["total_cogs_rub"],
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_IMPACT_MISMATCH")
+                self._require_transition_report_evidence(
+                    connection, case_id, cutoff_bridge,
+                )
+                preview_payload = {
+                    "schema_version": 1,
+                    "case_id": case_id,
+                    "case_revision": expected_case_revision,
+                    "effective_date": effective_date,
+                    "rate": rate_payload,
+                    "rate_payload_fingerprint": rate_payload_fingerprint,
+                    "base_source_fingerprint": base_source_fingerprint,
+                    "base_cogs_rub": current_preview["total_cogs_rub"],
+                    "candidate_source_fingerprint": candidate_source_fingerprint,
+                    "allocation_preview": candidate_replay,
+                    "baseline_preview_fingerprint": baseline_preview[
+                        "preview_fingerprint"
+                    ],
+                    "baseline_cogs_rub": baseline_preview["total_cogs_rub"],
+                    "impact_preview": impact_preview,
+                    "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                    "evidence_set_fingerprint": evidence_fingerprint,
+                    "tax_policy_fingerprint": tax_policy_fingerprint,
+                    "complete_through": cutoff_bridge.complete_through,
+                    "base_fifo_revision": stream["revision"],
+                    "base_allocation_revision": allocation_revision,
+                    "idempotency_key": idempotency_key,
+                    "initial_opening_cutover": staged_initial_cutover,
+                }
+                if len(self._canonical_json(preview_payload).encode("utf-8")) > 262_144:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_TOO_LARGE")
+                preview_fingerprint = self._sha256(preview_payload)
+                preview_id = "transpreview_" + preview_fingerprint[:40]
+                expires_at = self._iso(
+                    now + timedelta(seconds=self.PREVIEW_TTL_SECONDS),
+                )
+                if initial_cutover_staged:
+                    connection.execute("ROLLBACK TO SAVEPOINT transition_initial_preview")
+                    connection.execute("RELEASE SAVEPOINT transition_initial_preview")
+                stored = FifoCostTransitionStore.prepare_case_preview(
+                    connection, case_id=case_id, scope=scope, identity=identity,
+                    expected_case_revision=expected_case_revision,
+                    preview_id=preview_id, preview_payload=preview_payload,
+                    preview_fingerprint=preview_fingerprint,
+                    fifo_revision=stream["revision"],
+                    allocation_revision=allocation_revision,
+                    evidence_set_fingerprint=evidence_fingerprint,
+                    tax_policy_fingerprint=tax_policy_fingerprint,
+                    idempotency_key=idempotency_key,
+                    created_at=now_text, expires_at=expires_at,
+                )
+                if stored.get("error"):
+                    connection.rollback()
+                    return stored
+                connection.commit()
+                return {
+                    **stored,
+                    "code": "FIFO_TRANSITION_PREVIEW_READY",
+                    "unit_cost_rub": format(Decimal(unit_cost), ".2f"),
+                    "candidate_cogs_rub": candidate_replay["total_cogs_rub"],
+                    "complete_through": cutoff_bridge.complete_through,
+                    "read_only": True,
+                }
+            except (ValueError, TypeError, KeyError, InvalidOperation, OverflowError) as exc:
+                if connection.in_transaction:
+                    connection.rollback()
+                code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_TRANSITION_PREVIEW_INVALID"
+                return self._error(code)
+            except sqlite3.IntegrityError:
+                if connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+            except sqlite3.Error:
+                if connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+            finally:
+                connection.close()
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_TRANSITION_PREVIEW_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+
+    def commit_transition_case(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, preview_id, idempotency_key, cutoff_bridge,
+        impact_preview, current_tax_policy_fingerprint,
+    ):
+        """Atomically apply one transition rate, complete replay, and case audit."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not self._valid_transition_case_id(case_id)
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+            or not self._valid_transition_idempotency_key(idempotency_key)
+            or not isinstance(preview_id, str)
+        ):
+            return self._error("FIFO_TRANSITION_COMMIT_INPUT_INVALID")
+        try:
+            from services.fifo_cost_cutoff_bridge_service import FifoCutoffBridgeResult
+
+            identity = self._normalize_identity(
+                store_id, product_id, offer_id, sku, 1,
+            )
+            if not isinstance(cutoff_bridge, FifoCutoffBridgeResult):
+                return self._error("FIFO_CUTOFF_BRIDGE_NOT_VERIFIED")
+            impact_policy_fingerprint = (
+                impact_preview.get("tax_policy_fingerprint")
+                if isinstance(impact_preview, dict) else None
+            )
+            impact_error = self._validate_transition_impact(
+                impact_preview,
+                tax_policy_fingerprint=impact_policy_fingerprint,
+            )
+            if impact_error:
+                return self._error(impact_error)
+            bridge_error = self._validate_transition_bridge(
+                cutoff_bridge, case_id=case_id,
+                expected_case_revision=expected_case_revision - 1,
+                identity=identity,
+                owner_id=split_store_tenant_scope(
+                    str(get_current_tenant_user_id() or "").strip(),
+                )[0],
+            )
+            if bridge_error:
+                return self._error(bridge_error)
+            now = self._now()
+            now_text = self._iso(now)
+            connection = self.get_connection()
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                case_result = FifoCostTransitionStore.read_case(
+                    connection, case_id, scope, identity,
+                )
+                if case_result.get("error"):
+                    connection.rollback()
+                    return case_result
+                if cutoff_bridge.case_revision != expected_case_revision - 1:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+                preview_row = connection.execute(
+                    """SELECT preview_id, case_revision, fifo_revision,
+                              allocation_revision, evidence_set_fingerprint,
+                              tax_policy_fingerprint, preview_fingerprint,
+                              expires_at, payload_json
+                       FROM fifo_cost_transition_previews
+                       WHERE preview_id=? AND case_id=?""",
+                    (preview_id, case_id),
+                ).fetchone()
+                if preview_row is None or preview_row["case_revision"] != expected_case_revision:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                payload = json.loads(preview_row["payload_json"])
+                commit_payload_fingerprint = self._sha256({
+                    "case_id": case_id,
+                    "preview_id": preview_id,
+                    "preview_fingerprint": preview_row["preview_fingerprint"],
+                    "impact_fingerprint": impact_preview["preview_fingerprint"],
+                    "tax_policy_fingerprint": impact_policy_fingerprint,
+                    "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                })
+                prior = connection.execute(
+                    """SELECT commit_id, payload_fingerprint, preview_id,
+                              case_revision, complete_through, committed_at
+                       FROM fifo_cost_transition_commits
+                       WHERE case_id=? AND idempotency_key=?""",
+                    (case_id, idempotency_key),
+                ).fetchone()
+                if prior is not None:
+                    if (
+                        prior["payload_fingerprint"] != commit_payload_fingerprint
+                        or prior["preview_id"] != preview_id
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+                    connection.rollback()
+                    return {
+                        "error": False, "code": "FIFO_TRANSITION_APPLIED",
+                        "commit_id": prior["commit_id"],
+                        "case_revision": prior["case_revision"],
+                        "preview_id": prior["preview_id"],
+                        "complete_through": prior["complete_through"],
+                        "committed_at": prior["committed_at"], "replayed": True,
+                    }
+                if (
+                    impact_policy_fingerprint != current_tax_policy_fingerprint
+                    or payload.get("bridge_fingerprint") != cutoff_bridge.source_set_fingerprint
+                    or payload.get("impact_preview", {}).get("preview_fingerprint")
+                    != impact_preview.get("preview_fingerprint")
+                    or payload.get("tax_policy_fingerprint") != current_tax_policy_fingerprint
+                    or preview_row["tax_policy_fingerprint"] != current_tax_policy_fingerprint
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                if self._sha256(payload) != preview_row["preview_fingerprint"]:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+                if preview_row["expires_at"] <= now_text:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_EXPIRED")
+                if (
+                    case_result["case_revision"] != expected_case_revision
+                    or case_result["state"] != "READY_TO_CONFIRM"
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+                if not self._transition_impact_matches_replay(
+                    impact_preview, payload.get("allocation_preview", {}),
+                    expected_before_cogs=payload.get("baseline_cogs_rub"),
+                    expected_after_cogs=payload.get("allocation_preview", {}).get(
+                        "total_cogs_rub",
+                    ),
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_IMPACT_MISMATCH")
+                case_payload = case_result["case"]
+                evidence_fingerprint = self._transition_evidence_fingerprint(
+                    connection, case_id, case_payload,
+                )
+                if evidence_fingerprint != preview_row["evidence_set_fingerprint"]:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                stream_id = "fifo_" + self._sha256(identity)[:40]
+                stream = connection.execute(
+                    """SELECT revision, policy_version, state FROM fifo_cost_streams
+                       WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                    (stream_id, identity["store_id"], self._sha256(identity)),
+                ).fetchone()
+                projection = connection.execute(
+                    """SELECT revision, state, known_quantity, known_cost_rub,
+                              next_unit_cost_rub, queue_complete, cutoff_status,
+                              inventory_cutoff, source_set_fingerprint, last_event_id
+                       FROM fifo_cost_projections WHERE stream_id=?""",
+                    (stream_id,),
+                ).fetchone()
+                if stream is None and projection is None:
+                    persisted_cutover = payload.get("initial_opening_cutover")
+                    if persisted_cutover is None:
+                        connection.rollback()
+                        return self._error("FIFO_HISTORY_NOT_INITIALIZED")
+                    normalized_cutover = self._normalize_transition_initial_cutover(
+                        connection, persisted_cutover, cutoff_bridge,
+                        case_payload, recorded_at=persisted_cutover.get("recorded_at"),
+                    )
+                    if (
+                        isinstance(normalized_cutover, str)
+                        or normalized_cutover != persisted_cutover
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                    identity_conflict = self._identity_stream_conflict(
+                        connection, identity, self._sha256(identity),
+                    )
+                    if identity_conflict is not None:
+                        connection.rollback()
+                        return identity_conflict
+                    self._insert_transition_initial_cutover(
+                        connection, identity=identity, bridge=cutoff_bridge,
+                        cutover=normalized_cutover,
+                    )
+                    stream = connection.execute(
+                        """SELECT revision, policy_version, state FROM fifo_cost_streams
+                           WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                        (stream_id, identity["store_id"], self._sha256(identity)),
+                    ).fetchone()
+                    projection = connection.execute(
+                        """SELECT revision, state, known_quantity, known_cost_rub,
+                                  next_unit_cost_rub, queue_complete, cutoff_status,
+                                  inventory_cutoff, source_set_fingerprint, last_event_id
+                           FROM fifo_cost_projections WHERE stream_id=?""",
+                        (stream_id,),
+                    ).fetchone()
+                elif stream is None or projection is None:
+                    connection.rollback()
+                    return self._error("FIFO_HISTORY_INCOMPLETE")
+                current_allocation_revision = connection.execute(
+                    "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations "
+                    "WHERE stream_id=?", (stream_id,),
+                ).fetchone()[0]
+                if (
+                    stream["revision"] != preview_row["fifo_revision"]
+                    or current_allocation_revision != preview_row["allocation_revision"]
+                    or projection["revision"] != stream["revision"]
+                    or projection["cutoff_status"] != "RECONCILED"
+                    or projection["queue_complete"] != 1
+                    or projection["inventory_cutoff"] != cutoff_bridge.cutoff_date
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                bridge_error = self._validate_transition_bridge_ledger(
+                    connection, stream_id, cutoff_bridge,
+                )
+                if bridge_error:
+                    connection.rollback()
+                    return self._error(bridge_error)
+                current_base_source_fingerprint = self._allocation_source_fingerprint(
+                    connection, stream_id, stream["revision"],
+                    stream["policy_version"], projection["cutoff_status"],
+                )
+                if current_base_source_fingerprint != payload["base_source_fingerprint"]:
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                rate = payload["rate"]
+                if (
+                    rate["rate_change_id"] != "rate_transition_" + self._sha256({
+                        "case_id": case_id,
+                        "case_revision": expected_case_revision - 1,
+                        "effective_date": payload["effective_date"],
+                        "unit_cost_rub": case_payload.get("new_unit_cost_rub"),
+                        "bridge": cutoff_bridge.source_set_fingerprint,
+                    })[:40]
+                    or rate["unit_cost_rub"] != self._normalize_money(
+                        case_payload.get("new_unit_cost_rub"),
+                    )
+                    or rate["owner_old_home_units"] != case_payload.get(
+                        "owner_old_home_units",
+                    )
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_CASE_MISMATCH")
+                existing_rate_count = connection.execute(
+                    """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
+                       WHERE r.stream_id=? AND NOT EXISTS (
+                           SELECT 1 FROM fifo_cost_rate_cancellations AS c
+                           WHERE c.stream_id=r.stream_id AND c.rate_change_id=r.rate_change_id
+                       )""", (stream_id,),
+                ).fetchone()[0]
+                if existing_rate_count:
+                    connection.rollback()
+                    return self._error("FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED")
+                self._apply_transition_rate_and_allocation(
+                    connection, stream_id=stream_id, identity=identity,
+                    stream=stream, projection=projection,
+                    payload=payload, now=now, now_text=now_text,
+                    idempotency_key=idempotency_key,
+                )
+                applied = FifoCostTransitionStore.apply_case_preview(
+                    connection, case_id=case_id, scope=scope, identity=identity,
+                    expected_case_revision=expected_case_revision,
+                    preview_id=preview_id, idempotency_key=idempotency_key,
+                    payload_fingerprint=commit_payload_fingerprint,
+                    complete_through=payload["complete_through"],
+                    committed_at=now_text,
+                )
+                if applied.get("error"):
+                    connection.rollback()
+                    return applied
+                connection.commit()
+                return applied
+            except (ValueError, TypeError, KeyError, InvalidOperation, OverflowError) as exc:
+                if connection.in_transaction:
+                    connection.rollback()
+                code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_TRANSITION_COMMIT_INVALID"
+                return self._error(code)
+            except sqlite3.IntegrityError:
+                if connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+            except sqlite3.Error:
+                if connection.in_transaction:
+                    connection.rollback()
+                return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+            finally:
+                connection.close()
+        except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
+            code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_TRANSITION_COMMIT_INVALID"
+            return self._error(code)
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+
+    def _normalize_transition_initial_cutover(
+        self, connection, cutover, bridge, case, *, recorded_at,
+    ):
+        """Validate an explicit owner-reviewed opening queue against the bridge.
+
+        This is the only permitted way for late-entry confirmation to initialize
+        a missing FIFO stream. Quantities are not inferred from turnover totals,
+        shipment declarations, or absent stock buckets.
+        """
+        required = {
+            "schema_version", "case_id", "case_revision", "cutoff_date",
+            "stock_report_fingerprint", "layers",
+            "ozon_units_include_reserved_confirmed",
+            "transit_not_in_ozon_confirmed",
+        }
+        extended = required | {"cutover_fingerprint", "recorded_at"}
+        if not isinstance(cutover, dict) or frozenset(cutover) not in {frozenset(required), frozenset(extended)}:
+            return "FIFO_INITIAL_CUTOVER_INVALID"
+        if (
+            cutover.get("schema_version") != 1
+            or cutover.get("case_id") != bridge.case_id
+            or cutover.get("case_revision") != bridge.case_revision
+            or cutover.get("cutoff_date") != bridge.cutoff_date
+            or cutover.get("ozon_units_include_reserved_confirmed") is not True
+            or cutover.get("transit_not_in_ozon_confirmed") is not True
+            or not self._valid_digest(cutover.get("stock_report_fingerprint"))
+            or cutover["stock_report_fingerprint"] not in set(
+                bridge.provenance_by_basis.get("stock_scope", ()),
+            )
+            or not isinstance(case, dict)
+        ):
+            return "FIFO_INITIAL_CUTOVER_NOT_CONFIRMED"
+        normalized_at = self._normalize_timestamp(recorded_at)
+        if normalized_at is None:
+            return "FIFO_CLOCK_INVALID"
+        if set(cutover) == set(extended):
+            if (
+                cutover.get("recorded_at") != normalized_at
+                or not self._valid_digest(cutover.get("cutover_fingerprint"))
+            ):
+                return "FIFO_INITIAL_CUTOVER_INVALID"
+        report = connection.execute(
+            """SELECT report_type, period_from, period_to, period_provenance,
+                      completeness, normalized_fields_json
+               FROM fifo_cost_report_evidence
+               WHERE case_id=? AND file_sha256=? LIMIT 1""",
+            (bridge.case_id, cutover["stock_report_fingerprint"]),
+        ).fetchone()
+        if (
+            report is None
+            or report["report_type"] != "STOCK_MANAGEMENT"
+            or report["period_from"] != bridge.cutoff_date
+            or report["period_to"] != bridge.cutoff_date
+            or report["period_provenance"] != "OWNER_CONFIRMED"
+            or report["completeness"] != "COMPLETE"
+        ):
+            return "FIFO_INITIAL_CUTOVER_STOCK_EVIDENCE_UNAVAILABLE"
+        try:
+            stock_fields = json.loads(report["normalized_fields_json"])
+        except (TypeError, ValueError):
+            return "FIFO_INITIAL_CUTOVER_STOCK_EVIDENCE_UNAVAILABLE"
+        buckets = stock_fields.get("stock_buckets")
+        if not isinstance(buckets, dict):
+            return "FIFO_INITIAL_CUTOVER_STOCK_EVIDENCE_UNAVAILABLE"
+        available = buckets.get("available")
+        reserved = buckets.get("reserved")
+        if (
+            type(available) is not int or available < 0
+            or type(reserved) is not int or reserved < 0
+        ):
+            return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
+        fbs_return_units = stock_fields.get("fbs_return_available_units")
+        if (
+            type(fbs_return_units) is not int
+            or fbs_return_units < 0
+            or stock_fields.get("fbs_return_is_subset_of_available") is not True
+        ):
+            return "FIFO_INITIAL_CUTOVER_RETURN_BASIS_UNAVAILABLE"
+        if fbs_return_units != 0:
+            return "FIFO_INITIAL_CUTOVER_RETURN_BASIS_UNAVAILABLE"
+        confirmed_buckets = dict(bridge.confirmed_stock_buckets)
+        if not confirmed_buckets or any(
+            buckets.get(name) != quantity
+            for name, quantity in confirmed_buckets.items()
+        ):
+            return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
+        if any(
+            buckets.get(name) not in (0, None)
+            for name in ("preparing", "checking")
+        ):
+            return "FIFO_INITIAL_CUTOVER_STOCK_BUCKET_UNRESOLVED"
+        if not isinstance(cutover.get("layers"), list):
+            return "FIFO_INITIAL_CUTOVER_LAYERS_REQUIRED"
+        try:
+            from services.fifo_cost_anchor_service import FifoCostAnchorService
+
+            layers, layer_error = FifoCostAnchorService._layers(cutover["layers"])
+        except (TypeError, ValueError):
+            return "FIFO_INITIAL_CUTOVER_LAYERS_INVALID"
+        if layer_error or not layers:
+            return layer_error or "FIFO_INITIAL_CUTOVER_LAYERS_REQUIRED"
+        totals = {
+            name: sum(layer[name] for layer in layers)
+            for name in ("ozon_units", "transit_units", "home_units")
+        }
+        if (
+            totals["ozon_units"] != available + reserved
+            or totals["transit_units"] != case.get("owner_old_transit_units")
+            or totals["home_units"] != case.get("owner_old_home_units")
+            or sum(totals.values()) <= 0
+        ):
+            return "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
+        old_cost = self._normalize_money(case.get("old_unit_cost_rub"))
+        if old_cost is None:
+            return "FIFO_TRANSITION_BASELINE_COST_UNAVAILABLE"
+        new_cost = self._normalize_money(case.get("new_unit_cost_rub"))
+        if new_cost is None:
+            return "FIFO_RATE_COST_INPUT_INVALID"
+        allowed_costs = {old_cost, new_cost}
+        layer_costs = [layer["unit_cost_rub"] for layer in layers]
+        if any(cost not in allowed_costs for cost in layer_costs):
+            return "FIFO_INITIAL_CUTOVER_COST_MISMATCH"
+        new_layer_seen = False
+        for layer_cost in layer_costs:
+            if layer_cost == new_cost:
+                new_layer_seen = True
+            elif layer_cost == old_cost and new_layer_seen:
+                return "FIFO_INITIAL_CUTOVER_LAYER_ORDER_CONFLICT"
+        normalized = {
+            "schema_version": 1,
+            "case_id": bridge.case_id,
+            "case_revision": bridge.case_revision,
+            "cutoff_date": bridge.cutoff_date,
+            "stock_report_fingerprint": cutover["stock_report_fingerprint"],
+            "layers": layers,
+            "ozon_units_include_reserved_confirmed": True,
+            "transit_not_in_ozon_confirmed": True,
+            "recorded_at": normalized_at,
+        }
+        fingerprint = self._sha256({
+            key: value for key, value in normalized.items() if key != "recorded_at"
+        })
+        if set(cutover) == set(extended) and cutover["cutover_fingerprint"] != fingerprint:
+            return "FIFO_INITIAL_CUTOVER_FINGERPRINT_INVALID"
+        normalized["cutover_fingerprint"] = fingerprint
+        return normalized
+
+    def _insert_transition_initial_cutover(
+        self, connection, *, identity, bridge, cutover,
+    ):
+        """Insert a verified owner-confirmed anchor and bridge sales in caller txn."""
+        stream_id = "fifo_" + self._sha256(identity)[:40]
+        identity_fingerprint = self._sha256(identity)
+        if connection.execute(
+            "SELECT 1 FROM fifo_cost_streams WHERE stream_id=? LIMIT 1",
+            (stream_id,),
+        ).fetchone() is not None:
+            raise ValueError("FIFO_INITIAL_CUTOVER_ALREADY_EXISTS")
+        now_text = cutover["recorded_at"]
+        cutover_fp = cutover["cutover_fingerprint"]
+        source_material = {
+            "source": "OWNER_CONFIRMED_FIFO_CUTOFF",
+            "cutover_fingerprint": cutover_fp,
+            "bridge_fingerprint": bridge.source_set_fingerprint,
+        }
+        anchor_source = self._normalize_source({
+            "kind": "OWNER_CONFIRMATION",
+            "method": "OWNER_CONFIRMED_FIFO_CUTOFF",
+            "status": "OWNER_CONFIRMED",
+            "completeness": "OWNER_CONFIRMED",
+            "provenance": "OWNER_CONFIRMED",
+            "coverage_status": "OWNER_CONFIRMED",
+            "fingerprint": self._sha256(source_material),
+            "captured_at": now_text,
+            "inventory_cutoff": bridge.cutoff_date,
+            "record_count": len(cutover["layers"]),
+            "page_count": 1,
+            "references": [
+                {"kind": "DOCUMENT", "digest": cutover["stock_report_fingerprint"]},
+                {"kind": "OTHER", "digest": cutover_fp},
+            ],
+        })
+        anchor_source_id = "src_" + self._sha256({
+            "store_id": identity["store_id"],
+            "source_fingerprint": anchor_source["source_fingerprint"],
+        })[:40]
+        self._ensure_source(connection, {
+            "identity": identity, "source": anchor_source,
+            "source_id": anchor_source_id,
+        })
+        connection.execute(
+            """INSERT INTO fifo_cost_streams (
+                stream_id, store_id, product_id, offer_id, sku,
+                identity_fingerprint, policy_version, state, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'FIFO_READY', 1, ?, ?)""",
+            (stream_id, identity["store_id"], identity["product_id"],
+             identity["offer_id"], identity["sku"], identity_fingerprint,
+             identity["policy_version"], now_text, now_text),
+        )
+        command_id = "cmd_" + self._sha256({
+            "case_id": bridge.case_id, "cutover_fingerprint": cutover_fp,
+            "bridge_fingerprint": bridge.source_set_fingerprint,
+        })[:32]
+        event_ids = []
+        command_fingerprint = self._sha256({
+            "cutover_fingerprint": cutover_fp,
+            "bridge_fingerprint": bridge.source_set_fingerprint,
+            "layers": cutover["layers"],
+            "post_cutoff_events": [
+                (item.source_identity_digest, item.quantity, item.physical_effective_date)
+                for item in bridge.post_cutoff_events
+            ],
+        })
+        expected_events = sum(
+            sum(layer[zone] > 0 for zone in ("ozon_units", "transit_units", "home_units"))
+            for layer in cutover["layers"]
+        ) + len(bridge.post_cutoff_events)
+        if expected_events <= 0 or expected_events > self.MAX_COMMAND_EVENTS:
+            raise ValueError("FIFO_COMMAND_EVENT_LIMIT")
+        connection.execute(
+            """INSERT INTO fifo_cost_commands (
+                command_id, stream_id, stream_revision, payload_fingerprint,
+                source_fingerprint, event_count, created_at
+            ) VALUES (?, ?, 1, ?, ?, ?, ?)""",
+            (command_id, stream_id, command_fingerprint,
+             bridge.source_set_fingerprint, expected_events, now_text),
+        )
+        order = 0
+        location_by_zone = {"ozon_units": "OZON", "transit_units": "TRANSIT", "home_units": "HOME"}
+        for layer in cutover["layers"]:
+            for zone in ("ozon_units", "transit_units", "home_units"):
+                quantity = layer[zone]
+                if not quantity:
+                    continue
+                order += 1
+                event_id = "evt_" + self._sha256({
+                    "cutover_fingerprint": cutover_fp,
+                    "layer_sequence": layer["sequence"], "zone": zone,
+                })[:32]
+                layer_id = "layer_" + self._sha256({
+                    "cutover_fingerprint": cutover_fp,
+                    "layer_sequence": layer["sequence"], "zone": zone,
+                })[:32]
+                connection.execute(
+                    """INSERT INTO fifo_cost_events (
+                        event_id, stream_id, event_kind, event_schema_version,
+                        effective_at, effective_date, recorded_at, captured_at,
+                        source_as_of, inventory_cutoff, quantity, unit_cost_rub,
+                        purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+                        currency, location_from, location_to, source_id,
+                        source_fingerprint, provenance, completeness,
+                        source_identity_digest, supersedes_event_id, reason_code, created_at
+                    ) VALUES (?, ?, 'OPENING_FIFO_ANCHOR', 1, NULL, ?, ?, ?, NULL,
+                              ?, ?, ?, NULL, NULL, NULL, 'RUB', NULL, ?, ?, ?,
+                              'OWNER_CONFIRMED', 'OWNER_CONFIRMED', NULL, NULL, NULL, ?)""",
+                    (event_id, stream_id, bridge.cutoff_date, now_text, now_text,
+                     bridge.cutoff_date, quantity, layer["unit_cost_rub"],
+                     location_by_zone[zone], anchor_source_id,
+                     anchor_source["source_fingerprint"], now_text),
+                )
+                connection.execute(
+                    """INSERT INTO fifo_cost_layers (
+                        layer_id, stream_id, event_id, layer_sequence, quantity,
+                        unit_cost_rub, currency, effective_at, effective_date,
+                        provenance, source_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'RUB', NULL, ?,
+                              'OWNER_CONFIRMED', ?, ?)""",
+                    (layer_id, stream_id, event_id, order, quantity,
+                     layer["unit_cost_rub"], bridge.cutoff_date,
+                     anchor_source_id, now_text),
+                )
+                connection.execute(
+                    "INSERT INTO fifo_cost_command_events (command_id, event_id, event_order) VALUES (?, ?, ?)",
+                    (command_id, event_id, order),
+                )
+                event_ids.append(event_id)
+        for event in sorted(
+            bridge.post_cutoff_events,
+            key=lambda row: (row.physical_effective_date, row.source_identity_digest),
+        ):
+            order += 1
+            event_source = self._normalize_source({
+                "kind": "OZON_API",
+                "method": "OZON_REALIZATION_REPORT",
+                "status": "COMPLETE",
+                "completeness": "COMPLETE",
+                "provenance": "OZON_CONFIRMED_FIELD",
+                "coverage_status": "COMPLETE",
+                "fingerprint": self._sha256({
+                    "bridge_fingerprint": bridge.source_set_fingerprint,
+                    "sale_identity_digest": event.source_identity_digest,
+                    "physical_effective_date": event.physical_effective_date,
+                    "quantity": event.quantity,
+                }),
+                "captured_at": now_text,
+                "inventory_cutoff": bridge.cutoff_date,
+                "record_count": 1, "page_count": 1,
+                "references": [
+                    {"kind": "DOCUMENT", "digest": event.document_fingerprint},
+                    {"kind": "OTHER", "digest": event.source_identity_digest},
+                ],
+            })
+            event_source_id = "src_" + self._sha256({
+                "store_id": identity["store_id"],
+                "source_fingerprint": event_source["source_fingerprint"],
+            })[:40]
+            self._ensure_source(connection, {
+                "identity": identity, "source": event_source,
+                "source_id": event_source_id,
+            })
+            event_id = "evt_" + self._sha256({
+                "bridge_fingerprint": bridge.source_set_fingerprint,
+                "sale_identity_digest": event.source_identity_digest,
+            })[:32]
+            connection.execute(
+                """INSERT INTO fifo_cost_events (
+                    event_id, stream_id, event_kind, event_schema_version,
+                    effective_at, effective_date, recorded_at, captured_at,
+                    source_as_of, inventory_cutoff, quantity, unit_cost_rub,
+                    purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+                    currency, location_from, location_to, source_id,
+                    source_fingerprint, provenance, completeness,
+                    source_identity_digest, supersedes_event_id, reason_code, created_at
+                ) VALUES (?, ?, 'PHYSICAL_SALE', 1, NULL, ?, ?, ?, NULL, ?, ?,
+                          NULL, NULL, NULL, NULL, 'RUB', NULL, NULL, ?, ?,
+                'OZON_CONFIRMED_FIELD', 'COMPLETE', ?, NULL, NULL, ?)""",
+                (event_id, stream_id, event.physical_effective_date, now_text,
+                 now_text, bridge.cutoff_date, event.quantity, event_source_id,
+                 event_source["source_fingerprint"], event.source_identity_digest,
+                 now_text),
+            )
+            connection.execute(
+                "INSERT INTO fifo_cost_command_events (command_id, event_id, event_order) VALUES (?, ?, ?)",
+                (command_id, event_id, order),
+            )
+            event_ids.append(event_id)
+        self._ensure_policy_revision(connection, {
+            "identity": identity, "stream_id": stream_id,
+        }, self._now())
+        total_quantity = sum(
+            layer[zone] for layer in cutover["layers"]
+            for zone in ("ozon_units", "transit_units", "home_units")
+        )
+        total_cost = sum(
+            (Decimal(layer["unit_cost_rub"]) * sum(
+                layer[zone] for zone in ("ozon_units", "transit_units", "home_units")
+            ) for layer in cutover["layers"]), Decimal("0.00"),
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        source_set = self._allocation_source_fingerprint(
+            connection, stream_id, 1, identity["policy_version"], "RECONCILED",
+        )
+        connection.execute(
+            """INSERT INTO fifo_cost_projections (
+                stream_id, revision, state, known_quantity, known_cost_rub,
+                next_unit_cost_rub, queue_complete, cutoff_status,
+                inventory_cutoff, source_set_fingerprint, last_event_id, updated_at
+            ) VALUES (?, 1, 'FIFO_READY', ?, ?, ?, 1, 'RECONCILED', ?, ?, ?, ?)""",
+            (stream_id, total_quantity, format(total_cost, ".2f"),
+             cutover["layers"][0]["unit_cost_rub"], bridge.cutoff_date,
+             source_set, event_ids[-1], now_text),
+        )
+
+    @classmethod
+    def _validate_transition_bridge(cls, bridge, *, case_id, expected_case_revision,
+                                    identity, owner_id):
+        scope = getattr(bridge, "scope", None)
+        if (
+            bridge.status != "READY"
+            or bridge.ready_for_fifo_event is not True
+            or bridge.preview_only is not True
+            or bridge.unresolved_issues
+            or bridge.case_id != case_id
+            or bridge.case_revision != expected_case_revision
+            or scope is None
+            or scope.owner_id != owner_id
+            or scope.store_id != identity["store_id"]
+            or scope.product_id != identity["product_id"]
+            or scope.offer_id != identity["offer_id"]
+            or scope.sku != identity["sku"]
+            or bridge.cutoff_date is None
+            or bridge.complete_through is None
+            or not cls._valid_digest(bridge.source_set_fingerprint)
+        ):
+            return "FIFO_CUTOFF_BRIDGE_NOT_READY"
+        return None
+
+    @classmethod
+    def _validate_transition_case_for_apply(cls, case, *, effective_date, complete_through):
+        if not isinstance(effective_date, str) or cls._normalize_date(effective_date) != effective_date:
+            return "FIFO_RATE_EFFECTIVE_DATE_INVALID"
+        if not isinstance(complete_through, str) or cls._normalize_date(complete_through) != complete_through:
+            return "FIFO_TRANSITION_COMPLETE_THROUGH_INVALID"
+        if case.get("new_unit_cost_rub") is None:
+            return "FIFO_RATE_COST_INPUT_INVALID"
+        if type(case.get("owner_old_home_units")) is not int or case["owner_old_home_units"] < 0:
+            return "FIFO_RATE_OLD_HOME_QUANTITY_INVALID"
+        dispatch_date = case.get("dispatch_date")
+        if dispatch_date and effective_date < dispatch_date:
+            return "FIFO_RATE_EFFECTIVE_DATE_CONFLICT"
+        if effective_date > complete_through:
+            return "FIFO_TRANSITION_COMPLETE_THROUGH_INVALID"
+        return None
+
+    @classmethod
+    def _validate_transition_impact(cls, impact, *, tax_policy_fingerprint):
+        if not isinstance(impact, dict) or impact.get("error") is not False:
+            return "FIFO_TRANSITION_IMPACT_UNAVAILABLE"
+        if (
+            impact.get("complete") is not True
+            or impact.get("read_only") is not True
+            or impact.get("candidate_only") is True
+            or impact.get("tax_policy_fingerprint") != tax_policy_fingerprint
+            or not cls._valid_digest(tax_policy_fingerprint)
+            or not cls._valid_digest(impact.get("preview_fingerprint"))
+            or not isinstance(impact.get("periods"), list)
+            or not impact["periods"]
+        ):
+            return "FIFO_TRANSITION_IMPACT_INCOMPLETE"
+        material = {
+            key: value for key, value in impact.items()
+            if key not in {"preview_fingerprint", "code", "error"}
+        }
+        if cls._sha256(material) != impact["preview_fingerprint"]:
+            return "FIFO_TRANSITION_IMPACT_FINGERPRINT_INVALID"
+        return None
+
+    @classmethod
+    def _transition_impact_matches_replay(
+        cls, impact, replay, *, expected_before_cogs=None,
+        expected_after_cogs=None, check_after=True,
+    ):
+        try:
+            after = sum(
+                (Decimal(str(row["after_sku_cogs_rub"])) for row in impact["periods"]),
+                Decimal("0.00"),
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            before = sum(
+                (Decimal(str(row["before_sku_cogs_rub"])) for row in impact["periods"]),
+                Decimal("0.00"),
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            expected_after = (
+                replay.get("total_cogs_rub")
+                if expected_after_cogs is None else expected_after_cogs
+            )
+            before_matches = (
+                expected_before_cogs is None
+                or format(before, ".2f") == str(expected_before_cogs)
+            )
+            after_matches = (
+                not check_after or format(after, ".2f") == str(expected_after)
+            )
+            return (
+                after_matches
+                and before_matches
+                and all(row.get("completeness") == "COMPLETE" for row in impact["periods"])
+                and before >= Decimal("0.00")
+            )
+        except (KeyError, TypeError, ValueError, InvalidOperation):
+            return False
+
+    @classmethod
+    def _validate_transition_bridge_ledger(cls, connection, stream_id, bridge):
+        cutoff = bridge.cutoff_date
+        rows = connection.execute(
+            """SELECT source_identity_digest, quantity, effective_date
+               FROM fifo_cost_events WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY source_identity_digest, effective_date, quantity""",
+            (stream_id,),
+        ).fetchall()
+        expected = sorted(
+            (event.source_identity_digest, event.quantity, event.physical_effective_date)
+            for event in bridge.post_cutoff_events
+        )
+        actual = sorted(
+            (row["source_identity_digest"], row["quantity"], row["effective_date"])
+            for row in rows
+        )
+        if any(row["effective_date"] <= cutoff for row in rows) or actual != expected:
+            return "FIFO_TRANSITION_SALE_BRIDGE_MISMATCH"
+        counts = connection.execute(
+            """SELECT event_kind, COUNT(*) AS count
+               FROM fifo_cost_events WHERE stream_id=?
+                 AND event_kind IN ('SALEABLE_RETURN_RESTOCK', 'NON_SALE_OUTFLOW')
+               GROUP BY event_kind""",
+            (stream_id,),
+        ).fetchall()
+        ledger_count = sum(row["count"] for row in counts)
+        if ledger_count != len(bridge.linked_returns_non_sale_movements):
+            return "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+        return None
+
+    @classmethod
+    def _transition_evidence_fingerprint(cls, connection, case_id, case_payload):
+        case_material = {
+            key: value for key, value in case_payload.items()
+            if key not in {
+                "case_revision", "state", "updated_at", "_command_fingerprint",
+                "last_preview", "last_commit", "last_evidence",
+            }
+        }
+        rows = {}
+        queries = {
+            "declarations": "SELECT declaration_id, declaration_revision, payload_fingerprint, "
+                "payload_json, recorded_at FROM fifo_cost_supply_declarations "
+                "WHERE case_id=? ORDER BY declaration_id, declaration_revision",
+            "observations": "SELECT observation_id, declaration_id, source_fingerprint, "
+                "payload_json, captured_at FROM fifo_cost_supply_observations "
+                "WHERE case_id=? ORDER BY observation_id",
+            "reports": "SELECT report_evidence_id, report_type, period_from, period_to, "
+                "period_provenance, captured_at, file_sha256, parser_version, source_kind, "
+                "completeness, source_fingerprint, cell_references_json, normalized_fields_json "
+                "FROM fifo_cost_report_evidence WHERE case_id=? "
+                "ORDER BY report_type, file_sha256, report_evidence_id",
+        }
+        for key, query in queries.items():
+            result = connection.execute(query, (case_id,)).fetchall()
+            rows[key] = [dict(row) for row in result]
+        if sum(len(value) for value in rows.values()) > 2200:
+            raise ValueError("FIFO_TRANSITION_EVIDENCE_LIMIT_REACHED")
+        return cls._sha256({"case": case_material, "evidence": rows})
+
+    @staticmethod
+    def _require_transition_report_evidence(connection, case_id, bridge):
+        stock_fingerprints = set(bridge.provenance_by_basis.get("stock_scope", ()))
+        rows = connection.execute(
+            """SELECT report_type, file_sha256, completeness
+               FROM fifo_cost_report_evidence WHERE case_id=?""",
+            (case_id,),
+        ).fetchall()
+        if not any(
+            row["report_type"] == "STOCK_MANAGEMENT"
+            and row["file_sha256"] in stock_fingerprints
+            and row["completeness"] == "COMPLETE"
+            for row in rows
+        ):
+            raise ValueError("FIFO_TRANSITION_STOCK_EVIDENCE_UNAVAILABLE")
+        if not any(
+            row["report_type"] == "TURNOVER" and row["completeness"] == "COMPLETE"
+            for row in rows
+        ):
+            raise ValueError("FIFO_TRANSITION_TURNOVER_EVIDENCE_UNAVAILABLE")
+
+    def _apply_transition_rate_and_allocation(
+        self, connection, *, stream_id, identity, stream, projection,
+        payload, now, now_text, idempotency_key,
+    ):
+        rate = payload["rate"]
+        replay = payload["allocation_preview"]
+        normalized = self._normalize_allocation_preview(
+            replay, "transition-apply-" + self._sha256({
+                "preview": payload["case_id"],
+                "fingerprint": payload["rate_payload_fingerprint"],
+            })[:32],
+        )
+        if isinstance(normalized, str):
+            raise ValueError(normalized)
+        current_source = self._allocation_source_fingerprint(
+            connection, stream_id, stream["revision"], stream["policy_version"],
+            projection["cutoff_status"],
+        )
+        if current_source != payload["base_source_fingerprint"]:
+            raise ValueError("FIFO_TRANSITION_PREVIEW_STALE")
+        rate_id = rate["rate_change_id"]
+        source = self._normalize_source({
+            "kind": "OWNER_CONFIRMATION",
+            "method": "OWNER_CONFIRMED_FIFO_TRANSITION",
+            "status": "OWNER_CONFIRMED",
+            "completeness": "OWNER_CONFIRMED",
+            "provenance": "OWNER_CONFIRMED",
+            "coverage_status": "OWNER_CONFIRMED",
+            "fingerprint": rate["source_fingerprint"],
+            "captured_at": now_text,
+            "inventory_cutoff": projection["inventory_cutoff"],
+            "references": [{
+                "kind": "DOCUMENT",
+                "digest": payload["bridge_fingerprint"],
+            }],
+        })
+        source_id = "src_" + self._sha256({
+            "store_id": identity["store_id"],
+            "source_fingerprint": source["source_fingerprint"],
+        })[:40]
+        self._ensure_source(connection, {
+            "identity": identity, "source": source, "source_id": source_id,
+        })
+        next_revision = stream["revision"] + 1
+        next_rate_sequence = connection.execute(
+            "SELECT COALESCE(MAX(rate_sequence), 0) + 1 FROM fifo_cost_rate_changes "
+            "WHERE stream_id=?", (stream_id,),
+        ).fetchone()[0]
+        if next_rate_sequence != rate["rate_sequence"]:
+            raise ValueError("FIFO_RATE_REVISION_CONFLICT")
+        connection.execute(
+            """INSERT INTO fifo_cost_rate_changes (
+                rate_change_id, stream_id, stream_revision, rate_sequence,
+                effective_date, unit_cost_rub, cost_input_mode,
+                purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+                owner_old_home_units, source_id, source_fingerprint,
+                payload_fingerprint, idempotency_key, recorded_at, captured_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (rate_id, stream_id, next_revision, rate["rate_sequence"],
+             rate["effective_date"], rate["unit_cost_rub"], rate["cost_input_mode"],
+             rate["purchase_cost_rub"], rate["delivery_cost_rub"],
+             rate["packaging_cost_rub"], rate["owner_old_home_units"], source_id,
+             rate["source_fingerprint"], payload["rate_payload_fingerprint"],
+             rate["idempotency_key"], now_text, now_text),
+        )
+        connection.execute(
+            "UPDATE fifo_cost_streams SET state='FIFO_PARTIAL', revision=?, updated_at=? "
+            "WHERE stream_id=? AND revision=?",
+            (next_revision, now_text, stream_id, stream["revision"]),
+        )
+        connection.execute(
+            """UPDATE fifo_cost_projections
+               SET revision=?, state='FIFO_PARTIAL', queue_complete=0,
+                   source_set_fingerprint=?, updated_at=?
+               WHERE stream_id=? AND revision=?""",
+            (next_revision, payload["candidate_source_fingerprint"], now_text,
+             stream_id, projection["revision"]),
+        )
+        candidate_source = self._allocation_source_fingerprint(
+            connection, stream_id, next_revision, stream["policy_version"],
+            projection["cutoff_status"],
+        )
+        if candidate_source != payload["candidate_source_fingerprint"]:
+            raise ValueError("FIFO_TRANSITION_PREVIEW_STALE")
+        allocation_revision = connection.execute(
+            "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations "
+            "WHERE stream_id=?", (stream_id,),
+        ).fetchone()[0]
+        if allocation_revision != payload["base_allocation_revision"]:
+            raise ValueError("FIFO_REVISION_CONFLICT")
+        self._validate_allocation_lines(
+            connection, stream_id, normalized,
+            stream_revision=next_revision,
+            allocation_revision=allocation_revision,
+            source_fingerprint=candidate_source,
+            cutoff_status=projection["cutoff_status"],
+        )
+        next_allocation_revision = allocation_revision + 1
+        allocation_id = "alloc_" + uuid4().hex
+        connection.execute(
+            """INSERT INTO fifo_cost_allocations (
+                allocation_id, stream_id, revision, stream_revision,
+                policy_version, source_set_fingerprint, cutoff_status,
+                status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'RECONCILED', 'COMPLETE', ?)""",
+            (allocation_id, stream_id, next_allocation_revision, next_revision,
+             stream["policy_version"], candidate_source, now_text),
+        )
+        line_number = 0
+        for allocation in normalized["allocations"]:
+            for line in allocation["lines"]:
+                line_number += 1
+                basis_allocation_id = None
+                basis_line_number = None
+                origin_id = line["origin_sale_event_id"]
+                if origin_id is not None:
+                    if line["layer_id"] is None:
+                        raise ValueError("FIFO_ALLOCATION_BASIS_MISSING")
+                    basis = connection.execute(
+                        """SELECT l.allocation_id, l.line_number
+                           FROM fifo_cost_allocation_lines AS l
+                           JOIN fifo_cost_allocations AS a ON a.allocation_id=l.allocation_id
+                           WHERE a.stream_id=? AND l.event_id=? AND l.layer_id=?
+                           ORDER BY a.revision DESC, l.line_number LIMIT 1""",
+                        (stream_id, origin_id, line["layer_id"]),
+                    ).fetchone()
+                    if basis is None:
+                        raise ValueError("FIFO_ALLOCATION_BASIS_MISSING")
+                    basis_allocation_id, basis_line_number = basis["allocation_id"], basis["line_number"]
+                if line["layer_id"] is not None:
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_lines (
+                            allocation_id, line_number, event_id, layer_id,
+                            quantity, unit_cost_rub, total_cost_rub,
+                            basis_allocation_id, basis_line_number
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (allocation_id, line_number, allocation["event_id"],
+                         line["layer_id"], line["quantity"], line["unit_cost_rub"],
+                         line["total_cost_rub"], basis_allocation_id, basis_line_number),
+                    )
+                else:
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_rate_lines (
+                            allocation_id, line_number, event_id, rate_change_id,
+                            quantity, unit_cost_rub, total_cost_rub,
+                            basis_allocation_id, basis_line_number
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (allocation_id, line_number, allocation["event_id"],
+                         line["rate_change_id"], line["quantity"], line["unit_cost_rub"],
+                         line["total_cost_rub"], basis_allocation_id, basis_line_number),
+                    )
+        outflow_line_number = 0
+        for outflow in normalized["outflows"]:
+            for line in outflow["lines"]:
+                outflow_line_number += 1
+                connection.execute(
+                    """INSERT INTO fifo_cost_allocation_outflow_lines (
+                        allocation_id, line_number, event_id, layer_id,
+                        quantity, unit_cost_rub, estimated_value_rub,
+                        valuation_method
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (allocation_id, outflow_line_number, outflow["event_id"],
+                     line["layer_id"], line["quantity"], line["unit_cost_rub"],
+                     line["total_cost_rub"], outflow["valuation_method"]),
+                )
+        if self._replayed_remaining_layers(
+            connection, stream_id, next_allocation_revision,
+        ) is None:
+            raise ValueError("FIFO_ALLOCATION_REPLAY_UNAVAILABLE")
+        remaining = self._replayed_remaining_layers(
+            connection, stream_id, next_allocation_revision,
+        )
+        finite_rows = [row for row in remaining if row["remaining_units"] > 0]
+        finite_quantity = sum(row["remaining_units"] for row in finite_rows)
+        finite_cost = sum(
+            (Decimal(row["unit_cost_rub"]) * row["remaining_units"] for row in finite_rows),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        next_unit_cost = (
+            finite_rows[0]["unit_cost_rub"] if finite_rows else rate["unit_cost_rub"]
+        )
+        connection.execute(
+            """UPDATE fifo_cost_projections
+               SET revision=?, state='FIFO_READY', known_quantity=?, known_cost_rub=?,
+                   next_unit_cost_rub=?, queue_complete=1,
+                   source_set_fingerprint=?, last_event_id=?, updated_at=?
+               WHERE stream_id=? AND revision=?""",
+            (next_revision, finite_quantity, format(finite_cost, ".2f"),
+             next_unit_cost, candidate_source, projection["last_event_id"], now_text,
+             stream_id, next_revision),
+        )
+        connection.execute(
+            "UPDATE fifo_cost_streams SET state='FIFO_READY', updated_at=? "
+            "WHERE stream_id=? AND revision=?",
+            (now_text, stream_id, next_revision),
+        )
+        if line_number > 250_000:
+            raise ValueError("FIFO_REPLAY_WORK_LIMIT")
 
     def read_cost_history_snapshot(
         self, *, store_id, product_id=None, offer_id=None, sku,
@@ -5732,6 +7252,7 @@ class FifoCostRepository:
         anchor_cutoff_date, hypothetical_outflow=None,
         hypothetical_open_rate=None,
         hypothetical_open_rate_effective_date=None,
+        hypothetical_opening_layer_cost_replacement=None,
     ):
         """Rebuild expected FIFO output from immutable source rows before write."""
         anchor_row = connection.execute(
@@ -5754,17 +7275,35 @@ class FifoCostRepository:
             else "UNKNOWN"
         )
         layer_rows = connection.execute(
-            """SELECT layer_id, unit_cost_rub, quantity
-               FROM fifo_cost_layers WHERE stream_id=?
-               ORDER BY layer_sequence LIMIT 100001""",
+            """SELECT l.layer_id, l.unit_cost_rub, l.quantity, e.event_kind
+               FROM fifo_cost_layers AS l
+               JOIN fifo_cost_events AS e ON e.event_id=l.event_id
+               WHERE l.stream_id=?
+               ORDER BY l.layer_sequence LIMIT 100001""",
             (stream_id,),
         ).fetchall()
         if len(layer_rows) > 100_000:
             return {"complete": False, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
-        layers = [
-            FifoCostLayer(row["layer_id"], row["unit_cost_rub"], row["quantity"])
-            for row in layer_rows
-        ]
+        replacement_from = replacement_to = None
+        if hypothetical_opening_layer_cost_replacement is not None:
+            try:
+                replacement_from, replacement_to = hypothetical_opening_layer_cost_replacement
+            except (TypeError, ValueError):
+                return {"complete": False, "reason_code": "FIFO_REPLAY_INPUT_INVALID"}
+            replacement_from = cls._normalize_money(replacement_from)
+            replacement_to = cls._normalize_money(replacement_to)
+            if replacement_from is None or replacement_to is None:
+                return {"complete": False, "reason_code": "FIFO_REPLAY_INPUT_INVALID"}
+        layers = []
+        for row in layer_rows:
+            unit_cost = row["unit_cost_rub"]
+            if (
+                replacement_from is not None
+                and row["event_kind"] == "OPENING_FIFO_ANCHOR"
+                and cls._normalize_money(unit_cost) == replacement_from
+            ):
+                unit_cost = replacement_to
+            layers.append(FifoCostLayer(row["layer_id"], unit_cost, row["quantity"]))
         sale_rows = connection.execute(
             """SELECT event_id, effective_at, effective_date, quantity,
                       source_identity_digest
@@ -6057,6 +7596,7 @@ class FifoCostRepository:
     @classmethod
     def _allocation_source_fingerprint(
         cls, connection, stream_id, stream_revision, policy_version, cutoff_status,
+        *, hypothetical_rate=None,
     ):
         queries = {
             "events": "SELECT event_id, event_kind, effective_at, effective_date, quantity, "
@@ -6093,6 +7633,27 @@ class FifoCostRepository:
             if len(rows) > 100_000:
                 raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
             material[name] = [dict(row) for row in rows]
+        if hypothetical_rate is not None:
+            if not isinstance(hypothetical_rate, dict) or set(hypothetical_rate) != {
+                "rate_change_id", "rate_sequence", "effective_date", "unit_cost_rub",
+                "purchase_cost_rub", "delivery_cost_rub", "packaging_cost_rub",
+                "payload_fingerprint",
+            }:
+                raise ValueError("FIFO_RATE_INPUT_INVALID")
+            existing_rate_ids = {
+                row["rate_change_id"] for row in material["rates"]
+            }
+            existing_sequences = {row["rate_sequence"] for row in material["rates"]}
+            if (
+                hypothetical_rate["rate_change_id"] in existing_rate_ids
+                or hypothetical_rate["rate_sequence"] in existing_sequences
+                or type(hypothetical_rate["rate_sequence"]) is not int
+                or hypothetical_rate["rate_sequence"] < 1
+                or not cls._valid_digest(hypothetical_rate["payload_fingerprint"])
+            ):
+                raise ValueError("FIFO_RATE_REVISION_CONFLICT")
+            material["rates"].append(dict(hypothetical_rate))
+            material["rates"].sort(key=lambda row: row["rate_sequence"])
         material.update({
             "stream_revision": stream_revision,
             "policy_version": policy_version,
