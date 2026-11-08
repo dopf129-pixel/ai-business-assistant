@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -218,13 +220,13 @@ def _table_counts(repository):
 
 def _commit(
     repository, bridge, impact, prepared, *, current_tax_policy_fingerprint=TAX_POLICY,
-    impact_preview=None,
+    impact_preview=None, idempotency_key="commit-atomic-0001",
 ):
     return repository.commit_transition_case(
         case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
         offer_id=SCOPE.offer_id, sku=SCOPE.sku,
         expected_case_revision=prepared["case_revision"],
-        preview_id=prepared["preview_id"], idempotency_key="commit-atomic-0001",
+        preview_id=prepared["preview_id"], idempotency_key=idempotency_key,
         cutoff_bridge=bridge, impact_preview=impact_preview or impact,
         current_tax_policy_fingerprint=current_tax_policy_fingerprint,
     )
@@ -336,6 +338,60 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
         assert current["state"] == "AWAITING_EVIDENCE"
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_two_concurrent_confirms_apply_one_fifo_transition(tmp_path):
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, _clock = _prepared_repository(tmp_path)
+    reset_current_tenant_user_id(tenant)
+    barrier = Barrier(2)
+
+    def confirm(idempotency_key):
+        request_tenant = set_current_tenant_user_id(TENANT)
+        try:
+            request_repository = FifoCostRepository(
+                db_path=tmp_path / "transition-atomic.sqlite",
+            )
+            barrier.wait(timeout=5)
+            return _commit(
+                request_repository, bridge, impact, prepared,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            reset_current_tenant_user_id(request_tenant)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            confirm, ("commit-race-confirm-01", "commit-race-confirm-02"),
+        ))
+
+    assert sum(result["error"] is False for result in results) == 1
+    assert sum(
+        result.get("code") == "FIFO_TRANSITION_REVISION_CONFLICT"
+        for result in results
+    ) == 1
+    assert _table_counts(repository) == {
+        "fifo_cost_streams": 1,
+        # Two owner-confirmed opening layers plus one post-cutoff sale.
+        "fifo_cost_events": 3,
+        "fifo_cost_layers": 2,
+        "fifo_cost_commands": 1,
+        "fifo_cost_rate_changes": 1,
+        "fifo_cost_allocations": 1,
+        "fifo_cost_allocation_lines": 2,
+        "fifo_cost_transition_commits": 1,
+        "fifo_cost_cutoff_sale_mapping_sets": 1,
+        "fifo_cost_cutoff_sale_mappings": 2,
+    }
+    verification_tenant = set_current_tenant_user_id(TENANT)
+    try:
+        applied = repository.read_transition_case(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert applied["state"] == "APPLIED"
+        assert applied["case_revision"] == prepared["case_revision"] + 1
+    finally:
+        reset_current_tenant_user_id(verification_tenant)
 
 
 def test_changed_tax_stock_bridge_and_return_coverage_never_partially_apply(tmp_path):
