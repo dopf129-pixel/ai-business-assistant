@@ -174,10 +174,10 @@ def _initial_cutover(stock):
     }
 
 
-def _prepared_repository(tmp_path):
+def _prepared_repository(tmp_path, *, db_path=None):
     clock = [datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc)]
     repository = FifoCostRepository(
-        db_path=tmp_path / "transition-atomic.sqlite",
+        db_path=db_path or tmp_path / "transition-atomic.sqlite",
         now_provider=lambda: clock[0],
     )
     tenant = set_current_tenant_user_id(TENANT)
