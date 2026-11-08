@@ -659,6 +659,7 @@ def create_telegram_assistant():
         report_import_service=telegram_fifo_cost_report_import_service,
         review_service=fifo_cost_transition_review_service,
         supply_refresh_service=fifo_cost_transition_supply_refresh_service,
+        cache_invalidator=button_handler.invalidate_fifo_transition_snapshots,
     )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),

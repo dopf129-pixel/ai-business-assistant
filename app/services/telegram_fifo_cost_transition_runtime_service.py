@@ -41,7 +41,8 @@ class TelegramFifoCostTransitionRuntimeService:
     def __init__(
         self, transition_service, history_service, report_import_service=None,
         *, review_service=None, supply_refresh_service=None,
-        apply_service=None, monotonic_clock=monotonic, now_provider=None,
+        apply_service=None, cache_invalidator=None,
+        monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
         self.history_service = history_service
@@ -49,6 +50,7 @@ class TelegramFifoCostTransitionRuntimeService:
         self.review_service = review_service
         self.supply_refresh_service = supply_refresh_service
         self.apply_service = apply_service
+        self.cache_invalidator = cache_invalidator
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -975,6 +977,13 @@ class TelegramFifoCostTransitionRuntimeService:
         )
         if not isinstance(result, dict) or result.get("error") is not False:
             return self._failure("Серверная проверка применения не пройдена. Данные FIFO не изменены.")
+        if callable(self.cache_invalidator):
+            try:
+                self.cache_invalidator(dict(session["identity"]))
+            except Exception:
+                # The atomic commit is already authoritative. Detail callbacks
+                # still validate the exact local cost/allocation revision.
+                pass
         self._refresh_session(session, self._read_case(session["case_id"], session["identity"]))
         return self._show_summary(owner)
 

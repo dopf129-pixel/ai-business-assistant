@@ -9,6 +9,10 @@ from services.assistant_keyboard_service import (
     AssistantKeyboardService
 )
 from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class FakeAssistant:
@@ -224,6 +228,100 @@ def test_unit_economics_detail_callbacks_keep_their_own_sku_snapshot():
     assert first_detail["message"].endswith("sku-one")
     assert second_detail["message"].endswith("sku-two")
     assert query.queries == ["sku-one", "sku-two"]
+
+
+def test_unit_economics_detail_snapshot_is_rejected_after_cost_revision_changes():
+    class RevisionCostAdapter:
+        revision = "cost-r1"
+        allocation_revision = "allocation-r1"
+
+        def get_current_cost_date(self):
+            return "2026-11-08"
+
+        def resolve_current_cost(self, product, *, store_id, as_of_date):
+            return {
+                "error": False,
+                "cost_revision": self.revision,
+                "cost_basis": {
+                    "quantity_allocation_basis": {
+                        "revision": self.allocation_revision,
+                    },
+                },
+            }
+
+    handler, query = _build_handler()
+    adapter = RevisionCostAdapter()
+    query.cost_adapter = adapter
+    tenant = set_current_tenant_user_id("user-42::ozon::store-a")
+    identity = {
+        "store_id": "store-a", "product_id": "product-1",
+        "offer_id": "offer-1", "sku": "sku-1",
+    }
+    try:
+        callback = handler._store_unit_economics_detail_snapshot(
+            "42", "Current revision detail", sku="sku-1",
+            cost_identity=identity, cost_revision="cost-r1",
+            allocation_revision="allocation-r1",
+        )
+        current = handler.handle(callback, user_id=42)
+        adapter.revision = "cost-r2"
+        adapter.allocation_revision = "allocation-r2"
+        stale = handler.handle(callback, user_id=42)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert current["message"] == "Current revision detail"
+    assert stale["code"] == "UNIT_ECONOMICS_BREAKDOWN_STALE"
+    assert "откройте sku заново" in stale["message"].lower()
+
+
+def test_fifo_apply_cache_invalidation_removes_only_old_exact_revision():
+    class RevisionCostAdapter:
+        def get_current_cost_date(self):
+            return "2026-11-08"
+
+        def resolve_current_cost(self, product, *, store_id, as_of_date):
+            return {
+                "error": False,
+                "cost_revision": "cost-r2",
+                "cost_basis": {
+                    "quantity_allocation_basis": {"revision": "allocation-r2"},
+                },
+            }
+
+    handler, query = _build_handler()
+    query.cost_adapter = RevisionCostAdapter()
+    tenant = set_current_tenant_user_id("user-42::ozon::store-a")
+    identity = {
+        "store_id": "store-a", "product_id": "product-1",
+        "offer_id": "offer-1", "sku": "sku-1",
+    }
+    try:
+        old_callback = handler._store_unit_economics_detail_snapshot(
+            "42", "old", sku="sku-1", cost_identity=identity,
+            cost_revision="cost-r1", allocation_revision="allocation-r1",
+        )
+        current_callback = handler._store_unit_economics_detail_snapshot(
+            "42", "current", sku="sku-1", cost_identity=identity,
+            cost_revision="cost-r2", allocation_revision="allocation-r2",
+        )
+        other_identity = {**identity, "sku": "sku-2"}
+        other_callback = handler._store_unit_economics_detail_snapshot(
+            "42", "other sku", sku="sku-2", cost_identity=other_identity,
+            cost_revision="cost-r1", allocation_revision="allocation-r1",
+        )
+        invalidated = handler.invalidate_fifo_transition_snapshots(identity)
+        tokens = {
+            item.split(":", 1)[1]
+            for item in (current_callback, other_callback)
+        }
+        stored_tokens = {key[1] for key in handler._unit_economics_detail_snapshots}
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert invalidated == 1
+    assert old_callback.split(":", 1)[1] not in stored_tokens
+    assert tokens <= stored_tokens
 
 
 def test_incomplete_economics_exposes_explicit_sku_actions_and_scoped_refresh(monkeypatch):
