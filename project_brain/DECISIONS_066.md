@@ -27,6 +27,15 @@ The repository has dated seller cost history, mutable current-cost projection, P
 
 Accepted for implementation within the user-approved FC00–FC35 task; independent review is required before merge. The factual cutoff gate remains blocked pending sanitized owner validation.
 
+## Addendum — 2026-11-09: temporal rate boundaries and durable evidence
+
+- Continue the same tenant-scoped FIFO repository, allocation kernel, replay and `fifo_cost_schema`. A later cost change is a proof-bound temporal boundary; it does not create a purchase quantity. At that boundary, materialize only the independently reconciled residual of the previously open rate behind older finite FIFO balances, then activate the new open rate. Never infer a residual from future sales or apply the latest rate retroactively.
+- Each boundary must identify its exact predecessor rate, store-local boundary descriptor, finite older units, previous-open residual and immutable reconciliation evidence. Missing or conflicting proof blocks replay; it never becomes zero. Exact-instant timestamps are compared in the store timezone. Date-only boundaries are explicit `END_OF_LOCAL_DATE` and do not use UTC date substrings.
+- A returned unit sold under an earlier rate restores a finite slice at its original cost and exact origin. It does not rewrite the original sale COGS or bypass Return COGS authorization. Non-sale withdrawals consume proven finite balances only; open-rate quantity remains unknown.
+- Persist evidence snapshots/confirmations and derived rate balances additively in the existing tenant FIFO database; expected migration is v15→v16 after verifying the actual schema version. Keep append-only revisions, Fernet-protected raw references, tenant scope, CAS/idempotency and rollback. Planning Workspace schema and `PRAGMA user_version` are unchanged.
+- Production readiness and application must reconstruct a typed evidence bundle from durable owner/source records and build the actual cutoff bridge. A single shared factory wires evidence, review, apply and Telegram runtime. `prepare` seals a read-only impact at case revision N and advances to READY N+1; a separate exact-preview confirmation atomically applies. New evidence invalidates READY by appending a revision. No HTTP occurs inside apply transactions.
+- This addendum does not relax the original source/cutoff gate. The actual owner case remains `USER_VALIDATION_PENDING` / `SOURCE_BLOCKED`; synthetic MR01–MR22 acceptance is not owner verification and does not authorize merge/deployment/live calls.
+
 ## Addendum — 2026-11-07: durable late-entry cases
 
 - Extend this same `FifoCostRepository` and `fifo_cost_schema` boundary to schema v13. Seven transition-case/evidence/preview/commit tables remain in the existing tenant-local `ozon_assistant.db`; do not create a separate database or change Planning Workspace's `PRAGMA user_version`/schema owner.

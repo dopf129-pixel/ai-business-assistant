@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO review blocker red-baseline tests (FR02)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py`: captures the exact MR02–MR03 public temporal replay contract, including proven residual materialization and multi-rate FIFO arithmetic. The initial red baseline fails because the typed temporal boundary/replay path is absent; it must pass after FR04–FR11.
+- `tests/test_fifo_cost_transition_production_workflow.py`: captures the absent durable evidence reader, common production workflow builder, ApplyService wiring and physical-sales import route. Initial red baseline fails on the current code and must pass only after FR12–FR27. These tests are not a passing CI claim; they must be separated into the dependent PR scope as recorded in the FR progress journal.
+- Initial baseline: six expected failures in 1.28s. No skip/xfail; temporary SQLite only. Later results must be recorded against their exact code SHA.
+
 # 2026-11-08 — FIFO review-fix regression map
 
 - `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.

@@ -6,10 +6,10 @@
 
 ## Resume
 
-- Следующий этап FR03: оформить стабильные DTO/error/revision/migration contracts и addendum к Decision 066; затем идти FR04–FR11 на ветке PR A.
+- Следующий этап FR04: добавить immutable typed rate-boundary DTO и строгую валидацию, сохранив single-rate compatibility.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b` (`Preserve FIFO review corrections checkpoint`); отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`.
+- Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - Существуют 17 modified tracked-файлов review corrections без commit. Сохранить весь исходный diff. Staged state на входе FR00 был пуст.
 - .fl12-deps/ — существующие untracked dependencies, не stage.
@@ -25,8 +25,8 @@
 | FR00 | DONE | 2026-11-09; ветка и SHA сверены; #728–#730 подтверждены открытыми через GitHub; полный исходный diff — 17 tracked files; исходно staged state пуст; manifest data снят. |
 | FR01 | DONE | 2026-11-09; отдельный checkpoint `49442244cbad9f679455562196c7b47b74790b6b`; 7 FIFO/Telegram модулей существующих исправлений: **86 passed in 7.14s** с Python проекта и локальными зависимостями; manifest data до/после совпал. |
 | FR02 | DONE | Добавлены temporal replay и production-workflow red regressions; baseline на старом коде: **6 failed in 1.28s** с ожидаемыми причинами — отсутствие rate-boundary DTO, evidence service injection и общей production factory/apply wiring. Тесты не помечены skip/xfail. |
-| FR03 | IN_PROGRESS | Создать FR03_CONTRACTS_2026-11-08.md и узкий addendum к Decision 066, сохраняя существующий gate. |
-| FR04 | NOT_STARTED | Typed boundaries |
+| FR03 | DONE | Создан `FR03_CONTRACTS_2026-11-08.md`, добавлен узкий Decision 066 addendum и red-test map; Decimal MR01–MR15 + canonical TaxService checks PASS. |
+| FR04 | IN_PROGRESS | Добавить `FifoRateBoundaryEvent` и `FifoDatedRateBoundaryEvent`, проверить invalid/idempotent/scope/order input, сохранив wrapper single-rate API. |
 | FR05 | NOT_STARTED | Allocation kernel |
 | FR06 | NOT_STARTED | Temporal replay |
 | FR07 | NOT_STARTED | Migration |
@@ -81,3 +81,10 @@
 - Baseline запуск: 6 tests failed in 1.28s по ожидаемым недостающим контрактам на исходном коде: нет typed rate-boundary event; `FifoCostTransitionReviewService` не принимает evidence service; `create_fifo_cost_transition_workflow` не существует. Это red-baseline этапа, не текущий passing CI.
 - Положительный E2E и настоящие saved-document/confirmed-preview проверки будут доведены на FR12–FR27 без постоянных skip/xfail. FR02 tests пока не публиковались; для зелёного PR A production-only tests будут перенесены в PR B scope, а temporal tests останутся в PR A.
 - Тестовые SQLite использовали только `tmp_path`; owner data manifest остался тем же. Live APIs и bot не использовались.
+
+## FR03 — 2026-11-09
+
+- Создан `project_brain/FR03_CONTRACTS_2026-11-08.md`: typed boundary DTOs, date/timezone rules, stable failure codes, one-kernel replay invariants, repository schema v16, N/N+1 application contract, public service relationships, privacy/quota bounds, independent arithmetic and verification gates.
+- `project_brain/DECISIONS_066.md` получил узкий append-only addendum: temporal boundaries materialize only proven predecessor residual; source/cutoff gate and owner blocking remain unchanged. `TEST_MAP.md` lists FR02 red-baseline cases without representing them as passing CI. `CURRENT_STATE.md` now records execution and branch state.
+- Independent `Decimal` arithmetic passed for MR01–MR07/MR12–MR15; direct existing canonical `TaxService.calculate` passed NONE, USN income, USN income-minus-expenses and minimum-tax checks. TaxService unchanged. No pytest run in FR03; it is a contracts/doc stage.
+- Existing `data/` manifest from FR00 remains the baseline; no task mutated owner data. No real APIs, DBs, or bot run.
