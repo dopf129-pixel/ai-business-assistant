@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL30.
-Выполненных этапов:29/36 (FL00–FL29 VERIFIED на кодовых и синтетических проверках; далее FL30–FL35: числовая матрица, изоляция, backup/restart, документация, полный CI и PR delivery).
+Следующий этап: FL32.
+Выполненных этапов:31/36 (FL00–FL31 VERIFIED на кодовых и синтетических проверках; далее FL32–FL35: backup/restart, документация, полный CI и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -50,8 +50,8 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL27 | Current/plans/cache | VERIFIED | code `81266ad3`; focused 72 passed; linked FIFO/Telegram/Period Profit/current unit economics/saved plans 617 passed in 27.93s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL28 | Period Profit | VERIFIED | code `5afe569d01313ea8ac15b0689a12314893238c38`; focused 60 passed; linked FIFO/Telegram/Period Profit 1085 passed in 44.01s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL29 | History/refresh/cancel | VERIFIED | code `0bcb13d8cfd4704429a08999e7a014a2c4275e8a`; focused 69 passed in 6.40s; linked FIFO/Telegram/Period Profit 1086 passed in 44.07s; compileall/diff-check/data unchanged PASS; synthetic only |
-| FL30 | Числовая матрица | NOT_STARTED | — |
-| FL31 | Security/isolation/navigation | NOT_STARTED | — |
+| FL30 | Числовая матрица | VERIFIED | `2dec7566` + `1c17f4df`; linked profile 1094 passed; acceptance/review profile 39 passed; compileall/diff/data-preservation PASS |
+| FL31 | Security/isolation/navigation | VERIFIED | code/test `cd2aeb2e`; atomic apply 11 passed; linked profile 582 passed in 26.33s; compileall, diff-check, tracked `data/` unchanged PASS |
 | FL32 | Backup/migration/restart | NOT_STARTED | — |
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
@@ -372,6 +372,14 @@ Source readiness:
 - Verification: acceptance/review/reconciliation profile **39 passed in 2.04s**; linked `test_fifo_cost_*.py`, `test_telegram_fifo_cost_*.py`, `test_period_profit*.py` **1094 passed in 44.41s**; `python -m compileall -q app tests`, `git diff --check`, tracked `data/` diff PASS. Current aggregate `data/` fingerprint is documented; tests use only temporary SQLite and synthetic API responses.
 - No raw downloaded owner documents, owner DB, live Ozon/Telegram requests, bot process, merge, or deployment used. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; the latter remains separate and depends on the owner's evidence. Architecture classification: **Architecture Review Required** because transition contracts and durable review assembly changed; no new decision beyond Decision 066.
 - Next: FL31 — exact owner/store/SKU/callback isolation, source fingerprints, stale and concurrent confirmation, navigation preservation, and hostile/duplicate report input limits.
+
+## Выполнение FL31 — 2026-11-08
+
+- FL31 review found no missing implementation path in the existing scope/import/navigation tests; one explicit test gap remained: two independent clients confirming the same sealed preview concurrently had not been exercised. Added a `Barrier`-synchronized regression using two `FifoCostRepository` instances and different idempotency keys against one temporary SQLite database.
+- Exactly one confirm applies and advances the case to `APPLIED`; the competing confirm returns `FIFO_TRANSITION_REVISION_CONFLICT`. The test asserts one commit, one rate change, one allocation, one command, two initial layers, two exact cutoff sale mappings, and three expected events (two opening layers plus one post-cutoff physical sale). No duplicate stock or COGS effects occur.
+- Existing coverage crosswalk: owner/store/SKU isolation — transition store/service and runtime tests; historical finance aliases — `test_fifo_cost_period_profit_source_service.py`; source fingerprint conflicts/repeated pages and acts — transition observation/reconciliation/refresh tests; TOTAL_LANDED and COMPONENTS plus wrong-store callback — Telegram transition runtime tests; stale confirm and input tampering — report importer/atomic apply tests; `/start`, CSV routing, calculator switch, ReturnInventory and external-expense preservation — `test_fifo_telegram_navigation_regressions.py` and linked history/import tests; malicious ZIP/XML, formula cells, duplicate headers, missing SKU, hidden sheets and bounded inputs — report and stock-management parser/worker tests.
+- Code/test commit: `cd2aeb2e` (`Cover concurrent FIFO transition confirms`). Atomic-apply file: **11 passed in 1.91s**. Linked FIFO/Telegram/Period Profit/navigation/external-expense profile: **582 passed in 26.33s**. `python -m compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. All tests use synthetic documents and `tmp_path`; no owner Downloads/database or live APIs were read.
+- No production code or contract changed; no architecture decision required. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Next: FL32 migration/backup/restart round-trip and data-integrity checks.
 
 ## PR delivery
 

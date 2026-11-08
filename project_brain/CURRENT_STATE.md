@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL31: concurrent confirmation is regression-covered
+
+- FL31 audit found that atomic apply already uses a transaction and revision check, but its positive-path tests only exercised sequential retries. Added a synchronized competing-confirm test with two repository instances and distinct idempotency keys.
+- Exactly one request moves the case to `APPLIED`; the other receives `FIFO_TRANSITION_REVISION_CONFLICT`. The resulting database has one transition commit, one rate change, one allocation, two initial cost layers, two sale mappings, and only the expected three events (two opening layers plus one post-cutoff sale).
+- Existing security/import/navigation tests cover the remaining FL31 matrix; no product code change or architectural decision was needed. FL31 implementation verification is synthetic only; `OWNER_CASE_VERIFIED=false`.
+
 # 2026-11-08 — FIFO FL30: acceptance evidence survives refresh and restart
 
 - `FifoCostTransitionSupplyRefreshService` now passes complete act evidence into the existing append-only transition observation. The case stores only allowlisted per-act digests and quantities; raw act/supply IDs remain transient and are not persisted in the transition payload.

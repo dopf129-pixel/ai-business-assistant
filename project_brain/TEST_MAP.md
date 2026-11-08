@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL31 regression map
+
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` synchronizes two independent repository instances at the same READY preview; verifies one commit and fail-closed CAS for the competing confirmation.
+- Related existing FL31 checks: `tests/test_fifo_cost_transition_store.py` (tenant/store/SKU scope and concurrent lifecycle CAS); `tests/test_fifo_cost_transition_service.py` and `tests/test_fifo_cost_transition_supply_reconciliation_service.py` (source fingerprints, duplicate pages/acts and ambiguity); `tests/test_telegram_fifo_cost_transition_runtime_service.py` (TOTAL_LANDED/COMPONENTS and wrong-store callback); `tests/test_fifo_cost_report_import_service.py`, `tests/test_fifo_cost_stock_management_import_service.py` and worker/import service tests (stale CSV/XLSX, formulas, duplicate/missing headers/SKU, hidden sheets, malicious package/size limits); `tests/test_fifo_telegram_navigation_regressions.py` (start, calculator/workflow switching, ReturnInventory and external-expense draft preservation).
+- Verification: atomic apply **11 passed**; linked FIFO/Telegram/Period Profit/navigation/external-expense profile **582 passed in 26.33s**. Inputs use `tmp_path`, synthetic XLSX/CSV and temporary SQLite; no owner Downloads or database is read.
+
 # 2026-11-08 — FIFO FL30 numeric matrix and durable acceptance regressions
 
 - Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).

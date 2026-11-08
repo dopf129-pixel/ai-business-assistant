@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL31: concurrent confirmation and isolation regressions
+
+- Added a barrier-synchronized two-request confirmation regression using separate repository instances and idempotency keys. Exactly one late-entry transition may apply; the competing stale request returns a revision conflict, with one commit/allocation/rate and no duplicate stock or COGS events.
+- Existing FL31 coverage was cross-checked for owner/store/SKU scoping, historical aliases, source conflicts, both cost-input modes, stale/wrong-store callbacks, safe report parsing and navigation preservation.
+- Targeted atomic-apply tests: **11 passed**. Linked FIFO, Telegram FIFO, Period Profit integration, navigation and external-expense profile: **582 passed in 26.33s**. Synthetic temporary SQLite and files only.
+
 # 2026-11-08 — FIFO FL30: persist acceptance-act evidence through restart
 
 - The late-entry supply refresh now saves the allowlisted acceptance-act facts it already reads: opaque act digests, document date, declared/approved/fact quantities, source fingerprints, and capture time. A fresh review service reconstructs accepted quantities from that durable evidence.
