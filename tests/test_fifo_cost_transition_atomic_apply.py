@@ -341,7 +341,7 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
 
 
 def test_two_concurrent_confirms_apply_one_fifo_transition(tmp_path):
-    repository, tenant, _stock, bridge, impact, _cutover, prepared, _clock = _prepared_repository(tmp_path)
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, clock = _prepared_repository(tmp_path)
     reset_current_tenant_user_id(tenant)
     barrier = Barrier(2)
 
@@ -350,6 +350,7 @@ def test_two_concurrent_confirms_apply_one_fifo_transition(tmp_path):
         try:
             request_repository = FifoCostRepository(
                 db_path=tmp_path / "transition-atomic.sqlite",
+                now_provider=lambda: clock[0],
             )
             barrier.wait(timeout=5)
             return _commit(
@@ -364,11 +365,11 @@ def test_two_concurrent_confirms_apply_one_fifo_transition(tmp_path):
             confirm, ("commit-race-confirm-01", "commit-race-confirm-02"),
         ))
 
-    assert sum(result["error"] is False for result in results) == 1
+    assert sum(result["error"] is False for result in results) == 1, results
     assert sum(
         result.get("code") == "FIFO_TRANSITION_REVISION_CONFLICT"
         for result in results
-    ) == 1
+    ) == 1, results
     assert _table_counts(repository) == {
         "fifo_cost_streams": 1,
         # Two owner-confirmed opening layers plus one post-cutoff sale.

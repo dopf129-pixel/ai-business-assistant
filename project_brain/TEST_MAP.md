@@ -2,7 +2,8 @@
 
 - `tests/test_analytics_export_service.py::test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_versions` now asserts the current `mixed_cutoff_sku_count=0` projection in both JSON and CSV metadata.
 - `tests/test_product_decision_verified_guidance_telegram_wiring_v1061_v1070.py::test_v1070_factory_shares_history_with_readonly_verifier` now gives its factory test double the production FIFO cache invalidation method.
-- Three targeted regressions pass. Initial isolated full run: **5094 passed, 10 failed**; eight failures came from the harness's explicit storage-root override and worker dependency path, not assertions against runtime behavior. Corrected full-suite rerun is pending.
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` now injects the same fake clock into both independent repositories, preventing its preview TTL from depending on wall time.
+- Four targeted regressions pass. Initial isolated full run: **5094 passed, 10 failed**; eight were harness-only (storage-root override or omitted isolated worker dependencies), and two fixtures were stale. Corrected full run: **5103 passed, 1 failed** due to the race test's mixed clocks; that test now passes in isolation and a final full rerun is pending.
 
 # 2026-11-08 — FIFO FL33 owner acceptance map
 

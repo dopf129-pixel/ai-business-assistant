@@ -1,7 +1,7 @@
 # 2026-11-08 — FIFO FL34: align full-suite verification fixtures
 
 - Updated the Period Profit export fixture for the explicit `mixed_cutoff_sku_count` field and updated the Telegram factory test double for the FIFO transition cache invalidation hook.
-- The first isolated full-suite attempt exposed eight harness-only failures caused by an overridden storage root or a worker dependency path missing from the disposable checkout; the corrected rerun is pending. Three focused regressions pass.
+- The first isolated run exposed eight harness-only failures caused by an overridden storage root or a worker dependency path missing from the disposable checkout; these were removed from the rerun setup. A second run passed 5,103 tests and exposed a race-test clock mismatch; independent repository instances now receive the same injected clock. Four focused regressions pass; the final full rerun is pending.
 
 # 2026-11-08 — FIFO FL33: owner late-entry guide and evidence checklist
 
