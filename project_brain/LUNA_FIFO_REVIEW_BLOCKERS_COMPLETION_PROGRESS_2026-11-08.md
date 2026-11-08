@@ -6,7 +6,7 @@
 
 ## Resume
 
-- Текущий этап FR09 NOT_STARTED: проверить и расширить обычное изменение себестоимости после late entry через prefix replay на выбранной границе; уменьшение stock принимать только при полном bridge.
+- Текущий этап FR09 IN_PROGRESS: проверить и расширить обычное изменение себестоимости после late entry через prefix replay на выбранной границе; уменьшение stock принимать только при полном bridge.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -30,8 +30,8 @@
 | FR05 | DONE | Pure kernel: MR01–MR07 and linked allocator/replay profile: **77 passed, 2 replay-adapter cases deselected**; compileall and diff-check PASS. |
 | FR06 | DONE | Store-local temporal ordering, exact/local-date boundaries, bounded ambiguity analysis, stable duplicate/permutation fingerprints; **86 passed in 1.39s** across temporal replay and legacy allocator/replay profiles. |
 | FR07 | DONE | Schema v16; additive tables/indexes/FK/immutable guards/quotas; local migrations and replay profile 104 passed. |
-| FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; code SHA `f3d00b3c` + uncommitted FR08 stage |
-| FR09 | NOT_STARTED | Rate commit/replay |
+| FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; implementation checkpoint `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` |
+| FR09 | IN_PROGRESS | Ordinary rate change after late entry through prefix replay |
 | FR10 | NOT_STARTED | Returns/non-sale |
 | FR11 | NOT_STARTED | Readers/gateB |
 | FR12 | NOT_STARTED | Typed evidence |
@@ -69,6 +69,7 @@
 - Проверка на изменённом коде: `tests/test_fifo_cost_repository_multi_rate_replay.py`, `test_fifo_cost_allocation_repository.py`, `test_fifo_cost_rate_service.py`, `test_fifo_cost_temporal_rate_replay.py`, `test_fifo_cost_replay_service.py`, `test_fifo_cost_transition_schema_v13.py`, `test_fifo_cost_late_entry_reconstruction_service.py`, `test_fifo_cost_transition_atomic_apply.py`, `test_fifo_cost_return_repository.py` — **134 passed in 7.34s**. `compileall` для двух изменённых сервисов — PASS; `git diff --check` — PASS.
 - Data manifest до/после: history `520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; profiles `8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; tasks `6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; tax `F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; users `2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`. `git diff -- data` пустой. `.fl12-deps/` не изменялась и не добавлялась.
 - Ограничение: synthetic repository fixture создаёт rate/reconciliation/mapping rows напрямую для изоляции adapter boundary; создание новых ставок через публичные application methods — критерий FR09. Реальные данные владельца и внешние API не использовались. Следующий шаг — FR09.
+- Итоговый code/docs checkpoint FR08: `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` (`Connect FIFO repository multi-rate replay`). Рабочее дерево чистое, кроме заранее существующей неотслеживаемой `.fl12-deps/`; она не включена в commit.
 
 ## Проверка подготовки ТЗ — 09.11.2026
 
