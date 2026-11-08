@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL26.
-Выполненных этапов:25/36 (FL00–FL25 VERIFIED на кодовых и синтетических проверках; далее FL26–FL35: подтверждения, consumers, acceptance, reliability и PR delivery).
+Следующий этап: FL27.
+Выполненных этапов:26/36 (FL00–FL26 VERIFIED на кодовых и синтетических проверках; далее FL27–FL35: consumers, acceptance, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` содержит FL24–FL25 и основана на exact PR2 head. Последний code checkpoint FL25 `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked profile: **537 passed**. FL24 code `ee98230286354e21e1f2cf5ca307391c97d6171f`, docs `e3a81d32545d2dcc04283c479091906befa1c47d`. PR3 documentation checkpoint FL25 is in progress; PRs not yet pushed. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` содержит FL24–FL26 и основана на exact PR2 head. Последний code checkpoint FL26 `1e9ccb95d06974ebacf9b00186341dd399d40cfb` (с добавочным UI/review commit `b6ccc4569fd66f349f80f2a3bb84fb6505ce5e6a`); linked profile: **545 passed**. FL25 code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; FL24 code `ee98230286354e21e1f2cf5ca307391c97d6171f`, docs `e3a81d32545d2dcc04283c479091906befa1c47d`. FL26 documentation checkpoint in progress; PRs not yet pushed. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -46,7 +46,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL23 | Atomic apply | VERIFIED | `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; dedicated 10 passed, linked profile 531 passed |
 | FL24 | Меню до FIFO | VERIFIED | code `ee98230286354e21e1f2cf5ca307391c97d6171f`; linked profile 533 passed |
 | FL25 | Durable мастер | VERIFIED | code `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked profile 537 passed; compileall/diff-check/data unchanged PASS |
-| FL26 | Разные подтверждения | NOT_STARTED | — |
+| FL26 | Разные подтверждения | VERIFIED | `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; focused 57 passed in 4.38s; linked FIFO/Telegram/Period Profit 545 passed in 24.43s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL27 | Current/plans/cache | NOT_STARTED | — |
 | FL28 | Period Profit | NOT_STARTED | — |
 | FL29 | History/refresh/cancel | NOT_STARTED | — |
@@ -56,6 +56,16 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
+
+## Выполнение FL26 — 2026-11-08
+
+- Реализованы раздельные подтверждения и действия: сохранение одного owner-input блока, обновление конкретной SUPPLY, добавление отчёта, проверка readiness, просмотр пересчёта и отмена. Выбор поставки постраничный (8 записей на страницу); callback содержит короткий opaque ticket, не ID/ввод. Проверка ID перед источником остаётся case/store/SKU/declaration-bound; неправильный ID не вызывает source. Загруженные filenames и разметка отчёта пользователю в этом preview не отображаются; sender по-прежнему переносит клавиатуру только на единственный последний/единственный chunk.
+- `FifoCostTransitionReviewService` заново собирает read-only proposal/readiness из сохранённых typed declarations, observations и отчётов; ciphertext lookup reference раскрывается только внутреннему сервису для разбора evidence и не уходит наружу. Scope проверяется заново, лимиты чтения ограничены; ошибка evidence закрывает readiness. В preview показаны owner provenance, дата, TOTAL_LANDED без фиктивных компонентов либо отдельные COMPONENTS, только подтверждённые FIFO-слои, provenance/период/as-of отчётов, недостающие документы/поля, source/candidate/complete coverage и отдельно оговорена нерассчитанная дельта фактической прибыли. При неинициализированной FIFO старые слои не выдумываются.
+- В production wiring добавлены review и supply-refresh сервисы. Применение остаётся скрытым без `READY_TO_CONFIRM` и доступного сервиса; повторная серверная проверка требует точной редакции/state, а поддельная кнопка до READY отклоняется. Production apply orchestration пока не подключён; этот участок надо закрыть в downstream FL27/FL28 вместе с подтверждённым impact/cache path, не выдавать экранный preview за готовность к финансовому commit.
+- `tests/test_fifo_cost_transition_review_service.py` и `tests/test_telegram_fifo_cost_transition_runtime_service.py`: read-only reconstruction/scope, safe FIFO layer projection, 10 поставок на двух страницах, opaque callbacks без ID ≤64 байт, owner/store check до API, точные dates/provenance, TOTAL_LANDED и COMPONENTS, N21 21→14.65 (разница себестоимости −6.35 ₽/шт., не прибыль), отсутствие кнопки и серверный отказ apply до READY, отсутствие записей в FIFO/прибыль.
+- Targeted FL26: **57 passed in 4.38s**. Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **545 passed in 24.43s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только временная synthetic SQLite; owner DB/files, real Ozon/Telegram, bot и deployment не использовались.
+- Code commits `b6ccc4569fd66f349f80f2a3bb84fb6505ce5e6a` (`Add FIFO transition review and confirmation actions`) and `1e9ccb95d06974ebacf9b00186341dd399d40cfb` (`Allow read-only readiness for ready FIFO cases`). READY review remains read-only, with `ready_to_apply=false`. Architecture review required: новый review service, Telegram runtime state/action extension, read-ready proposal acceptance and factory wiring. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; текущий локальный проект не предоставляет owner-confirmed cutoff/full bridge, а production atomic apply remains deliberately unwired.
+- Далее FL27: доказать неизменность current cost/cache/saved plans для draft и спроектировать exact revision invalidation при APPLIED; сначала сопоставить имеющийся impact/repository API с отсутствующим production apply orchestration.
 
 ## Выполнение FL21 — 2026-11-08
 

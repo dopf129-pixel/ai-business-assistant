@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO late-entry readiness and review actions (FL26)
+
+- Added scoped read-only reconstruction of saved FIFO transition evidence, explicit readiness requirements and a recalculation preview with owner/source provenance, confirmed layers, coverage limits, and a clear separation between unit-cost difference and actual profit.
+- Added paginated selection of exact supply declarations, opaque callback tickets, and repeated server-side state/revision checks before any apply action. Apply remains unavailable until READY and production orchestration is not yet wired.
+- READY cases can reopen the same read-only readiness review, which never marks them applicable. FL26 targeted profile: **57 passed**; linked FIFO/Telegram/Period Profit profile: **545 passed**; compileall, diff-check and unchanged `data/` checks passed. Synthetic evidence only.
+
 # 2026-11-08 — FIFO late-entry resumable wizard (FL25)
 
 - Added the durable owner-input wizard for FIFO late-entry cases, including TOTAL_LANDED and COMPONENTS paths, CAS revisions after confirmed input blocks, typed supply declarations, case-bound report selection, and resume from saved cases after process restart. New home quantity stays unknown; draft input does not activate FIFO or alter profit.

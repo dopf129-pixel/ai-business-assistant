@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL26: раздельные действия, readiness и preview
+
+- Добавлен read-only reconstruction сохранённых declarations/observations/reports и readiness для точного owner/store/SKU дела. Preview различает owner-ввод, source as-of/period provenance, подтверждённые FIFO-слои, TOTAL_LANDED/COMPONENTS и не выдаёт разницу себестоимости за прибыль.
+- Обновление поставок выбирается постранично и только после owner-повторного ввода точного ID, сверяемого с encrypted declaration до вызова источника. Callback-ы opaque и не содержат ID.
+- Неподтверждённый preview не меняет FIFO, цену, прибыль, кэш или планы; apply UI закрыт без READY/service и отдельно проверяет server state/revision. Production apply orchestration не подключён и должен быть реализован downstream.
+- FL26 code SHA `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; целевые тесты **57 passed**, linked FIFO/Telegram/Period Profit **545 passed**; compileall/diff-check/data unchanged PASS. READY review остаётся read-only и не активирует apply. Synthetic-only. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+
 # 2026-11-08 — FIFO FL24: переход к поздней партии до настройки очереди
 
 - Карточка SKU без FIFO теперь показывает «Новая партия уже отправлена» и «Незавершённые изменения», сохраняя доступ к прежнему начальному срезу и нулевому старту. Поздний сценарий не блокируется отсутствием очереди.

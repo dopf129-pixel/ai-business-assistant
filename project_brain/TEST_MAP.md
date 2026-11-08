@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL26 Telegram review/actions
+
+- `tests/test_fifo_cost_transition_review_service.py`: read-only reconstruction from exact scoped durable evidence, readiness stays non-applicable, ciphertext/reference fields remain hidden, source report and declarations retain typed provenance, confirmed layer view excludes unknown/replay-required quantities.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py`: distinct save/readiness/preview/cancel/apply guards; TOTAL_LANDED versus COMPONENTS; coverage/source periods and owner provenance; 21.00→14.65 unit-cost delta explicitly not profit; 10 SUPPLY declarations paginated 8+2; opaque callbacks stay ≤64 bytes and contain no raw references; forged apply is denied before READY without a service call.
+- READY-case review is explicitly tested as read-only and continues to return `ready_to_apply=false`.
+- FL26 targeted suite: **57 passed in 4.38s**. Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, and `test_period_profit_fifo_cost_integration.py`: **545 passed in 24.43s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Synthetic temporary SQLite only.
+
 # 2026-11-08 — FIFO FL25 Telegram transition wizard
 
 - `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers explicit input confirmation and durable revision increments, 21.00→14.65 TOTAL_LANDED with no fabricated component breakdown, 10+3+1.65 COMPONENTS total parity, unknown new-home quantity, restart/resume, separate ORDER/SUPPLY declarations summing to 6,982, case-bound opaque report selection, and rejected cross-store text/callbacks.
