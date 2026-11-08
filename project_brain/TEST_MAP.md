@@ -1,6 +1,6 @@
-# 2026-11-09 — FIFO review blocker red-baseline tests (FR02)
+# 2026-11-09 — FIFO review blocker tests (FR02–FR05)
 
-- `tests/test_fifo_cost_temporal_rate_replay.py`: captures the exact MR02–MR03 public temporal replay contract, including proven residual materialization and multi-rate FIFO arithmetic. The initial red baseline fails because the typed temporal boundary/replay path is absent; it must pass after FR04–FR11.
+- `tests/test_fifo_cost_temporal_rate_replay.py`: captures the exact MR01–MR03 rate-boundary contract, including proven residual materialization, multi-rate FIFO arithmetic and temporal replay. The initial replay-adapter cases remain deferred to FR06; the pure kernel matrix now passes.
 - `tests/test_fifo_cost_transition_production_workflow.py`: captures the absent durable evidence reader, common production workflow builder, ApplyService wiring and physical-sales import route. Initial red baseline fails on the current code and must pass only after FR12–FR27. These tests are not a passing CI claim; they must be separated into the dependent PR scope as recorded in the FR progress journal.
 - Initial baseline: six expected failures in 1.28s. No skip/xfail; temporary SQLite only. Later results must be recorded against their exact code SHA.
 
@@ -8,6 +8,11 @@
 
 - `tests/test_fifo_cost_temporal_rate_replay.py` now validates typed rate boundary values, finite/missing balance distinctions, money and digest constraints, explicit date/timezone boundary forms, and compatibility of the existing single-open-rate allocation API.
 - Isolated linked profile: **70 passed, 2 deselected**; only MR02/MR03 replay-result cases are deferred to FR05–FR06. `compileall` passed for the touched service/test modules. This is a local stage result, not full-suite or CI verification.
+
+# 2026-11-09 — FIFO multi-rate allocation kernel (FR05)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py` covers pure MR01–MR07 arithmetic and invariants: only proven residual is materialized, per-rate basis and open quantity remain explicit, return lineage survives a rate close, and non-sale outflow never draws from an unknown rate.
+- Linked pure kernel and prior allocator/replay tests: **77 passed, 2 deselected in 1.30s**; only the FR06 dated-adapter replay tests were deselected. Compileall and diff-check pass. No database or external source was used.
 
 # 2026-11-08 — FIFO review-fix regression map
 

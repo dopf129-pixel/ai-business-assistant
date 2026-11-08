@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import hashlib
 from typing import Iterable
 
 
@@ -123,7 +124,7 @@ class FifoRateBoundaryEvent:
             )
         except (InvalidOperation, TypeError, ValueError, OverflowError):
             raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN") from None
-        if not cost.is_finite() or cost < 0 or cost > Decimal("1000000000.00"):
+        if not cost.is_finite() or cost <= 0 or cost > Decimal("1000000000.00"):
             raise ValueError("FIFO_RATE_BOUNDARY_UNPROVEN")
         object.__setattr__(self, "new_unit_cost_rub", cost)
         if not _is_digest(self.reconciliation_evidence_fingerprint):
@@ -152,6 +153,8 @@ class FifoAllocationLine:
     unit_cost_rub: Decimal
     total_cost_rub: Decimal
     origin_sale_event_id: str | None = None
+    basis_kind: str = "FINITE_LAYER"
+    rate_change_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,15 @@ class FifoAllocationResult:
     total_available_units: int | None
     next_unit_cost_rub: Decimal | None
     next_unit_cost_status: str
+    rate_balances: tuple["FifoRateBalance", ...] = ()
+
+
+@dataclass(frozen=True)
+class FifoRateBalance:
+    rate_change_id: str
+    unit_cost_rub: Decimal
+    remaining_units: int | None
+    reconciliation_evidence_fingerprint: str | None
 
 
 class FifoCostAllocationService:
@@ -201,7 +213,9 @@ class FifoCostAllocationService:
         self,
         *,
         layers: Iterable[FifoCostLayer],
-        events: Iterable[FifoSaleEvent | FifoRestockEvent | FifoOutflowEvent],
+        events: Iterable[
+            FifoSaleEvent | FifoRestockEvent | FifoOutflowEvent | FifoRateBoundaryEvent
+        ],
         anchor_status: str = "UNKNOWN",
         cutoff_status: str = "UNRECONCILED",
         event_order_status: str = "UNKNOWN",
@@ -212,7 +226,10 @@ class FifoCostAllocationService:
 
         ``open_rate`` can cost only the portion of an observed sale that remains
         after all finite layers are exhausted. It never contributes to either
-        ``remaining_confirmed_units`` or ``total_available_units``.
+        ``remaining_confirmed_units`` or ``total_available_units``. Typed
+        ``FifoRateBoundaryEvent`` objects in ``events`` switch the active open
+        rate in-place. The iterable order must already be proven by the replay
+        service; this pure kernel never sorts by IDs or persistence timestamps.
         """
 
         if anchor_status not in self._ALLOWED_ANCHORS:
@@ -245,6 +262,11 @@ class FifoCostAllocationService:
             return self._incomplete(normalized_events)
         if len(set(event.event_id for event in normalized_events)) != len(normalized_events):
             return self._incomplete("FIFO_EVENT_ID_DUPLICATE")
+        has_rate_boundaries = any(
+            isinstance(event, FifoRateBoundaryEvent) for event in normalized_events
+        )
+        if has_rate_boundaries and open_rate is not None:
+            return self._incomplete("FIFO_RATE_CHAIN_CONFLICT")
         replay_work_used = sum(
             len(event.restores)
             for event in normalized_events
@@ -273,17 +295,83 @@ class FifoCostAllocationService:
         restored_value = Decimal("0.00")
         restored_units = 0
         source_sequence = list(layer_state)
+        rate_registry: dict[str, tuple[Decimal, str | None]] = {}
+        rate_layer_ids: dict[str, str] = {}
+        active_open_rate_id = None
         if normalized_rate is not None:
-            source_sequence.append(normalized_rate[0])
+            active_open_rate_id = normalized_rate[0]
+            source_sequence.append(active_open_rate_id)
+            rate_registry[active_open_rate_id] = (normalized_rate[1], None)
 
         for event in normalized_events:
+            if isinstance(event, FifoRateBoundaryEvent):
+                new_rate_id = event.new_rate_change_id
+                if new_rate_id in layer_costs or new_rate_id in rate_registry:
+                    return self._incomplete("FIFO_RATE_CHAIN_CONFLICT")
+                cost = self._money(event.new_unit_cost_rub)
+                if cost is None or not _is_digest(event.reconciliation_evidence_fingerprint):
+                    return self._incomplete("FIFO_RATE_BOUNDARY_UNPROVEN")
+
+                first_boundary = event.previous_rate_change_id is None
+                if first_boundary:
+                    if (
+                        active_open_rate_id is not None
+                        or event.previous_rate_remaining_units is not None
+                        or event.expected_older_finite_units is not None
+                        or rate_registry
+                    ):
+                        return self._incomplete("FIFO_RATE_CHAIN_CONFLICT")
+                else:
+                    if active_open_rate_id is None or event.previous_rate_change_id != active_open_rate_id:
+                        return self._incomplete("FIFO_RATE_CHAIN_CONFLICT")
+                    residual = event.previous_rate_remaining_units
+                    expected_finite = event.expected_older_finite_units
+                    if (
+                        isinstance(residual, bool) or not isinstance(residual, int)
+                        or residual < 0
+                        or isinstance(expected_finite, bool)
+                        or not isinstance(expected_finite, int)
+                        or expected_finite < 0
+                    ):
+                        return self._incomplete("FIFO_RATE_BOUNDARY_UNPROVEN")
+                    finite_remaining = sum(layer_state.values())
+                    if finite_remaining != expected_finite:
+                        return self._incomplete("FIFO_RATE_BALANCE_MISMATCH")
+                    if finite_remaining + residual > self.MAX_UNITS_IN_STREAM:
+                        return self._incomplete("FIFO_STREAM_QUANTITY_LIMIT")
+
+                    if residual:
+                        materialized_id = self._derived_rate_layer_id(
+                            active_open_rate_id, event.event_id,
+                        )
+                        if materialized_id in layer_state or materialized_id in layer_costs:
+                            return self._incomplete("FIFO_RATE_CHAIN_CONFLICT")
+                        source_sequence.insert(
+                            source_sequence.index(active_open_rate_id), materialized_id,
+                        )
+                        layer_state[materialized_id] = residual
+                        layer_costs[materialized_id] = rate_registry[active_open_rate_id][0]
+                        layer_origins[materialized_id] = None
+                        rate_layer_ids[materialized_id] = active_open_rate_id
+
+                layer_costs[new_rate_id] = cost
+                layer_origins[new_rate_id] = None
+                rate_registry[new_rate_id] = (
+                    cost, event.reconciliation_evidence_fingerprint,
+                )
+                source_sequence.append(new_rate_id)
+                active_open_rate_id = new_rate_id
+                if sum(layer_state.values()) > self.MAX_UNITS_IN_STREAM:
+                    return self._incomplete("FIFO_STREAM_QUANTITY_LIMIT")
+                continue
+
             if isinstance(event, FifoSaleEvent):
                 remaining = event.quantity
                 lines: list[FifoAllocationLine] = []
                 for layer_id in source_sequence:
                     if remaining <= 0:
                         break
-                    if layer_id == (normalized_rate[0] if normalized_rate else None):
+                    if layer_id == active_open_rate_id:
                         replay_work_used += 1
                         if replay_work_used > _MAX_REPLAY_ALLOCATION_LINES:
                             return self._incomplete("FIFO_REPLAY_WORK_LIMIT")
@@ -295,6 +383,8 @@ class FifoCostAllocationService:
                                 total_cost_rub=(layer_costs[layer_id] * remaining).quantize(
                                     _CENT, rounding=ROUND_HALF_UP
                                 ),
+                                basis_kind="OPEN_RATE",
+                                rate_change_id=layer_id,
                             )
                         )
                         remaining = 0
@@ -320,6 +410,11 @@ class FifoCostAllocationService:
                                 if layer_origins.get(layer_id) is not None
                                 else None
                             ),
+                            basis_kind=(
+                                "MATERIALIZED_RATE_BALANCE"
+                                if layer_id in rate_layer_ids else "FINITE_LAYER"
+                            ),
+                            rate_change_id=rate_layer_ids.get(layer_id),
                         )
                     )
                     layer_state[layer_id] -= taken
@@ -351,7 +446,7 @@ class FifoCostAllocationService:
                         break
                     # An open rate has unknown physical quantity. Never use it
                     # to value a confirmed outflow or silently consume it.
-                    if layer_id == (normalized_rate[0] if normalized_rate else None):
+                    if layer_id == active_open_rate_id:
                         continue
                     available = layer_state.get(layer_id, 0)
                     taken = min(available, remaining)
@@ -372,6 +467,11 @@ class FifoCostAllocationService:
                             layer_origins[layer_id][0]
                             if layer_origins.get(layer_id) is not None else None
                         ),
+                        basis_kind=(
+                            "MATERIALIZED_RATE_BALANCE"
+                            if layer_id in rate_layer_ids else "FINITE_LAYER"
+                        ),
+                        rate_change_id=rate_layer_ids.get(layer_id),
                     ))
                     layer_state[layer_id] -= taken
                     remaining -= taken
@@ -412,11 +512,13 @@ class FifoCostAllocationService:
                     return self._incomplete("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
 
                 restored_by_sale_layer[key] = restored_before + restore.quantity
-                origin_is_open_rate = normalized_rate is not None and restore.layer_id == normalized_rate[0]
-                if origin_is_open_rate:
-                    # Keep restored units as a known, finite layer with the
-                    # original confirmed rate. It is placed at return time.
-                    restored_layer_id = f"{event.event_id}~return~{restore_index}"
+                origin_rate_id = line.rate_change_id
+                if origin_rate_id is not None:
+                    # A rate-priced return becomes a known finite slice at the
+                    # return position, even if its original rate has closed.
+                    restored_layer_id = self._derived_return_layer_id(
+                        event.event_id, restore_index,
+                    )
                     if restored_layer_id in layer_state or restored_layer_id in layer_costs:
                         return self._incomplete("FIFO_RESTORED_LAYER_ID_CONFLICT")
                     layer_state[restored_layer_id] = restore.quantity
@@ -425,7 +527,13 @@ class FifoCostAllocationService:
                         restore.sale_event_id,
                         restore.layer_id,
                     )
-                    source_sequence.insert(source_sequence.index(normalized_rate[0]), restored_layer_id)
+                    rate_layer_ids[restored_layer_id] = origin_rate_id
+                    if active_open_rate_id is None:
+                        source_sequence.append(restored_layer_id)
+                    else:
+                        source_sequence.insert(
+                            source_sequence.index(active_open_rate_id), restored_layer_id,
+                        )
                 else:
                     if restore.layer_id not in layer_state:
                         return self._incomplete("FIFO_RETURN_ORIGIN_LAYER_MISSING")
@@ -441,21 +549,36 @@ class FifoCostAllocationService:
                     return self._incomplete("FIFO_STREAM_QUANTITY_LIMIT")
 
         remaining_known = sum(layer_state.values())
-        total_available = None if normalized_rate is not None else remaining_known
+        total_available = None if active_open_rate_id is not None else remaining_known
         available_sequence = [
             layer_id for layer_id in source_sequence
-            if layer_id != (normalized_rate[0] if normalized_rate else None)
+            if layer_id != active_open_rate_id
             and layer_state.get(layer_id, 0) > 0
         ]
         if available_sequence:
             next_unit_cost = layer_costs[available_sequence[0]]
             next_unit_status = "CONFIRMED_FINITE_LAYER"
-        elif normalized_rate is not None:
-            next_unit_cost = layer_costs[normalized_rate[0]]
+        elif active_open_rate_id is not None:
+            next_unit_cost = layer_costs[active_open_rate_id]
             next_unit_status = "RATE_ONLY_QUANTITY_UNKNOWN"
         else:
             next_unit_cost = None
             next_unit_status = "NO_CONFIRMED_UNIT"
+
+        rate_balances = tuple(
+            FifoRateBalance(
+                rate_change_id=rate_id,
+                unit_cost_rub=rate_cost,
+                remaining_units=(
+                    None if rate_id == active_open_rate_id else sum(
+                        quantity for layer_id, quantity in layer_state.items()
+                        if rate_layer_ids.get(layer_id) == rate_id
+                    )
+                ),
+                reconciliation_evidence_fingerprint=fingerprint,
+            )
+            for rate_id, (rate_cost, fingerprint) in rate_registry.items()
+        )
 
         return FifoAllocationResult(
             status="FIFO_ALLOCATION_READY",
@@ -475,6 +598,7 @@ class FifoCostAllocationService:
             total_available_units=total_available,
             next_unit_cost_rub=next_unit_cost,
             next_unit_cost_status=next_unit_status,
+            rate_balances=rate_balances,
         )
 
     def _normalize_layers(self, layers):
@@ -527,6 +651,22 @@ class FifoCostAllocationService:
         normalized = []
         restore_slice_count = 0
         for event in rows:
+            if isinstance(event, FifoRateBoundaryEvent):
+                try:
+                    normalized.append(FifoRateBoundaryEvent(
+                        event_id=event.event_id,
+                        new_rate_change_id=event.new_rate_change_id,
+                        new_unit_cost_rub=event.new_unit_cost_rub,
+                        previous_rate_change_id=event.previous_rate_change_id,
+                        previous_rate_remaining_units=event.previous_rate_remaining_units,
+                        expected_older_finite_units=event.expected_older_finite_units,
+                        reconciliation_evidence_fingerprint=(
+                            event.reconciliation_evidence_fingerprint
+                        ),
+                    ))
+                except (TypeError, ValueError, InvalidOperation, OverflowError):
+                    return "FIFO_RATE_BOUNDARY_UNPROVEN"
+                continue
             if not isinstance(event, (FifoSaleEvent, FifoRestockEvent, FifoOutflowEvent)):
                 return "FIFO_EVENT_INPUT_INVALID"
             event_id = self._identifier(event.event_id)
@@ -628,6 +768,20 @@ class FifoCostAllocationService:
         return amount
 
     @staticmethod
+    def _derived_rate_layer_id(rate_change_id, boundary_event_id):
+        digest = hashlib.sha256(
+            f"{rate_change_id}\0{boundary_event_id}".encode("utf-8"),
+        ).hexdigest()
+        return f"rate-balance-{digest}"
+
+    @staticmethod
+    def _derived_return_layer_id(return_event_id, restore_index):
+        digest = hashlib.sha256(
+            f"{return_event_id}\0{restore_index}".encode("utf-8"),
+        ).hexdigest()
+        return f"rate-return-{digest}"
+
+    @staticmethod
     def _incomplete(reason_code):
         return FifoAllocationResult(
             status="FIFO_ALLOCATION_INCOMPLETE",
@@ -643,4 +797,5 @@ class FifoCostAllocationService:
             total_available_units=None,
             next_unit_cost_rub=None,
             next_unit_cost_status="UNAVAILABLE",
+            rate_balances=(),
         )

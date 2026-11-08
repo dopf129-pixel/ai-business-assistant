@@ -13,7 +13,10 @@ from services.fifo_cost_allocation_service import (
     FifoCostAllocationService,
     FifoCostLayer,
     FifoOpenCostRate,
+    FifoOutflowEvent,
     FifoRateBoundaryEvent,
+    FifoRestoreSlice,
+    FifoRestockEvent,
     FifoSaleEvent,
 )
 from services.fifo_cost_replay_service import (
@@ -46,6 +49,192 @@ def _sale(event_id, quantity, date):
         physical_time_confirmed=True,
         cutoff_bridge_confirmed=True,
     )
+
+
+def _kernel_boundary(rate_id, cost, fingerprint, *, previous=None,
+                     previous_remaining=None, older_finite=None):
+    return FifoRateBoundaryEvent(
+        event_id=f"boundary-{rate_id}",
+        new_rate_change_id=rate_id,
+        new_unit_cost_rub=cost,
+        previous_rate_change_id=previous,
+        previous_rate_remaining_units=previous_remaining,
+        expected_older_finite_units=older_finite,
+        reconciliation_evidence_fingerprint=fingerprint,
+    )
+
+
+def _allocate_kernel(*, layers, events, anchor_status="CONFIRMED"):
+    return FifoCostAllocationService().allocate(
+        layers=layers,
+        events=events,
+        anchor_status=anchor_status,
+        cutoff_status="RECONCILED",
+        event_order_status="PROVEN",
+        source_completeness="COMPLETE",
+    )
+
+
+def test_mr01_mr02_mr03_pure_kernel_replays_three_rates_without_inventing_receipts():
+    result = _allocate_kernel(
+        layers=(
+            FifoCostLayer("old", "21.00", 3),
+            FifoCostLayer("new-finite", "14.65", 100),
+        ),
+        events=(
+            _kernel_boundary("r1", "14.65", "1" * 64),
+            FifoSaleEvent("sale-1", 5),
+            _kernel_boundary(
+                "r2", "16.00", "2" * 64, previous="r1",
+                previous_remaining=10, older_finite=98,
+            ),
+            FifoSaleEvent("sale-2", 110),
+            _kernel_boundary(
+                "r3", "18.00", "3" * 64, previous="r2",
+                previous_remaining=7, older_finite=0,
+            ),
+            FifoSaleEvent("sale-3", 10),
+        ),
+    )
+
+    assert result.complete is True, result
+    first, second, third = result.sale_allocations
+    assert first.total_cost_rub == Decimal("92.30")
+    assert [(line.quantity, line.unit_cost_rub) for line in first.lines] == [
+        (3, Decimal("21.00")), (2, Decimal("14.65")),
+    ]
+    assert second.total_cost_rub == Decimal("1614.20")
+    assert [(line.quantity, line.unit_cost_rub, line.basis_kind, line.rate_change_id)
+            for line in second.lines] == [
+        (98, Decimal("14.65"), "FINITE_LAYER", None),
+        (10, Decimal("14.65"), "MATERIALIZED_RATE_BALANCE", "r1"),
+        (2, Decimal("16.00"), "OPEN_RATE", "r2"),
+    ]
+    assert third.total_cost_rub == Decimal("166.00")
+    assert [(line.quantity, line.unit_cost_rub, line.rate_change_id)
+            for line in third.lines] == [
+        (7, Decimal("16.00"), "r2"),
+        (3, Decimal("18.00"), "r3"),
+    ]
+    assert result.total_cogs_rub == Decimal("1872.50")
+    balances = {row.rate_change_id: row for row in result.rate_balances}
+    assert balances["r1"].remaining_units == 0
+    assert balances["r2"].remaining_units == 0
+    assert balances["r3"].remaining_units is None
+    assert balances["r3"].reconciliation_evidence_fingerprint == "3" * 64
+    assert result.remaining_confirmed_units == 0
+    assert result.total_available_units is None
+
+
+def test_mr04_mr05_return_from_closed_rate_restores_cost_and_origin_before_current_rate():
+    result = _allocate_kernel(
+        layers=(
+            FifoCostLayer("old", "21.00", 3),
+            FifoCostLayer("new-finite", "14.65", 100),
+        ),
+        events=(
+            _kernel_boundary("r1", "14.65", "1" * 64),
+            FifoSaleEvent("sale-1", 5),
+            _kernel_boundary(
+                "r2", "16.00", "2" * 64, previous="r1",
+                previous_remaining=10, older_finite=98,
+            ),
+            FifoSaleEvent("sale-2", 110),
+            _kernel_boundary(
+                "r3", "18.00", "3" * 64, previous="r2",
+                previous_remaining=7, older_finite=0,
+            ),
+            FifoSaleEvent("sale-3", 10),
+            FifoRestockEvent(
+                "return-r2", 1, (FifoRestoreSlice("sale-2", "r2", 1),),
+            ),
+            FifoSaleEvent("sale-4", 1),
+        ),
+    )
+
+    assert result.complete is True, result
+    assert result.total_cogs_rub == Decimal("1888.50")
+    restored_sale = result.sale_allocations[-1]
+    assert restored_sale.total_cost_rub == Decimal("16.00")
+    assert len(restored_sale.lines) == 1
+    assert restored_sale.lines[0].origin_sale_event_id == "sale-2"
+    assert restored_sale.lines[0].rate_change_id == "r2"
+
+
+def test_mr06_outflow_consumes_only_finite_fifo_layers_before_rate_sale():
+    result = _allocate_kernel(
+        layers=(
+            FifoCostLayer("old", "21.00", 3),
+            FifoCostLayer("new-finite", "14.65", 100),
+        ),
+        events=(
+            _kernel_boundary("r1", "14.65", "1" * 64),
+            FifoOutflowEvent("outflow", 1, "HOME_SHORTAGE"),
+            FifoSaleEvent("sale", 5),
+        ),
+    )
+
+    assert result.complete is True, result
+    assert result.outflow_allocations[0].estimated_value_rub == Decimal("21.00")
+    assert result.sale_allocations[0].total_cost_rub == Decimal("85.95")
+    assert result.total_cogs_rub == Decimal("85.95")
+
+
+def test_mr07_open_rate_values_sales_but_never_claims_known_quantity_or_values_outflow():
+    base = _allocate_kernel(
+        layers=(),
+        anchor_status="CONFIRMED_ZERO",
+        events=(
+            _kernel_boundary("r1", "14.65", "1" * 64),
+            FifoSaleEvent("sale", 4),
+        ),
+    )
+    outflow = _allocate_kernel(
+        layers=(),
+        anchor_status="CONFIRMED_ZERO",
+        events=(
+            _kernel_boundary("r1", "14.65", "1" * 64),
+            FifoOutflowEvent("outflow", 1, "OZON_DISPOSAL"),
+        ),
+    )
+
+    assert base.complete is True
+    assert base.total_cogs_rub == Decimal("58.60")
+    assert base.remaining_confirmed_units == 0
+    assert base.total_available_units is None
+    assert {row.rate_change_id: row.remaining_units for row in base.rate_balances} == {
+        "r1": None,
+    }
+    assert outflow.complete is False
+    assert outflow.reason_code == "FIFO_OUTFLOW_FINITE_BASIS_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("events,reason", [
+    (
+        (_kernel_boundary("r1", "14.65", "1" * 64),
+         FifoSaleEvent("sale", 1),
+         _kernel_boundary("r2", "16.00", "2" * 64, previous="wrong",
+                          previous_remaining=1, older_finite=0)),
+        "FIFO_RATE_CHAIN_CONFLICT",
+    ),
+    (
+        (_kernel_boundary("r1", "14.65", "1" * 64),
+         FifoSaleEvent("sale", 1),
+         _kernel_boundary("r2", "16.00", "2" * 64, previous="r1",
+                          previous_remaining=1, older_finite=0)),
+        "FIFO_RATE_BALANCE_MISMATCH",
+    ),
+])
+def test_fr05_rate_chain_and_finite_balance_conflicts_fail_closed(events, reason):
+    result = _allocate_kernel(
+        layers=(FifoCostLayer("finite", "20.00", 2),),
+        events=events,
+    )
+
+    assert result.complete is False
+    assert result.reason_code == reason
+    assert result.sale_allocations == ()
+    assert result.total_cogs_rub is None
 
 
 def _complete_temporal_replay():
@@ -166,6 +355,7 @@ def test_rate_boundary_date_uses_the_store_local_calendar_boundary():
 
 @pytest.mark.parametrize("kwargs,code", [
     ({"new_unit_cost_rub": True}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
+    ({"new_unit_cost_rub": "0.00"}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
     ({"new_unit_cost_rub": float("nan")}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
     ({"new_unit_cost_rub": "-0.01"}, "FIFO_RATE_BOUNDARY_UNPROVEN"),
     ({"previous_rate_change_id": "r1", "previous_rate_remaining_units": True,

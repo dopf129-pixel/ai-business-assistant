@@ -6,7 +6,7 @@
 
 ## Resume
 
-- Следующий этап FR05: реализовать pure allocation kernel с chronological boundaries, материализацией только residual и lineage; закрыть MR01–MR07 без SQLite.
+- Следующий этап FR06: объединить rate boundaries и FIFO события по доказанному store-local физическому времени, сохранив ограниченный same-day ambiguity analysis; закрыть MR08–MR10.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -27,8 +27,8 @@
 | FR02 | DONE | Добавлены temporal replay и production-workflow red regressions; baseline на старом коде: **6 failed in 1.28s** с ожидаемыми причинами — отсутствие rate-boundary DTO, evidence service injection и общей production factory/apply wiring. Тесты не помечены skip/xfail. |
 | FR03 | DONE | Создан `FR03_CONTRACTS_2026-11-08.md`, добавлен узкий Decision 066 addendum и red-test map; Decimal MR01–MR15 + canonical TaxService checks PASS. |
 | FR04 | DONE | Добавлены typed boundary DTOs и stable `TransitionReasonCode`; strict money/digest/nullable-balance/date/timezone/proof validation. Legacy allocation API unchanged. Linked pure suite: **70 passed, 2 replay cases excluded because FR05–FR06 are next**. |
-| FR05 | IN_PROGRESS | Implement chronological pure allocation with boundary residual materialization, finite balances and lineage; close MR01–MR07 without SQLite. |
-| FR06 | NOT_STARTED | Temporal replay |
+| FR05 | DONE | Pure kernel: MR01–MR07 and linked allocator/replay profile: **77 passed, 2 replay-adapter cases deselected**; compileall and diff-check PASS. |
+| FR06 | IN_PROGRESS | Merge boundaries and events by proven store-local physical order; preserve bounded ambiguity analysis. |
 | FR07 | NOT_STARTED | Migration |
 | FR08 | NOT_STARTED | Repository adapter |
 | FR09 | NOT_STARTED | Rate commit/replay |
@@ -95,3 +95,11 @@
 - `TransitionReasonCode` now includes the fixed stable replay/evidence failure codes. No replay algorithm, DB schema, production wiring, or source gate changed in FR04.
 - Tests: pure allocation+temporal DTO and existing replay profiles **70 passed, 2 deselected** (only MR02/MR03 behavior awaiting FR05/FR06); `compileall` on changed modules PASS. Test fixtures are pure/in-memory, no SQLite or live source.
 - Follow-up: integrate `rate_boundaries` into the pure kernel in FR05, then temporal sorting in FR06. Existing single-rate callers must remain green.
+
+## FR05 — 2026-11-09
+
+- `FifoCostAllocationService.allocate` now accepts typed rate boundaries in its already-proven event order. A later boundary must name the exact active predecessor and reconcile the finite queue; only the independently confirmed predecessor residual becomes a derived finite balance at the queue tail. No synthetic receipt/arrival event is emitted, and the new active rate remains quantity-unknown.
+- Sale/outflow allocation now carries `basis_kind` and `rate_change_id` internally. Closed-rate returns restore an exact finite unit at the return position with original cost and origin-sale lineage, before the currently open rate. Outflows still consume finite layers only. Per-rate balances expose `None` for the current open rate.
+- `tests/test_fifo_cost_temporal_rate_replay.py` adds pure MR01–MR07 controls, chain/finite-balance conflicts, rate-return/re-sale lineage, outflow separation, and unknown-open-quantity behavior.
+- Linked pure kernel + existing allocator/replay tests: **77 passed, 2 deselected in 1.30s** (only FR06 chronological adapter tests). `compileall` and `git diff --check` PASS. No SQLite, owner data, live API or bot used.
+- FR05 does not claim temporal ordering: caller event order must already be proven. Next: FR06 integrates dated boundaries into the bounded event-order analysis.
