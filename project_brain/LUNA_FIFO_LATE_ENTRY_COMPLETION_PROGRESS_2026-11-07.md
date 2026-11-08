@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL23.
-Выполненных этапов:23/36 (FL00–FL22 VERIFIED на кодовых и синтетических проверках; далее FL23–FL35: atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL24.
+Выполненных этапов:24/36 (FL00–FL23 VERIFIED на кодовых и синтетических проверках; далее FL24–FL35: consumers, UI, acceptance, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит проверенную реализацию FL12–FL22 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 code `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; FL22 code `4290c961c60326e21d65559da18757466675a02f`. Перед resume сначала читать `git rev-parse HEAD`; документационные изменения FL22 фиксируются отдельным commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. Последний code checkpoint FL23 `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; code-profile: **531 passed**. FL14 `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; FL22 `4290c961c60326e21d65559da18757466675a02f`. Перед resume сначала читать `git rev-parse HEAD`; текущие docs checkpoint ещё предстоит закоммитить. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -43,7 +43,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL20 | Deterministic replay | VERIFIED | code `be6e7959`; 21 replay tests, linked profile 506 passed; compileall/diff/data-preservation PASS |
 | FL21 | Возвраты/выбытия | VERIFIED | code `5ccf00a53c06ca32983106fd1a894c925d2a9630`; focused 82 passed; linked FIFO/Telegram/Period Profit 515 passed; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL22 | Period impact | VERIFIED | code `4290c961c60326e21d65559da18757466675a02f`; focused 37 passed, linked FIFO/Telegram/Period Profit 521 passed; compileall/diff-check/data unchanged PASS; synthetic only |
-| FL23 | Atomic apply | NOT_STARTED | — |
+| FL23 | Atomic apply | VERIFIED | `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; dedicated 10 passed, linked profile 531 passed |
 | FL24 | Меню доFIFO | NOT_STARTED | — |
 | FL25 | Durable мастер | NOT_STARTED | — |
 | FL26 | Разные подтверждения | NOT_STARTED | — |
@@ -297,6 +297,15 @@ Source readiness:
 - Результат всегда `preview_only=True`, `ready_to_apply=False`; существующая FIFO очередь не инициализируется. Неустранённые требования turnover, replay и new-home остаются в output. Модуль — новый service и application contract extension, **Architecture Review Required**.
 - Dedicated FL19 selection **6 passed**; focused cutoff bridge + transition service **29 passed**; linked FIFO/Telegram/Period Profit **502 passed in 20.93s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только synthetic tests/fixtures, без owner DB/files и live APIs.
 - Code commit `a9a20e00627c0644b0a6b1d5b21592a37fd53df4` (`Add safe FIFO first activation proposal`). `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Следующий этап FL20 — deterministic replay, без atomic apply.
+
+## Выполнение FL23 — 2026-11-08
+
+- `FifoCostRepository.prepare_transition_preview` поддерживает первую инициализацию только через сохранённое подтверждение cutoff: прочитанный stock report должен совпадать с bridge по fingerprint, available/reserved/old-transit/old-home totals проверяются, FBS return overlap должен быть известен и равен нулю. Стоимость начальных слоёв ограничена old/new cost; старый слой после нового отклоняется. Предпросмотр выполняет staging под savepoint и откатывает все FIFO записи до сохранения sealed preview.
+- `commit_transition_case` повторно проверяет scope, case/FIFO/allocation revisions, bridge/evidence/tax fingerprints, replay и TTL. Ставка, allocation lines, projection, immutable commit audit и APPLIED case revision записываются в одной `BEGIN IMMEDIATE`. Exact idempotent retry возвращает сохранённый commit и после TTL/изменения текущей tax policy; изменённый payload для того же ключа возвращает conflict.
+- Добавлен `tests/test_fifo_cost_transition_atomic_apply.py`: 10 regressions. N21 проверен на конечных слоях `3×21.00 + 100×14.65`; после продажи 5 COGS равен `92.30`, remaining quantity `98`, remaining cost `1435.70`, next cost `14.65`. Fault injection проходит до и после каждого DML write, проверяя полный rollback и `READY_TO_CONFIRM`; изменённые stock/tax/bridge/return, цена вне разрешённой пары и неверный порядок слоёв закрываются.
+- Изменены `app/services/fifo_cost_repository.py`, `app/services/fifo_cost_transition_store.py`; добавлен atomic apply test. Кодовый commit FL23 `462c413b17a55b58d1c7fc629cd6aad287ca2fab` (`Atomically apply FIFO late-entry transitions`). Документация этапа фиксируется отдельным commit.
+- Результаты code SHA: dedicated FL23 **10 passed in 1.73s**; связанный `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **531 passed in 22.91s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только синтетические fixtures и временная SQLite; `.fl12-deps/` сохранён, `data/` не менялась; owner database/files, live APIs и бот не использовались.
+- Класс: **Architecture Review Required** — изменены repository authority/atomic commit contract, большой кодовый diff. `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`. Следующий этап FL24 — открыть путь к новой партии и незавершённым изменениям до настройки FIFO.
 
 ## PR delivery
 

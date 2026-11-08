@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL23 atomic commit regressions
+
+- `tests/test_fifo_cost_transition_atomic_apply.py` uses a real temporary SQLite repository and the production cutoff bridge. It covers an uninitialized FIFO read-only preview, numeric N21 layers (`3×21.00 + 100×14.65`, sale 5, COGS `92.30`, remaining 98 at `14.65`), exact preview replay and conflicting payload, stale tax/bridge/stock/return evidence, and idempotent commit replay after TTL and tax-policy change.
+- The same module injects failure immediately before and after each DML write in confirmation and verifies full rollback plus READY state; initial layers with unrelated unit cost or reversed FIFO order are rejected.
+- FL23 dedicated: **10 passed**. Linked FIFO/Telegram/Period Profit profile: **531 passed**; `compileall`, `git diff --check`, and unchanged `data/` checks PASS. Temporary synthetic database only; no owner database, live API, or bot launch.
+
 # 2026-11-08 — FIFO FL22 period impact
 
 - `tests/test_fifo_cost_late_entry_impact_service.py`: physical September sale can be recognized in October/November only through exact financial sale identity mapping; full dependent-period coverage; candidate-only output without baseline/mapping; no tax/profit/delta leakage; COGS/tax/profit via canonical `TaxService`.

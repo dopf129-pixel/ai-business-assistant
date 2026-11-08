@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL23: атомарное применение позднего перехода
+
+- Добавлен транзакционный `commit_transition_case`: повторная проверка case/FIFO/allocation revisions, bridge, tax/evidence fingerprints, sealed preview, replay и idempotency; ставка, полная allocation/projection, commit audit и `APPLIED` фиксируются одним `BEGIN IMMEDIATE`.
+- Для FIFO без начальной очереди preview допускает только сохранённый initial cutoff с подтверждёнными остатками. Начальный срез остаётся read-only до подтверждения; себестоимость слоёв ограничена старой/новой ценой и FIFO-порядком. Базовое сравнение N21 проверяет 105,00 ₽ до и 92,30 ₽ после, конечный подтверждённый остаток — 98 новых единиц.
+- Дословный повтор commit возвращает исходный результат после TTL и смены текущей налоговой политики; изменённый payload возвращает idempotency conflict. Сбой до/после каждого DML write откатывает все затронутые FIFO и transition таблицы.
+- FL23 code SHA `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; dedicated tests **10 passed**, linked FIFO/Telegram/Period Profit profile **531 passed**, `compileall -q app tests`, `git diff --check` и `git diff --exit-code -- data` PASS. Только synthetic temporary databases; реальный case и источники магазина не подтверждены. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Далее FL24 — кнопки для поздней партии и незавершённых изменений до настройки FIFO.
+
 # 2026-11-08 — FIFO FL22: финансовые периоды и влияние на прибыль
 
 - Impact preview теперь отделяет физическую дату FIFO-порядка от финансового периода признания. Полное сопоставление sale identity digest ↔ период обязательно и входит в отпечаток preview/confirmation; периодный охват должен включать весь зависимый горизонт продаж.

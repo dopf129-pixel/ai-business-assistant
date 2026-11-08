@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO late-entry atomic apply
+
+- Added a single-transaction FIFO late-entry confirmation that seals source, tax and replay evidence, atomically writes the rate/allocation/projection and audit, and moves the case to `APPLIED`. Initial cutover remains preview-only until confirmation; retries are idempotent and partial writes roll back.
+- Added N21 quantity/cost and crash-boundary regressions. The real owner case remains unverified; no live Ozon/Telegram calls or bot run were performed.
+
 # 2026-11-08 — FIFO FL22 financial-period impact
 
 - Extended the read-only late-entry impact preview to map exact sale identities to complete financial recognition periods independently of physical FIFO dates. The mapping is fingerprinted and revalidated at confirmation.
