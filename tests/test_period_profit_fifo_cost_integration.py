@@ -3,6 +3,12 @@ from datetime import date
 from services.period_profit_effective_cost_sale_quantity_summary_service import (
     PeriodProfitEffectiveCostSaleQuantitySummaryService,
 )
+from services.fifo_cost_sale_evidence_normalizer import (
+    FifoCostSaleEvidenceNormalizer,
+)
+from services.period_profit_fifo_explanation_view_service import (
+    PeriodProfitFifoExplanationViewService,
+)
 
 
 class _Finance:
@@ -76,6 +82,7 @@ class _FifoSource:
                 return {
                     "error": False, "active": True, "complete": False,
                     "reason_code": "FIFO_PERIOD_SPANS_COST_CUTOFF",
+                    "cutoff_date": cutoff,
                 }
         if sku not in self.active_skus:
             return {"error": False, "active": False}
@@ -347,3 +354,142 @@ def test_period_profit_refuses_period_spanning_fifo_cutoff():
     assert result["code"] == "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE"
     assert result["fifo_reason_code"] == "FIFO_PERIOD_SPANS_COST_CUTOFF"
     assert result["fifo_cutoff_date"] == "2026-11-05"
+
+
+def test_period_profit_combines_physical_pre_cutoff_legacy_and_post_cutoff_fifo_once():
+    class PeriodFinance(_Finance):
+        def get_daily_sale_posting_evidence(self, day):
+            posting = "legacy-posting" if day == "2026-11-05" else "fifo-posting"
+            return {
+                "error": False, "complete": True,
+                "records": [{
+                    "posting_number": posting, "sku": "sku-fifo",
+                    "accrual_date": day,
+                }],
+            }
+
+    class PartitionedFifoSource:
+        def get_scope_mode(self, _product, **_kwargs):
+            return {
+                "error": False, "active": True,
+                "period_cutover_overlap": True,
+                "code": "FIFO_PERIOD_SPANS_COST_CUTOFF",
+                "cutoff_date": "2026-11-05",
+            }
+
+        def build_sale_identity_digest(self, _product, sale):
+            return FifoCostSaleEvidenceNormalizer.build_identity_digest(
+                store_id="store-a", posting_number=sale["posting_number"],
+                finance_sku=sale["sku"], identity={
+                    "mapping_confirmed": True,
+                    "offer_id": "offer-sku-fifo",
+                    "product_id": "product-sku-fifo",
+                },
+            )
+
+        def reconcile_period_sales(self, *, sales, **_kwargs):
+            legacy = next(item for item in sales if item["posting_number"] == "legacy-posting")
+            digest = self.build_sale_identity_digest({}, legacy)["source_identity_digest"]
+            return {
+                "error": False, "active": True, "complete": True,
+                "partitioned_cutoff": True,
+                "source": "FIFO_ALLOCATION_REVISION",
+                "stream_revision": 4, "allocation_revision": 2,
+                "cutoff_date": "2026-11-05",
+                "cutoff_mapping_revision": 3,
+                "cutoff_bridge_fingerprint": "b" * 64,
+                "units_sold": 5, "product_cost": "43.95",
+                "fifo_units_sold": 3, "fifo_product_cost": "43.95",
+                "legacy_units_sold": 2,
+                "legacy_sales": [{
+                    "source_identity_digest": digest,
+                    "quantity": 2,
+                    "physical_effective_date": "2026-11-05",
+                }],
+                "fifo_cost_explanation": {
+                    "cost_mode": "FIFO", "status": "CONFIRMED",
+                    "reason_code": None, "cutoff_date": "2026-11-05",
+                    "stream_revision": 4, "allocation_revision": 2,
+                    "layers": [{
+                        "basis_ref": "fifo-basis-00000000000000000001",
+                        "basis_kind": "FIFO_LAYER", "sequence": 1,
+                        "effective_date": "2026-11-05",
+                        "confirmation": "OWNER_CONFIRMED",
+                        "source_method": "OWNER_CONFIRMED_FIFO_CUTOFF",
+                        "source_status": "OWNER_CONFIRMED",
+                        "coverage_status": "OWNER_CONFIRMED",
+                        "quantity": 3, "unit_cost_rub": "14.65",
+                        "total_cogs_rub": "43.95",
+                    }],
+                    "corrections": {
+                        "status": "NO_CORRECTION", "reason_code": None,
+                        "revisions": [],
+                    },
+                },
+            }
+
+    class CutoffProfitService(_MixedCostService):
+        def _load_realization_quantity_map(self, *_args, **_kwargs):
+            return {
+                ("legacy-posting", "sku-fifo"): 2,
+                ("fifo-posting", "sku-fifo"): 3,
+            }
+
+        def _effective_cost_evidence(self, row, physical_date):
+            assert physical_date == "2026-11-05"
+            return {
+                "error": False, "effective_cost_confirmed": True,
+                "historical_cost_confirmed": True,
+                "cost_price": 21.0,
+                "effective_from": "2026-01-01",
+                "effective_through": "2026-11-05",
+                "history_id": "confirmed-old-rate",
+                "source": "SELLER_CONFIRMED_OPERATIONAL_HISTORY",
+                "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
+            }
+
+    service = CutoffProfitService(
+        finance_service=PeriodFinance(["sku-fifo"]),
+        cost_service=_Cost(), tax_rate=0.06,
+        fifo_cost_source_service=PartitionedFifoSource(),
+    )
+    service._load_period_skus = lambda *_args, **_kwargs: {
+        "map": {}, "expected": set(), "fatal": None,
+    }
+
+    result = service.calculate(
+        "2026-11-05", "2026-11-06", _products(["sku-fifo"]),
+    )
+    assert result["error"] is False, result
+    assert result["units_sold"] == 5
+    assert result["product_cost"] == 85.95
+    assert result["profit"] == 62.05
+    product = result["products"][0]
+    assert product["cost_source"] == "CUTOFF_PARTITIONED_FIFO_AND_LEGACY"
+    assert product["fifo_units_sold"] == 3
+    assert product["fifo_product_cost"] == 43.95
+    assert product["legacy_cutoff_units_sold"] == 2
+    assert product["legacy_cutoff_product_cost"] == 42.0
+    assert product["fifo_stream_revision"] == 4
+    assert product["fifo_allocation_revision"] == 2
+    assert product["fifo_cutoff_mapping_revision"] == 3
+
+    explanation = result["fifo_cost_explanation"]
+    assert explanation["cost_mode"] == "MIXED_CUTOFF"
+    assert explanation["status"] == "CONFIRMED"
+    assert explanation["total_cogs_rub"] == "85.95"
+    assert explanation["fifo_cogs_rub"] == "43.95"
+    assert explanation["legacy_cogs_rub"] == "42.00"
+    detail = "\n".join(PeriodProfitFifoExplanationViewService.detail_lines(explanation))
+    assert "stream rev 4" in detail
+    assert "allocation rev 2" in detail
+    assert "mapping rev 3" in detail
+
+    export_projection = PeriodProfitFifoExplanationViewService().sanitize_projection(
+        explanation,
+    )
+    assert export_projection["status"] == "CONFIRMED"
+    assert export_projection["fifo_cogs_rub"] == explanation["fifo_cogs_rub"]
+    assert export_projection["legacy_cogs_rub"] == explanation["legacy_cogs_rub"]
+    assert export_projection["products"][0]["allocation_revision"] == 2
+    assert export_projection["products"][0]["cutoff_mapping_revision"] == 3

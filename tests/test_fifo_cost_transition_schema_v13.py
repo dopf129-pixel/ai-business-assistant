@@ -189,7 +189,7 @@ def test_fresh_schema_v13_accepts_only_consistent_cost_input_modes(tmp_path):
             )
         assert connection.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 13
+        ).fetchone()[0] == 14
         assert tuple(connection.execute(
             "SELECT cost_input_mode, purchase_cost_rub, delivery_cost_rub, packaging_cost_rub "
             "FROM fifo_cost_rate_changes WHERE rate_change_id='rate-total'"
@@ -220,7 +220,7 @@ def test_v12_migration_preserves_rate_values_custom_objects_and_child_foreign_ke
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 13
+        ).fetchone()[0] == 14
         assert _rate_row_digest(migrated) == before_digest
         assert migrated.execute(
             "SELECT cost_input_mode FROM fifo_cost_rate_changes WHERE rate_change_id='rate-1'"
@@ -314,7 +314,7 @@ def test_future_schema_is_refused_without_mutation(tmp_path):
     database = tmp_path / "future.sqlite"
     repository = FifoCostRepository(db_path=database)
     connection = repository.get_connection()
-    connection.execute("UPDATE fifo_cost_schema SET version=14 WHERE singleton=1")
+    connection.execute("UPDATE fifo_cost_schema SET version=15 WHERE singleton=1")
     connection.commit()
     before_objects = tuple(tuple(row) for row in connection.execute(
         "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
@@ -328,12 +328,56 @@ def test_future_schema_is_refused_without_mutation(tmp_path):
     try:
         assert unchanged.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 14
+        ).fetchone()[0] == 15
         assert tuple(tuple(row) for row in unchanged.execute(
             "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
         ).fetchall()) == before_objects
     finally:
         unchanged.close()
+
+
+def test_fl28_v13_schema_upgrade_adds_append_only_cutoff_sale_mappings(tmp_path):
+    database = tmp_path / "v13-cutoff-mapping.sqlite"
+    repository = FifoCostRepository(db_path=database)
+    connection = repository.get_connection()
+    try:
+        connection.execute("DROP TABLE fifo_cost_cutoff_sale_mappings")
+        connection.execute("DROP TABLE fifo_cost_cutoff_sale_mapping_sets")
+        connection.execute(
+            "UPDATE fifo_cost_schema SET version=13 WHERE singleton=1"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    migrated = FifoCostRepository(db_path=database).get_connection()
+    try:
+        assert migrated.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 14
+        tables = {
+            row[0] for row in migrated.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert {
+            "fifo_cost_cutoff_sale_mapping_sets",
+            "fifo_cost_cutoff_sale_mappings",
+        } <= tables
+        triggers = {
+            row[0] for row in migrated.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+        }
+        assert {
+            "trg_fifo_cost_cutoff_sale_mapping_sets_no_update",
+            "trg_fifo_cost_cutoff_sale_mapping_sets_no_delete",
+            "trg_fifo_cost_cutoff_sale_mappings_no_update",
+            "trg_fifo_cost_cutoff_sale_mappings_no_delete",
+        } <= triggers
+        assert migrated.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        migrated.close()
 
 
 def test_transition_case_rows_are_scoped_by_owner_tenant_store_and_sku(tmp_path):

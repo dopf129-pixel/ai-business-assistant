@@ -205,6 +205,8 @@ def _table_counts(repository):
             "fifo_cost_commands", "fifo_cost_rate_changes",
             "fifo_cost_allocations", "fifo_cost_allocation_lines",
             "fifo_cost_transition_commits",
+            "fifo_cost_cutoff_sale_mapping_sets",
+            "fifo_cost_cutoff_sale_mappings",
         )
         return {
             table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -267,7 +269,10 @@ def test_commit_rolls_back_at_every_write_boundary(tmp_path, failure_mode):
             if result["error"] is False:
                 successful_position = fail_at
                 break
-            assert result["code"] == "FIFO_TRANSITION_STORAGE_UNAVAILABLE"
+            assert result["code"] in {
+                "FIFO_TRANSITION_STORAGE_UNAVAILABLE",
+                "FIFO_CUTOFF_SALE_MAPPING_STORAGE_UNAVAILABLE",
+            }
             assert _table_counts(repository) == baseline
             case = repository.read_transition_case(
                 case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
@@ -390,6 +395,42 @@ def test_uninitialized_fifo_preview_is_read_only_and_atomic_cutover_applies_once
         assert applied["state"] == "APPLIED"
         assert _table_counts(repository)["fifo_cost_allocations"] == 1
         assert _table_counts(repository)["fifo_cost_rate_changes"] == 1
+        mapping = repository.read_cutoff_sale_mapping_set(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert mapping["error"] is False
+        assert mapping["complete"] is True
+        assert mapping["mapping_revision"] == 1
+        assert mapping["cutoff_date"] == CUTOFF
+        assert mapping["complete_through"] == COMPLETE_THROUGH
+        assert sorted(
+            (row["partition"], row["quantity"], row["physical_effective_date"])
+            for row in mapping["mappings"]
+        ) == [
+            ("POST_CUTOFF", 5, "2026-11-08"),
+            ("PRE_CUTOFF", 2, "2026-11-05"),
+        ]
+        connection = repository.get_connection()
+        try:
+            for table in (
+                "fifo_cost_cutoff_sale_mapping_sets",
+                "fifo_cost_cutoff_sale_mappings",
+            ):
+                for operation in ("UPDATE", "DELETE"):
+                    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                        if operation == "UPDATE":
+                            column = (
+                                "created_at" if table.endswith("_sets")
+                                else "quantity"
+                            )
+                            connection.execute(
+                                f"UPDATE {table} SET {column}={column}"
+                            )
+                        else:
+                            connection.execute(f"DELETE FROM {table}")
+        finally:
+            connection.close()
         snapshot = repository.read_cost_history_snapshot(
             store_id=STORE, product_id=SCOPE.product_id,
             offer_id=SCOPE.offer_id, sku=SCOPE.sku,

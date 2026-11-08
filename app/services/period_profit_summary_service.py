@@ -129,15 +129,6 @@ class PeriodProfitSummaryService:
                     )
                     error["fifo_reason_code"] = code
                     return error
-                if fifo_mode.get("period_cutover_overlap") is True:
-                    error = self._error(
-                        "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE",
-                        "Период пересекает дату начальной FIFO-отсечки. "
-                        "Разделите его на периоды до и после отсечки.",
-                    )
-                    error["fifo_reason_code"] = "FIFO_PERIOD_SPANS_COST_CUTOFF"
-                    error["fifo_cutoff_date"] = fifo_mode.get("cutoff_date")
-                    return error
             fifo_active = fifo_mode.get("active") is True
             if fifo_active:
                 # The historical-cost pass below must not guess a current unit

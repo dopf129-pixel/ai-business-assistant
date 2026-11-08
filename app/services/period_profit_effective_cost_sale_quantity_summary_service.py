@@ -307,6 +307,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         historical_bucket_count = 0
         fifo_sku_count = 0
         legacy_sku_count = 0
+        mixed_sku_count = 0
         fifo_allocation_revisions = set()
         fifo_sales_by_finance_sku = {}
         fifo_alias_products_by_finance_sku = {}
@@ -407,7 +408,81 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                         error["fifo_reason_code"] = (
                             fifo.get("reason_code") or "FIFO_ALLOCATION_INCOMPLETE"
                         )
+                        if self._date(fifo.get("cutoff_date")) is not None:
+                            error["fifo_cutoff_date"] = self._date(
+                                fifo.get("cutoff_date"),
+                            ).isoformat()
                         return error
+                    if fifo.get("partitioned_cutoff") is True:
+                        mixed = self._resolve_cutoff_partitioned_cogs(
+                            fifo=fifo,
+                            row=row,
+                            finance_sku=finance_sku,
+                            sales=physical_sales,
+                            fifo_source=fifo_source,
+                            alias_products=(fifo_alias_products or [row]),
+                        )
+                        if mixed.get("error") is True:
+                            error = self._quantity_error(
+                                "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE",
+                            )
+                            error["fifo_reason_code"] = mixed.get("code")
+                            error["fifo_cutoff_date"] = fifo.get("cutoff_date")
+                            return error
+                        profit = net_accrual - mixed["product_cost"] - tax
+                        if not isfinite(profit):
+                            return self._quantity_error(
+                                "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
+                            )
+                        next_row = dict(row)
+                        next_row.update({
+                            "units_sold": mixed["units_sold"],
+                            "product_cost": mixed["product_cost"],
+                            "cost_per_unit": (
+                                round(mixed["product_cost"] / mixed["units_sold"], 2)
+                                if mixed["units_sold"] else None
+                            ),
+                            "profit": round(profit, 2),
+                            "margin_percent": self._margin(profit, revenue),
+                            "cost_source": "CUTOFF_PARTITIONED_FIFO_AND_LEGACY",
+                            "fifo_cogs_reconciliation_required": False,
+                            "fifo_stream_revision": fifo.get("stream_revision"),
+                            "fifo_allocation_revision": fifo.get("allocation_revision"),
+                            "fifo_cutoff_date": fifo.get("cutoff_date"),
+                            "fifo_cutoff_mapping_revision": fifo.get(
+                                "cutoff_mapping_revision",
+                            ),
+                            "fifo_cutoff_bridge_fingerprint": fifo.get(
+                                "cutoff_bridge_fingerprint",
+                            ),
+                            "fifo_units_sold": mixed["fifo_units_sold"],
+                            "fifo_product_cost": mixed["fifo_product_cost"],
+                            "legacy_cutoff_units_sold": mixed["legacy_units_sold"],
+                            "legacy_cutoff_product_cost": mixed["legacy_product_cost"],
+                            "legacy_cutoff_cost_reconciled": True,
+                            "fifo_cost_explanation": fifo.get("fifo_cost_explanation"),
+                            "effective_cost_versioned": mixed["effective_cost_versioned"],
+                        })
+                        if next_row["margin_percent"] is None:
+                            return self._quantity_error(
+                                "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
+                            )
+                        next_rows.append(next_row)
+                        covered_skus.add(finance_sku)
+                        total_units += mixed["units_sold"]
+                        total_product_cost += mixed["product_cost"]
+                        if mixed["fifo_units_sold"]:
+                            fifo_sku_count += 1
+                            if fifo.get("allocation_revision") is not None:
+                                fifo_allocation_revisions.add(
+                                    fifo["allocation_revision"]
+                                )
+                        if mixed["legacy_units_sold"]:
+                            legacy_sku_count += 1
+                            historical_bucket_count += mixed["legacy_sale_count"]
+                        if mixed["fifo_units_sold"] and mixed["legacy_units_sold"]:
+                            mixed_sku_count += 1
+                        continue
                     units = fifo.get("units_sold")
                     product_cost_value = self._number(fifo.get("product_cost"))
                     if (
@@ -561,6 +636,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             "fifo": fifo_sku_count,
             "legacy": legacy_sku_count,
         }
+        if mixed_sku_count:
+            enriched["fifo_cost_source_counts"]["mixed_cutoff"] = mixed_sku_count
         enriched["fifo_allocation_revision_count"] = len(
             fifo_allocation_revisions
         )
@@ -570,6 +647,111 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         if isinstance(fifo_explanation, dict):
             enriched["fifo_cost_explanation"] = fifo_explanation
         return enriched
+
+    def _resolve_cutoff_partitioned_cogs(
+        self, *, fifo, row, finance_sku, sales, fifo_source, alias_products,
+    ):
+        """Price pre-cutoff physical sales from dated legacy history and post-cutoff
+        sales from the exact FIFO allocation revision; never infer the split from
+        the financial period dates.
+        """
+        cutoff = self._date(fifo.get("cutoff_date"))
+        fifo_units = fifo.get("fifo_units_sold")
+        fifo_cost = self._number(fifo.get("fifo_product_cost"))
+        legacy_units = fifo.get("legacy_units_sold")
+        legacy_sales = fifo.get("legacy_sales")
+        digest_builder = getattr(fifo_source, "build_sale_identity_digest", None)
+        if (
+            cutoff is None or type(fifo_units) is not int or fifo_units < 0
+            or fifo_cost is None or fifo_cost < 0
+            or type(legacy_units) is not int or legacy_units < 0
+            or not isinstance(legacy_sales, list) or len(legacy_sales) > 100_000
+            or not callable(digest_builder)
+        ):
+            return {"error": True, "code": "PERIOD_PROFIT_FIFO_COGS_RESPONSE_INVALID"}
+
+        aliases = {}
+        for product in alias_products:
+            if isinstance(product, dict):
+                sku = self._text(product.get("sku"))
+                if sku is not None and sku not in aliases:
+                    aliases[sku] = product
+        sale_by_digest = {}
+        selected_sales = [sale for sale in sales if sale.get("sku") == finance_sku]
+        selected_units = 0
+        try:
+            for sale in selected_sales:
+                alias_product = aliases.get(sale.get("sku"), row)
+                identity = digest_builder(alias_product, sale)
+                if not isinstance(identity, dict) or identity.get("error") is True:
+                    return {"error": True, "code": "FIFO_CUTOFF_SALE_IDENTITY_INVALID"}
+                digest = identity.get("source_identity_digest")
+                quantity = sale.get("quantity")
+                if (
+                    not isinstance(digest, str) or len(digest) != 64
+                    or type(quantity) is not int or quantity < 1
+                    or digest in sale_by_digest
+                ):
+                    return {"error": True, "code": "FIFO_CUTOFF_SALE_IDENTITY_INVALID"}
+                sale_by_digest[digest] = sale
+                selected_units += quantity
+
+            total_legacy_cost = 0.0
+            used = set()
+            versions = set()
+            for legacy in legacy_sales:
+                if not isinstance(legacy, dict):
+                    return {"error": True, "code": "FIFO_CUTOFF_LEGACY_SALE_MAPPING_INVALID"}
+                digest = legacy.get("source_identity_digest")
+                quantity = legacy.get("quantity")
+                physical_date = self._date(legacy.get("physical_effective_date"))
+                sale = sale_by_digest.get(digest)
+                if (
+                    digest in used or sale is None or physical_date is None
+                    or physical_date > cutoff
+                    or type(quantity) is not int or quantity < 1
+                    or sale.get("quantity") != quantity
+                ):
+                    return {"error": True, "code": "PERIOD_PROFIT_FIFO_COGS_INCOMPLETE"}
+                evidence = self._effective_cost_evidence(
+                    row, physical_date.isoformat(),
+                )
+                if (
+                    not isinstance(evidence, dict)
+                    or evidence.get("error") is True
+                    or evidence.get("effective_cost_confirmed") is not True
+                ):
+                    return {"error": True, "code": "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"}
+                cost = self._number(evidence.get("cost_price"))
+                signature = self._cost_version_signature(evidence, cost)
+                if cost is None or cost < 0 or signature is None:
+                    return {"error": True, "code": "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"}
+                total_legacy_cost += quantity * cost
+                if not isfinite(total_legacy_cost):
+                    return {"error": True, "code": "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"}
+                used.add(digest)
+                versions.add(signature)
+        except Exception:
+            return {"error": True, "code": "FIFO_CUTOFF_LEGACY_COST_RESOLUTION_FAILED"}
+
+        if (
+            selected_units != fifo_units + legacy_units
+            or len(used) != len(legacy_sales)
+        ):
+            return {"error": True, "code": "FIFO_CUTOFF_SALE_COVERAGE_MISMATCH"}
+        legacy_cost = round(total_legacy_cost, 2)
+        fifo_cost = round(fifo_cost, 2)
+        return {
+            "error": False,
+            "units_sold": selected_units,
+            "fifo_units_sold": fifo_units,
+            "fifo_product_cost": fifo_cost,
+            "legacy_units_sold": legacy_units,
+            "legacy_product_cost": legacy_cost,
+            "legacy_sale_count": len(legacy_sales),
+            "product_cost": round(fifo_cost + legacy_cost, 2),
+            "effective_cost_versioned": len(versions) > 1,
+        }
 
     def _quantity_from_identity_map(
         self,

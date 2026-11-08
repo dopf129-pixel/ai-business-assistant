@@ -161,3 +161,84 @@ def test_history_does_not_claim_remaining_units_after_unreplayed_movement(tmp_pa
     assert result["next_unit_cost_rub"] is None
     assert all(row["remaining_units"] is None for row in result["layers"])
 
+
+def test_late_delivery_transfer_does_not_create_a_second_cost_layer(tmp_path):
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "fifo-late-delivery-transfer.sqlite",
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        anchor = FifoCostAnchorService(repository)
+        preview = anchor.preview_opening_anchor(
+            **IDENTITY,
+            inventory_cutoff="2026-11-05",
+            cost_layers=[
+                {
+                    "sequence": 1, "unit_cost_rub": "21.00",
+                    "ozon_units": 1, "transit_units": 2, "home_units": 0,
+                },
+                {
+                    "sequence": 2, "unit_cost_rub": "14.65",
+                    "ozon_units": 100, "transit_units": 0, "home_units": 0,
+                },
+            ],
+            ozon_units_include_reserved_confirmed=True,
+            transit_not_in_ozon_confirmed=True,
+        )
+        assert preview["error"] is False
+        committed = anchor.commit_opening_anchor(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="late-delivery-opening01",
+        )
+        assert committed["error"] is False
+
+        connection = repository.get_connection()
+        try:
+            before_layers = [tuple(row) for row in connection.execute(
+                "SELECT layer_sequence, quantity, unit_cost_rub "
+                "FROM fifo_cost_layers ORDER BY layer_sequence"
+            ).fetchall()]
+        finally:
+            connection.close()
+
+        movement = repository.preview_command(
+            **IDENTITY,
+            events=[{
+                "kind": "INVENTORY_TRANSFER", "quantity": 2,
+                "effective_date": "2026-11-08",
+                "location_from": "TRANSIT", "location_to": "OZON",
+            }],
+            source={**_source(), "inventory_cutoff": "2026-11-05"},
+            expected_revision=1,
+        )
+        assert movement["error"] is False
+        moved = repository.commit_command(
+            preview_id=movement["preview_id"],
+            active_preview_id=movement["preview_id"],
+            idempotency_key="late-delivery-transfer01",
+        )
+        assert moved["error"] is False
+
+        connection = repository.get_connection()
+        try:
+            after_layers = [tuple(row) for row in connection.execute(
+                "SELECT layer_sequence, quantity, unit_cost_rub "
+                "FROM fifo_cost_layers ORDER BY layer_sequence"
+            ).fetchall()]
+            transfer_count = connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_events WHERE event_kind='INVENTORY_TRANSFER'"
+            ).fetchone()[0]
+            receipt_count = connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_events WHERE event_kind='COST_LAYER_RECEIPT'"
+            ).fetchone()[0]
+        finally:
+            connection.close()
+
+        assert after_layers == before_layers
+        assert transfer_count == 1
+        assert receipt_count == 0
+    finally:
+        reset_current_tenant_user_id(token)
+

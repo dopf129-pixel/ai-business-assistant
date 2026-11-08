@@ -28,6 +28,7 @@ class PeriodProfitFifoExplanationViewService:
         "PERIOD_COST_MODE_UNKNOWN": "режим расчёта себестоимости неизвестен",
         "PERIOD_PRODUCT_COST_DETAILS_UNAVAILABLE": "нет детализации себестоимости по товарам",
         "PERIOD_PRODUCT_ROW_INVALID": "строка товара не прошла проверку",
+        "FIFO_CUTOFF_PARTITION_INCOMPLETE": "не удалось полностью сверить продажи до и после среза",
     }
     _SAFE_REASON_CODES = set(_REASON_LABELS)
 
@@ -43,6 +44,7 @@ class PeriodProfitFifoExplanationViewService:
         fifo_rows = 0
         legacy_rows = 0
         complete_fifo_rows = 0
+        mixed_cutoff_rows = 0
         overall_complete = True
         reasons = []
         for row in rows:
@@ -75,6 +77,35 @@ class PeriodProfitFifoExplanationViewService:
                     reason_code = explanation.get("reason_code")
                     if reason_code in self._SAFE_REASON_CODES:
                         reasons.append(reason_code)
+            elif source == "CUTOFF_PARTITIONED_FIFO_AND_LEGACY":
+                projected = self._mixed_cutoff_product(row, sku=sku, units=units, amount=amount)
+                products.append(projected)
+                fifo_amount = self._money(projected.get("fifo_cogs_rub"))
+                legacy_amount = self._money(projected.get("legacy_cogs_rub"))
+                if fifo_amount is None or legacy_amount is None:
+                    overall_complete = False
+                    reasons.append("FIFO_REPORT_TOTAL_MISMATCH")
+                else:
+                    fifo_cost += fifo_amount
+                    legacy_cost += legacy_amount
+                if projected.get("fifo_units_sold", 0) > 0:
+                    fifo_rows += 1
+                    if projected.get("fifo_status") == "CONFIRMED":
+                        complete_fifo_rows += 1
+                    else:
+                        overall_complete = False
+                        reasons.append("FIFO_LAYER_EXPLANATION_INCOMPLETE")
+                if projected.get("legacy_units_sold", 0) > 0:
+                    legacy_rows += 1
+                    if projected.get("legacy_status") != "CONFIRMED":
+                        overall_complete = False
+                        reasons.append("LEGACY_COST_SOURCE_INCOMPLETE")
+                if projected.get("fifo_units_sold", 0) and projected.get("legacy_units_sold", 0):
+                    mixed_cutoff_rows += 1
+                if projected.get("status") != "CONFIRMED":
+                    overall_complete = False
+                    if projected.get("reason_code") in self._SAFE_REASON_CODES:
+                        reasons.append(projected["reason_code"])
             elif source == "LEGACY_DATED_COST":
                 legacy_rows += 1
                 legacy_cost += amount
@@ -119,7 +150,8 @@ class PeriodProfitFifoExplanationViewService:
             overall_complete = False
             reasons.append("FIFO_REPORT_TOTAL_MISMATCH")
         mode = (
-            "MIXED" if fifo_rows and legacy_rows
+            "MIXED_CUTOFF" if mixed_cutoff_rows == 1 and fifo_rows == 1 and legacy_rows == 1
+            else "MIXED" if fifo_rows and legacy_rows
             else "FIFO" if fifo_rows
             else "LEGACY_DATED_COST" if products
             else "UNKNOWN"
@@ -132,7 +164,8 @@ class PeriodProfitFifoExplanationViewService:
             status = "CONFIRMED" if overall_complete else "PARTIAL"
         cutoff_dates = sorted({
             item["cutoff_date"] for item in products
-            if item.get("cost_mode") == "FIFO" and item.get("cutoff_date")
+            if item.get("cost_mode") in {"FIFO", "MIXED_CUTOFF"}
+            and item.get("cutoff_date")
         })
         result = {
             "schema_version": 1,
@@ -144,6 +177,7 @@ class PeriodProfitFifoExplanationViewService:
             "legacy_cogs_rub": format(legacy_cost, ".2f"),
             "fifo_sku_count": fifo_rows,
             "confirmed_fifo_sku_count": complete_fifo_rows,
+            "mixed_cutoff_sku_count": mixed_cutoff_rows,
             "cutoff_dates": cutoff_dates,
             "products": products,
             "read_only": True,
@@ -168,19 +202,44 @@ class PeriodProfitFifoExplanationViewService:
             cost_source = (
                 "FIFO_ALLOCATION_REVISION" if mode == "FIFO"
                 else "LEGACY_DATED_COST" if mode == "LEGACY_DATED_COST"
+                else "CUTOFF_PARTITIONED_FIFO_AND_LEGACY" if mode == "MIXED_CUTOFF"
                 else None
             )
             if cost_source is None:
                 return None
             if mode == "LEGACY_DATED_COST" and item.get("status") != "CONFIRMED":
                 legacy_complete = False
-            products.append({
+            projected_row = {
                 "sku": item.get("sku"),
                 "cost_source": cost_source,
                 "units_sold": item.get("units_sold"),
                 "product_cost": item.get("product_cost_rub"),
                 "fifo_cost_explanation": item if mode == "FIFO" else None,
-            })
+            }
+            if mode == "MIXED_CUTOFF":
+                projected_row.update({
+                    "fifo_units_sold": item.get("fifo_units_sold"),
+                    "fifo_product_cost": item.get("fifo_cogs_rub"),
+                    "legacy_cutoff_units_sold": item.get("legacy_units_sold"),
+                    "legacy_cutoff_product_cost": item.get("legacy_cogs_rub"),
+                    "legacy_cutoff_cost_reconciled": item.get("legacy_status") == "CONFIRMED",
+                    "fifo_stream_revision": item.get("stream_revision"),
+                    "fifo_allocation_revision": item.get("allocation_revision"),
+                    "fifo_cutoff_date": item.get("cutoff_date"),
+                    "fifo_cutoff_mapping_revision": item.get("cutoff_mapping_revision"),
+                    "fifo_cutoff_bridge_fingerprint": item.get("cutoff_bridge_fingerprint"),
+                    "fifo_cost_explanation": {
+                        "cost_mode": "FIFO",
+                        "status": item.get("fifo_status"),
+                        "reason_code": item.get("reason_code"),
+                        "cutoff_date": item.get("cutoff_date"),
+                        "stream_revision": item.get("stream_revision"),
+                        "allocation_revision": item.get("allocation_revision"),
+                        "layers": item.get("layers"),
+                        "corrections": item.get("corrections"),
+                    },
+                })
+            products.append(projected_row)
         return self.build({
             "products": products,
             "product_cost": value.get("total_cogs_rub"),
@@ -201,7 +260,12 @@ class PeriodProfitFifoExplanationViewService:
             + "; " + status + "; cutoff " + cutoff_text + "."
         )
         if explanation.get("cost_mode") == "MIXED":
-            line += " Остальные SKU рассчитаны в датированном режиме."
+            if explanation.get("mixed_cutoff_sku_count"):
+                line += " Для части SKU стоимость объединяет датированную историю до cutoff и FIFO после него."
+            else:
+                line += " Остальные SKU рассчитаны в датированном режиме."
+        elif explanation.get("cost_mode") == "MIXED_CUTOFF":
+            line += " Внутри SKU объединены датированная история до cutoff и FIFO после него."
         if explanation.get("status") != "CONFIRMED":
             reason = next(iter(explanation.get("reason_codes") or []), None)
             if reason:
@@ -268,6 +332,37 @@ class PeriodProfitFifoExplanationViewService:
                 lines.extend(cls._correction_lines(product.get("corrections")))
             elif mode == "LEGACY_DATED_COST":
                 lines.append("Источник: действующий режим датированной истории, FIFO-слои не применяются.")
+            elif mode == "MIXED_CUTOFF":
+                lines.append(
+                    "До cutoff: " + cls._count(product.get("legacy_units_sold"), "шт.")
+                    + "; датированная себестоимость "
+                    + cls._money_text(product.get("legacy_cogs_rub")) + "."
+                )
+                lines.append(
+                    "После cutoff: " + cls._count(product.get("fifo_units_sold"), "шт.")
+                    + "; FIFO-себестоимость "
+                    + cls._money_text(product.get("fifo_cogs_rub")) + "."
+                )
+                lines.append(
+                    "Cutoff " + str(product.get("cutoff_date") or "не подтверждён")
+                    + "; stream rev " + cls._revision_text(product.get("stream_revision"))
+                    + "; allocation rev " + cls._revision_text(product.get("allocation_revision"))
+                    + "; mapping rev " + cls._revision_text(product.get("cutoff_mapping_revision")) + "."
+                )
+                layers = product.get("layers")
+                if isinstance(layers, list):
+                    for layer in layers:
+                        if not isinstance(layer, dict):
+                            continue
+                        lines.append(
+                            "• FIFO " + cls._count(layer.get("quantity"), "шт.")
+                            + " × " + cls._money_text(layer.get("unit_cost_rub"))
+                            + " = " + cls._money_text(layer.get("total_cogs_rub"))
+                            + "; дата " + str(layer.get("effective_date") or "неизвестна") + "."
+                        )
+                if product.get("fifo_units_sold") == 0:
+                    lines.append("• После cutoff продаж нет; FIFO-себестоимость не начислялась.")
+                lines.extend(cls._correction_lines(product.get("corrections")))
             else:
                 lines.append("⚠️ Режим себестоимости неизвестен; детализация не считается подтверждённой.")
             if product.get("status") not in {"CONFIRMED", "NOT_APPLICABLE"} and product.get("reason_code"):
@@ -423,6 +518,96 @@ class PeriodProfitFifoExplanationViewService:
             "stream_revision": stream_revision,
             "allocation_revision": allocation_revision,
             "layers": projected_layers,
+            "corrections": corrections,
+        }
+
+    def _mixed_cutoff_product(self, row, *, sku, units, amount):
+        fifo_units = row.get("fifo_units_sold")
+        legacy_units = row.get("legacy_cutoff_units_sold")
+        fifo_amount = self._money(row.get("fifo_product_cost"))
+        legacy_amount = self._money(row.get("legacy_cutoff_product_cost"))
+        complete = (
+            type(fifo_units) is int and fifo_units >= 0
+            and type(legacy_units) is int and legacy_units >= 0
+            and fifo_amount is not None and legacy_amount is not None
+            and fifo_units + legacy_units == units
+            and (fifo_amount + legacy_amount).quantize(Decimal("0.01")) == amount
+        )
+        cutoff = row.get("fifo_cutoff_date")
+        stream_revision = row.get("fifo_stream_revision")
+        allocation_revision = row.get("fifo_allocation_revision")
+        mapping_revision = row.get("fifo_cutoff_mapping_revision")
+        bridge_fingerprint = row.get("fifo_cutoff_bridge_fingerprint")
+        if (
+            not self._iso_date(cutoff)
+            or type(stream_revision) is not int or stream_revision < 1
+            or type(allocation_revision) is not int or allocation_revision < 0
+        ):
+            complete = False
+
+        if fifo_units:
+            fifo_row = dict(row)
+            fifo_row["units_sold"] = fifo_units
+            fifo_row["product_cost"] = format(fifo_amount, ".2f")
+            fifo_projection = self._fifo_product(
+                fifo_row, sku=sku, units=fifo_units, amount=fifo_amount,
+            )
+            if (
+                fifo_projection.get("stream_revision") != stream_revision
+                or fifo_projection.get("allocation_revision") != allocation_revision
+                or fifo_projection.get("cutoff_date") != cutoff
+            ):
+                complete = False
+            fifo_status = fifo_projection.get("status")
+            layers = fifo_projection.get("layers") or []
+            corrections = fifo_projection.get("corrections")
+        else:
+            if fifo_amount != Decimal("0.00"):
+                complete = False
+            fifo_status = "CONFIRMED"
+            layers = []
+            corrections = {"status": "NO_CORRECTION", "reason_code": None, "revisions": []}
+        legacy_status = (
+            "CONFIRMED"
+            if row.get("legacy_cutoff_cost_reconciled") is True
+            else "UNKNOWN"
+        )
+        if legacy_units and legacy_status != "CONFIRMED":
+            complete = False
+        mapping_fingerprint_valid = (
+            isinstance(bridge_fingerprint, str)
+            and len(bridge_fingerprint) == 64
+            and all(char in "0123456789abcdef" for char in bridge_fingerprint)
+        )
+        if (legacy_units or fifo_units) and (
+            type(mapping_revision) is not int or mapping_revision < 1
+            or not mapping_fingerprint_valid
+        ):
+            complete = False
+        status = (
+            "CONFIRMED" if complete and fifo_status == "CONFIRMED"
+            and legacy_status in {"CONFIRMED", "UNKNOWN"}
+            else "PARTIAL"
+        )
+        return {
+            "sku": sku,
+            "cost_mode": "MIXED_CUTOFF",
+            "status": status,
+            "reason_code": None if status == "CONFIRMED" else "FIFO_CUTOFF_PARTITION_INCOMPLETE",
+            "units_sold": units,
+            "product_cost_rub": format(amount, ".2f"),
+            "fifo_units_sold": fifo_units if type(fifo_units) is int else None,
+            "fifo_cogs_rub": format(fifo_amount, ".2f") if fifo_amount is not None else None,
+            "legacy_units_sold": legacy_units if type(legacy_units) is int else None,
+            "legacy_cogs_rub": format(legacy_amount, ".2f") if legacy_amount is not None else None,
+            "legacy_status": legacy_status,
+            "fifo_status": fifo_status,
+            "cutoff_date": cutoff if self._iso_date(cutoff) else None,
+            "stream_revision": stream_revision if type(stream_revision) is int else None,
+            "allocation_revision": allocation_revision if type(allocation_revision) is int else None,
+            "cutoff_mapping_revision": mapping_revision if type(mapping_revision) is int else None,
+            "cutoff_bridge_fingerprint": bridge_fingerprint if mapping_fingerprint_valid else None,
+            "layers": layers,
             "corrections": corrections,
         }
 

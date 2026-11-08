@@ -469,6 +469,11 @@ def test_fc17_period_read_uses_only_latest_complete_allocations_and_exact_dates(
             store_id="store-a", product_id="product-1", offer_id="offer-1",
             sku="sku-1", date_from="2026-11-02", date_to="2026-11-02",
         )
+        financial_period_identity = repo.read_period_allocation_summary(
+            store_id="store-a", product_id="product-1", offer_id="offer-1",
+            sku="sku-1", date_from="2026-11-03", date_to="2026-11-03",
+            source_identity_digests=["d" * 64],
+        )
         assert whole_period["complete"] is True
         assert whole_period["allocation_revision"] == 1
         assert [row["source_identity_digest"] for row in whole_period["allocations"]] == [
@@ -480,6 +485,11 @@ def test_fc17_period_read_uses_only_latest_complete_allocations_and_exact_dates(
         assert first_day["complete"] is True
         assert [(row["quantity"], row["total_cogs_rub"])
                 for row in first_day["allocations"]] == [(2, "20.00")]
+        assert financial_period_identity["complete"] is True
+        assert financial_period_identity["period_units"] == 2
+        assert financial_period_identity["period_cogs_rub"] == "20.00"
+        assert [row["source_identity_digest"]
+                for row in financial_period_identity["allocations"]] == ["d" * 64]
 
         revision_before_reads = repo.read_allocation_guard(
             store_id="store-a", product_id="product-1", offer_id="offer-1", sku="sku-1",
