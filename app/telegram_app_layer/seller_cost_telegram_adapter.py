@@ -5,13 +5,14 @@ from telegram_app_layer.telegram_call_compat import call_with_legacy_arity
 class SellerCostTelegramAdapter(AssistantTelegramAdapter):
     """Add the explicit seller-cost interaction without changing other routes."""
 
-    def __init__(self, assistant, keyboard_service, button_handler, user_profile_service=None, memory_command_service=None, seller_cost_service=None, onboarding_service=None, fifo_history_service=None, fifo_rate_entry_service=None, fifo_late_entry_service=None, fifo_anchor_entry_service=None):
+    def __init__(self, assistant, keyboard_service, button_handler, user_profile_service=None, memory_command_service=None, seller_cost_service=None, onboarding_service=None, fifo_history_service=None, fifo_rate_entry_service=None, fifo_late_entry_service=None, fifo_anchor_entry_service=None, fifo_report_import_service=None):
         super().__init__(assistant, keyboard_service, button_handler, user_profile_service, memory_command_service, onboarding_service)
         self.seller_cost_service = seller_cost_service
         self.fifo_history_service = fifo_history_service
         self.fifo_rate_entry_service = fifo_rate_entry_service
         self.fifo_late_entry_service = fifo_late_entry_service
         self.fifo_anchor_entry_service = fifo_anchor_entry_service
+        self.fifo_report_import_service = fifo_report_import_service
 
     def get_start_response(self, user_id=None):
         result = super().get_start_response(user_id)
@@ -80,6 +81,23 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         return super().handle_text(text, user_id)
 
     def handle_document(self, content, user_id=None, filename=None):
+        if (
+            isinstance(filename, str)
+            and filename.lower().endswith(".xlsx")
+            and self.fifo_report_import_service is not None
+        ):
+            profile_failure = self._admit_user_profile(user_id)
+            if profile_failure:
+                return profile_failure
+            try:
+                result = self.fifo_report_import_service.handle_document(
+                    user_id, content, filename,
+                )
+            except Exception:
+                return {"error": True, "message": "Не удалось проверить отчёт. FIFO-дело не изменено.", "code": "FIFO_REPORT_IMPORT_FAILED", "read_only_ozon": True}
+            if not isinstance(result, dict) or type(result.get("error")) is not bool:
+                return {"error": True, "message": "Не удалось проверить отчёт. FIFO-дело не изменено.", "code": "INVALID_FIFO_REPORT_IMPORT_RESULT", "read_only_ozon": True}
+            return result
         if self.seller_cost_service is None:
             return {"error": True, "message": "Загрузка себестоимости недоступна.", "read_only_ozon": True}
         profile_failure = self._admit_user_profile(user_id)
@@ -109,6 +127,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             and self.fifo_rate_entry_service is None
             and self.fifo_late_entry_service is None
             and self.fifo_anchor_entry_service is None
+            and self.fifo_report_import_service is None
         ):
             return super().handle_button(callback, user_id)
         profile_failure = self._admit_user_profile(user_id)
@@ -118,6 +137,10 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         try:
             if callback_text.startswith("fifo_anchor:") and self.fifo_anchor_entry_service is not None:
                 return self.fifo_anchor_entry_service.handle_callback(
+                    user_id, callback_text,
+                )
+            if callback_text.startswith("fifo_report:") and self.fifo_report_import_service is not None:
+                return self.fifo_report_import_service.handle_callback(
                     user_id, callback_text,
                 )
             if callback_text == "seller_cost":
@@ -315,6 +338,12 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             clearer = getattr(service, "clear_pending", None)
             if callable(clearer):
                 clearer(user_id)
+        self._clear_fifo_report_selection(user_id)
+
+    def _clear_fifo_report_selection(self, user_id):
+        clearer = getattr(self.fifo_report_import_service, "clear_selection", None)
+        if callable(clearer):
+            clearer(user_id)
 
     def _clear_form_input_states_for_navigation(self, user_id):
         clearer = getattr(
