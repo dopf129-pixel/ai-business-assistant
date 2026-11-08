@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL12.
-Выполненных этапов:12/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations, FL09 active observations, FL10 acceptance reconciliation и FL11 bounded refresh/checkpoint resume VERIFIED; documents, runtime integration and owner case ещё не завершены).
+Следующий этап: FL13.
+Выполненных этапов:13/36 (FL00–FL12 VERIFIED в коде: baseline, map, contracts, schema/cipher, repository, pre-FIFO boundaries, landed cost, case lifecycle, supply declarations/observations/reconciliation, bounded refresh и turnover parser; остатки parser, contextual import, reconciliation/bridge/apply, runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -32,7 +32,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL09 | Наблюдения и missing | VERIFIED | `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`; focused 51 passed; full pytest 4907 passed; compileall/diff-check/data restore PASS |
 | FL10 | Частичная приёмка | VERIFIED | `9445d8cc`; focused 46 passed; FIFO/Telegram FIFO 379 passed; compileall/diff-check/data unchanged PASS |
 | FL11 | Бюджеты/checkpoints | VERIFIED | `66d05d38`; focused 40 passed; FIFO/Telegram FIFO 388 passed; compileall/diff-check/data unchanged PASS |
-| FL12 | Ведомость parser | NOT_STARTED | — |
+| FL12 | Ведомость parser | VERIFIED | `1f209a23`; synthetic parser 21 passed; FIFO/Telegram FIFO 409 passed; compileall/diff-check/data unchanged PASS |
 | FL13 | Остатки parser | NOT_STARTED | — |
 | FL14 | Контекстный XLSX import | NOT_STARTED | — |
 | FL15 | Сверка поставок | NOT_STARTED | — |
@@ -63,6 +63,16 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 - Ведомость доступна владельцу только до05.11. Наблюдение исчезающих148 не является официальным описанием всех API.
 - reserved, cross-source cutoff и привязка физических продаж ещё требуют proof/validation.
 - Новая домашняя закупка не пересчитана — допустимый UNKNOWN, не blocker создания case.
+
+## Выполнение FL12 — 2026-11-08
+
+- Добавлен `app/services/fifo_cost_report_import_service.py::FifoCostReportImportService.parse_turnover_workbook`. Он строго принимает лист «Оборотная ведомость», нормализует доказательства для точного выбранного SKU, возвращает digest файла/cell refs/parser version и явное происхождение периода: owner-confirmed, filename candidate или unknown. Файл не сохраняется; importer не пишет case/evidence и не активирует FIFO.
+- Read-only parser использует `openpyxl` `read_only=True, data_only=True` и `defusedxml`; проверяет zip до чтения (10 MiB, 100 MiB declared uncompressed, 2048 entries, ratio ≤100, macro/external relationship/path traversal rejection), листы до 50,000 строк/100 колонок, exact header case с whitespace/NBSP normalization и формулы без исполнения. В дальнейшем FL14 оборачивает parser в отдельный ограниченный subprocess с hard deadline/concurrency cap.
+- Synthetic matrix: opening 4492 + receipts 0 − expenses 780 − closing 3712 = 0; redeemed 775 не подменяется ordered units, прочие расходы 5 остаются отдельно. Closing buckets сохраняют buyer_delivery 1646 и buyer_return_transit 70; 3712 не объявляется physical/available stock. Исключённые компенсации S/AA не входят в totals. Второй SKU не агрегируется.
+- Добавлены `requirements.txt` dependencies `openpyxl>=3.1.5,<4`, `defusedxml>=0.7.1,<1` и `tests/test_fifo_cost_report_import_service.py` (synthetic in-memory workbook; owner XLSX не читается). Код commit `1f209a23` (`Parse Ozon turnover evidence for FIFO`).
+- Проверки на code SHA `1f209a23`: focused **21 passed in 1.03s**; все `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` — **409 passed in 17.21s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Временные dependencies лежат только в `.fl12-deps` и не входят в commit; удалить после выполнения всех тестов.
+- `IMPLEMENTATION_VERIFIED`: нет (контекстный импорт, отчёт остатков, bridge, replay/impact/atomic apply и runtime integration впереди). `OWNER_CASE_VERIFIED`: нет; ни owner report, ни real APIs/DB не использовались. Blocker отсутствует.
+- Следующий этап: FL13 — parser «Управление остатками» с separate stock buckets и независимыми total/check sheets.
 
 ## Выполнение FL06 — 2026-11-08
 

@@ -2,7 +2,7 @@
 
 ## Следующий пакет — поздний FIFO-ввод и поставки на приёмке (07.11.2026)
 
-- LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: FL00–FL11 VERIFIED в коде: baseline/integration/contracts/schema/repository/pre-FIFO/full-cost/case lifecycle/supply declarations/active observations/cumulative acceptance/shared refresh budget and checkpoints; следующий этап FL12 — parser оборотной ведомости.
+- LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: FL00–FL12 VERIFIED в коде: baseline/integration/contracts/schema/repository/pre-FIFO/full-cost/case lifecycle/supply declarations/active observations/cumulative acceptance/shared refresh budget/checkpoints и read-only parser оборотной ведомости; следующий этап FL13 — parser управления остатками.
 - Довести существующий инструмент до полного цикла: durable case до начальной FIFO → поставки и пропадающие агрегированные наблюдения → документы → доказанный bridge → preview → atomic apply → финансовые/плановые consumers.
 - Технические решения зафиксированы в ТЗ. Зелёный CI не заменяет OWNER_CASE_VERIFIED; сведения о реальной партии сохраняются до появления недостающих документов без автоматического назначения новой стоимости всем продажам.
 - План реализации: три зависимых PR с зелёным CI и независимым review, без автоматического слияния и запуска бота.

@@ -5518,3 +5518,9 @@ Completed:
 - FC22 `DONE_WITH_GAP`: a read-only before/after service now reports FIFO units/COGS by basis and recalculates period tax/profit through the existing `TaxService`. Owner confirmation is bound to exact store/SKU/draft and source, stream, allocation, tax and impact fingerprints.
 - FIFO schema v9→v10 appends a correction audit snapshot atomically with the new rate. The former allocation projection is invalidated; Period Profit is not changed until complete replay. The synthetic path supports only one missing rate and no linked returns/non-sale outflows; production remains blocked by unreconciled historical stock/finance cutoff.
 - Linked FC22 profile: **65 passed in 3.25s**. All data used were synthetic or in pytest temporary SQLite; no live Ozon/Telegram requests or bot startup.
+# 2026-11-08 — FIFO late-entry completion FL12
+
+- FL00–FL12 VERIFIED в коде исполнения, но не в production и не на owner case. Добавлен `FifoCostReportImportService.parse_turnover_workbook`: строго читает лист «Оборотная ведомость» и выдаёт нормализованные read-only evidence только для выбранного SKU.
+- Parser различает `redeemed_units=775` и `non_sale_expense_units=5`, сверяет opening 4492 + receipts 0 − expenses 780 − closing 3712 = 0 и сохраняет buckets доставки покупателю/возврата отдельно. 3712 остаётся отчётным closing total и не подменяет доступный/физический stock.
+- FL12 commit `1f209a23`; focused synthetic profile **21 passed**, полный FIFO/Telegram FIFO профиль **409 passed in 17.21s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Владелец XLSX не использовался тестами, API/UI/persistence ещё не подключены.
+- Следующий этап FL13 — parser отчёта «Управление остатками» с отдельными buckets и независимыми контрольными листами.

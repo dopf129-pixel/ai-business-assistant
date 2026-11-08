@@ -6625,3 +6625,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
 - Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.
 
+# 2026-11-08 — FIFO turnover import regressions (FL12)
+
+- `tests/test_fifo_cost_report_import_service.py` builds an in-memory synthetic XLSX with the verified turnover-sheet header profile and matrix 4492 + 0 − 780 − 3712 = 0. It proves sold units **775** remain separate from non-sale expenses **5**, closing buyer-delivery/return buckets stay explicit, and a second SKU is not aggregated.
+- Regression cases cover owner-confirmed vs filename-candidate/unknown dates; duplicate/missing SKU or quantity; formula and Excel-error cells; exact header casing with whitespace/NBSP normalization; fractional values; all four component totals and balance; malformed/extra columns; external relationships, relationship/ZIP traversal, ZIP entry and compression-ratio limits.
+- FL12 focused: **21 passed in 1.03s**. All FIFO cost and Telegram FIFO tests: **409 passed in 17.21s**. Fixtures use only synthetic in-memory workbooks; owner files, databases, Ozon and Telegram were not accessed.
+
