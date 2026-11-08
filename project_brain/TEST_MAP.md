@@ -14,6 +14,11 @@
 - `tests/test_fifo_cost_temporal_rate_replay.py` covers pure MR01–MR07 arithmetic and invariants: only proven residual is materialized, per-rate basis and open quantity remain explicit, return lineage survives a rate close, and non-sale outflow never draws from an unknown rate.
 - Linked pure kernel and prior allocator/replay tests: **77 passed, 2 deselected in 1.30s**; only the FR06 dated-adapter replay tests were deselected. Compileall and diff-check pass. No database or external source was used.
 
+# 2026-11-09 — FIFO temporal multi-rate replay (FR06)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py` verifies local end-of-day semantics, exact timestamp timezone conversion, fail-closed same-instant ambiguity, stable permutations, identical duplicate page collapse, conflicting duplicates, and `complete_through` gating.
+- Linked temporal, existing replay and allocation profile: **86 passed in 1.39s**. Compileall, `git diff --check` and tracked `data/` integrity pass. This is a local targeted result, not full-suite or remote CI verification.
+
 # 2026-11-08 — FIFO review-fix regression map
 
 - `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.

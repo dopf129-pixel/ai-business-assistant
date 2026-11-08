@@ -6,7 +6,7 @@
 
 ## Resume
 
-- Следующий этап FR06: объединить rate boundaries и FIFO события по доказанному store-local физическому времени, сохранив ограниченный same-day ambiguity analysis; закрыть MR08–MR10.
+- Следующий этап FR07: добавить миграцию append-only rate-balance/evidence schema v16 после проверки текущей версии и миграционных conventions.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -28,8 +28,8 @@
 | FR03 | DONE | Создан `FR03_CONTRACTS_2026-11-08.md`, добавлен узкий Decision 066 addendum и red-test map; Decimal MR01–MR15 + canonical TaxService checks PASS. |
 | FR04 | DONE | Добавлены typed boundary DTOs и stable `TransitionReasonCode`; strict money/digest/nullable-balance/date/timezone/proof validation. Legacy allocation API unchanged. Linked pure suite: **70 passed, 2 replay cases excluded because FR05–FR06 are next**. |
 | FR05 | DONE | Pure kernel: MR01–MR07 and linked allocator/replay profile: **77 passed, 2 replay-adapter cases deselected**; compileall and diff-check PASS. |
-| FR06 | IN_PROGRESS | Merge boundaries and events by proven store-local physical order; preserve bounded ambiguity analysis. |
-| FR07 | NOT_STARTED | Migration |
+| FR06 | DONE | Store-local temporal ordering, exact/local-date boundaries, bounded ambiguity analysis, stable duplicate/permutation fingerprints; **86 passed in 1.39s** across temporal replay and legacy allocator/replay profiles. |
+| FR07 | NOT_STARTED | Additive schema migration |
 | FR08 | NOT_STARTED | Repository adapter |
 | FR09 | NOT_STARTED | Rate commit/replay |
 | FR10 | NOT_STARTED | Returns/non-sale |
@@ -103,3 +103,12 @@
 - `tests/test_fifo_cost_temporal_rate_replay.py` adds pure MR01–MR07 controls, chain/finite-balance conflicts, rate-return/re-sale lineage, outflow separation, and unknown-open-quantity behavior.
 - Linked pure kernel + existing allocator/replay tests: **77 passed, 2 deselected in 1.30s** (only FR06 chronological adapter tests). `compileall` and `git diff --check` PASS. No SQLite, owner data, live API or bot used.
 - FR05 does not claim temporal ordering: caller event order must already be proven. Next: FR06 integrates dated boundaries into the bounded event-order analysis.
+
+## FR06 — 2026-11-09
+
+- `FifoCostReplayService.preview` now accepts bounded dated rate boundaries, a store IANA timezone and `complete_through`; no rate boundaries means the existing input/output contract remains unchanged. Exact timestamps are converted to store-local dates before cutoff/horizon comparisons. `END_OF_LOCAL_DATE` boundaries sort after every event on that local day and before the next local day.
+- Rate boundaries and sale/return/outflow events now share one proof-ordered stream passed into the FR05 pure allocator. Exact same-instant ties and mixed date-only/timestamp days use the existing bounded ambiguity analysis; different boundary proofs at the same position conflict. Identical duplicate pages collapse, conflicting duplicate event IDs and repeated distinct sale identities fail closed.
+- The preview fingerprint seals timezone, complete-through and canonical rate-boundary set; output exposes per-rate remaining balances, basis kind and rate IDs. No creation timestamps or host timezone participate in ordering.
+- Added FR06 checks for MR08–MR10: same-local-day sale, UTC/local date crossing with `America/Los_Angeles`, ambiguous exact-instant sale/boundary, duplicate/permutation stability, and incomplete source horizon.
+- Temporal + legacy allocator/replay suites: **86 passed in 1.39s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS; all five tracked user-data hashes match FR00. No SQLite, live API or bot process used.
+- Next: FR07 checks current FIFO schema version and additive migration constraints before editing repository schema.

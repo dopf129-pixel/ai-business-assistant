@@ -1,8 +1,4 @@
-"""Review regressions for sequential FIFO rate changes.
-
-These tests describe the public temporal replay contract required by FR02.
-They intentionally fail on the single-open-rate baseline until FR04–FR06 land.
-"""
+"""Acceptance regressions for sequential FIFO rate changes and replay ordering."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -313,7 +309,8 @@ def test_mr02_materializes_only_proven_r1_residual_before_r2_sale():
     assert [(line["quantity"], line["unit_cost_rub"]) for line in second["lines"]] == [
         (98, "14.65"), (10, "14.65"), (2, "16.00"),
     ]
-    assert result["rate_balances"]["r2"]["remaining_units"] is None
+    assert result["rate_balances"]["r2"]["remaining_units"] == 0
+    assert result["rate_balances"]["r3"]["remaining_units"] is None
 
 
 def test_mr03_accepts_stock_decrease_explained_by_the_full_sale_bridge():
@@ -351,6 +348,219 @@ def test_rate_boundary_date_uses_the_store_local_calendar_boundary():
     # A timestamp on the same local date precedes the end-of-date boundary.
     timestamp = datetime.fromisoformat("2026-11-07T23:59:59+03:00")
     assert timestamp.date().isoformat() == dated.effective_date
+
+
+def _dated_boundary(rate_id, cost, date_or_instant, *, fingerprint,
+                    previous=None, previous_remaining=None, older_finite=None,
+                    timezone_name="Europe/Moscow", exact=False):
+    event = _kernel_boundary(
+        rate_id, cost, fingerprint, previous=previous,
+        previous_remaining=previous_remaining, older_finite=older_finite,
+    )
+    return FifoDatedRateBoundaryEvent(
+        event=event,
+        effective_at=date_or_instant if exact else None,
+        effective_date=None if exact else date_or_instant,
+        store_timezone=timezone_name,
+        boundary_kind="EXACT_INSTANT" if exact else "END_OF_LOCAL_DATE",
+        boundary_evidence_fingerprint=fingerprint,
+    )
+
+
+def _rate_sale(event_id, quantity, *, timestamp=None, date=None, digest=None):
+    return FifoDatedAllocationEvent(
+        event=FifoSaleEvent(event_id, quantity),
+        effective_at=timestamp,
+        effective_date=date,
+        source_identity_digest=digest or (event_id.encode().hex().ljust(64, "0"))[:64],
+        physical_time_confirmed=True,
+        cutoff_bridge_confirmed=True,
+    )
+
+
+def _rate_preview(*, boundaries, events, timezone_name="Europe/Moscow",
+                  complete_through="2026-11-15", anchor_cutoff="2026-11-05",
+                  layers=(), anchor_status="CONFIRMED_ZERO"):
+    return FifoCostReplayService().preview(
+        layers=layers,
+        events=events,
+        rate_boundaries=boundaries,
+        store_timezone=timezone_name,
+        complete_through=complete_through,
+        stream_revision=1,
+        expected_allocation_revision=0,
+        source_set_fingerprint="a" * 64,
+        anchor_cutoff_date=anchor_cutoff,
+        anchor_status=anchor_status,
+        cutoff_status="RECONCILED",
+        source_completeness="COMPLETE",
+    )
+
+
+def test_fr06_end_of_local_date_boundary_follows_same_day_sale():
+    result = _rate_preview(
+        boundaries=(
+            _dated_boundary("r1", "14.65", "2026-11-06", fingerprint="1" * 64),
+            _dated_boundary(
+                "r2", "16.00", "2026-11-07", fingerprint="2" * 64,
+                previous="r1", previous_remaining=0, older_finite=0,
+            ),
+        ),
+        events=(
+            _rate_sale("sale-same-day", 1, date="2026-11-07"),
+            _rate_sale("sale-next-day", 1, date="2026-11-08"),
+        ),
+    )
+
+    assert result["complete"] is True, result
+    assert [row["event_id"] for row in result["allocations"]] == [
+        "sale-same-day", "sale-next-day",
+    ]
+    assert [row["lines"][0]["rate_change_id"] for row in result["allocations"]] == [
+        "r1", "r2",
+    ]
+    assert result["allocations"][0]["lines"][0]["basis_kind"] == "OPEN_RATE"
+
+
+def test_fr06_exact_timestamps_compare_in_store_timezone_not_utc_date():
+    timezone_name = "America/Los_Angeles"
+    result = _rate_preview(
+        timezone_name=timezone_name,
+        anchor_cutoff="2026-11-05",
+        boundaries=(
+            _dated_boundary(
+                "r1", "14.65", "2026-11-06", fingerprint="1" * 64,
+                timezone_name=timezone_name,
+            ),
+            _dated_boundary(
+                "r2", "16.00", "2026-11-07", fingerprint="2" * 64,
+                previous="r1", previous_remaining=0, older_finite=0,
+                timezone_name=timezone_name,
+            ),
+        ),
+        events=(
+            # UTC date is Nov 8, but the instant is still Nov 7 in the store.
+            _rate_sale(
+                "sale-local-nov-7", 1, timestamp="2026-11-08T01:00:00Z",
+                date="2026-11-07",
+            ),
+            _rate_sale(
+                "sale-local-nov-8", 1, timestamp="2026-11-08T09:00:00Z",
+                date="2026-11-08",
+            ),
+        ),
+    )
+
+    assert result["complete"] is True, result
+    assert [row["lines"][0]["rate_change_id"] for row in result["allocations"]] == [
+        "r1", "r2",
+    ]
+
+
+def test_fr06_exact_same_instant_boundary_and_sale_block_when_order_changes_basis():
+    result = _rate_preview(
+        boundaries=(
+            _dated_boundary(
+                "r1", "14.65", "2026-11-07T12:00:00Z",
+                fingerprint="1" * 64, exact=True,
+            ),
+        ),
+        events=(
+            _rate_sale(
+                "sale-tie", 1, timestamp="2026-11-07T12:00:00Z",
+                digest="a" * 64,
+            ),
+        ),
+        anchor_status="CONFIRMED_ZERO",
+    )
+
+    assert result["complete"] is False
+    assert result["reason_code"] == "EVENT_ORDER_UNRESOLVED"
+    assert result["allocations"] == []
+
+
+def test_fr06_duplicate_boundary_and_permuted_source_rows_keep_one_stable_fingerprint():
+    r1 = _dated_boundary("r1", "14.65", "2026-11-06", fingerprint="1" * 64)
+    r2 = _dated_boundary(
+        "r2", "16.00", "2026-11-07", fingerprint="2" * 64,
+        previous="r1", previous_remaining=0, older_finite=0,
+    )
+    first = _rate_preview(
+        boundaries=(r1, r2, r1),
+        events=(
+            _rate_sale("sale-b", 1, date="2026-11-08"),
+            _rate_sale("sale-a", 1, date="2026-11-07"),
+        ),
+    )
+    second = _rate_preview(
+        boundaries=(r2, r1),
+        events=(
+            _rate_sale("sale-a", 1, date="2026-11-07"),
+            _rate_sale("sale-b", 1, date="2026-11-08"),
+        ),
+    )
+
+    assert first["complete"] is True, first
+    assert first["allocations"] == second["allocations"]
+    assert first["rate_balances"] == second["rate_balances"]
+    assert first["rate_boundary_set_fingerprint"] == second["rate_boundary_set_fingerprint"]
+    assert first["preview_fingerprint"] == second["preview_fingerprint"]
+
+
+def test_fr06_exact_duplicate_sale_page_collapses_to_one_sale_but_conflicting_duplicate_blocks():
+    boundary = _dated_boundary("r1", "14.65", "2026-11-06", fingerprint="1" * 64)
+    sale = _rate_sale(
+        "sale-unique", 2, date="2026-11-07", digest="d" * 64,
+    )
+    duplicate_page = _rate_preview(
+        boundaries=(boundary,), events=(sale, sale),
+    )
+    single_page = _rate_preview(
+        boundaries=(boundary,), events=(sale,),
+    )
+    conflicting_sale = _rate_sale(
+        "sale-unique", 3, date="2026-11-07", digest="d" * 64,
+    )
+    conflict = _rate_preview(
+        boundaries=(boundary,), events=(sale, conflicting_sale),
+    )
+
+    assert duplicate_page["complete"] is True, duplicate_page
+    assert len(duplicate_page["allocations"]) == 1
+    assert duplicate_page["preview_fingerprint"] == single_page["preview_fingerprint"]
+    assert conflict["complete"] is False
+    assert conflict["reason_code"] == "FIFO_EVENT_ID_DUPLICATE"
+
+
+def test_fr06_conflicting_boundary_position_and_incomplete_horizon_fail_closed():
+    first = _dated_boundary("r1", "14.65", "2026-11-07", fingerprint="1" * 64)
+    competing = _dated_boundary("r2", "16.00", "2026-11-07", fingerprint="2" * 64)
+    conflict = _rate_preview(boundaries=(first, competing), events=())
+    horizon = _rate_preview(
+        boundaries=(first,),
+        events=(_rate_sale("sale-late", 1, date="2026-11-16"),),
+        complete_through="2026-11-15",
+    )
+
+    assert conflict["complete"] is False
+    assert conflict["reason_code"] == "FIFO_RATE_CHAIN_CONFLICT"
+    assert horizon["complete"] is False
+    assert horizon["reason_code"] == "FIFO_SOURCE_INCOMPLETE"
+
+
+def test_fr06_end_of_day_and_next_midnight_boundary_are_same_proven_position():
+    end_of_day = _dated_boundary(
+        "r1", "14.65", "2026-11-07", fingerprint="1" * 64,
+    )
+    exact_midnight = _dated_boundary(
+        "r2", "16.00", "2026-11-07T21:00:00Z", fingerprint="2" * 64,
+        previous="r1", previous_remaining=0, older_finite=0, exact=True,
+    )
+
+    result = _rate_preview(boundaries=(end_of_day, exact_midnight), events=())
+
+    assert result["complete"] is False
+    assert result["reason_code"] == "FIFO_RATE_CHAIN_CONFLICT"
 
 
 @pytest.mark.parametrize("kwargs,code", [

@@ -9,7 +9,7 @@ current cutoff in one SQLite transaction before it publishes allocation rows.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
@@ -127,6 +127,9 @@ class FifoCostReplayService:
         unsupported_event_count: int = 0,
         open_rate: FifoOpenCostRate | None = None,
         open_rate_effective_date: str | None = None,
+        rate_boundaries: Iterable[FifoDatedRateBoundaryEvent] = (),
+        complete_through: str | None = None,
+        store_timezone: str | None = None,
     ) -> dict:
         """Create a bounded, stable preview; never mutates inventory state."""
 
@@ -143,16 +146,47 @@ class FifoCostReplayService:
 
         normalized_layers = self._bounded_materialize(layers, 100_000)
         normalized_events = self._bounded_materialize(events, self.MAX_EVENTS)
-        if normalized_layers is None or normalized_events is None:
+        normalized_boundaries = self._bounded_materialize(
+            rate_boundaries, self.MAX_EVENTS,
+        )
+        if (
+            normalized_layers is None or normalized_events is None
+            or normalized_boundaries is None
+            or len(normalized_events) + len(normalized_boundaries) > self.MAX_EVENTS
+        ):
             return self._blocked("FIFO_REPLAY_INPUT_LIMIT")
         if unsupported_event_count:
             return self._blocked("FIFO_REPLAY_UNSUPPORTED_EVENT")
 
+        has_rate_boundaries = bool(normalized_boundaries)
+        timezone_name = None
+        if has_rate_boundaries:
+            if open_rate is not None or open_rate_effective_date is not None:
+                return self._blocked("FIFO_RATE_CHAIN_CONFLICT")
+            if not isinstance(store_timezone, str) or not store_timezone.strip():
+                return self._blocked("FIFO_RATE_BOUNDARY_UNPROVEN")
+            timezone_name = store_timezone.strip()
+            try:
+                ZoneInfo(timezone_name)
+            except (ZoneInfoNotFoundError, ValueError):
+                return self._blocked("FIFO_RATE_BOUNDARY_UNPROVEN")
+            if self._date(complete_through) is None:
+                return self._blocked("FIFO_RATE_BOUNDARY_UNPROVEN")
+            store_timezone = timezone_name
         ordered, ambiguous_groups, order_error = self._order_events(
-            normalized_events, anchor_cutoff_date=anchor_cutoff_date,
+            normalized_events,
+            rate_boundaries=normalized_boundaries,
+            anchor_cutoff_date=anchor_cutoff_date,
+            store_timezone=timezone_name,
         )
         if order_error:
             return self._blocked(order_error)
+        if has_rate_boundaries and any(
+            (day := self._event_day(item, timezone_name)) is None
+            or day > complete_through
+            for item in ordered
+        ):
+            return self._blocked("FIFO_SOURCE_INCOMPLETE")
         if open_rate is not None:
             if self._date(open_rate_effective_date) is None:
                 return self._blocked("FIFO_RATE_EFFECTIVE_DATE_UNAVAILABLE")
@@ -202,7 +236,9 @@ class FifoCostReplayService:
                 "event_id": sale.event_id,
                 "quantity": sale.quantity,
                 "total_cost_rub": format(sale.total_cost_rub, ".2f"),
-                "lines": [self._allocation_line(line, open_rate) for line in sale.lines],
+                "lines": [self._allocation_line(
+                    line, open_rate, include_rate_basis=has_rate_boundaries,
+                ) for line in sale.lines],
             })
         outflows = []
         for outflow in result.outflow_allocations:
@@ -212,7 +248,9 @@ class FifoCostReplayService:
                 "reason_code": outflow.reason_code,
                 "estimated_value_rub": format(outflow.estimated_value_rub, ".2f"),
                 "valuation_method": "FIFO_FINITE_LAYER_ESTIMATE",
-                "lines": [self._allocation_line(line, open_rate) for line in outflow.lines],
+                "lines": [self._allocation_line(
+                    line, open_rate, include_rate_basis=has_rate_boundaries,
+                ) for line in outflow.lines],
             })
 
         preview = {
@@ -239,30 +277,109 @@ class FifoCostReplayService:
             "allocations": allocations,
             "outflows": outflows,
         }
+        if has_rate_boundaries:
+            rate_balances = {
+                row.rate_change_id: {
+                    "remaining_units": row.remaining_units,
+                    "unit_cost_rub": format(row.unit_cost_rub, ".2f"),
+                    "reconciliation_evidence_fingerprint": (
+                        row.reconciliation_evidence_fingerprint
+                    ),
+                }
+                for row in result.rate_balances
+            }
+            boundary_material = [{
+                "event_id": item.event.event_id,
+                "rate_change_id": item.event.new_rate_change_id,
+                "unit_cost_rub": format(item.event.new_unit_cost_rub, ".2f"),
+                "previous_rate_change_id": item.event.previous_rate_change_id,
+                "previous_rate_remaining_units": item.event.previous_rate_remaining_units,
+                "expected_older_finite_units": item.event.expected_older_finite_units,
+                "effective_at": item.effective_at,
+                "effective_date": item.effective_date,
+                "store_timezone": item.store_timezone,
+                "boundary_kind": item.boundary_kind,
+                "evidence_fingerprint": item.boundary_evidence_fingerprint,
+            } for item in ordered if isinstance(item, FifoDatedRateBoundaryEvent)]
+            preview.update({
+                "rate_balances": rate_balances,
+                "complete_through": complete_through,
+                "store_timezone": timezone_name,
+                "rate_boundary_set_fingerprint": self._fingerprint({
+                    "boundaries": sorted(
+                        boundary_material,
+                        key=lambda row: (row["effective_at"] or row["effective_date"], row["event_id"]),
+                    ),
+                }),
+            })
         preview["preview_fingerprint"] = self._fingerprint(preview)
         return preview
 
-    def _order_events(self, events, *, anchor_cutoff_date):
-        if len(events) > self.MAX_EVENTS:
+    def _order_events(
+        self, events, *, anchor_cutoff_date, rate_boundaries=(), store_timezone=None,
+    ):
+        if len(events) + len(rate_boundaries) > self.MAX_EVENTS:
             return None, (), "FIFO_REPLAY_INPUT_LIMIT"
         if any(not isinstance(item, FifoDatedAllocationEvent) for item in events):
             return None, (), "FIFO_EVENT_INVALID"
+        if any(not isinstance(item, FifoDatedRateBoundaryEvent) for item in rate_boundaries):
+            return None, (), "FIFO_RATE_BOUNDARY_UNPROVEN"
+
+        unique_events = {}
+        for item in events:
+            event_id = getattr(item.event, "event_id", None)
+            if not isinstance(event_id, str) or not event_id or len(event_id) > 160:
+                return None, (), "FIFO_EVENT_INVALID"
+            previous = unique_events.get(event_id)
+            if previous is not None and previous != item:
+                return None, (), "FIFO_EVENT_ID_DUPLICATE"
+            unique_events[event_id] = item
+        events = tuple(unique_events.values())
+
+        unique_boundaries = {}
+        for item in rate_boundaries:
+            event_id = item.event.event_id
+            previous = unique_boundaries.get(event_id)
+            if previous is not None and previous != item:
+                return None, (), "FIFO_RATE_CHAIN_CONFLICT"
+            unique_boundaries[event_id] = item
+        rate_boundaries = tuple(unique_boundaries.values())
+
         ids = []
         sale_digests = []
         return_digests = []
         movement_digests = []
         normalized = []
-        for item in events:
+        all_items = [*events, *rate_boundaries]
+        for item in all_items:
             event = item.event
             event_id = getattr(event, "event_id", None)
             if not isinstance(event_id, str) or not event_id or len(event_id) > 160:
                 return None, (), "FIFO_EVENT_INVALID"
             ids.append(event_id)
-            position = self._effective_position(item.effective_at, item.effective_date)
+            if isinstance(item, FifoDatedRateBoundaryEvent):
+                if item.store_timezone != store_timezone:
+                    return None, (), "FIFO_RATE_BOUNDARY_UNPROVEN"
+                position = self._rate_boundary_position(item, store_timezone)
+            else:
+                position = self._effective_position(
+                    item.effective_at, item.effective_date,
+                    store_timezone=store_timezone,
+                )
             if position is None:
-                return None, (), "EVENT_ORDER_UNRESOLVED"
+                return None, (), (
+                    "FIFO_RATE_BOUNDARY_UNPROVEN"
+                    if isinstance(item, FifoDatedRateBoundaryEvent)
+                    else "EVENT_ORDER_UNRESOLVED"
+                )
             if position[1] <= anchor_cutoff_date:
-                return None, (), "INVENTORY_CUTOFF_UNRECONCILED"
+                return None, (), (
+                    "FIFO_RATE_BOUNDARY_UNPROVEN"
+                    if isinstance(item, FifoDatedRateBoundaryEvent)
+                    else "INVENTORY_CUTOFF_UNRECONCILED"
+                )
+            if isinstance(item, FifoDatedRateBoundaryEvent):
+                continue
             if isinstance(event, FifoSaleEvent):
                 if not self._valid_digest(item.source_identity_digest):
                     return None, (), "PHYSICAL_SALE_IDENTITY_UNCONFIRMED"
@@ -293,7 +410,17 @@ class FifoCostReplayService:
                 movement_digests.append(item.source_identity_digest)
             else:
                 return None, (), "FIFO_EVENT_INVALID"
-            normalized.append((position, event_id, item))
+            normalized.append((position, event_id, item, False))
+
+        boundary_positions = {}
+        for item in rate_boundaries:
+            position = self._rate_boundary_position(item, store_timezone)
+            position_key = position[0]
+            prior = boundary_positions.get(position_key)
+            if prior is not None and prior != item:
+                return None, (), "FIFO_RATE_CHAIN_CONFLICT"
+            boundary_positions[position_key] = item
+            normalized.append((position, item.event.event_id, item, True))
 
         if len(set(ids)) != len(ids):
             return None, (), "FIFO_EVENT_ID_DUPLICATE"
@@ -309,22 +436,35 @@ class FifoCostReplayService:
         # group; the proof routine preserves order among distinct instants.
         by_day = {}
         by_instant = {}
-        for position, _, item in normalized:
-            instant_key, day_key, is_date_only = position
-            by_day.setdefault(day_key, []).append((position, item))
-            if not is_date_only:
-                by_instant.setdefault(instant_key, []).append((position, item))
+        for position, _, item, is_boundary in normalized:
+            instant_key, day_key, is_date_only, phase = position
+            is_end_of_day_boundary = (
+                is_boundary and item.boundary_kind == "END_OF_LOCAL_DATE"
+            )
+            if not is_end_of_day_boundary:
+                by_day.setdefault(day_key, []).append((position, item))
+            if not is_date_only and not is_end_of_day_boundary:
+                by_instant.setdefault((instant_key, phase), []).append((position, item))
 
         ambiguous_groups = []
         for rows in by_day.values():
-            if any(position[2] for position, _ in rows):
+            if any(
+                position[2] and not (
+                    isinstance(item, FifoDatedRateBoundaryEvent)
+                    and item.boundary_kind == "END_OF_LOCAL_DATE"
+                )
+                for position, item in rows
+            ):
                 if len(rows) > 1:
                     ambiguous_groups.append(tuple(item for _, item in rows))
         for rows in by_instant.values():
             if len(rows) > 1 and not any(position[2] for position, _ in rows):
                 ambiguous_groups.append(tuple(item for _, item in rows))
 
-        ordered = [item for _, _, item in sorted(normalized, key=lambda row: row[:2])]
+        ordered = [item for _, _, item, _ in sorted(
+            normalized,
+            key=lambda row: (row[0][0], row[0][3], row[1]),
+        )]
         ordered_index = {item.event.event_id: index for index, item in enumerate(ordered)}
         ambiguous_groups.sort(key=lambda group: min(
             ordered_index[item.event.event_id] for item in group
@@ -383,7 +523,8 @@ class FifoCostReplayService:
         cutoff_status, source_completeness, open_rate,
     ):
         if open_rate is not None or any(
-            isinstance(item.event, FifoRestockEvent) for item in ordered
+            isinstance(item, FifoDatedRateBoundaryEvent)
+            or isinstance(item.event, FifoRestockEvent) for item in ordered
         ):
             return False
         if any(not isinstance(item.event, (FifoSaleEvent, FifoOutflowEvent)) for item in group):
@@ -489,6 +630,7 @@ class FifoCostReplayService:
             return (
                 line.layer_id, line.quantity, line.unit_cost_rub,
                 line.total_cost_rub, line.origin_sale_event_id,
+                line.basis_kind, line.rate_change_id,
             )
 
         sales = tuple(sorted((
@@ -505,10 +647,13 @@ class FifoCostReplayService:
             result.inventory_restored_value_rub, result.restored_units,
             result.remaining_confirmed_units, result.total_available_units,
             result.next_unit_cost_rub, result.next_unit_cost_status,
+            tuple((row.rate_change_id, row.unit_cost_rub, row.remaining_units,
+                   row.reconciliation_evidence_fingerprint)
+                  for row in result.rate_balances),
         )
 
     @staticmethod
-    def _effective_position(effective_at, effective_date):
+    def _effective_position(effective_at, effective_date, *, store_timezone=None):
         if effective_at is not None:
             if not isinstance(effective_at, str):
                 return None
@@ -518,8 +663,14 @@ class FifoCostReplayService:
                 return None
             if parsed.tzinfo is None or parsed.utcoffset() is None:
                 return None
-            parsed = parsed.astimezone(timezone.utc)
-            source_day = parsed.date().isoformat()
+            if store_timezone is not None:
+                try:
+                    local_date = parsed.astimezone(ZoneInfo(store_timezone)).date()
+                except (ZoneInfoNotFoundError, ValueError):
+                    return None
+                source_day = local_date.isoformat()
+            else:
+                source_day = parsed.astimezone(timezone.utc).date().isoformat()
             if effective_date is not None:
                 if not isinstance(effective_date, str):
                     return None
@@ -529,9 +680,8 @@ class FifoCostReplayService:
                 except ValueError:
                     return None
             return (
-                parsed.isoformat(timespec="microseconds"),
-                effective_date or source_day,
-                False,
+                parsed.astimezone(timezone.utc).isoformat(timespec="microseconds"),
+                effective_date or source_day, False, 0,
             )
         if not isinstance(effective_date, str):
             return None
@@ -541,7 +691,53 @@ class FifoCostReplayService:
             return None
         if parsed_date.isoformat() != effective_date:
             return None
-        return (effective_date + "T00:00:00+00:00", effective_date, True)
+        try:
+            local_start = datetime.combine(
+                parsed_date, time.min,
+                tzinfo=ZoneInfo(store_timezone) if store_timezone else timezone.utc,
+            )
+        except (ZoneInfoNotFoundError, ValueError):
+            return None
+        return (
+            local_start.astimezone(timezone.utc).isoformat(timespec="microseconds"),
+            effective_date, True, 0,
+        )
+
+    @staticmethod
+    def _rate_boundary_position(item, store_timezone):
+        if not isinstance(item, FifoDatedRateBoundaryEvent):
+            return None
+        if item.store_timezone != store_timezone:
+            return None
+        try:
+            zone = ZoneInfo(store_timezone)
+            if item.boundary_kind == "END_OF_LOCAL_DATE":
+                boundary_date = date.fromisoformat(item.effective_date)
+                next_midnight = datetime.combine(
+                    boundary_date + timedelta(days=1), time.min, tzinfo=zone,
+                )
+                return (
+                    next_midnight.astimezone(timezone.utc).isoformat(
+                        timespec="microseconds",
+                    ),
+                    item.effective_date,
+                    False,
+                    -1,
+                )
+            instant = datetime.fromisoformat(
+                item.effective_at.replace("Z", "+00:00"),
+            )
+            if instant.tzinfo is None or instant.utcoffset() is None:
+                return None
+            local_day = instant.astimezone(zone).date().isoformat()
+            return (
+                instant.astimezone(timezone.utc).isoformat(timespec="microseconds"),
+                local_day,
+                False,
+                0,
+            )
+        except (AttributeError, TypeError, ValueError, ZoneInfoNotFoundError):
+            return None
 
     @staticmethod
     def _date(value):
@@ -554,10 +750,15 @@ class FifoCostReplayService:
         return parsed.isoformat() if parsed.isoformat() == value else None
 
     @classmethod
-    def _event_day(cls, item):
+    def _event_day(cls, item, store_timezone=None):
+        if isinstance(item, FifoDatedRateBoundaryEvent):
+            position = cls._rate_boundary_position(item, store_timezone)
+            return None if position is None else position[1]
         if item.effective_date is not None:
             return item.effective_date
-        position = cls._effective_position(item.effective_at, None)
+        position = cls._effective_position(
+            item.effective_at, None, store_timezone=store_timezone,
+        )
         return None if position is None else position[1]
 
     @staticmethod
@@ -590,6 +791,7 @@ class FifoCostReplayService:
             "PHYSICAL_SALE_IDENTITY_UNCONFIRMED",
             "PHYSICAL_SALE_TIME_UNCONFIRMED",
             "FIFO_REPLAY_UNSUPPORTED_EVENT",
+            "FIFO_RATE_BOUNDARY_UNPROVEN",
             "FIFO_RATE_EFFECTIVE_DATE_UNAVAILABLE",
             "FIFO_RATE_TRANSITION_ORDER_UNRESOLVED",
             "FIFO_REPLAY_ORDER_ANALYSIS_LIMIT",
@@ -598,16 +800,25 @@ class FifoCostReplayService:
         return "CONFLICT"
 
     @staticmethod
-    def _allocation_line(line, open_rate):
-        is_open_rate = open_rate is not None and line.layer_id == open_rate.layer_id
-        return {
+    def _allocation_line(line, open_rate, *, include_rate_basis=False):
+        is_open_rate = (
+            line.basis_kind == "OPEN_RATE"
+            or (open_rate is not None and line.layer_id == open_rate.layer_id)
+        )
+        result = {
             "layer_id": None if is_open_rate else line.layer_id,
-            "rate_change_id": line.layer_id if is_open_rate else None,
+            "rate_change_id": (
+                line.rate_change_id or (line.layer_id if is_open_rate else None)
+            ),
             "quantity": line.quantity,
             "unit_cost_rub": format(line.unit_cost_rub, ".2f"),
             "total_cost_rub": format(line.total_cost_rub, ".2f"),
             "origin_sale_event_id": line.origin_sale_event_id,
         }
+        if include_rate_basis:
+            result["basis_kind"] = line.basis_kind
+            result["rate_change_id"] = line.rate_change_id
+        return result
 
     @staticmethod
     def _fingerprint(payload):
