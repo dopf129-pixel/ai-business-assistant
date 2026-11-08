@@ -35,12 +35,37 @@ class FifoCostLateEntryImpactService:
             )
         if type(reconstruction.get("related_return_count")) is not int:
             return self._blocked("FIFO_RETURN_EVIDENCE_INVALID")
-        if reconstruction["related_return_count"]:
-            return self._blocked("FIFO_RETURN_BASIS_REPLAY_REQUIRED")
+        if not 0 <= reconstruction["related_return_count"] <= 100_000:
+            return self._blocked("FIFO_RETURN_EVIDENCE_INVALID")
         if type(reconstruction.get("non_sale_outflow_count")) is not int:
             return self._blocked("FIFO_RECONSTRUCTION_RESULT_INVALID")
-        if reconstruction["non_sale_outflow_count"]:
-            return self._blocked("FIFO_NON_SALE_MOVEMENT_REPLAY_REQUIRED")
+        if not 0 <= reconstruction["non_sale_outflow_count"] <= 100_000:
+            return self._blocked("FIFO_RECONSTRUCTION_RESULT_INVALID")
+        if reconstruction.get("return_cogs_authorization_changed") is not False:
+            return self._blocked("FIFO_RETURN_COGS_AUTHORIZATION_CONFLICT")
+        outflows = reconstruction.get("candidate_outflows")
+        outflow_value = self._money(
+            reconstruction.get("candidate_non_sale_outflow_value_rub"),
+        )
+        if not isinstance(outflows, list) or len(outflows) != reconstruction["non_sale_outflow_count"]:
+            return self._blocked("FIFO_NON_SALE_MOVEMENT_EVIDENCE_INVALID")
+        if outflow_value is None:
+            return self._blocked("FIFO_NON_SALE_MOVEMENT_EVIDENCE_INVALID")
+        try:
+            outflow_sum = sum(
+                (self._money(row.get("estimated_value_rub")) for row in outflows),
+                Decimal("0.00"),
+            )
+        except (TypeError, AttributeError):
+            return self._blocked("FIFO_NON_SALE_MOVEMENT_EVIDENCE_INVALID")
+        if any(
+            not isinstance(row, dict)
+            or self._money(row.get("estimated_value_rub")) is None
+            or type(row.get("quantity")) is not int
+            or row["quantity"] <= 0
+            for row in outflows
+        ) or outflow_sum != outflow_value:
+            return self._blocked("FIFO_NON_SALE_MOVEMENT_EVIDENCE_INVALID")
 
         periods = self._period_cogs(reconstruction)
         if isinstance(periods, str):
@@ -95,7 +120,6 @@ class FifoCostLateEntryImpactService:
                 "after_units_by_basis": replay["after_units_by_basis"],
                 "before_cogs_by_basis_rub": replay["before_cogs_by_basis"],
                 "after_cogs_by_basis_rub": replay["after_cogs_by_basis"],
-                "linked_return_count": 0,
                 "completeness": "COMPLETE",
                 "before_sku_cogs_rub": format(before_cost, ".2f"),
                 "after_sku_cogs_rub": format(after_cost, ".2f"),
@@ -123,7 +147,11 @@ class FifoCostLateEntryImpactService:
             "reconstruction_fingerprint": reconstruction.get("preview_fingerprint"),
             "tax_policy_fingerprint": policy["fingerprint"],
             "periods": result_periods,
-            "related_return_count": 0,
+            "related_return_count": reconstruction["related_return_count"],
+            "non_sale_outflow_count": reconstruction["non_sale_outflow_count"],
+            "non_sale_outflow_estimated_value_rub": format(outflow_value, ".2f"),
+            "return_cogs_authorization_changed": False,
+            "non_sale_outflows_included_in_sales_cogs": False,
             "complete": True,
             "read_only": True,
         }

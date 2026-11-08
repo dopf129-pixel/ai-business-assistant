@@ -256,6 +256,61 @@ def test_fl20_mixed_date_only_and_timed_sales_preserve_time_constraints_and_bloc
     assert result["allocations"] == []
 
 
+def test_fl21_linked_return_and_non_sale_outflow_before_rate_are_replayed_as_physical_events(service):
+    events = [
+        _sale("sale-before", 2, "2026-11-02", "1" * 64),
+        _return(
+            "return-linked", 1, "2026-11-03", "2" * 64,
+            [FifoRestoreSlice("sale-before", "old-layer", 1)],
+        ),
+        _outflow("movement-linked", 1, "2026-11-04", "3" * 64),
+        _sale("sale-after", 2, "2026-11-06", "4" * 64),
+    ]
+    result = _preview(
+        service, events,
+        layers=[FifoCostLayer("old-layer", "20.00", 3)],
+        open_rate=FifoOpenCostRate("new-rate", "14.65"),
+        open_rate_effective_date="2026-11-05",
+    )
+
+    assert result["complete"] is True, result
+    assert result["total_cogs_rub"] == "74.65"
+    assert result["restored_units"] == 1
+    assert result["non_sale_outflow_value_rub"] == "20.00"
+    assert [row["quantity"] for row in result["allocations"]] == [2, 2]
+    assert result["allocations"][1]["lines"] == [
+        {
+            "layer_id": "old-layer", "rate_change_id": None,
+            "quantity": 1, "unit_cost_rub": "20.00", "total_cost_rub": "20.00",
+            "origin_sale_event_id": None,
+        },
+        {
+            "layer_id": None, "rate_change_id": "new-rate",
+            "quantity": 1, "unit_cost_rub": "14.65", "total_cost_rub": "14.65",
+            "origin_sale_event_id": None,
+        },
+    ]
+    assert result["outflows"][0]["quantity"] == 1
+    assert result["outflows"][0]["event_id"] == "movement-linked"
+
+
+def test_fl21_open_rate_cannot_cost_a_sale_before_effective_date(service):
+    result = _preview(
+        service,
+        [
+            _sale("sale-old-layer", 1, "2026-11-02", "1" * 64),
+            _sale("sale-before-rate", 1, "2026-11-03", "2" * 64),
+        ],
+        layers=[FifoCostLayer("old-layer", "20.00", 1)],
+        open_rate=FifoOpenCostRate("new-rate", "14.65"),
+        open_rate_effective_date="2026-11-04",
+    )
+
+    assert result["complete"] is False
+    assert result["reason_code"] == "FIFO_RATE_TRANSITION_ORDER_UNRESOLVED"
+    assert result["allocations"] == []
+
+
 def test_fc16_incomplete_allocation_is_not_mislabeled_complete(service):
     result = _preview(
         service,

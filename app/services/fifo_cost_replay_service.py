@@ -94,18 +94,6 @@ class FifoCostReplayService:
                 return self._blocked("FIFO_RATE_EFFECTIVE_DATE_UNAVAILABLE")
             if open_rate_effective_date <= anchor_cutoff_date:
                 return self._blocked("FIFO_RATE_EFFECTIVE_DATE_CONFLICT")
-            finite_units = sum(layer.quantity for layer in normalized_layers)
-            sales_before_rate = sum(
-                item.event.quantity for item in ordered
-                if isinstance(item.event, FifoSaleEvent)
-                and self._event_day(item) <= open_rate_effective_date
-            )
-            if sales_before_rate > finite_units or any(
-                isinstance(item.event, (FifoRestockEvent, FifoOutflowEvent))
-                and self._event_day(item) <= open_rate_effective_date
-                for item in ordered
-            ):
-                return self._blocked("FIFO_RATE_TRANSITION_ORDER_UNRESOLVED")
         core_events = [item.event for item in ordered]
 
         result = self._allocation.allocate(
@@ -117,6 +105,19 @@ class FifoCostReplayService:
             source_completeness=source_completeness,
             open_rate=open_rate,
         )
+        if open_rate is not None and result.complete:
+            effective_days = {
+                item.event.event_id: self._event_day(item)
+                for item in ordered
+                if isinstance(item.event, FifoSaleEvent)
+            }
+            if any(
+                line.layer_id == open_rate.layer_id
+                and effective_days.get(sale.event_id, "") <= open_rate_effective_date
+                for sale in result.sale_allocations
+                for line in sale.lines
+            ):
+                return self._blocked("FIFO_RATE_TRANSITION_ORDER_UNRESOLVED")
         if ambiguous_groups:
             order_error = self._ambiguous_order_error(
                 ordered=ordered,

@@ -5,7 +5,14 @@ import pytest
 from services.fifo_cost_late_entry_reconstruction_service import (
     FifoCostLateEntryReconstructionService,
 )
+from services.fifo_cost_non_sale_movement_service import (
+    FifoCostNonSaleMovementService,
+)
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_return_restock_service import FifoCostReturnRestockService
+from services.fifo_cost_sale_evidence_normalizer import (
+    FifoCostSaleEvidenceNormalizer,
+)
 from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
 from services.fifo_cost_supply_evidence_service import FifoCostSupplyEvidenceService
 from services.ozon_account_repository import make_store_tenant_scope
@@ -74,7 +81,9 @@ def _snapshot():
 
 
 def _build_stream(
-    tmp_path, *, late_effective_date="2026-11-03", anchor_units=2, sale_quantity=5,
+    tmp_path, *, late_effective_date="2026-11-03", anchor_units=2,
+    sale_quantity=5, sale_effective_date="2026-11-05",
+    sale_identity_digest="a" * 64,
 ):
     token = set_current_tenant_user_id(
         make_store_tenant_scope("owner-a", IDENTITY["store_id"]),
@@ -100,8 +109,8 @@ def _build_stream(
     )
     _command(repository, [{
         "kind": "PHYSICAL_SALE", "quantity": sale_quantity,
-        "effective_date": "2026-11-05", "inventory_cutoff": "2026-11-01",
-        "source_identity_digest": "a" * 64,
+        "effective_date": sale_effective_date, "inventory_cutoff": "2026-11-01",
+        "source_identity_digest": sale_identity_digest,
     }], sale_source)
     drafts = FifoCostSupplyEvidenceService(repository).record_late_entry_draft(
         **IDENTITY,
@@ -133,6 +142,179 @@ def same_day_stream(tmp_path):
 @pytest.fixture
 def old_stock_remains_stream(tmp_path):
     yield from _build_stream(tmp_path, anchor_units=100, sale_quantity=5)
+
+
+def _sale_digest(posting_number):
+    result = FifoCostSaleEvidenceNormalizer.build_identity_digest(
+        store_id=IDENTITY["store_id"], posting_number=posting_number,
+        finance_sku=IDENTITY["sku"],
+        identity={
+            "mapping_confirmed": True,
+            "offer_id": IDENTITY["offer_id"],
+            "product_id": IDENTITY["product_id"],
+        },
+    )
+    assert result["error"] is False, result
+    return result["source_identity_digest"]
+
+
+def _publish_current_allocation(repository):
+    connection = repository.get_connection()
+    try:
+        connection.execute(
+            "UPDATE fifo_cost_projections SET cutoff_status='RECONCILED', queue_complete=1",
+        )
+    finally:
+        connection.close()
+    guard = repository.read_allocation_guard(**IDENTITY)
+    assert guard["error"] is False, guard
+    connection = repository.get_connection()
+    try:
+        identity = repository._normalize_identity(
+            IDENTITY["store_id"], IDENTITY["product_id"],
+            IDENTITY["offer_id"], IDENTITY["sku"], 1,
+        )
+        stream_id = "fifo_" + repository._sha256(identity)[:40]
+        preview = repository._preview_allocation_from_connection(
+            connection, stream_id,
+            stream_revision=guard["stream_revision"],
+            allocation_revision=guard["allocation_revision"],
+            source_fingerprint=guard["source_set_fingerprint"],
+            cutoff_status="RECONCILED", anchor_cutoff_date="2026-11-01",
+        )
+    finally:
+        connection.close()
+    assert preview["complete"] is True, preview
+    result = repository.append_allocation_revision(
+        **IDENTITY, preview=preview,
+        idempotency_key=f"fl21-initial-{guard['stream_revision']:04d}",
+    )
+    assert result["error"] is False, result
+
+
+def _append_supported_return_and_outflow(repository, sale_identity_digest):
+    now = lambda: datetime(2026, 11, 6, 12, tzinfo=timezone.utc)
+    return_service = FifoCostReturnRestockService(repository, now_provider=now)
+    return_preview = return_service.preview_return(
+        **IDENTITY,
+        finance_sku=IDENTITY["sku"],
+        identity={
+            "mapping_confirmed": True,
+            "offer_id": IDENTITY["offer_id"],
+            "product_id": IDENTITY["product_id"],
+        },
+        return_record={
+            "id": "return-1", "posting_number": "posting-before",
+            "sku": IDENTITY["sku"], "quantity": 1,
+            "type": "ClientReturn",
+            "visual_status_sys_name": "ArrivedAtReturnPlace",
+        },
+        recovery_evidence={
+            "error": False, "inventory_recovery_confirmed": True,
+            "recovery_state": "SALEABLE_RESTORED", "source": "SELLER_CONFIRMED_BOT",
+            "return_id": "return-1", "posting_number": "posting-before",
+            "sku": IDENTITY["sku"], "quantity": 1,
+            "confirmed_on": "2026-11-03",
+        },
+        return_sample_complete=True,
+        cutoff_bridge_confirmed=True,
+    )
+    assert return_preview["code"] == "FIFO_RETURN_RESTOCK_PREVIEW_READY", return_preview
+    returned = return_service.commit_return(
+        **IDENTITY,
+        preview_id=return_preview["preview_id"],
+        active_preview_id=return_preview["preview_id"],
+        idempotency_key="fl21-return-restock",
+    )
+    assert returned["code"] == "FIFO_RETURN_RESTOCK_COMMITTED", returned
+
+    movement_service = FifoCostNonSaleMovementService(repository, now_provider=now)
+    movement_preview = movement_service.preview_movement(
+        **IDENTITY,
+        movement_id="home-shortage-1", reason_code="HOME_SHORTAGE",
+        quantity=1, effective_date="2026-11-04",
+        cutoff_bridge_confirmed=True,
+    )
+    assert movement_preview["code"] == "FIFO_NON_SALE_MOVEMENT_PREVIEW_READY", movement_preview
+    moved = movement_service.commit_movement(
+        **IDENTITY,
+        preview_id=movement_preview["preview_id"],
+        active_preview_id=movement_preview["preview_id"],
+        idempotency_key="fl21-home-shortage",
+    )
+    assert moved["code"] == "FIFO_NON_SALE_MOVEMENT_COMMITTED", moved
+
+    sale_source = _source(
+        "OZON_REALIZATION", "OZON_REALIZATION_REPORT", "COMPLETE",
+        "OZON_CONFIRMED_FIELD", "COMPLETE", "2026-11-06T12:30:00Z",
+        "2026-11-01",
+    )
+    sale_digest = _sale_digest("posting-after")
+    assert sale_identity_digest != sale_digest
+    _command(repository, [{
+        "kind": "PHYSICAL_SALE", "quantity": 2,
+        "effective_date": "2026-11-06", "inventory_cutoff": "2026-11-01",
+        "source_identity_digest": sale_digest,
+    }], sale_source)
+
+
+def test_fl21_replays_exact_return_basis_and_outflow_without_counting_outflow_as_sale(tmp_path):
+    sale_digest = _sale_digest("posting-before")
+    stream = _build_stream(
+        tmp_path,
+        late_effective_date="2026-11-05", anchor_units=3, sale_quantity=2,
+        sale_effective_date="2026-11-02", sale_identity_digest=sale_digest,
+    )
+    repository, stale_draft_id = next(stream)
+    try:
+        _publish_current_allocation(repository)
+        _append_supported_return_and_outflow(repository, sale_digest)
+        current = repository.read_cost_history_snapshot(**IDENTITY)
+        refreshed = FifoCostSupplyEvidenceService(repository).record_late_entry_draft(
+            **IDENTITY,
+            expected_revision=current["revision"], snapshot=_snapshot(),
+            owner_effective_date="2026-11-05", owner_old_home_units=12,
+            purchase_cost_rub="10.00", delivery_cost_rub="3.00",
+            packaging_cost_rub="1.65",
+        )
+        assert refreshed["error"] is False, refreshed
+        assert refreshed["draft_id"] != stale_draft_id
+        connection = repository.get_connection()
+        try:
+            connection.execute(
+                "UPDATE fifo_cost_projections SET cutoff_status='RECONCILED', queue_complete=1",
+            )
+        finally:
+            connection.close()
+
+        result = FifoCostLateEntryReconstructionService(repository).preview(
+            **IDENTITY, draft_id=refreshed["draft_id"],
+        )
+
+        assert result["code"] == "FIFO_LATE_ENTRY_RECONSTRUCTION_READY", result
+        assert result["related_return_count"] == 1
+        assert result["non_sale_outflow_count"] == 1
+        assert result["candidate_total_cogs_rub"] == "74.65"
+        assert result["candidate_rate_units"] == 1
+        first_sale, second_sale = result["candidate_allocations"]
+        assert result["sale_effective_dates"][first_sale["event_id"]] == "2026-11-02"
+        assert result["sale_effective_dates"][second_sale["event_id"]] == "2026-11-06"
+        assert first_sale["total_cost_rub"] == "40.00"
+        assert first_sale["lines"][0]["unit_cost_rub"] == "20.00"
+        assert second_sale["total_cost_rub"] == "34.65"
+        assert second_sale["lines"][0]["layer_id"] == first_sale["lines"][0]["layer_id"]
+        assert second_sale["lines"][0]["unit_cost_rub"] == "20.00"
+        assert second_sale["lines"][1]["rate_change_id"] == (
+            "late_candidate_" + refreshed["draft_id"][-24:]
+        )
+        assert second_sale["lines"][1]["unit_cost_rub"] == "14.65"
+        assert result["candidate_outflows"][0]["quantity"] == 1
+        assert result["candidate_outflows"][0]["estimated_value_rub"] == "20.00"
+        assert result["candidate_non_sale_outflow_value_rub"] == "20.00"
+        assert result["before_complete"] is False
+
+    finally:
+        stream.close()
 
 
 def test_fc21_requires_historical_cutoff_and_never_uses_current_stock_as_past(stream):
@@ -216,7 +398,7 @@ def test_fc21_date_only_sale_on_the_transition_day_is_ambiguous(same_day_stream)
     same_day = FifoCostLateEntryReconstructionService(repository).preview(
         **IDENTITY, draft_id=draft_id,
     )
-    assert same_day["reason_code"] == "EVENT_ORDER_UNRESOLVED"
+    assert same_day["reason_code"] == "FIFO_RATE_TRANSITION_ORDER_UNRESOLVED"
 
 
 def test_fc21_other_store_cannot_read_draft(stream):

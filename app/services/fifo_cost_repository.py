@@ -2203,15 +2203,6 @@ class FifoCostRepository:
                 return self._late_entry_reconstruction_blocked(
                     "INVENTORY_CUTOFF_UNRECONCILED",
                 )
-            same_day_events = connection.execute(
-                """SELECT COUNT(*) FROM fifo_cost_events
-                   WHERE stream_id=? AND event_kind<>'OPENING_FIFO_ANCHOR'
-                     AND effective_date=?""",
-                (stream_id, effective_date),
-            ).fetchone()[0]
-            if same_day_events:
-                connection.rollback()
-                return self._late_entry_reconstruction_blocked("EVENT_ORDER_UNRESOLVED")
             if connection.execute(
                 """SELECT COUNT(*) FROM fifo_cost_rate_changes AS r
                    WHERE r.stream_id=? AND NOT EXISTS (
@@ -2343,6 +2334,12 @@ class FifoCostRepository:
                 "candidate_rate_units": candidate_rate_units,
                 "candidate_total_cogs_rub": after["total_cogs_rub"],
                 "candidate_allocations": after["allocations"],
+                "candidate_outflows": after["outflows"],
+                "candidate_non_sale_outflow_value_rub": after[
+                    "non_sale_outflow_value_rub"
+                ],
+                "candidate_restored_units": after["restored_units"],
+                "return_cogs_authorization_changed": False,
                 "before_complete": bool(before and before.get("complete") is True),
                 "before_reason_code": (
                     before.get("reason_code") if isinstance(before, dict) else "HISTORY_GAP"
@@ -2356,6 +2353,16 @@ class FifoCostRepository:
                     before.get("allocations")
                     if isinstance(before, dict) and before.get("complete") is True
                     else []
+                ),
+                "before_outflows": (
+                    before.get("outflows")
+                    if isinstance(before, dict) and before.get("complete") is True
+                    else []
+                ),
+                "before_non_sale_outflow_value_rub": (
+                    before.get("non_sale_outflow_value_rub")
+                    if isinstance(before, dict) and before.get("complete") is True
+                    else None
                 ),
                 "sale_effective_dates": event_dates,
                 "related_return_count": related_returns,
@@ -4956,9 +4963,32 @@ class FifoCostRepository:
             value.get("code") != "FIFO_LATE_ENTRY_IMPACT_READY"
             or value.get("complete") is not True
             or value.get("read_only") is not True
-            or value.get("related_return_count") != 0
         ):
             return "FIFO_LATE_ENTRY_IMPACT_INCOMPLETE"
+        for count_field in ("related_return_count", "non_sale_outflow_count"):
+            count = value.get(count_field)
+            if type(count) is not int or not 0 <= count <= 100_000:
+                return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        if (
+            value.get("return_cogs_authorization_changed") is not False
+            or value.get("non_sale_outflows_included_in_sales_cogs") is not False
+        ):
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        try:
+            outflow_value = cls._normalize_money(
+                value.get("non_sale_outflow_estimated_value_rub"),
+            )
+        except ValueError:
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
+        if (
+            outflow_value is None
+            or outflow_value != value["non_sale_outflow_estimated_value_rub"]
+            or (
+                value["non_sale_outflow_count"] == 0
+                and outflow_value != "0.00"
+            )
+        ):
+            return "FIFO_LATE_ENTRY_IMPACT_INVALID"
         digest_fields = (
             "preview_fingerprint", "source_set_fingerprint",
             "reconstruction_fingerprint", "tax_policy_fingerprint",
@@ -4999,7 +5029,7 @@ class FifoCostRepository:
                 or period in seen_periods
                 or not cls._valid_digest(fingerprint)
                 or row.get("completeness") != "COMPLETE"
-                or row.get("linked_return_count") != 0
+                or row.get("linked_return_count", 0) != 0
             ):
                 return "FIFO_LATE_ENTRY_IMPACT_INVALID"
             seen_periods.add(period)
