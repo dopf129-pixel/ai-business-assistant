@@ -2,7 +2,7 @@
 
 ## Следующий пакет — поздний FIFO-ввод и поставки на приёмке (07.11.2026)
 
-- LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: FL00–FL16 VERIFIED в коде на synthetic checks. FL15 раздельно сверяет supply evidence, FL16 строит owner-review proposal по отдельным bucket/report controls, не назначая FIFO opening и не меняя режим. Следующий этап FL17 — deterministic readiness и очередь конкретных недостающих доказательств.
+- LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: FL00–FL17 VERIFIED в коде на synthetic checks. FL15 раздельно сверяет supply evidence, FL16 строит owner-review proposal, FL17 формирует конкретные требования и periods без ложного coverage/readiness. Следующий этап FL18 — proof-bound bridge физического времени продаж и cutoff.
 - Довести существующий инструмент до полного цикла: durable case до начальной FIFO → поставки и пропадающие агрегированные наблюдения → документы → доказанный bridge → preview → atomic apply → финансовые/плановые consumers.
 - Технические решения зафиксированы в ТЗ. Зелёный CI не заменяет OWNER_CASE_VERIFIED; сведения о реальной партии сохраняются до появления недостающих документов без автоматического назначения новой стоимости всем продажам.
 - План реализации: три зависимых PR с зелёным CI и независимым review, без автоматического слияния и запуска бота.

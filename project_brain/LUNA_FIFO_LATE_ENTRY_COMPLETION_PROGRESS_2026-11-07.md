@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL17.
-Выполненных этапов:17/36 (FL00–FL16 VERIFIED на кодовых и синтетических проверках; далее FL17–FL35: readiness, cutoff bridge, impact/replay/atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL18.
+Выполненных этапов:18/36 (FL00–FL17 VERIFIED на кодовых и синтетических проверках; далее FL18–FL35: cutoff bridge, impact/replay/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL16 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code checkpoint `a33a0792bf3142924af280c39d32df2fd7ea0b9d`, documentation checkpoint последует отдельным commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL17 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -37,7 +37,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL14 | Контекстный XLSX import | VERIFIED | `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused 47 passed; linked FIFO/Telegram/seller-cost/returns 462 passed; compileall/diff-check/data unchanged PASS |
 | FL15 | Сверка поставок | VERIFIED | `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; focused 74 passed in 3.39s; FIFO/Telegram profile 449 passed in 20.34s; compileall/diff-check/data unchanged PASS |
 | FL16 | Proposal opening | VERIFIED | `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; focused 83 passed in 3.65s; FIFO/Telegram profile 458 passed in 20.20s; compileall/diff-check/data unchanged PASS |
-| FL17 | Readiness и missing evidence | NOT_STARTED | — |
+| FL17 | Readiness и missing evidence | VERIFIED | `df7c095b20d556c1b333f0157c6b6d6448fd1329`; focused 34 passed; FIFO/Telegram profile 477 passed in 20.53s; compileall/diff-check/data unchanged PASS |
 | FL18 | Cutoff bridge | NOT_STARTED | — |
 | FL19 | Начальная активация proposal | NOT_STARTED | — |
 | FL20 | Deterministic replay | NOT_STARTED | — |
@@ -241,6 +241,16 @@ Source readiness:
 - Период из имени файла остаётся candidate и выдаёт только candidate gap; owner-confirmed period может показать evidence gap. Owner-confirmed cutoff — отдельный input; неверный/отсутствующий cutoff не выводится из имени отчёта. Уже initialized FIFO блокирует proposal. Proposal содержит `preview_only=True`, `ready_to_apply=False`, `is_atomic_snapshot=False`; база, FIFO режим, прибыль и owner данные не меняются.
 - Добавлено 9 synthetic regressions в `tests/test_fifo_cost_transition_opening_proposal_service.py`. FL16 и связанные supply/stock/turnover проверки: **83 passed in 3.65s**; полный FIFO/Telegram профиль **458 passed in 20.20s**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS.
 - Code commit `a33a0792bf3142924af280c39d32df2fd7ea0b9d` (`Add FIFO opening review proposal`). Новый сервис превышает порог review (>300 изменённых строк), поэтому включить в пакет независимого architecture review. Следующий этап — FL17: deterministic readiness и missing evidence queue.
+
+## Выполнение FL17 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionReadinessService`: формирует сортированную immutable-очередь missing/confirmation/conflict требований и ссылок на сохранённые отчёты/API snapshots. Отдельно перечисляет документы/поля, видимый остаток количества, точный период и сохранённые fingerprints/capture/source-as-of. Сервис read-only: `ready_to_apply=False`, `complete_through=None`, `preview_only=True`, `is_atomic_snapshot=False`; сохраняет исходное case state.
+- Контроль поставок: owner total 6 982; указанная поставка 148 RECEIVING; остаток 6 834 остаётся нераспределённым, не превращается в fabricated supply или accepted stock. Без полного manifest готовность закрыта.
+- Период: подтверждённый turnover 04–05.11 выводит конкретно недостающие 06–07.11; `source_data_through=2026-11-05`, `complete_through=None`. Candidate filename period выводит запрос подтверждения и candidate interval, но не утверждает фактический coverage gap. Дата отчёта не становится cutoff.
+- Отдельно выдаются `STOCK_RESERVED_OR_OVERLAP_UNKNOWN`, `SALE_CUTOFF_BRIDGE_REQUIRED`, конфликт акта с fingerprint/source_as_of, source watermark mismatch, и cutoff confirmation. API lag/as-of queue использует только фактическую неатомарность/неполноту; часовой SLA не придумывается.
+- Reconciliation result теперь несёт `case_id`; proposal/readiness отвергают evidence другого case даже при совпадении owner/store/SKU/revision. Для конфликтных acceptance сохраняются безопасные redacted locators (hash, capture/source-as-of, issue codes, наличие act reference), не исходные Ozon IDs.
+- Добавлено 10 readiness regressions и 2 reconciliation regressions. Тесты: focused readiness + proposal + supply reconciliation **34 passed in 0.90s**; полный файл-профиль `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **477 passed in 20.53s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только синтетические данные; пользовательская DB/files, real APIs и бот не использовались.
+- Code commit `df7c095b20d556c1b333f0157c6b6d6448fd1329` (`Add FIFO late-entry readiness queue`). Изменение расширяет pure service/reconciliation contracts и >300 LOC, поэтому требует architecture review. Следующий этап FL18 — отдельный proof-bound cutoff/sales bridge; реальный owner case остаётся AWAITING_EVIDENCE.
 
 ## PR delivery
 

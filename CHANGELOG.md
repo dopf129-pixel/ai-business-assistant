@@ -1,4 +1,10 @@
 
+# 2026-11-08 — Очередь недостающих FIFO-доказательств (FL17)
+
+- Добавлен read-only readiness service с детерминированными действиями, точными полями/периодами и компактными ссылками на уже сохранённые отчёты. Он выделяет незакрытый manifest поставок, даты оборотной ведомости, неизвестный reserved/overlap, конфликт акта, source as-of gap и неподтверждённый bridge продаж.
+- Подтверждённый отчёт до 05.11 оставляет период 06–07.11 открытым; имя файла не считается подтверждённой датой. `complete_through` всегда `None`, `ready_to_apply=False`, case state не меняется.
+- Reconciliation теперь возвращает redacted locators сохранённых конфликтных acceptance snapshots и явно связывает результат с case ID. FL17: **34 focused passed**, FIFO/Telegram profile **477 passed**, compileall/diff/data-preservation PASS.
+
 # 2026-11-08 — Предпросмотр начального FIFO-среза (FL16)
 
 - Добавлен чистый opening proposal для owner review. Он показывает отдельные stock report buckets, поставки/статусы, оборотные totals и движения, даты периода, provenance и разрыв данных; не сводит доступный остаток, товары у покупателей, возвраты, товары в пути и старые owner-факты в одну цифру.

@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO readiness requirements regressions (FL17)
+
+- `tests/test_fifo_cost_transition_readiness_service.py` covers exact required supply manifest (6,982 declared / 148 linked / 6,834 unassigned), confirmed 05.11 → factual 06–07.11 coverage gap, filename-candidate period confirmation without factual gap claims, unknown reserved/FBS overlap, exact sale bridge requirement, source/as-of gap without an invented freshness SLA, explicit act-binding conflict plus saved fingerprint/as-of, cutoff missing, wrong case/revision rejection, deterministic order, and unchanged `AWAITING_EVIDENCE` state.
+- `tests/test_fifo_cost_transition_supply_reconciliation_service.py` additionally checks safe conflict locator retention for binding and acceptance-quantity mismatch. FL17 linked focus: **34 passed**; full FIFO/Telegram file profile: **477 passed**.
+
 # 2026-11-08 — FIFO opening proposal regressions (FL16)
 
 - `tests/test_fifo_cost_transition_opening_proposal_service.py` covers the 148 RECEIVING owner-linked declaration with the separate 600 planned/6,234 transit report buckets; 1,191 available with FBS return 9 as a subset; 4,492/3,712 turnover controls and 775 sales + 5 non-sale outflow; buyer delivery/returns; unconfirmed candidate dates; exact owner cutoff; missing period; unbalanced/partial report; uninitialized-FIFO guard; and multiple snapshots not combined.
