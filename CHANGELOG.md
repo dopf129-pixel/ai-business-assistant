@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO FL29: transition history, cancellation, and refresh safety
+
+- Code commit: 0bcb13d8cfd4704429a08999e7a014a2c4275e8a; independent architecture review is required because this adds a repository/service read path and Telegram history/export integration.
+- Added owner/store/SKU-scoped, paginated reads of append-only transition case revisions. Telegram can reopen draft, awaiting-evidence, ready, applied, and cancelled cases after a process restart; callbacks stay opaque and bounded.
+- FIFO history CSV now includes allowlisted transition revision rows under the existing 10,000-row/1 MB bounds. Raw lookup references, encrypted references, case IDs, and evidence references are excluded. Direct edits to an APPLIED case remain rejected; a linked correction is represented by a new case.
+- Evidence refresh preserves sealed preview rows and advances the case to AWAITING_EVIDENCE. Case `updated_at` remains monotonic when a source timestamp is older than the last owner edit.
+- FL29 focused lifecycle/history/export/atomic-apply profile: **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile: **1086 passed in 44.07s**. `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic SQLite only; owner case and full CI remain pending.
+
 # 2026-11-08 — FIFO FL28: cutoff partition in Period Profit
 
 - Period Profit can combine confirmed legacy cost for physical sales through the cutoff with FIFO COGS for post-cutoff sales, selected by exact finance sale identity while preserving the financial recognition period. The same stream, allocation, cutoff-mapping revisions appear in the canonical explanation and export projection.

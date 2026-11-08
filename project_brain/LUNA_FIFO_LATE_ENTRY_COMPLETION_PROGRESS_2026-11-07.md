@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL29.
-Выполненных этапов:28/36 (FL00–FL28 VERIFIED на кодовых и синтетических проверках; далее FL29–FL35: история/обновление, матрица, изоляция, backup/restart, документация, полный CI и PR delivery).
+Следующий этап: FL30.
+Выполненных этапов:29/36 (FL00–FL29 VERIFIED на кодовых и синтетических проверках; далее FL30–FL35: числовая матрица, изоляция, backup/restart, документация, полный CI и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -49,13 +49,24 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL26 | Разные подтверждения | VERIFIED | `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; focused 57 passed in 4.38s; linked FIFO/Telegram/Period Profit 545 passed in 24.43s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL27 | Current/plans/cache | VERIFIED | code `81266ad3`; focused 72 passed; linked FIFO/Telegram/Period Profit/current unit economics/saved plans 617 passed in 27.93s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL28 | Period Profit | VERIFIED | code `5afe569d01313ea8ac15b0689a12314893238c38`; focused 60 passed; linked FIFO/Telegram/Period Profit 1085 passed in 44.01s; compileall/diff-check/data unchanged PASS; synthetic only |
-| FL29 | History/refresh/cancel | NOT_STARTED | — |
+| FL29 | History/refresh/cancel | VERIFIED | code `0bcb13d8cfd4704429a08999e7a014a2c4275e8a`; focused 69 passed in 6.40s; linked FIFO/Telegram/Period Profit 1086 passed in 44.07s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL30 | Числовая матрица | NOT_STARTED | — |
 | FL31 | Security/isolation/navigation | NOT_STARTED | — |
 | FL32 | Backup/migration/restart | NOT_STARTED | — |
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
+
+## Выполнение FL29 — 2026-11-08
+
+- Code commit 0bcb13d8cfd4704429a08999e7a014a2c4275e8a (Add durable FIFO transition history). Класс: Architecture Review Required — добавлен публичный repository/service read path, а также Telegram history/export интеграция; новый архитектурный принцип не вводился, соблюдён Decision 066.
+- Добавлен exact owner/store/SKU-scoped reader append-only case revisions с страницами до 100 строк. Возвращаются только allowlisted факты случая; metadata, case/evidence IDs, encrypted lookup references и произвольный JSON payload исключены. Список cases также сообщает `has_more` при отсечении после bounded-лимита.
+- Telegram FIFO history добавляет список сохранённых переходов и открытие редакций DRAFT, AWAITING_EVIDENCE, READY_TO_CONFIRM, APPLIED и CANCELLED после нового process/runtime экземпляра. Callback содержит только opaque token. Старый CSV включает allowlisted записи переходов при лимите 10,000 строк / 1 MB; raw ID, шифротекст lookup reference и case IDs не экспортируются.
+- Cancel remains a terminal append-only revision. Regression сохраняет encrypted supply declaration/evidence после отмены и после restart. APPLIED overwrite отвергается; отдельный correction создаётся новым DRAFT case с `supersedes_case_id`.
+- Новое evidence после sealed preview переводит READY в AWAITING_EVIDENCE. Все сохранённые колонки и `payload_json` preview побайтно остаются прежними, а stale confirmation не пишет FIFO. Evidence case `updated_at` теперь max(source recorded_at, previous case updated_at), чтобы задержанный source timestamp не откатывал историю.
+- Проверки: пять профильных модулей `test_fifo_cost_transition_service.py`, `test_fifo_cost_transition_store.py`, `test_telegram_fifo_cost_history.py`, `test_telegram_fifo_cost_transition_runtime_service.py`, `test_fifo_cost_transition_atomic_apply.py` — **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile — **1086 passed in 44.07s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` — PASS.
+- Только synthetic temporary SQLite; не использовались отчёты/БД владельца, реальные API, бот, merge/deploy. Schema не менялась; интеграция следует Decision 066 append-only/tenant-scope контрактам, отдельное архитектурное решение не добавлено. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+- Next: FL30 — independently derive and execute the full numeric matrix, including initialized=False, in-flight declarations and later complete evidence.
 
 ## Выполнение FL28 — 2026-11-08
 

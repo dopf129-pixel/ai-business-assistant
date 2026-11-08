@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO FL29 history, cancellation, and refresh regressions
+
+- `tests/test_fifo_cost_transition_service.py`: cancellation remains idempotent and append-only after restart; encrypted supply declaration evidence remains readable after cancellation; bounded revision pages retain exact order and exclude case/raw lookup IDs; delayed source clock cannot move case `updated_at` backward.
+- `tests/test_telegram_fifo_cost_history.py`: terminal-case history is reconstructed by a fresh runtime service, CSV contains transition revisions without raw/ciphertext/case IDs, and callbacks remain opaque. Export stays under existing row/byte limits.
+- `tests/test_fifo_cost_transition_atomic_apply.py`: changed evidence moves READY back to AWAITING_EVIDENCE without changing any sealed preview column/payload or writing FIFO rows; APPLIED amount overwrite is rejected and a linked correction case is append-created.
+- Focused lifecycle/history/runtime/atomic profile: **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile: **1086 passed in 44.07s**. `compileall -q app tests`, `git diff --check`, and unchanged `data/` all passed; only synthetic temporary SQLite was used.
+
 # 2026-11-08 — FIFO FL28: Period Profit across cutoff
 
 - `tests/test_fifo_cost_period_profit_source_service.py` validates exact finance-ID selection, pre/post mapping, incomplete bridge rejection, complete-through coverage, and later FIFO allocations. Missing mapping cannot be replaced with an allocation date for a financial period touching cutoff.

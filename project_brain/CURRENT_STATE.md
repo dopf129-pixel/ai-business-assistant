@@ -1,3 +1,11 @@
+# 2026-11-08 — FIFO FL29: история переходов, отмена и refresh
+
+- Код FL29: 0bcb13d8cfd4704429a08999e7a014a2c4275e8a; требуется независимый архитектурный review публичного history path и Telegram export integration.
+- История transition cases читается постранично из append-only revisions в точной области owner/store/SKU. Telegram показывает все пять статусов, включая APPLIED и CANCELLED, и может снова открыть историю после перезапуска процесса.
+- CSV истории FIFO объединяет allowlisted редакции переходов с прежними слоями/ставками, ограничен 10 000 строк и 1 МБ, не содержит case ID, raw/encrypted lookup references или evidence IDs. APPLIED нельзя исправить UPDATE; коррекция создаётся отдельным случаем, связанным через `supersedes_case_id`.
+- Новое доказательство переводит READY в AWAITING_EVIDENCE и не меняет сохранённый preview. При отстающем времени источника `updated_at` дела не откатывается.
+- FL29 focused tests: **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile: **1086 passed in 44.07s**; compileall, diff-check, `data/` unchanged PASS. Synthetic-only. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; далее FL30 — вся числовая матрица.
+
 # 2026-11-08 — FIFO FL28: factual Period Profit cutoff partition
 
 - `FifoCostRepository` schema v14 persists append-only mapping revisions between exact finance sale identities and physical cutoff dates, in the existing tenant FIFO database. Transition apply stores the mapping atomically with its rate, allocation and case commit.
