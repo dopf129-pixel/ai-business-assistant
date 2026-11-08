@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL13.
-Выполненных этапов:13/36 (FL00–FL12 VERIFIED в коде: baseline, map, contracts, schema/cipher, repository, pre-FIFO boundaries, landed cost, case lifecycle, supply declarations/observations/reconciliation, bounded refresh и turnover parser; остатки parser, contextual import, reconciliation/bridge/apply, runtime integration и owner case ещё не завершены).
+Следующий этап: FL14.
+Выполненных этапов:14/36 (FL00–FL13 VERIFIED в коде: baseline, map, contracts, schema/cipher, repository, pre-FIFO boundaries, landed cost, case lifecycle, supply declarations/observations/reconciliation, bounded refresh, turnover и stock-management parsers; contextual import, reconciliation/bridge/apply, runtime integration и owner case ещё не завершены).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на FL11 `6f13a5416e0335b207a13fe51c43c356a2d118cb` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL13 и основана на exact PR1 head. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -32,8 +32,8 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL09 | Наблюдения и missing | VERIFIED | `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`; focused 51 passed; full pytest 4907 passed; compileall/diff-check/data restore PASS |
 | FL10 | Частичная приёмка | VERIFIED | `9445d8cc`; focused 46 passed; FIFO/Telegram FIFO 379 passed; compileall/diff-check/data unchanged PASS |
 | FL11 | Бюджеты/checkpoints | VERIFIED | `66d05d38`; focused 40 passed; FIFO/Telegram FIFO 388 passed; compileall/diff-check/data unchanged PASS |
-| FL12 | Ведомость parser | VERIFIED | `1f209a23`; synthetic parser 21 passed; FIFO/Telegram FIFO 409 passed; compileall/diff-check/data unchanged PASS |
-| FL13 | Остатки parser | NOT_STARTED | — |
+| FL12 | Ведомость parser | VERIFIED | initial code `1f209a23`; current shared parser regression 22 passed; linked FIFO/Telegram FIFO profile 423 passed; compileall/diff-check/data unchanged PASS |
+| FL13 | Остатки parser | VERIFIED | code `52a5b9fb3b3cf605b8c500003d48d254f1453337`; parser modules 35 passed (22 FL12 + 13 FL13); linked FIFO/Telegram FIFO 423 passed; compileall/diff-check/data unchanged PASS |
 | FL14 | Контекстный XLSX import | NOT_STARTED | — |
 | FL15 | Сверка поставок | NOT_STARTED | — |
 | FL16 | Proposal opening | NOT_STARTED | — |
@@ -72,7 +72,17 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 - Добавлены `requirements.txt` dependencies `openpyxl>=3.1.5,<4`, `defusedxml>=0.7.1,<1` и `tests/test_fifo_cost_report_import_service.py` (synthetic in-memory workbook; owner XLSX не читается). Код commit `1f209a23` (`Parse Ozon turnover evidence for FIFO`).
 - Проверки на code SHA `1f209a23`: focused **21 passed in 1.03s**; все `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` — **409 passed in 17.21s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Временные dependencies лежат только в `.fl12-deps` и не входят в commit; удалить после выполнения всех тестов.
 - `IMPLEMENTATION_VERIFIED`: нет (контекстный импорт, отчёт остатков, bridge, replay/impact/atomic apply и runtime integration впереди). `OWNER_CASE_VERIFIED`: нет; ни owner report, ни real APIs/DB не использовались. Blocker отсутствует.
-- Следующий этап: FL13 — parser «Управление остатками» с separate stock buckets и независимыми total/check sheets.
+
+## Выполнение FL13 — 2026-11-08
+
+- Добавлен `FifoCostStockManagementImportService.parse_stock_management_workbook`, read-only parser точного пятилистового отчёта «Управление остатками». Он выбирает строки по точному SKU и сохраняет отдельные buckets из авторитетного листа «Товары». «Товар-склад» сверяется отдельно и не прибавляется; «Товар-кластер» и «Кластеры» не суммируются; «Товар-склад снято с продажи» сохраняется отдельным bucket.
+- FBS `Возврат FBS` сохраняется как подмножество available: 1182 обычных + 9 FBS = 1191, без двойного добавления. Остальные synthetic controls: preparing 18, checking 5, supplier planned 600, supplier transit 6234, buyer delivery 1689, buyer return transit 43, removed-from-sale 41. Total 7532 и сумма buckets остаются диагностикой, не physical/FIFO opening; reserved — unknown без самостоятельного поля.
+- Общий XLSX preflight стал требовать точный набор видимых листов, включая запрет скрытых sheets; turnover parser получил регрессию на скрытый extra sheet. Numeric product feature и обязательные quantity cells не превращаются в unknown/zero.
+- Добавлены `app/services/fifo_cost_stock_management_import_service.py` и `tests/test_fifo_cost_stock_management_import_service.py`; расширены turnover parser/helper и его tests. Synthetic workbook воспроизводит подтверждённые labels, но не содержит owner product IDs/names. Parser не сохраняет XLSX/evidence, не вызывает API, не меняет case, FIFO, DB или прибыль и пока не подключён к Telegram.
+- Проверки после финальной правки: оба parser modules **35 passed in 1.69s**; все `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` — **423 passed in 17.90s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Проверка запущена с временными локальными библиотеками openpyxl/defusedxml, не включёнными в Git. `data/` не менялась.
+- Code commit: `52a5b9fb3b3cf605b8c500003d48d254f1453337` (`Parse Ozon stock management evidence for FIFO`). Документация будет отдельным последующим commit в PR2.
+- `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; owner workbook использовался только для ранее записанной schema/control matrix, не в текущем parser test run. Неразрешённый бизнес-вопрос не возник.
+- Следующий этап: FL14 — contextual bounded XLSX import только после выбора case, с preview и отдельным подтверждением.
 
 ## Выполнение FL06 — 2026-11-08
 
@@ -210,5 +220,5 @@ Source readiness:
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
 | 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
-| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | planned | NOT_RUN |
+| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after docs; CI pending | NOT_RUN |
 | 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | exact head of PR2 | planned | NOT_RUN |

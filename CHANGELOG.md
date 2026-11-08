@@ -2636,8 +2636,14 @@ Summary Report теперь включает:
 - Added a read-only before/after impact preview for late FIFO cost entry, including unit allocation by layer/rate, period COGS, tax and profit through the existing tax service.
 - Added atomic, append-only correction persistence with revision/fingerprint checks and projection invalidation. A correction does not immediately rewrite historical Period Profit; a complete allocation replay remains required.
 - The supported correction is deliberately narrow: one missing rate, complete cutoff/source history, no linked returns or non-sale outflows. Synthetic linked profile: 65 passed; production cutoff remains unreconciled.
+# 2026-11-08 — FIFO stock-management evidence for late FIFO entry (FL13)
+
+- Added a read-only parser for Ozon's “Управление остатками” workbook, scoped to the exact SKU. It preserves each stock bucket, treats FBS-return availability as a subset, compares warehouse detail independently, and keeps removed-from-sale units separate.
+- Cluster views are not added to SKU totals. Reserved remains unknown without an independent field; Ozon's total and bucket sum are diagnostic, never FIFO opening stock.
+- Synthetic matrix verifies available 1191 = 1182 + 9, preparing 18, checking 5 and removed-from-sale 41. Both parser modules: **35 passed**; linked FIFO/Telegram FIFO profile: **423 passed**; compileall, diff-check and `data/` preservation PASS. No owner workbook or live API was used.
+
 # 2026-11-08 — FIFO importer for Ozon turnover evidence (FL12)
 
 - Добавлен read-only parser узкого профиля «Оборотная ведомость» с проверкой точного SKU, периода, component totals и баланса. Проданные единицы и прочие расходы остаются раздельными; closing balance не объявляется физически доступным остатком.
 - XLSX preflight ограничивает архив, строки/колонки, compression ratio, макросы, внешние ссылки и traversal; формулы не исполняются. Добавлены `openpyxl` и `defusedxml` как runtime requirements.
-- Синтетическая fixture и 21 проверка FL12. Parser пока не подключён к Telegram и не сохраняет отчёт.
+- Синтетическая fixture; общий XLSX preflight hardening FL13 добавил regression для скрытого листа, поэтому теперь 22 проверки FL12. Parser пока не подключён к Telegram и не сохраняет отчёт.

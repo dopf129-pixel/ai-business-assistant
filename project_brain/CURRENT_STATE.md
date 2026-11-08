@@ -5518,9 +5518,17 @@ Completed:
 - FC22 `DONE_WITH_GAP`: a read-only before/after service now reports FIFO units/COGS by basis and recalculates period tax/profit through the existing `TaxService`. Owner confirmation is bound to exact store/SKU/draft and source, stream, allocation, tax and impact fingerprints.
 - FIFO schema v9→v10 appends a correction audit snapshot atomically with the new rate. The former allocation projection is invalidated; Period Profit is not changed until complete replay. The synthetic path supports only one missing rate and no linked returns/non-sale outflows; production remains blocked by unreconciled historical stock/finance cutoff.
 - Linked FC22 profile: **65 passed in 3.25s**. All data used were synthetic or in pytest temporary SQLite; no live Ozon/Telegram requests or bot startup.
+# 2026-11-08 — FIFO late-entry completion FL13
+
+- FL13 добавил read-only parser отчёта «Управление остатками» для точного SKU с отдельными buckets, FBS-return subset, сверкой листа «Товар-склад» и отдельным `removed_from_sale`. Представления «Товары», warehouse detail и cluster views не складываются; `reserved` и отсутствующий removed bucket остаются unknown, общий total — только диагностика.
+- Синтетическая матрица подтверждает `available=1191` (`1182 + 9 FBS return`), `preparing=18`, `checking=5`, `removed_from_sale=41`; warehouse totals совпадают независимо. Неверный числовой product-feature отклоняется.
+- Кодовый commit FL13: `52a5b9fb3b3cf605b8c500003d48d254f1453337`. Оба parser modules — **35 passed**; связанный FIFO/Telegram FIFO профиль — **423 passed in 17.90s**; compileall, `git diff --check`, `git diff --exit-code -- data` PASS. Использовались synthetic in-memory XLSX; пользовательский файл не использовался тестами, `data/` не менялась.
+- Parser остаётся read-only: XLSX ещё не сохраняется в evidence и не подключён к Telegram; FIFO, фактическая прибыль, БД и режим расчёта не менялись. `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
+- Следующий этап FL14 — контекстный XLSX import в выбранный case с bounded worker, preview и отдельным подтверждением.
+
 # 2026-11-08 — FIFO late-entry completion FL12
 
 - FL00–FL12 VERIFIED в коде исполнения, но не в production и не на owner case. Добавлен `FifoCostReportImportService.parse_turnover_workbook`: строго читает лист «Оборотная ведомость» и выдаёт нормализованные read-only evidence только для выбранного SKU.
 - Parser различает `redeemed_units=775` и `non_sale_expense_units=5`, сверяет opening 4492 + receipts 0 − expenses 780 − closing 3712 = 0 и сохраняет buckets доставки покупателю/возврата отдельно. 3712 остаётся отчётным closing total и не подменяет доступный/физический stock.
 - FL12 commit `1f209a23`; focused synthetic profile **21 passed**, полный FIFO/Telegram FIFO профиль **409 passed in 17.21s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Владелец XLSX не использовался тестами, API/UI/persistence ещё не подключены.
-- Следующий этап FL13 — parser отчёта «Управление остатками» с отдельными buckets и независимыми контрольными листами.
+- FL13 добавил 1 security regression к общему XLSX preflight: скрытые sheets отклоняются до parsing. Текущая повторная проверка: FL12 parser **22 passed**, FL13 parser **13 passed**, связанный профиль **423 passed**. Следующий этап FL14 описан выше.
