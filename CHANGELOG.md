@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL22 financial-period impact
+
+- Extended the read-only late-entry impact preview to map exact sale identities to complete financial recognition periods independently of physical FIFO dates. The mapping is fingerprinted and revalidated at confirmation.
+- Missing or mismatched finance mapping/baseline returns candidate COGS only; it never emits tax/profit deltas. Complete impact continues to use canonical `TaxService` over the full dependent sale horizon.
+- FL22 validation: 37 focused and 521 linked FIFO/Telegram/Period Profit tests passed; compileall, diff-check, and `data/` unchanged checks passed. Synthetic evidence only; implementation and owner-case verification remain separate.
+
 # 2026-11-08 — Связанные FIFO-возвраты и выбытия (FL21)
 
 - Поздний replay больше не блокируется только из-за наличия поддержанных возвратов или несбытовых выбытий. Возврат требует уже подтверждённой связи с продажей и восстанавливает исходную FIFO-основу; неизвестный и невалидный источник остаётся заблокированным существующими валидаторами.

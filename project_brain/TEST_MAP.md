@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL22 period impact
+
+- `tests/test_fifo_cost_late_entry_impact_service.py`: physical September sale can be recognized in October/November only through exact financial sale identity mapping; full dependent-period coverage; candidate-only output without baseline/mapping; no tax/profit/delta leakage; COGS/tax/profit via canonical `TaxService`.
+- `tests/test_fifo_cost_late_entry_correction_service.py`: changing financial recognition period between preview and confirm stales the preview without writes; missing mapping cannot prepare a confirmation.
+- FL22 focused: **37 passed**. Linked FIFO/Telegram/Period Profit profile: **521 passed**. `compileall`, `git diff --check`, and unchanged `data/` passed.
+
 # 2026-11-08 — FIFO FL21: возвратная основа и несбытовые выбытия
 
 - `tests/test_fifo_cost_replay_service.py`: linked return restores original layer across late-rate boundary; non-sale outflow consumes physical FIFO but is not emitted as a sale; pre-effective sale cannot use open rate.
