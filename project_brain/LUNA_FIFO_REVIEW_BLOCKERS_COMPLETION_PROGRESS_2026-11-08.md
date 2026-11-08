@@ -6,10 +6,10 @@
 
 ## Resume
 
-- Следующий этап FR02: добавить поведенческие регрессии, воспроизводящие MR02–MR03 и отсутствие production apply path; постоянные skip/xfail запрещены.
+- Следующий этап FR03: оформить стабильные DTO/error/revision/migration contracts и addendum к Decision 066; затем идти FR04–FR11 на ветке PR A.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
-- Ветка: codex/fifo-late-entry-integration-20261107.
-- Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b` (`Preserve FIFO review corrections checkpoint`).
+- Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
+- Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b` (`Preserve FIFO review corrections checkpoint`); отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - Существуют 17 modified tracked-файлов review corrections без commit. Сохранить весь исходный diff. Staged state на входе FR00 был пуст.
 - .fl12-deps/ — существующие untracked dependencies, не stage.
@@ -24,8 +24,8 @@
 |---|---|---|
 | FR00 | DONE | 2026-11-09; ветка и SHA сверены; #728–#730 подтверждены открытыми через GitHub; полный исходный diff — 17 tracked files; исходно staged state пуст; manifest data снят. |
 | FR01 | DONE | 2026-11-09; отдельный checkpoint `49442244cbad9f679455562196c7b47b74790b6b`; 7 FIFO/Telegram модулей существующих исправлений: **86 passed in 7.14s** с Python проекта и локальными зависимостями; manifest data до/после совпал. |
-| FR02 | IN_PROGRESS | На чистом checkpoint добавить поведенческие тесты для MR02–MR03 и production-path gaps; доказать, что старый код падает по указанным причинам. |
-| FR03 | NOT_STARTED | Contracts/controls |
+| FR02 | DONE | Добавлены temporal replay и production-workflow red regressions; baseline на старом коде: **6 failed in 1.28s** с ожидаемыми причинами — отсутствие rate-boundary DTO, evidence service injection и общей production factory/apply wiring. Тесты не помечены skip/xfail. |
+| FR03 | IN_PROGRESS | Создать FR03_CONTRACTS_2026-11-08.md и узкий addendum к Decision 066, сохраняя существующий gate. |
 | FR04 | NOT_STARTED | Typed boundaries |
 | FR05 | NOT_STARTED | Allocation kernel |
 | FR06 | NOT_STARTED | Temporal replay |
@@ -74,3 +74,10 @@
 - FR01 целевые regression suites: `tests/test_fifo_cost_cutoff_bridge_service.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, `tests/test_fifo_cost_transition_schema_v13.py`, `tests/test_fifo_cost_transition_service.py`, `tests/test_fifo_cost_transition_store.py`, `tests/test_telegram_fifo_cost_report_import_service.py`, `tests/test_telegram_fifo_cost_transition_runtime_service.py` — **86 passed in 7.14s**. Запуск использовал установленный проектный Python и `.fl12-deps`; каждый затронутый persistent-store test строит БД в `tmp_path`.
 - Установка зависимостей не выполнялась. Первые два диагностических запуска выявили отсутствие pytest в глобальном Python и необходимость явно добавить `app`/`.fl12-deps` в sys.path; корректный повтор прошёл. SHA-256 всех файлов `data/` после тестов совпал побайтно с исходным manifest; `git diff -- data` пустой.
 - Реальные owner DB/отчёты, Ozon, Telegram и запуск бота не использовались. Следующий шаг — отдельный commit ровно 17 corrections paths, после него отдельный commit новых TASK/PROGRESS документов.
+
+## FR02 — 2026-11-09
+
+- Добавлены `tests/test_fifo_cost_temporal_rate_replay.py` и `tests/test_fifo_cost_transition_production_workflow.py`. Они фиксируют требуемый public multi-rate replay для MR02–MR03, обзор exact durable evidence и отсутствие единой apply-capable factory/physical-document path.
+- Baseline запуск: 6 tests failed in 1.28s по ожидаемым недостающим контрактам на исходном коде: нет typed rate-boundary event; `FifoCostTransitionReviewService` не принимает evidence service; `create_fifo_cost_transition_workflow` не существует. Это red-baseline этапа, не текущий passing CI.
+- Положительный E2E и настоящие saved-document/confirmed-preview проверки будут доведены на FR12–FR27 без постоянных skip/xfail. FR02 tests пока не публиковались; для зелёного PR A production-only tests будут перенесены в PR B scope, а temporal tests останутся в PR A.
+- Тестовые SQLite использовали только `tmp_path`; owner data manifest остался тем же. Live APIs и bot не использовались.
