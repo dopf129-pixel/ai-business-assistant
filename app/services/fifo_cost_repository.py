@@ -326,7 +326,7 @@ class FifoCostRepository:
 
     def read_transition_evidence(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
-        kind, limit=100,
+        kind, limit=100, include_encrypted_lookup_reference=False,
     ):
         identity = self._normalize_transition_read_identity(
             store_id, product_id=product_id, offer_id=offer_id, sku=sku,
@@ -343,6 +343,7 @@ class FifoCostRepository:
             connection = self.get_connection()
             return FifoCostTransitionStore.read_evidence(
                 connection, case_id, scope, identity, kind=kind, limit=limit,
+                include_encrypted_lookup_reference=include_encrypted_lookup_reference,
             )
         except (sqlite3.Error, OSError, ValueError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")

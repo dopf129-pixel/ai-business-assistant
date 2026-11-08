@@ -71,6 +71,8 @@ from services.period_profit_effective_cost_service import (
 )
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_transition_supply_refresh_service import FifoCostTransitionSupplyRefreshService
+from services.fifo_cost_transition_review_service import FifoCostTransitionReviewService
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_rate_cancellation_service import FifoCostRateCancellationService
@@ -643,10 +645,20 @@ def create_telegram_assistant():
     telegram_fifo_cost_report_import_service = TelegramFifoCostReportImportService(
         repository=fifo_cost_repository,
     )
+    fifo_cost_transition_supply_refresh_service = FifoCostTransitionSupplyRefreshService(
+        transition_service=fifo_cost_transition_service,
+        source_collection=fifo_cost_source_collection_service,
+    )
+    fifo_cost_transition_review_service = FifoCostTransitionReviewService(
+        transition_service=fifo_cost_transition_service,
+        history_service=fifo_cost_history_service,
+    )
     telegram_fifo_cost_transition_runtime_service = TelegramFifoCostTransitionRuntimeService(
         transition_service=fifo_cost_transition_service,
         history_service=fifo_cost_history_service,
         report_import_service=telegram_fifo_cost_report_import_service,
+        review_service=fifo_cost_transition_review_service,
+        supply_refresh_service=fifo_cost_transition_supply_refresh_service,
     )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),

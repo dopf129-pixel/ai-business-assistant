@@ -31,15 +31,24 @@ class TelegramFifoCostTransitionRuntimeService:
     TTL_SECONDS = 15 * 60
     MAX_SESSIONS = 256
     MAX_TICKETS = 1024
+    SUPPLY_REFRESH_PAGE_SIZE = 8
     _EDITABLE_STATES = frozenset({"DRAFT", "AWAITING_EVIDENCE"})
+    _READY_READ_ACTIONS = frozenset({
+        "finish", "check_readiness", "view_recalculation",
+        "apply_transition", "confirm_apply",
+    })
 
     def __init__(
         self, transition_service, history_service, report_import_service=None,
-        *, monotonic_clock=monotonic, now_provider=None,
+        *, review_service=None, supply_refresh_service=None,
+        apply_service=None, monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
         self.history_service = history_service
         self.report_import_service = report_import_service
+        self.review_service = review_service
+        self.supply_refresh_service = supply_refresh_service
+        self.apply_service = apply_service
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -213,6 +222,8 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
                 keyboard=self._field_confirmation_keyboard(session["candidate_token"]),
             )
+        if session.get("step") == "refresh_reference":
+            return self._handle_refresh_reference(owner, session, text)
         if session.get("step") in {"supply_reference_kind", "supply_reference", "supply_quantity"}:
             return self._handle_supply_text(owner, session, text)
         return self._handle_field_text(owner, session, text)
@@ -242,7 +253,13 @@ class TelegramFifoCostTransitionRuntimeService:
         case = self._read_case(session["case_id"], session["identity"])
         if (
             not isinstance(case, dict) or case.get("error") is not False
-            or case.get("state") not in self._EDITABLE_STATES
+            or (
+                case.get("state") not in self._EDITABLE_STATES
+                and not (
+                    case.get("state") == "READY_TO_CONFIRM"
+                    and action in self._READY_READ_ACTIONS
+                )
+            )
         ):
             return self._stale()
         if case.get("case_revision") != session["case_revision"]:
@@ -262,6 +279,21 @@ class TelegramFifoCostTransitionRuntimeService:
         if action == "supply":
             session["step"] = "supply_reference_kind"
             return self._supply_kind_prompt(owner)
+        if action == "refresh_supply_select":
+            if self.supply_refresh_service is None:
+                return self._failure("Обновление поставок временно недоступно; сохранённые сведения не изменены.")
+            declaration_id = ticket.get("declaration_id")
+            if not isinstance(declaration_id, str) or not 8 <= len(declaration_id) <= 96:
+                return self._stale()
+            session["refresh_declaration_id"] = declaration_id
+            session.pop("refresh_reference_id", None)
+            session.pop("refresh_continuation_token", None)
+            session["step"] = "refresh_reference"
+            return self._result("Введите ID выбранной конкретной поставки для точечного обновления. ID не будет показан в ответе или сохранён повторно.")
+        if action == "continue_supply_refresh":
+            if self.supply_refresh_service is None or not session.get("refresh_reference_id"):
+                return self._failure("Продолжение истекло. Выберите поставку и введите её ID ещё раз.")
+            return self._run_supply_refresh(owner, session)
         if action == "supply_order" or action == "supply_supply":
             session["reference_kind"] = "ORDER" if action == "supply_order" else "SUPPLY"
             session["step"] = "supply_reference"
@@ -279,6 +311,21 @@ class TelegramFifoCostTransitionRuntimeService:
             return self._documents_prompt(owner)
         if action == "finish":
             return self._show_summary(owner)
+        if action == "check_readiness":
+            return self._show_readiness(owner)
+        if action == "view_recalculation":
+            return self._show_recalculation(owner)
+        if action == "apply_transition":
+            return self._confirm_apply_prompt(user_id, owner, session)
+        if action == "confirm_apply":
+            return self._apply_transition(user_id, owner, session, ticket)
+        if action == "refresh_supplies":
+            return self._refresh_supplies_prompt(owner, page=0)
+        if action == "refresh_supplies_page":
+            page = ticket.get("page")
+            if type(page) is not int or page < 0:
+                return self._stale()
+            return self._refresh_supplies_prompt(owner, page=page)
         if action == "cancel_case":
             cancel_callback = self._issue_ticket(owner, session, "confirm_cancel")
             back_callback = self._issue_ticket(owner, session, "finish")
@@ -466,6 +513,65 @@ class TelegramFifoCostTransitionRuntimeService:
             )
         return self._supply_kind_prompt(owner)
 
+    def _handle_refresh_reference(self, owner, session, text):
+        reference = self._reference(text)
+        if reference is None:
+            return self._result("Введите только цифры ID конкретной поставки.")
+        scoped_owner, _store = split_store_tenant_scope(session["tenant"])
+        matched = self.transition_service.supply_declaration_matches_reference(
+            case_id=session["case_id"], declaration_id=session.get("refresh_declaration_id"),
+            owner_id=scoped_owner, store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"], reference_id=reference,
+        )
+        if not matched:
+            return self._result(
+                "ID не совпадает с выбранной поставкой либо ключ проверки недоступен. "
+                "Ozon не запрашивался; попробуйте ещё раз или вернитесь к делу."
+            )
+        session["refresh_reference_id"] = reference
+        session.pop("step", None)
+        return self._run_supply_refresh(owner, session)
+
+    def _run_supply_refresh(self, owner, session):
+        try:
+            result = self.supply_refresh_service.refresh(
+                case_id=session["case_id"],
+                declaration_id=session["refresh_declaration_id"],
+                reference_id=session["refresh_reference_id"],
+                **session["identity"],
+                expected_case_revision=session["case_revision"],
+                continuation_token=session.get("refresh_continuation_token"),
+            )
+        except Exception:
+            return self._failure("Не удалось обновить поставку. Черновик сохранён; повторите попытку позже.")
+        if not hasattr(result, "status"):
+            return self._failure("Источник не вернул проверяемый результат. Сохранённые сведения не изменены.")
+        session["refresh_continuation_token"] = result.continuation_token
+        message = (
+            f"Обновление поставки: {result.status} · источник {result.source_status} · "
+            f"попыток API {result.actual_http_attempts}/{result.http_attempt_cap}."
+        )
+        if result.issue_codes:
+            message += "\nПричины: " + ", ".join(result.issue_codes[:5])
+        if result.continuation_token:
+            callback = self._issue_ticket(owner, session, "continue_supply_refresh")
+            return self._result(
+                message + "\nИсточник прочитан не полностью; продолжите bounded-запрос.",
+                keyboard=self._keyboard([{"text": "⏭ Продолжить обновление", "callback": callback}]),
+            )
+        current = self._read_case(session["case_id"], session["identity"])
+        if isinstance(current, dict) and current.get("error") is False:
+            self._refresh_session(session, current)
+        session.pop("refresh_reference_id", None)
+        session.pop("refresh_declaration_id", None)
+        session.pop("refresh_continuation_token", None)
+        return self._result(
+            message + "\nТекущая стоимость и прибыль не менялись.",
+            keyboard=self._keyboard([{"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")}]),
+        )
+
     def _confirm_supply(self, owner, session, ticket):
         if session.get("candidate_token") != ticket.get("token") or not session.get("candidate_pending"):
             return self._stale()
@@ -624,11 +730,12 @@ class TelegramFifoCostTransitionRuntimeService:
         )
         evidence = self.transition_service.repository.read_transition_evidence(
             case_id=session["case_id"], **session["identity"],
-            kind="REPORT", limit=100,
+            kind="REPORT_EVIDENCE", limit=101,
         )
         report_count = (
             len(evidence.get("items", ()))
-            if isinstance(evidence, dict) and evidence.get("error") is False else None
+            if isinstance(evidence, dict) and evidence.get("error") is False
+            and len(evidence.get("items", ())) <= 100 else None
         )
         text = (
             f"🧾 Черновик поздней партии · {session['display_name']} · SKU {session['identity']['sku']}\n"
@@ -644,14 +751,276 @@ class TelegramFifoCostTransitionRuntimeService:
             f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n\n"
             "Это сохранённые сведения для сверки. История FIFO, текущая себестоимость и прибыль не применялись."
         )
-        buttons = [
-            {"text": "📦 Поставки", "callback": self._issue_ticket(owner, session, "supply")},
-            {"text": "📄 Добавить отчёты", "callback": self._issue_ticket(owner, session, "reports")},
-            {"text": "✖️ Отменить изменение", "callback": self._issue_ticket(owner, session, "cancel_case")},
-        ]
+        buttons = []
+        if case.get("state") in self._EDITABLE_STATES:
+            buttons.extend([
+                {"text": "📦 Поставки", "callback": self._issue_ticket(owner, session, "supply")},
+                {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
+                {"text": "📄 Добавить отчёт", "callback": self._issue_ticket(owner, session, "reports")},
+            ])
+        buttons.extend([
+            {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},
+            {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
+        ])
+        if case.get("state") == "READY_TO_CONFIRM" and self.apply_service is not None:
+            buttons.append({
+                "text": "✅ Применить подтверждённую историю",
+                "callback": self._issue_ticket(owner, session, "apply_transition"),
+            })
+        if case.get("state") in self._EDITABLE_STATES:
+            buttons.append({
+                "text": "✖️ Отменить изменение",
+                "callback": self._issue_ticket(owner, session, "cancel_case"),
+            })
         return self._result(text, keyboard=self._keyboard(buttons))
 
-    def _issue_ticket(self, owner, session, action):
+    def _show_readiness(self, owner):
+        session = self._sessions.get(owner)
+        if not isinstance(session, dict):
+            return self._stale()
+        review = self._assess_case(session)
+        if not isinstance(review, dict) or review.get("error") is not False:
+            return self._failure("Не удалось проверить готовность. Черновик не изменён; попробуйте открыть его заново.")
+        readiness = review.get("readiness")
+        if readiness is None:
+            return self._failure("Проверка не вернула требований; данные не изменены.")
+        lines = [
+            f"🔍 Готовность FIFO · {session['display_name']} · редакция {review['case_revision']}",
+            f"Состояние: {readiness.status}",
+            f"Можно применить: {'да' if readiness.ready_to_apply else 'нет'}",
+            f"Подтверждённые данные источников до: {readiness.source_data_through or 'нет данных'}",
+            f"Кандидатные данные до: {readiness.candidate_data_through or 'нет данных'}",
+            f"Покрытие до: {readiness.complete_through or 'не подтверждено'}",
+        ]
+        self._append_readiness_requirements(lines, readiness, limit=8)
+        lines.append("Проверка только читает сохранённые доказательства; FIFO и прибыль не меняются.")
+        return self._result(
+            "\n".join(lines),
+            keyboard=self._keyboard([
+                {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
+                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    def _show_recalculation(self, owner):
+        session = self._sessions.get(owner)
+        if not isinstance(session, dict):
+            return self._stale()
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Не удалось открыть дело для пересчёта; данные не изменены.")
+        self._refresh_session(session, case)
+        review = self._assess_case(session)
+        if not isinstance(review, dict) or review.get("error") is not False:
+            return self._failure("Не удалось собрать пересчёт по сохранённым источникам. Дело не изменено.")
+        proposal = review["proposal"]
+        status = review["readiness"].status
+        cost_components = case["case"].get("cost_components")
+        lines = [
+            f"📊 Предпросмотр перехода FIFO · редакция {review['case_revision']}",
+            f"Дата первой отправки · ввод владельца: {case['case'].get('dispatch_date') or 'не указана'}",
+            f"Старая стоимость (ввод владельца): {case['case'].get('old_unit_cost_rub') or 'не указана'} ₽/шт.",
+            f"Новая стоимость · ввод владельца: {self._format_cost(case['case'])} ₽/шт. · режим {case['case'].get('cost_input_mode')}",
+        ]
+        if isinstance(cost_components, dict):
+            lines.append(
+                "Компоненты новой стоимости: закупка "
+                f"{cost_components.get('purchase_cost_rub')} + доставка "
+                f"{cost_components.get('delivery_cost_rub')} + упаковка "
+                f"{cost_components.get('packaging_cost_rub')} ₽/шт."
+            )
+        elif case["case"].get("cost_input_mode") == "TOTAL_LANDED":
+            lines.append("Новая стоимость введена итогом; разбивка компонентов отсутствует.")
+        if review.get("fifo_queue_initialized") is True:
+            layers = review.get("fifo_layers", ())
+            lines.append(f"Подтверждённые старые FIFO-слои: {len(layers)}")
+            for layer in layers[:5]:
+                lines.append(
+                    f"• {layer['remaining_units']} шт. × {layer['unit_cost_rub']} ₽/шт.; "
+                    f"дата {layer.get('effective_date') or 'не указана'}, "
+                    f"место {layer.get('location') or 'не подтверждено'}"
+                )
+            if len(layers) > 5:
+                lines.append(f"• Ещё подтверждённых слоёв: {len(layers) - 5}")
+        else:
+            lines.append("Старая очередь FIFO не инициализирована; старые слои не подтверждены.")
+        lines.extend([
+            f"Старый товар дома/в пути по данным владельца: {proposal.old_home_units} / {proposal.old_transit_units} шт.",
+            f"Количество новой партии дома: {proposal.new_home_units if proposal.new_home_units is not None else 'неизвестно'}",
+            f"Отправлено владельцем: {proposal.owner_declared_shipped_total if proposal.owner_declared_shipped_total is not None else 'нет данных'} шт.",
+            f"Подтверждённый FIFO cutoff: {proposal.confirmed_cutoff_date or 'отсутствует'}; состояние готовности: {status}",
+            f"Покрытие финансовых данных до: {review['readiness'].source_data_through or 'нет подтверждённых данных'}",
+            f"Кандидатное покрытие до: {review['readiness'].candidate_data_through or 'нет'}; полное покрытие до: {review['readiness'].complete_through or 'не подтверждено'}",
+        ])
+        for label, evidence_items in (
+            ("Срезы остатков", proposal.stock_snapshots),
+            ("Оборотные ведомости", proposal.turnover_controls),
+        ):
+            lines.append(f"{label}: {len(evidence_items)}")
+            for evidence in evidence_items[:3]:
+                period = (
+                    f"{evidence.period_from or '?'}—{evidence.period_to or '?'}"
+                )
+                lines.append(
+                    f"• период {period}; статус {evidence.completeness.value}; "
+                    f"период {evidence.period_provenance.value}; снимок {evidence.captured_at}"
+                )
+            if len(evidence_items) > 3:
+                lines.append(f"• Ещё записей: {len(evidence_items) - 3}")
+        if proposal.turnover_coverage_gap:
+            lines.append(
+                f"Пробел в ведомостях: {proposal.turnover_coverage_gap[0]}—{proposal.turnover_coverage_gap[1]}"
+            )
+        if proposal.requirements:
+            lines.append("Недостающие условия: " + ", ".join(proposal.requirements[:8]))
+        self._append_readiness_requirements(lines, review["readiness"], limit=5)
+        missing_fields = [
+            label for field, label in (
+                ("old_unit_cost_rub", "старая стоимость"),
+                ("new_unit_cost_rub", "новая стоимость"),
+                ("dispatch_date", "дата первой отправки"),
+                ("owner_old_home_units", "старый остаток дома"),
+                ("owner_old_transit_units", "старый товар в пути"),
+                ("declared_shipped_units", "общее количество новой партии"),
+            ) if case["case"].get(field) is None
+        ]
+        if missing_fields:
+            lines.append("Не введено владельцем: " + ", ".join(missing_fields))
+        old_cost = case["case"].get("old_unit_cost_rub")
+        new_cost = case["case"].get("new_unit_cost_rub")
+        if old_cost is not None and new_cost is not None:
+            difference = Decimal(str(new_cost)) - Decimal(str(old_cost))
+            lines.append(
+                f"Изменение себестоимости новой партии к старой: {difference:+.2f} ₽/шт. "
+                "Это разница затрат, не расчёт прибыли."
+            )
+        lines.extend([
+            "Влияние на фактическую прибыль пока не рассчитано: необходимы подтверждённый cutoff и полный bridge продаж.",
+            "Это предпросмотр сохранённых источников и ввода владельца. Текущая стоимость, история FIFO, кэш и планы не изменены.",
+        ])
+        return self._result(
+            "\n".join(lines),
+            keyboard=self._keyboard([
+                {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},
+                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    @staticmethod
+    def _append_readiness_requirements(lines, readiness, *, limit):
+        requirements = readiness.requirements
+        if requirements:
+            lines.append("Проверка недостающих данных:")
+        status_labels = {
+            "MISSING": "нужно добавить",
+            "NEEDS_CONFIRMATION": "нужно подтвердить",
+            "CONFLICT": "конфликт данных",
+        }
+        for item in requirements[:limit]:
+            period = (
+                f" · период {item.required_period[0]}—{item.required_period[1]}"
+                if item.required_period else ""
+            )
+            fields = (
+                f" · поля: {', '.join(item.required_fields[:5])}"
+                if item.required_fields else ""
+            )
+            lines.append(
+                f"• {status_labels.get(item.status, 'проверить')}: "
+                f"{item.required_document_or_action}{period}{fields}"
+            )
+        if len(requirements) > limit:
+            lines.append(f"• Ещё требований: {len(requirements) - limit}")
+
+    def _assess_case(self, session):
+        if self.review_service is None:
+            return {"error": True, "code": "FIFO_TRANSITION_REVIEW_UNAVAILABLE"}
+        return self.review_service.assess(
+            case_id=session["case_id"], identity=session["identity"],
+        )
+
+    def _confirm_apply_prompt(self, user_id, owner, session):
+        current = self._read_case(session["case_id"], session["identity"])
+        if (
+            not isinstance(current, dict) or current.get("error") is not False
+            or current.get("state") != "READY_TO_CONFIRM"
+            or current.get("case_revision") != session.get("case_revision")
+            or self.apply_service is None
+        ):
+            return self._failure("Применение недоступно: нет актуального READY предпросмотра. FIFO не изменена.")
+        callback = self._issue_ticket(owner, session, "confirm_apply")
+        return self._result(
+            "Проверьте подтверждённый предпросмотр. Применение ещё раз проверит редакции дела, источников, cutoff, налогов и FIFO.",
+            keyboard=self._keyboard([
+                {"text": "✅ Применить подтверждённую историю", "callback": callback},
+                {"text": "↩️ Назад", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    def _apply_transition(self, user_id, owner, session, ticket):
+        current = self._read_case(session["case_id"], session["identity"])
+        if (
+            not isinstance(current, dict) or current.get("error") is not False
+            or current.get("state") != "READY_TO_CONFIRM"
+            or current.get("case_revision") != ticket.get("case_revision")
+            or self.apply_service is None
+        ):
+            return self._failure("Предпросмотр устарел или больше не готов. Применение отклонено, FIFO не изменена.")
+        apply_method = getattr(self.apply_service, "apply", None)
+        if not callable(apply_method):
+            return self._failure("Сервис применения недоступен. FIFO не изменена.")
+        result = apply_method(
+            case_id=session["case_id"], identity=dict(session["identity"]),
+            expected_case_revision=current["case_revision"],
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._failure("Серверная проверка применения не пройдена. Данные FIFO не изменены.")
+        self._refresh_session(session, self._read_case(session["case_id"], session["identity"]))
+        return self._show_summary(owner)
+
+    def _refresh_supplies_prompt(self, owner, *, page):
+        session = self._sessions.get(owner)
+        if not isinstance(session, dict):
+            return self._stale()
+        manifest = self.transition_service.get_supply_manifest(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if not isinstance(manifest, dict) or manifest.get("error") is not False:
+            return self._failure("Не удалось прочитать список поставок. Данные дела не изменены.")
+        supported = [item for item in manifest.get("declarations", ()) if item.get("reference_kind") == "SUPPLY"]
+        if not supported:
+            return self._result(
+                "Для обновления статуса нужен ID конкретной поставки. Добавьте поставку типа SUPPLY; номер заявки ORDER сам по себе не используется для подмены статуса.",
+                keyboard=self._keyboard([{"text": "📦 Добавить поставку", "callback": self._issue_ticket(owner, session, "supply")}]),
+            )
+        page_count = (len(supported) + self.SUPPLY_REFRESH_PAGE_SIZE - 1) // self.SUPPLY_REFRESH_PAGE_SIZE
+        if page >= page_count:
+            return self._stale()
+        start = page * self.SUPPLY_REFRESH_PAGE_SIZE
+        page_items = supported[start:start + self.SUPPLY_REFRESH_PAGE_SIZE]
+        lines = [
+            f"Выберите поставку по порядковому номеру и заявленному количеству "
+            f"(страница {page + 1} из {page_count}). ID скрыты:"
+        ]
+        buttons = []
+        for index, item in enumerate(page_items, start=start + 1):
+            units = item.get("declared_shipped_units")
+            label = f"Поставка {index} · {units if units is not None else 'неизвестно'} шт."
+            buttons.append({"text": f"🔄 {label}", "callback": self._issue_ticket(owner, session, "refresh_supply_select", declaration_id=item.get("declaration_id"))})
+        if page > 0:
+            buttons.append({
+                "text": "⬅️ Назад",
+                "callback": self._issue_ticket(owner, session, "refresh_supplies_page", page=page - 1),
+            })
+        if page + 1 < page_count:
+            buttons.append({
+                "text": "➡️ Далее",
+                "callback": self._issue_ticket(owner, session, "refresh_supplies_page", page=page + 1),
+            })
+        lines.append("Для сверки будет запрошен только ID выбранной поставки; номер не появится в сообщениях или callback.")
+        return self._result("\n".join(lines), keyboard=self._keyboard(buttons))
+
+    def _issue_ticket(self, owner, session, action, **extra):
         token = uuid4().hex[:12]
         now = self._now_monotonic()
         with self._lock:
@@ -664,6 +1033,7 @@ class TelegramFifoCostTransitionRuntimeService:
                 "case_revision": session["case_revision"],
                 "action": action,
                 "expires_at": now + self.TTL_SECONDS,
+                **extra,
             }
             while len(self._tickets) > self.MAX_TICKETS:
                 oldest = min(self._tickets, key=lambda key: self._tickets[key]["expires_at"])
@@ -810,7 +1180,7 @@ class TelegramFifoCostTransitionRuntimeService:
 
     def _field_confirmation_keyboard(self, token, *, confirm_action="confirm_field"):
         return self._keyboard([
-            {"text": "✅ Подтвердить и сохранить", "callback": f"{self.CALLBACK_PREFIX}:{confirm_action}:{token}"},
+            {"text": "💾 Сохранить сведения о партии", "callback": f"{self.CALLBACK_PREFIX}:{confirm_action}:{token}"},
             {"text": "↩️ Отменить ввод", "callback": f"{self.CALLBACK_PREFIX}:cancel_field:{token}"},
         ])
 

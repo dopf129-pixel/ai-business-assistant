@@ -1,8 +1,23 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from cryptography.fernet import Fernet
 
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_transition_review_service import FifoCostTransitionReviewService
+from services.fifo_cost_report_import_service import FifoCostReportImportService
+from services.fifo_cost_stock_management_import_service import FifoCostStockManagementImportService
+from services.fifo_cost_transition_contracts import (
+    EvidenceCompleteness,
+    EvidenceSourceKind,
+    PeriodProvenance,
+    ReportEvidence,
+    ReportType,
+    ScopeIdentity,
+    TransitionMetadata,
+)
 from services.ozon_account_repository import make_store_tenant_scope
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_report_import_service import TelegramFifoCostReportImportService
@@ -236,6 +251,224 @@ def test_unconfirmed_value_and_cross_store_callback_never_write_transition_case(
         assert rejected["error"] is True
         assert case_item["case_revision"] == 1
         assert case_item["case"]["old_unit_cost_rub"] is None
+        assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_distinct_review_actions_fail_closed_before_ready_and_do_not_write(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, history, transitions, report_import, runtime = _services(tmp_path)
+        runtime.review_service = FifoCostTransitionReviewService(transitions, history)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        case_id = runtime._sessions["101"]["case_id"]
+        scope = ScopeIdentity(
+            owner_id="owner-a", store_id=IDENTITY["store_id"],
+            product_id=IDENTITY["product_id"], offer_id=IDENTITY["offer_id"],
+            sku=IDENTITY["sku"],
+        )
+        file_digest = "b" * 64
+        stock_report = ReportEvidence(
+            metadata=TransitionMetadata(
+                scope=scope, source_kind=EvidenceSourceKind.OWNER_IMPORTED,
+                completeness=EvidenceCompleteness.PARTIAL,
+                source_fingerprint=FifoCostStockManagementImportService._source_fingerprint(
+                    file_digest, scope,
+                ),
+            ),
+            report_type=ReportType.STOCK_MANAGEMENT,
+            period_from="2026-11-07", period_to="2026-11-07",
+            period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+            captured_at="2026-11-08T12:00:00Z", file_sha256=file_digest,
+            parser_version="fifo-stock-management-v1", cell_references=("M5",),
+            normalized_fields={"stock_buckets": {"available": 1191}},
+        )
+        saved_report = transitions.repository.append_report_evidence(
+            case_id=case_id, report=stock_report, expected_case_revision=7,
+            idempotency_key="telegram-preview-stock-report",
+        )
+        assert saved_report["error"] is False, saved_report
+        runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки", case_id=case_id,
+            expected_case_revision=saved_report["case_revision"],
+        )
+        before = transitions.list_cases(store_id="store-a", sku=IDENTITY["sku"])["cases"][0]
+
+        summary = runtime._show_summary("101")
+        labels = {item["text"] for item in summary["keyboard"]["buttons"]}
+        assert "🔄 Обновить данные поставок" in labels
+        assert "📄 Добавить отчёт" in labels
+        assert "🔍 Проверить готовность" in labels
+        assert "📊 Посмотреть пересчёт" in labels
+        assert "✅ Применить подтверждённую историю" not in labels
+
+        readiness_callback = next(
+            item["callback"] for item in summary["keyboard"]["buttons"]
+            if item["text"] == "🔍 Проверить готовность"
+        )
+        readiness = runtime.handle_callback(101, readiness_callback)
+        assert "Можно применить: нет" in readiness["message"]
+        preview_callback = next(
+            item["callback"] for item in readiness["keyboard"]["buttons"]
+            if item["text"] == "📊 Посмотреть пересчёт"
+        )
+        preview = runtime.handle_callback(101, preview_callback)
+        assert "Подтверждённый FIFO cutoff: отсутствует" in preview["message"]
+        assert "Старая очередь FIFO не инициализирована" in preview["message"]
+        assert "Новая стоимость введена итогом; разбивка компонентов отсутствует" in preview["message"]
+        assert "Изменение себестоимости новой партии к старой: -6.35 ₽/шт." in preview["message"]
+        assert "Подтверждённые данные источников до" in readiness["message"]
+        assert "Кандидатные данные до" in readiness["message"]
+        assert "Срезы остатков: 1" in preview["message"]
+        assert "период OWNER_CONFIRMED" in preview["message"]
+        assert "снимок 2026-11-08" in preview["message"]
+        assert "прибыли" in preview["message"].lower()
+
+        apply_calls = []
+        runtime.apply_service = SimpleNamespace(apply=lambda **kwargs: apply_calls.append(kwargs))
+        forged_apply = runtime._issue_ticket(
+            "101", runtime._sessions["101"], "apply_transition",
+        )
+        denied_apply = runtime.handle_callback(101, forged_apply)
+        assert denied_apply["error"] is True
+        assert "нет актуального READY" in denied_apply["message"]
+        assert apply_calls == []
+
+        after = transitions.list_cases(store_id="store-a", sku=IDENTITY["sku"])["cases"][0]
+        assert after["case_revision"] == before["case_revision"] == 8
+        assert after["state"] == "AWAITING_EVIDENCE"
+        assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_components_cost_mode_preview_shows_components_without_reinterpreting_profit(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.review_service = FifoCostTransitionReviewService(transitions, history)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "COMPONENTS")
+        _confirm_text(runtime, "21")
+        assert "Доставка до вас" in runtime.handle_text(101, "10")["message"]
+        assert "Упаковка" in runtime.handle_text(101, "3")["message"]
+        _confirm_text(runtime, "1.65")
+        for value in ("05.11.2026", "0", "0", "6982"):
+            _confirm_text(runtime, value)
+        readiness = runtime._show_readiness("101")
+        preview_callback = next(
+            item["callback"] for item in readiness["keyboard"]["buttons"]
+            if item["text"] == "📊 Посмотреть пересчёт"
+        )
+        preview = runtime.handle_callback(101, preview_callback)
+        assert "Новая стоимость · ввод владельца: 14.65 ₽/шт. · режим COMPONENTS" in preview["message"]
+        assert "Компоненты новой стоимости: закупка 10.00 + доставка 3.00 + упаковка 1.65 ₽/шт." in preview["message"]
+        assert "Это разница затрат, не расчёт прибыли." in preview["message"]
+        assert "Влияние на фактическую прибыль пока не рассчитано" in preview["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_supply_refresh_picker_is_paginated_and_callback_has_no_reference_ids(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        current = transitions.list_cases(store_id="store-a", sku=IDENTITY["sku"])["cases"][0]
+        case_id = current["case_id"]
+        revision = current["case_revision"]
+        references = [str(700100 + index) for index in range(10)]
+        for reference in references:
+            created = transitions.declare_supply(
+                case_id=case_id, **IDENTITY, reference_kind="SUPPLY",
+                reference_id=reference, declared_shipped_units=1,
+                expected_case_revision=revision,
+                idempotency_key=f"tg-refresh-page-{reference}",
+            )
+            assert created["error"] is False, created
+            revision = created["case_revision"]
+        assert runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки", case_id=case_id,
+            expected_case_revision=revision,
+        )["error"] is False
+
+        first = runtime._refresh_supplies_prompt("101", page=0)
+        first_buttons = first["keyboard"]["buttons"]
+        assert len(first_buttons) == 9
+        assert "страница 1 из 2" in first["message"]
+        assert all(reference not in first["message"] for reference in references)
+        assert all(reference not in button["callback"] for button in first_buttons for reference in references)
+        assert all(len(button["callback"].encode("utf-8")) <= 64 for button in first_buttons)
+        next_page = next(button["callback"] for button in first_buttons if button["text"] == "➡️ Далее")
+
+        second = runtime.handle_callback(101, next_page)
+        second_buttons = second["keyboard"]["buttons"]
+        assert "страница 2 из 2" in second["message"]
+        assert len(second_buttons) == 3
+        assert [button["text"] for button in second_buttons][-1] == "⬅️ Назад"
+        previous_page = second_buttons[-1]["callback"]
+        back = runtime.handle_callback(101, previous_page)
+        assert "страница 1 из 2" in back["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_supply_refresh_requires_exact_declared_id_and_never_exposes_it(tmp_path, monkeypatch):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    try:
+        _repository, history, transitions, report_import, runtime = _services(tmp_path)
+        class FakeRefresh:
+            def __init__(self):
+                self.calls = []
+
+            def refresh(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(
+                    status="COMPLETE", source_status="COMPLETE",
+                    actual_http_attempts=2, http_attempt_cap=10,
+                    elapsed_seconds=0.1, case_revision=8,
+                    source_fingerprint="a" * 64, issue_codes=(),
+                    status_snapshot=None, act_snapshot=None,
+                    continuation_token=None,
+                )
+
+        fake_refresh = FakeRefresh()
+        runtime.supply_refresh_service = fake_refresh
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        case_id = runtime._sessions["101"]["case_id"]
+        saved = transitions.declare_supply(
+            case_id=case_id, **IDENTITY,
+            reference_kind="SUPPLY", reference_id="700003",
+            declared_shipped_units=6982, dispatch_date="2026-11-05",
+            expected_case_revision=7, idempotency_key="tg-refresh-supply-1",
+        )
+        assert saved["error"] is False, saved
+        opened = runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки", case_id=case_id,
+            expected_case_revision=saved["case_revision"],
+        )
+        summary = runtime._show_summary("101")
+        refresh_callback = next(
+            item["callback"] for item in summary["keyboard"]["buttons"]
+            if item["text"] == "🔄 Обновить данные поставок"
+        )
+        choose = runtime.handle_callback(101, refresh_callback)
+        select = choose["keyboard"]["buttons"][0]["callback"]
+        assert "700003" not in select
+        prompt = runtime.handle_callback(101, select)
+        assert "700003" not in prompt["message"]
+
+        rejected = runtime.handle_text(101, "700004")
+        assert "Ozon не запрашивался" in rejected["message"]
+        assert fake_refresh.calls == []
+
+        refreshed = runtime.handle_text(101, "700003")
+        assert fake_refresh.calls[0]["reference_id"] == "700003"
+        assert "700003" not in refreshed["message"]
+        assert "COMPLETE" in refreshed["message"]
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
     finally:
         reset_current_tenant_user_id(tenant)
