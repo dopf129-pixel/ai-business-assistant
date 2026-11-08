@@ -1,4 +1,5 @@
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 
@@ -28,6 +29,9 @@ from services.fifo_cost_transition_contracts import (
 )
 from services.fifo_cost_transition_opening_proposal_service import (
     FifoCostTransitionOpeningProposalService,
+)
+from services.fifo_cost_transition_activation_proposal_service import (
+    FifoCostTransitionActivationProposalService,
 )
 from services.fifo_cost_transition_readiness_service import (
     FifoCostTransitionReadinessService,
@@ -476,6 +480,129 @@ def test_fl18_unlinked_or_partial_return_source_blocks_complete_through():
     assert result.complete_through is None
 
 
+def test_fl19_unknown_new_home_keeps_new_rate_without_creating_unbounded_stock():
+    case = _case()
+    opening = _proposal(case=case)
+    bridge = _build(case=case, proposal=opening)
+
+    proposal = FifoCostTransitionActivationProposalService().propose(
+        case=case, fifo_initialized=False,
+        opening_proposal=opening, cutoff_bridge=bridge,
+    )
+
+    assert proposal.status == "REVIEW_ONLY"  # price proposal is allowed; opening/replay remain incomplete
+    assert proposal.old_unit_cost_rub == Decimal("21.00")
+    assert proposal.new_unit_cost_rub == Decimal("14.65")
+    assert proposal.cost_components is None  # TOTAL_LANDED stays unbroken down
+    assert proposal.old_home_units == proposal.old_transit_units == 0
+    assert proposal.new_home_units is None
+    assert proposal.owner_declared_shipped_units == 6982
+    assert proposal.fifo_opening_units is None
+    assert proposal.accepted_supply_units_added_to_snapshot == 0
+    assert "NEW_HOME_QUANTITY_UNKNOWN" in proposal.requirements
+    assert "FIFO_OPENING_QUANTITY_REQUIRES_REPLAY" in proposal.requirements
+    assert "TURNOVER_REPORT_REQUIRED" in proposal.requirements
+    assert proposal.ready_to_apply is False
+    assert proposal.fifo_initialized is False
+    assert proposal.preview_only is True
+
+
+def test_fl19_review_candidate_preserves_buckets_and_never_adds_accepted_supply_twice():
+    case = _case()
+    stock = _stock_report()
+    opening = _proposal(case=case, stock=stock)
+    bridge = _build(case=case, proposal=opening, stock_evidence=stock)
+    proposal = FifoCostTransitionActivationProposalService().propose(
+        case=case, fifo_initialized=False,
+        opening_proposal=opening, cutoff_bridge=bridge,
+    )
+
+    assert proposal.status == "REVIEW_ONLY"
+    assert proposal.confirmed_stock_buckets == bridge.confirmed_stock_buckets
+    assert proposal.owner_declared_shipped_units == 6982
+    assert proposal.accepted_supply_units_added_to_snapshot == 0
+    assert proposal.new_home_units is None
+    assert proposal.fifo_opening_units is None
+    assert proposal.ready_to_apply is False
+    assert "FIFO_OPENING_QUANTITY_REQUIRES_REPLAY" in proposal.requirements
+    assert "TURNOVER_REPORT_REQUIRED" in proposal.requirements
+
+
+@pytest.mark.parametrize("change,expected", [
+    (lambda proposal: replace(proposal, case_revision=99), "OPENING_PROPOSAL_CASE_SCOPE_MISMATCH"),
+    (lambda proposal: replace(proposal, confirmed_cutoff_date="2026-11-06"), "OPENING_CUTOFF_MISMATCH"),
+])
+def test_fl19_stale_or_mismatched_opening_source_cannot_produce_review_ready(change, expected):
+    case = _case()
+    opening = change(_proposal(case=case))
+    bridge = _build(case=case, proposal=_proposal(case=case))
+
+    result = FifoCostTransitionActivationProposalService().propose(
+        case=case, fifo_initialized=False,
+        opening_proposal=opening, cutoff_bridge=bridge,
+    )
+
+    assert result.status == "SOURCE_BLOCKED"
+    assert expected in result.requirements
+    assert result.fifo_opening_units is None
+    assert result.ready_to_apply is False
+
+
+def test_fl19_existing_fifo_blocks_activation_and_keeps_candidate_rate_visible():
+    case = _case()
+    opening = _proposal(case=case)
+    bridge = _build(case=case, proposal=opening)
+
+    result = FifoCostTransitionActivationProposalService().propose(
+        case=case, fifo_initialized=True,
+        opening_proposal=opening, cutoff_bridge=bridge,
+    )
+
+    assert result.status == "SOURCE_BLOCKED"
+    assert result.new_unit_cost_rub == Decimal("14.65")
+    assert result.fifo_initialized is True
+    assert "FIFO_ALREADY_INITIALIZED" in result.requirements
+    assert result.ready_to_apply is False
+
+
+def test_fl19_cross_store_proposal_is_blocked_without_exposing_foreign_stock_or_watermark():
+    foreign_scope = ScopeIdentity(
+        "owner-test", "other-store", SCOPE.sku,
+        product_id=SCOPE.product_id, offer_id=SCOPE.offer_id,
+    )
+    foreign_case = replace(
+        _case(),
+        metadata=_metadata(EvidenceSourceKind.OWNER_INPUT, "foreign-case", scope=foreign_scope),
+        case_id="case_bridge_02",
+    )
+    stock = _stock_report(scope=foreign_scope)
+    opening = _proposal(case=foreign_case, stock=stock)
+    document = _document(case_id=foreign_case.case_id, scope=foreign_scope)
+    bridge = _build(
+        case=foreign_case,
+        proposal=opening,
+        stock_evidence=stock,
+        finance_batch=_finance_batch(scope=foreign_scope),
+        physical_sale_document=document,
+        owner_confirmation=_confirmation(
+            document, scope=foreign_scope, case_id=foreign_case.case_id,
+        ),
+        movement_coverage=_movement_coverage(scope=foreign_scope),
+    )
+
+    result = FifoCostTransitionActivationProposalService().propose(
+        case=_case(), fifo_initialized=False,
+        opening_proposal=opening, cutoff_bridge=bridge,
+    )
+
+    assert result.status == "SOURCE_BLOCKED"
+    assert "OPENING_PROPOSAL_CASE_SCOPE_MISMATCH" in result.requirements
+    assert "CUTOFF_BRIDGE_CASE_SCOPE_MISMATCH" in result.requirements
+    assert result.confirmed_stock_buckets == {}
+    assert result.cutoff_date is None
+    assert result.complete_through is None
+
+
 def test_fl18_owner_document_parser_rejects_extra_fields_and_untrusted_date_basis():
     payload = _document_payload()
     payload["physical_date_source"] = "accrual_date"
@@ -549,3 +676,14 @@ def test_fl18_production_transition_factory_uses_real_parser_normalizer_and_vali
 
     assert result["error"] is False
     assert result["result"].ready_for_fifo_event is True
+
+    opening = _proposal(case=case, stock=stock)
+    activation = transition_service.build_activation_proposal(
+        case=case, fifo_initialized=False, opening_proposal=opening,
+        cutoff_bridge=result["result"],
+    )
+    assert activation["error"] is False
+    assert activation["result"].new_unit_cost_rub == Decimal("14.65")
+    assert activation["result"].new_home_units is None
+    assert activation["result"].accepted_supply_units_added_to_snapshot == 0
+    assert activation["result"].ready_to_apply is False
