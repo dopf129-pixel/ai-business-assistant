@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL32: backup/restore preserves late-entry state
+
+- A normal backup/restore round-trip now has regression coverage for separate `DRAFT`, `AWAITING_EVIDENCE`, and `APPLIED` cases, a tenant-encrypted supply lookup, the current v14 schema, and a saved planning snapshot.
+- Restored case state and ciphertext remain readable. Supplying a wrong Fernet key fails to decrypt the token but does not delete the declaration or report “no supply”. Replaying the already committed confirmation returns the existing commit; all FIFO table counts remain unchanged.
+- Existing migrations v12→v13 and v13→v14 pass. All stateful fixtures remain in `tmp_path`; `data/` is unchanged. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+
 # 2026-11-08 — FIFO FL31: concurrent confirmation is regression-covered
 
 - FL31 audit found that atomic apply already uses a transaction and revision check, but its positive-path tests only exercised sequential retries. Added a synchronized competing-confirm test with two repository instances and distinct idempotency keys.

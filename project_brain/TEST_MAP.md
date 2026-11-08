@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL32 backup/restore and migration map
+
+- `tests/test_fifo_cost_backup_restore.py::test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply` round-trips DRAFT/AWAITING_EVIDENCE/APPLIED cases through the normal archive service, retains the encrypted reference, proves the wrong key does not turn a declaration into an absent supply, and verifies exact apply replay makes no new FIFO writes. Existing sibling backup test preserves a saved planning snapshot.
+- `tests/test_fifo_cost_transition_schema_v13.py` covers fresh schema v13 contract, v12→v13 migration rollback/foreign keys and v13→v14 cutoff-mapping migration; the late-entry round-trip exercises schema v14 in a tenant-scoped database.
+- Targeted backup/schema profile: **9 passed**; linked FIFO/Telegram/Period Profit profile: **583 passed in 26.48s**. Six `data/` files, 89,184 bytes, aggregate SHA-256 `602553deb79d4cca559df8a3b0e0c6d412a5aaf1aa8a2978362875d3820fb3ca` before and after. Temporary storage only.
+
 # 2026-11-08 — FIFO FL31 regression map
 
 - `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` synchronizes two independent repository instances at the same READY preview; verifies one commit and fail-closed CAS for the competing confirmation.

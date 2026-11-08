@@ -8,8 +8,8 @@
 
 ## Resume
 
-Следующий этап: FL32.
-Выполненных этапов:31/36 (FL00–FL31 VERIFIED на кодовых и синтетических проверках; далее FL32–FL35: backup/restart, документация, полный CI и PR delivery).
+Следующий этап: FL33.
+Выполненных этапов:32/36 (FL00–FL32 VERIFIED на кодовых и синтетических проверках; далее FL33–FL35: документация/owner acceptance, полный CI и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
@@ -52,7 +52,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL29 | History/refresh/cancel | VERIFIED | code `0bcb13d8cfd4704429a08999e7a014a2c4275e8a`; focused 69 passed in 6.40s; linked FIFO/Telegram/Period Profit 1086 passed in 44.07s; compileall/diff-check/data unchanged PASS; synthetic only |
 | FL30 | Числовая матрица | VERIFIED | `2dec7566` + `1c17f4df`; linked profile 1094 passed; acceptance/review profile 39 passed; compileall/diff/data-preservation PASS |
 | FL31 | Security/isolation/navigation | VERIFIED | code/test `cd2aeb2e`; atomic apply 11 passed; linked profile 582 passed in 26.33s; compileall, diff-check, tracked `data/` unchanged PASS |
-| FL32 | Backup/migration/restart | NOT_STARTED | — |
+| FL32 | Backup/migration/restart | VERIFIED | code/test `818df7b2`; backup/schema profile 9 passed; linked profile 583 passed in 26.48s; compileall/diff/data manifest PASS |
 | FL33 | Owner guide | NOT_STARTED | — |
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
@@ -380,6 +380,14 @@ Source readiness:
 - Existing coverage crosswalk: owner/store/SKU isolation — transition store/service and runtime tests; historical finance aliases — `test_fifo_cost_period_profit_source_service.py`; source fingerprint conflicts/repeated pages and acts — transition observation/reconciliation/refresh tests; TOTAL_LANDED and COMPONENTS plus wrong-store callback — Telegram transition runtime tests; stale confirm and input tampering — report importer/atomic apply tests; `/start`, CSV routing, calculator switch, ReturnInventory and external-expense preservation — `test_fifo_telegram_navigation_regressions.py` and linked history/import tests; malicious ZIP/XML, formula cells, duplicate headers, missing SKU, hidden sheets and bounded inputs — report and stock-management parser/worker tests.
 - Code/test commit: `cd2aeb2e` (`Cover concurrent FIFO transition confirms`). Atomic-apply file: **11 passed in 1.91s**. Linked FIFO/Telegram/Period Profit/navigation/external-expense profile: **582 passed in 26.33s**. `python -m compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. All tests use synthetic documents and `tmp_path`; no owner Downloads/database or live APIs were read.
 - No production code or contract changed; no architecture decision required. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Next: FL32 migration/backup/restart round-trip and data-integrity checks.
+
+## Выполнение FL32 — 2026-11-08
+
+- Добавлен обычный архивный backup/restore тест с late-entry cases в состояниях `DRAFT`, `AWAITING_EVIDENCE` и `APPLIED`, зашифрованной ссылкой поставки и текущей схемой v14. После восстановления все три статуса и тот же ciphertext доступны; plaintext lookup ID отсутствует в архивной БД. При проверке wrong-key decryption возвращает `None`, но declaration остаётся в manifest, не превращаясь в «поставка отсутствует».
+- Exact replay APPLIED confirmation после restore возвращает прежний `commit_id` и не меняет counts FIFO-таблиц (события, opening layers, rate, allocation, mapping и audit). Round-trip также сравнивает полные counts всех таблиц с префиксом `fifo_cost_` до/после.
+- Совместимость: `tests/test_fifo_cost_transition_schema_v13.py` подтверждает миграцию v12→v13, rollback/foreign keys и v13→v14; существующий backup round-trip подтверждает frozen saved-plan snapshot. Все stateful данные создаются только внутри `tmp_path`; проектная `data/` не трогалась.
+- Code/test commit: `818df7b2` (`Verify FIFO late-entry backup restore`). Targeted backup/schema: **9 passed in 1.54s**; linked FIFO/Telegram/Period Profit/navigation/external-expense profile: **583 passed in 26.48s**; compileall, `git diff --check`, tracked `data/` check PASS. Manifest до и после: 6 файлов, 89,184 bytes, SHA-256 `602553deb79d4cca559df8a3b0e0c6d412a5aaf1aa8a2978362875d3820fb3ca`.
+- Только тестовая интеграция; runtime contracts и бизнес-правила не менялись, новый ADR не нужен. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Next: FL33 — точная инструкция владельцу, required-document list, краткая безопасная диагностика и явное разделение кода от фактической приёмки.
 
 ## PR delivery
 

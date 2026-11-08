@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL32: late-entry backup and restore round-trip
+
+- Added a normal backup/restore integration regression containing concurrent late-entry cases in `DRAFT`, `AWAITING_EVIDENCE`, and `APPLIED`, including the encrypted supply lookup reference. The same test verifies a wrong Fernet key does not erase or relabel the declared supply as absent.
+- Restore keeps all FIFO table counts stable; an exact replay of the already-applied confirmation returns its original commit and creates no additional events, layers, rates, or allocations. Existing v12/v13 migration and saved-plan snapshot tests remain part of the suite.
+- Targeted backup/schema profile: **9 passed**; linked FIFO/Telegram/Period Profit profile: **583 passed in 26.48s**. The six-file `data/` manifest stayed at **89,184 bytes**, SHA-256 `602553deb79d4cca559df8a3b0e0c6d412a5aaf1aa8a2978362875d3820fb3ca`.
+
 # 2026-11-08 — FIFO FL31: concurrent confirmation and isolation regressions
 
 - Added a barrier-synchronized two-request confirmation regression using separate repository instances and idempotency keys. Exactly one late-entry transition may apply; the competing stale request returns a revision conflict, with one commit/allocation/rate and no duplicate stock or COGS events.
