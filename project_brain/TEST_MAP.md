@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO FL24 Telegram routing regressions
+
+- `tests/test_telegram_fifo_cost_history.py` verifies uninitialized card keeps anchor/zero-start while exposing late-entry and draft-list actions; TOTAL_LANDED/COMPONENTS mode routing; active transition blocks zero-start without FIFO writes; resume callback is opaque, bounded to Telegram's 64-byte limit, and rejected for another Telegram user.
+- FL24 linked FIFO/Telegram/Period Profit profile: **533 passed in 22.87s**. `compileall -q app tests`, `git diff --check`, and unchanged `data/` checks PASS. Test storage is synthetic temporary SQLite.
+
 # 2026-11-08 — FIFO FL23 atomic commit regressions
 
 - `tests/test_fifo_cost_transition_atomic_apply.py` uses a real temporary SQLite repository and the production cutoff bridge. It covers an uninitialized FIFO read-only preview, numeric N21 layers (`3×21.00 + 100×14.65`, sale 5, COGS `92.30`, remaining 98 at `14.65`), exact preview replay and conflicting payload, stale tax/bridge/stock/return evidence, and idempotent commit replay after TTL and tax-policy change.

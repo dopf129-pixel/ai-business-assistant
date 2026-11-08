@@ -307,10 +307,18 @@ Source readiness:
 - Результаты code SHA: dedicated FL23 **10 passed in 1.73s**; связанный `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **531 passed in 22.91s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только синтетические fixtures и временная SQLite; `.fl12-deps/` сохранён, `data/` не менялась; owner database/files, live APIs и бот не использовались.
 - Класс: **Architecture Review Required** — изменены repository authority/atomic commit contract, большой кодовый diff. `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`. Следующий этап FL24 — открыть путь к новой партии и незавершённым изменениям до настройки FIFO.
 
+## Выполнение FL24 — 2026-11-08
+
+- На карточке SKU с `queue_initialized=False` появились действия «Новая партия уже отправлена» и «Незавершённые изменения»; существующие начальный срез, нулевой старт и возврат сохранены. Кнопка поздней партии открывает выбор TOTAL_LANDED/COMPONENTS независимо от состояния очереди, передавая typed action для следующего этапа; инициализированная FIFO продолжает использовать прежний поздний путь.
+- Черновики читаются через production `FifoCostTransitionService.list_cases` внутри текущего tenant/store/SKU и дополнительно фильтруются по точному product/offer/SKU. Возобновление связывается с persisted case revision через owner-bound short-lived opaque token; Telegram callback не содержит SKU, case ID или поставочный ID. После перезапуска карточка может повторно получить список из durable repository.
+- Если есть активный transition case, нулевой старт отклоняется; при ошибке чтения проверка также закрывается отказом. При отсутствии transition service сохраняется существующий owner confirmation + точный FBO guard. Новых FIFO событий/слоёв, себестоимости, cutoff или profit writes не создаётся.
+- Изменены `app/services/telegram_fifo_cost_history_service.py`, production factory; добавлены 2 regressions в `tests/test_telegram_fifo_cost_history.py`. Code commit `ee98230286354e21e1f2cf5ca307391c97d6171f` (`Expose FIFO late-entry before initialization`). Целевой Telegram history file: **31 passed in 1.10s**; linked FIFO/Telegram/Period Profit profile **533 passed in 22.87s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Synthetic temporary SQLite; no owner files/DB, live APIs, or bot launch.
+- Класс: **Architecture Review Required** — production UI routing расширено, >300 строк с тестами, новая owner-bound callback lifecycle. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; проверена только synthetic regression. Далее FL25 — durable resumable wizard; текущие mode/resume actions будут подключены к runtime и после каждого meaningful step сохраняться в case revision.
+
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
 | 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
 | 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after FL20 documentation checkpoint; CI not yet queried | NOT_RUN |
-| 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | exact head of PR2 | planned | NOT_RUN |
+| 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | PR2 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | FL24 code `ee98230286354e21e1f2cf5ca307391c97d6171f`; documentation checkpoint pending | NOT_RUN |

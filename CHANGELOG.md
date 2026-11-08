@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO late-entry access before queue initialization (FL24)
+
+- The uninitialized FIFO card now exposes late-party entry and unfinished changes without hiding the transition behind `queue_initialized`. Initial anchor and zero-start actions remain available; an active scoped transition blocks zero-start. Existing FIFO/profit state is unchanged.
+- Added owner/tenant/SKU-bound opaque resume tickets for saved transition drafts. FL24 linked FIFO/Telegram/Period Profit profile: **533 passed**; compileall, diff-check and unchanged `data/` checks passed. Synthetic storage only; no live Ozon/Telegram calls or bot run.
+
 # 2026-11-08 — FIFO late-entry atomic apply
 
 - Added a single-transaction FIFO late-entry confirmation that seals source, tax and replay evidence, atomically writes the rate/allocation/projection and audit, and moves the case to `APPLIED`. Initial cutover remains preview-only until confirmation; retries are idempotent and partial writes roll back.

@@ -1,3 +1,9 @@
+# 2026-11-08 — FIFO FL24: переход к поздней партии до настройки очереди
+
+- Карточка SKU без FIFO теперь показывает «Новая партия уже отправлена» и «Незавершённые изменения», сохраняя доступ к прежнему начальному срезу и нулевому старту. Поздний сценарий не блокируется отсутствием очереди.
+- Список читает только активные cases точного store/SKU/offer/product scope и выдаёт временный owner-bound opaque resume callback. Незавершённый переход блокирует нулевой старт; при сбое чтения проверка закрывается безопасно. Ни FIFO, ни себестоимость отчётов/прибыль этим экраном не меняются.
+- FL24 code SHA `ee98230286354e21e1f2cf5ca307391c97d6171f`; связанный FIFO/Telegram/Period Profit профиль **533 passed in 22.87s**; compileall, `git diff --check`, `git diff --exit-code -- data` PASS. Только временная synthetic SQLite; owner DB, live API и bot не использовались. Следом FL25 — durable resumable wizard.
+
 # 2026-11-08 — FIFO FL23: атомарное применение позднего перехода
 
 - Добавлен транзакционный `commit_transition_case`: повторная проверка case/FIFO/allocation revisions, bridge, tax/evidence fingerprints, sealed preview, replay и idempotency; ставка, полная allocation/projection, commit audit и `APPLIED` фиксируются одним `BEGIN IMMEDIATE`.
