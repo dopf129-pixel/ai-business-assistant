@@ -1,8 +1,8 @@
 # 2026-11-08 — FIFO FL34–FL35: exact stack checks and review packet
 
 - Full isolated Windows pytest passed **5,104 tests in 75.99s** on integration code/test SHA `4771794e4372c5443ab65cee349d2e673508118e`. Compileall, diff-check and tracked `data/` integrity passed.
-- Exact-head Verify runs for PR #728 (`42433357867`) and PR #729 (`42480102151`) passed Windows/Linux verification and, on Linux, production Docker build/runtime smoke. The first PR #730 head (`4771794e`) also passed (`42480112108`); a review-packet commit advances PR #730 and requires a new exact-head run.
-- Added an independent review packet with stack refs, changed-files map, FL00–FL35 crosswalk, migration/rollback and positive atomic-commit review guidance, numeric controls and owner-data limitations. PR #730 remains draft until the new exact-head CI is green.
+- Exact-head Verify runs for PR #728 (`42433357867`) and PR #729 (`42480102151`) passed Windows/Linux verification and Linux production Docker smoke. PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed run [42480784925](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480784925) on both platforms and Docker smoke.
+- Added an independent review packet with stack refs, changed-files map, FL00–FL35 crosswalk, migration/rollback and positive atomic-commit review guidance, numeric controls and owner-data limitations. PRs #728–#730 were marked ready. This status commit advances PR #730 again; verify its latest exact-head run in the PR before merge.
 - The full-suite harness corrections were test-only: sync the current export projection, provide the production invalidation method in the factory test double, and inject one fixed clock into both concurrent confirmation repositories.
 
 # 2026-11-08 — FIFO FL33: owner late-entry guide and evidence checklist

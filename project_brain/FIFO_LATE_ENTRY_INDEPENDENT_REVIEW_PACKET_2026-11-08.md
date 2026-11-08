@@ -8,15 +8,15 @@ Execution log: [LUNA_FIFO_LATE_ENTRY_COMPLETION_PROGRESS_2026-11-07.md](LUNA_FIF
 
 ## Delivery stack and review boundary
 
-These are three dependent PRs. Review and merge them in order; do not merge a dependent PR before its base. The exact current PR #730 head and its current full-verification run are authoritative in the PR header/Checks and are repeated in the final handoff. An earlier green run on a superseded head is not evidence for a later head.
+These are three dependent PRs. Review and merge them in order; do not merge a dependent PR before its base. Exact current PR #730 head and its current full-verification run are authoritative in the PR header/Checks. An earlier green run on a superseded head is not evidence for a later head. This status-sync commit advances PR #730; check its newest exact-head run before merge.
 
 | PR | Scope | Base | Head at stack publication | Changed files | State |
 |---|---|---|---|---:|---|
-| [#728](https://github.com/dopf129-pixel/ai-business-assistant/pull/728) | FL00–FL11: foundation, case/evidence store, supply observations | `main` `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | 33 | Draft at review-package preparation; exact-head CI green |
-| [#729](https://github.com/dopf129-pixel/ai-business-assistant/pull/729) | FL12–FL23: reports, reconciliation, replay, atomic apply | PR #728 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | `7abf5d79d608bf377f79df3b425b50d73de4d81c` | 44 | Draft; exact-head CI green |
-| [#730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35: Telegram, consumers, Period Profit, acceptance and this packet | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Use the current PR #730 head; the review packet commit advances it | 48 after this packet | Draft; rerun CI after packet commit and use only the latest successful SHA |
+| [#728](https://github.com/dopf129-pixel/ai-business-assistant/pull/728) | FL00–FL11: foundation, case/evidence store, supply observations | `main` `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | 33 | Ready for review; exact-head CI green |
+| [#729](https://github.com/dopf129-pixel/ai-business-assistant/pull/729) | FL12–FL23: reports, reconciliation, replay, atomic apply | PR #728 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | `7abf5d79d608bf377f79df3b425b50d73de4d81c` | 44 | Ready for review; exact-head CI green |
+| [#730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35: Telegram, consumers, Period Profit, acceptance and this packet | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Use current PR #730 header SHA | 48 | Ready for review; exact-head CI is linked from the PR; verify after this status-sync commit |
 
-The branch PR1 head has GitHub Verify run [42433357867](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42433357867) with Windows verification and Linux full verification plus production Docker build/runtime smoke all successful. PR2 head run [42480102151](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480102151) has the same checks successful. The first integration head `4771794e4372c5443ab65cee349d2e673508118e` also passed run [42480112108](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480112108); that run is superseded when this packet is committed, so check PR #730's latest run for its new head.
+The branch PR1 head has GitHub Verify run [42433357867](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42433357867) with Windows verification and Linux full verification plus production Docker build/runtime smoke all successful. PR2 head run [42480102151](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480102151) has the same checks successful. Integration SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed [42480784925](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480784925); this status-sync commit advances PR #730 again, so use the newest successful run shown on that PR.
 
 ## Changed-files map
 

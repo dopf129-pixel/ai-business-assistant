@@ -8,12 +8,11 @@
 
 ## Resume
 
-Следующий этап: FL34 — дождаться exact-head GitHub Verify для новой review-packet головы PR #730; затем завершить FL35 и сверить latest run/status по текущим SHA всех трёх PR.
-Выполненных этапов:33/36; local FL34 verification VERIFIED on implementation code/test SHA `4771794e4372c5443ab65cee349d2e673508118e` (**5104 passed in 75.99s**, compileall/diff-check/tracked data PASS). PR #728 exact head `5b4f8588` run 42433357867 PASS; PR #729 exact head `7abf5d79` run 42480102151 PASS; initial PR #730 head `4771794e` run 42480112108 PASS. PR #730 has advanced with the review packet; that previous run is superseded and final-head CI is pending. FL35 packet created, but stage remains IN_PROGRESS pending final exact-head links/status.
+Следующий шаг: проверить newest Verify run на PR #730 после этого status/journal commit; использовать текущую голову и run, указанные в GitHub PR, как финальную CI-истину.
+Выполнены FL00–FL35; локальные и exact-head проверки подтверждены для SHA, указанных ниже. Status/journal commit сам продвигает PR #730 и требует новый Verify run; итоговый SHA и run для него читать из текущего PR. FL35 review packet committed, PRs #728–#730 готовы к review. Owner validation/source evidence остаются pending.
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; PR2 exact head — `7abf5d79d608bf377f79df3b425b50d73de4d81c`; текущая ветка `codex/fifo-late-entry-integration-20261107` основана на exact PR2 head. Последний код FL28 `5afe569d01313ea8ac15b0689a12314893238c38`; связанный FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. PRs not yet pushed; CI not run. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. Не переписывать старую ветку реализации #726.
-Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
-
+Стек PR: PR #728 `codex/fifo-late-entry-foundation-20261107` base main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`, head `5b4f85881301b8d5b4a7977d67fa59e13d2647db`; PR #729 base PR #728 head, own head `7abf5d79d608bf377f79df3b425b50d73de4d81c`; PR #730 base PR #729 head, current SHA shown in PR header. Exact run links for current heads are listed in PR descriptions/Checks. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`.
+Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись.
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
 
 ## Этапы
@@ -54,8 +53,8 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL31 | Security/isolation/navigation | VERIFIED | code/test `cd2aeb2e`; atomic apply 11 passed; linked profile 582 passed in 26.33s; compileall, diff-check, tracked `data/` unchanged PASS |
 | FL32 | Backup/migration/restart | VERIFIED | code/test `818df7b2`; backup/schema profile 9 passed; linked profile 583 passed in 26.48s; compileall/diff/data manifest PASS |
 | FL33 | Owner guide | VERIFIED | Updated owner guide, acceptance checklist and Decision 066 with exact source gaps; no code changes; live owner acceptance remains pending |
-| FL34 | Полный CI | IN_PROGRESS | Local full Windows suite on `4771794e4372c5443ab65cee349d2e673508118e`: **5104 passed in 75.99s**; compileall/diff/data PASS. PR #728 run `42433357867` and PR #729 run `42480102151` green, including Linux Docker smoke. Earlier PR #730 head run `42480112108` green but superseded by packet commit; final PR #730 run pending |
-| FL35 | Review handoff | IN_PROGRESS | `FIFO_LATE_ENTRY_INDEPENDENT_REVIEW_PACKET_2026-11-08.md` created; PRs #728/#729/#730 open in stack. Final exact PR #730 head and latest CI link remain to confirm |
+| FL34 | Полный CI | VERIFIED at recorded heads; newest PR #730 run must match current SHA | Local full Windows suite on `4771794e4372c5443ab65cee349d2e673508118e`: 5104 passed in 75.99s; compileall/diff/data PASS. PR #728 run `42433357867`, PR #729 run `42480102151`, PR #730 prior SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` run `42480784925` passed Windows/Linux full and Linux Docker smoke; this journal commit advances PR #730, so check its newest run |
+| FL35 | Review handoff | VERIFIED; confirm latest PR #730 exact-head CI | `FIFO_LATE_ENTRY_INDEPENDENT_REVIEW_PACKET_2026-11-08.md` committed; PRs #728/#729/#730 open and ready in the required stack; no PR merged |
 
 ## Выполнение FL29 — 2026-11-08
 
@@ -402,4 +401,4 @@ Source readiness:
 |---|---|---|---|---|---|
 | 1 / [PR #728](https://github.com/dopf129-pixel/ai-business-assistant/pull/728) | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | Verify `42433357867` PASS |
 | 2 / [PR #729](https://github.com/dopf129-pixel/ai-business-assistant/pull/729) | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | PR #728 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Verify `42480102151` PASS |
-| 3 / [PR #730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Latest PR #730 head (packet commit; see PR header) | Verify `42480112108` passed the superseded `4771794e` head; rerun for current head pending |
+| 3 / [PR #730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` before this status commit; current SHA is in PR #730 header | Verify `42480784925` green on `5178d501`; check latest run for current SHA |

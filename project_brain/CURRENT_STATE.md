@@ -1,8 +1,8 @@
 # 2026-11-08 — FIFO FL34–FL35: local verification green, final packet CI pending
 
 - Full isolated Windows pytest passed **5,104 tests in 75.99s** on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`; `compileall`, `git diff --check` and tracked `data/` diff passed. Remote Verify runs 42433357867 (PR #728), 42480102151 (PR #729), and 42480112108 (the earlier PR #730 head) passed Windows/Linux and production Docker smoke.
-- PRs #728–#730 are open as a dependent stack. A new independent review packet advances PR #730 beyond the SHA of run 42480112108, so that older run is explicitly not treated as final CI; the new PR #730 SHA must receive fresh green checks.
-- No runtime behavior changed in the verification/packet commits. Owner validation/source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
+- PRs #728–#730 are open and ready as a dependent stack. PR #728 and #729 exact heads are green; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed exact-head run 42480784925 (Windows/Linux full verification and production Docker smoke). This status/journal commit advances PR #730; its newest exact-head run is authoritative in the PR.
+- No runtime behavior changed in the verification/review-packet/status commits. Owner validation/source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
 
 # 2026-11-08 — FIFO FL33: owner instructions separate knowns from missing evidence
 

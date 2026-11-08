@@ -5,7 +5,7 @@
 - `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` now injects the same fake clock into both independent repositories, preventing its preview TTL from depending on wall time.
 - The first full-run failures were diagnosed and corrected without changing runtime behavior: eight came from test-harness storage/dependency isolation, two from stale fixtures, and the subsequent single race failure from mixing a frozen preview clock with system clocks. The updated deterministic race and export/factory tests pass.
 - Final isolated Windows pytest on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`: **5104 passed in 75.99s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Review packet: `project_brain/FIFO_LATE_ENTRY_INDEPENDENT_REVIEW_PACKET_2026-11-08.md`.
-- Exact-head Verify runs: PR #728 SHA `5b4f8588` run 42433357867 PASS; PR #729 SHA `7abf5d79` run 42480102151 PASS; initial PR #730 SHA `4771794e` run 42480112108 PASS. The packet commit advances PR #730; use its latest successful run for the actual final head.
+- Exact-head Verify runs: PR #728 SHA `5b4f8588` run 42433357867 PASS; PR #729 SHA `7abf5d79` run 42480102151 PASS; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` run 42480784925 PASS (Windows/Linux full verification and Linux Docker build/runtime smoke). This journal/status update advances PR #730; verify the newest exact-head run in its Checks.
 
 # 2026-11-08 — FIFO FL33 owner acceptance map
 
