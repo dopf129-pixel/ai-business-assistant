@@ -150,7 +150,10 @@ class FifoCostTransitionOpeningProposalService:
             issues.add("SUPPLY_RECONCILIATION_UNAVAILABLE")
         elif not isinstance(supply_reconciliation, FifoCostTransitionSupplyReconciliation):
             raise ValueError("FIFO_OPENING_PROPOSAL_INPUT_INVALID")
-        elif supply_reconciliation.scope != scope:
+        elif (
+            supply_reconciliation.scope != scope
+            or supply_reconciliation.case_id != case.case_id
+        ):
             issues.add("SUPPLY_RECONCILIATION_SCOPE_MISMATCH")
             blocked = True
         else:

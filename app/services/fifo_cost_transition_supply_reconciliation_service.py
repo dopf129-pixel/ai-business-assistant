@@ -122,9 +122,23 @@ class FifoStockReportSnapshotView:
 
 
 @dataclass(frozen=True, slots=True)
+class FifoSupplyAcceptanceConflictView:
+    """Redacted locator for a saved acceptance snapshot that cannot be bound safely."""
+
+    declaration_id: str
+    captured_at: str
+    source_as_of: str | None
+    source_fingerprint: str
+    issue_codes: tuple[str, ...]
+    acceptance_status: str
+    has_act_reference: bool
+
+
+@dataclass(frozen=True, slots=True)
 class FifoCostTransitionSupplyReconciliation:
     status: str
     scope: ScopeIdentity
+    case_id: str
     owner_declared_total: int | None
     known_declared_total: int
     owner_undistributed_units: int | None
@@ -134,6 +148,7 @@ class FifoCostTransitionSupplyReconciliation:
     source_as_of_coherence: str
     is_atomic_snapshot: bool
     issue_codes: tuple[str, ...]
+    acceptance_conflicts: tuple[FifoSupplyAcceptanceConflictView, ...]
 
 
 class FifoCostTransitionSupplyReconciliationService:
@@ -200,9 +215,10 @@ class FifoCostTransitionSupplyReconciliationService:
         observations_by_id = self._observations_by_declaration(
             observations, scope=scope, declaration_ids=set(current_declarations), issues=issues,
         )
+        acceptance_conflicts = []
         acceptances_by_id = self._acceptances_by_declaration(
             acceptance_snapshots, scope=scope, declarations=current_declarations,
-            issues=issues,
+            issues=issues, conflicts=acceptance_conflicts,
         )
         views = tuple(
             self._declaration_view(
@@ -219,6 +235,14 @@ class FifoCostTransitionSupplyReconciliationService:
             for view in views
         ):
             issues.add("OWNER_ACCEPTANCE_DECLARATION_MISMATCH")
+            for view in views:
+                if view.acceptance_declared_quantity_difference in (None, 0):
+                    continue
+                snapshots = acceptances_by_id.get(view.declaration_id, ())
+                if snapshots:
+                    acceptance_conflicts.append(self._acceptance_conflict_view(
+                        snapshots[-1], "OWNER_ACCEPTANCE_DECLARATION_MISMATCH",
+                    ))
         if any(view.observed_status is NormalizedSupplyStatus.UNKNOWN for view in views):
             issues.add("SUPPLY_STATUS_UNKNOWN")
         if any(view.acceptance_status in {"CONFLICT", "INVALID"} for view in views):
@@ -250,6 +274,7 @@ class FifoCostTransitionSupplyReconciliationService:
         return FifoCostTransitionSupplyReconciliation(
             status=status,
             scope=scope,
+            case_id=case_id,
             owner_declared_total=owner_declared_total,
             known_declared_total=known_total,
             owner_undistributed_units=undistributed,
@@ -259,6 +284,10 @@ class FifoCostTransitionSupplyReconciliationService:
             source_as_of_coherence=coherence,
             is_atomic_snapshot=False,
             issue_codes=tuple(sorted(issues)),
+            acceptance_conflicts=tuple(sorted(
+                acceptance_conflicts,
+                key=lambda item: (item.captured_at, item.source_fingerprint, item.declaration_id),
+            )),
         )
 
     @classmethod
@@ -306,8 +335,8 @@ class FifoCostTransitionSupplyReconciliationService:
             )
         return grouped
 
-    @staticmethod
-    def _acceptances_by_declaration(snapshots, *, scope, declarations, issues):
+    @classmethod
+    def _acceptances_by_declaration(cls, snapshots, *, scope, declarations, issues, conflicts):
         grouped = {}
         for item in snapshots:
             if not isinstance(item, FifoSupplyAcceptanceSnapshot):
@@ -321,7 +350,16 @@ class FifoCostTransitionSupplyReconciliationService:
                 or result.store_id != scope.store_id
             ):
                 issues.add("ACCEPTANCE_BINDING_CONFLICT")
+                conflicts.append(cls._acceptance_conflict_view(
+                    item, "ACCEPTANCE_BINDING_CONFLICT",
+                ))
                 continue
+            if result.status in {"CONFLICT", "INVALID"}:
+                issues.add("ACCEPTANCE_RECONCILIATION_CONFLICT")
+                conflicts.append(cls._acceptance_conflict_view(
+                    item,
+                    tuple(result.issue_codes) or ("ACCEPTANCE_RECONCILIATION_CONFLICT",),
+                ))
             grouped.setdefault(item.declaration_id, []).append(item)
         for declaration_id, rows in grouped.items():
             by_capture = {}
@@ -329,11 +367,31 @@ class FifoCostTransitionSupplyReconciliationService:
                 previous = by_capture.get(item.captured_at)
                 if previous is not None and previous != item:
                     issues.add("ACCEPTANCE_BINDING_CONFLICT")
+                    conflicts.append(cls._acceptance_conflict_view(
+                        previous, "ACCEPTANCE_BINDING_CONFLICT",
+                    ))
+                    conflicts.append(cls._acceptance_conflict_view(
+                        item, "ACCEPTANCE_BINDING_CONFLICT",
+                    ))
                 by_capture[item.captured_at] = item
             grouped[declaration_id] = sorted(
                 by_capture.values(), key=lambda item: item.captured_at,
             )
         return grouped
+
+    @staticmethod
+    def _acceptance_conflict_view(item, issue_codes):
+        if isinstance(issue_codes, str):
+            issue_codes = (issue_codes,)
+        return FifoSupplyAcceptanceConflictView(
+            declaration_id=item.declaration_id,
+            captured_at=item.captured_at,
+            source_as_of=item.source_as_of,
+            source_fingerprint=item.metadata.source_fingerprint,
+            issue_codes=tuple(sorted(set(issue_codes))),
+            acceptance_status=item.reconciliation.status,
+            has_act_reference=bool(item.reconciliation.act_reference_digests),
+        )
 
     @staticmethod
     def _declaration_view(declaration, observations, acceptances):

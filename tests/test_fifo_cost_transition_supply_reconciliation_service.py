@@ -295,6 +295,22 @@ def test_acceptance_with_wrong_declaration_digest_is_rejected_from_view():
     assert result.declarations[0].acceptance_status == "UNAVAILABLE"
     assert result.declarations[0].accepted_quantity is None
     assert "ACCEPTANCE_BINDING_CONFLICT" in result.issue_codes
+    assert len(result.acceptance_conflicts) == 1
+    assert result.acceptance_conflicts[0].source_fingerprint == source_fingerprint("accept-1")
+    assert result.acceptance_conflicts[0].source_as_of == "2026-11-08T10:01:00.000000Z"
+    assert result.acceptance_conflicts[0].has_act_reference is True
+
+
+def test_acceptance_quantity_mismatch_preserves_redacted_conflict_locator():
+    result = _reconcile(acceptance_snapshots=(
+        _acceptance(declared=150),
+    ))
+
+    assert "OWNER_ACCEPTANCE_DECLARATION_MISMATCH" in result.issue_codes
+    assert len(result.acceptance_conflicts) == 1
+    assert result.acceptance_conflicts[0].issue_codes == (
+        "OWNER_ACCEPTANCE_DECLARATION_MISMATCH",
+    )
 
 
 def test_wrong_scope_stock_report_is_not_included():
