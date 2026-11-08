@@ -1,4 +1,10 @@
 
+# 2026-11-08 — Предпросмотр начального FIFO-среза (FL16)
+
+- Добавлен чистый opening proposal для owner review. Он показывает отдельные stock report buckets, поставки/статусы, оборотные totals и движения, даты периода, provenance и разрыв данных; не сводит доступный остаток, товары у покупателей, возвраты, товары в пути и старые owner-факты в одну цифру.
+- Проверенный пример сохраняет 1 191 available (FBS-return 9 остаётся подмножеством), planned 600, transit 6 234; поставка 148 RECEIVING остаётся отдельно. Оборотная ведомость показывает opening 4 492, redeemed 775, non-sale 5, withdrawal 5, closing 3 712 с delivery 1 646 / returns 70; candidate-период из имени не считается подтверждённым покрытием.
+- Любой preview остаётся `preview_only`, `ready_to_apply=False`, `fifo_opening_units=None`, `is_atomic_snapshot=False`; FIFO status/queue не меняется. FL16: **83 linked passed**, полный FIFO/Telegram профиль **458 passed**, compileall/diff/data-preservation PASS.
+
 # 2026-11-08 — Раздельная сверка FIFO-поставок (FL15)
 
 - Добавлен чистый read-only reconciler owner declarations, наблюдений статуса, принятых количеств и отдельных снимков остатков из отчёта. Он сохраняет capture/source-as-of и provenance каждого источника; сводный результат всегда помечен как неатомарный.

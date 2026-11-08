@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL16.
-Выполненных этапов:16/36 (FL00–FL15 VERIFIED на кодовых и синтетических проверках; далее FL16–FL35: opening proposal, readiness, cutoff bridge, impact/replay/atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL17.
+Выполненных этапов:17/36 (FL00–FL16 VERIFIED на кодовых и синтетических проверках; далее FL17–FL35: readiness, cutoff bridge, impact/replay/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL15 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code checkpoint `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`, документационный checkpoint последует отдельным commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL16 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code checkpoint `a33a0792bf3142924af280c39d32df2fd7ea0b9d`, documentation checkpoint последует отдельным commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -36,7 +36,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL13 | Остатки parser | VERIFIED | code `52a5b9fb3b3cf605b8c500003d48d254f1453337`; parser modules 35 passed (22 FL12 + 13 FL13); linked FIFO/Telegram FIFO 423 passed; compileall/diff-check/data unchanged PASS |
 | FL14 | Контекстный XLSX import | VERIFIED | `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused 47 passed; linked FIFO/Telegram/seller-cost/returns 462 passed; compileall/diff-check/data unchanged PASS |
 | FL15 | Сверка поставок | VERIFIED | `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; focused 74 passed in 3.39s; FIFO/Telegram profile 449 passed in 20.34s; compileall/diff-check/data unchanged PASS |
-| FL16 | Proposal opening | NOT_STARTED | — |
+| FL16 | Proposal opening | VERIFIED | `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; focused 83 passed in 3.65s; FIFO/Telegram profile 458 passed in 20.20s; compileall/diff-check/data unchanged PASS |
 | FL17 | Readiness и missing evidence | NOT_STARTED | — |
 | FL18 | Cutoff bridge | NOT_STARTED | — |
 | FL19 | Начальная активация proposal | NOT_STARTED | — |
@@ -233,6 +233,15 @@ Source readiness:
 - Добавлен `tests/test_fifo_cost_transition_supply_reconciliation_service.py`; **13 новых regressions**. FL15 плюс observations, bounded refresh, acceptance reconciliation, stock management и turnover parser profile: **74 passed in 3.39s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Контроль синтетический; owner files/DB/live APIs не использовались.
 - Code commit `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a` (`Reconcile FIFO supply evidence by source`). FL15 + linked source/parser tests **74 passed in 3.39s**; complete FIFO/Telegram regression profile **449 passed in 20.34s**; compileall/diff-check/data-preservation PASS. Контроль синтетический; owner files/DB/live APIs не использовались.
 - Сервис является чистым архитектурным расширением и требует независимого architecture review согласно репозиторным правилам (>300 изменённых строк / новый service). Следующий этап — FL16: proposal начального среза без изменения текущего режима.
+## Выполнение FL16 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionOpeningProposalService`. Он выводит owner review report snapshots и supply declaration/status/acceptance отдельно, сохраняет old-home=0 / old-transit=0 и new-home unknown как разные owner facts, и никогда не подменяет их единым остатком.
+- Контроль: 148 owner-linked RECEIVING остаётся отдельным declaration с accepted/pending unknown; stock XLSX содержит отдельные `supplier_planned=600`, `supplier_transit=6234`, `available=1191`, FBS-return 9 как subset. Эти снимки не складываются и не превращаются в общий confirmed accepted.
+- Turnover report сохраняет `opening_total=4492`, `receipts=0`, `expenses=780` (redeemed 775, non-sale 5), `closing=3712`, withdrawals=5, closing buyer delivery=1646 и buyer return transit=70, balance diff=0. `fifo_opening_units` остаётся `None`; нет признания closing total физическим FIFO остатком без cutoff bridge.
+- Период из имени файла остаётся candidate и выдаёт только candidate gap; owner-confirmed period может показать evidence gap. Owner-confirmed cutoff — отдельный input; неверный/отсутствующий cutoff не выводится из имени отчёта. Уже initialized FIFO блокирует proposal. Proposal содержит `preview_only=True`, `ready_to_apply=False`, `is_atomic_snapshot=False`; база, FIFO режим, прибыль и owner данные не меняются.
+- Добавлено 9 synthetic regressions в `tests/test_fifo_cost_transition_opening_proposal_service.py`. FL16 и связанные supply/stock/turnover проверки: **83 passed in 3.65s**; полный FIFO/Telegram профиль **458 passed in 20.20s**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS.
+- Code commit `a33a0792bf3142924af280c39d32df2fd7ea0b9d` (`Add FIFO opening review proposal`). Новый сервис превышает порог review (>300 изменённых строк), поэтому включить в пакет независимого architecture review. Следующий этап — FL17: deterministic readiness и missing evidence queue.
+
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |

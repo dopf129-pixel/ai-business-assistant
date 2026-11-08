@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO opening proposal regressions (FL16)
+
+- `tests/test_fifo_cost_transition_opening_proposal_service.py` covers the 148 RECEIVING owner-linked declaration with the separate 600 planned/6,234 transit report buckets; 1,191 available with FBS return 9 as a subset; 4,492/3,712 turnover controls and 775 sales + 5 non-sale outflow; buyer delivery/returns; unconfirmed candidate dates; exact owner cutoff; missing period; unbalanced/partial report; uninitialized-FIFO guard; and multiple snapshots not combined.
+- FL16 + linked FL15/report parser profile: **83 passed**; complete FIFO/Telegram profile: **458 passed**. The proposal is pure/read-only and cannot produce a FIFO opening quantity.
+
 # 2026-11-08 — FIFO supply evidence reconciliation (FL15)
 
 - `tests/test_fifo_cost_transition_supply_reconciliation_service.py` covers the synthetic 6,982 control with separate 148 RECEIVING, 600 supplier-planned, and 6,234 supplier-transit evidence; no fictitious acceptance/atomic snapshot; MISSING retaining last-known values; pending versus final discrepancy; owner/API mismatches; unknown quantities; scope and timestamp conflicts; and declaration revisions.
