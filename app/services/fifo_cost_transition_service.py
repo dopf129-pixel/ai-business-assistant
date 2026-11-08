@@ -281,6 +281,17 @@ class FifoCostTransitionService:
             store_id=store_id, sku=sku, states=states, limit=limit,
         )
 
+    def read_case_history(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        limit=100, before_revision=None,
+    ):
+        """Read bounded, redacted case revisions for the exact owner/store/SKU."""
+        return self.repository.read_transition_case_history(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, limit=limit,
+            before_revision=before_revision,
+        )
+
     def declare_supply(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         reference_kind, reference_id, declared_shipped_units,

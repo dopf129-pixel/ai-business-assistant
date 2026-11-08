@@ -3,6 +3,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from threading import Barrier
 
+from cryptography.fernet import Fernet
+
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_contracts import (
@@ -84,7 +86,10 @@ def _service(tmp_path):
     )
 
 
-def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path):
+def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
     tenant = set_current_tenant_user_id(OWNER_SCOPE)
     try:
         repository, service = _service(tmp_path)
@@ -106,7 +111,7 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path):
         }
 
         changed = replace(
-            _case(revision=2, updated_at="2026-11-08T11:00:00Z"),
+            _case(revision=2, updated_at="2026-11-08T13:00:00Z"),
             state=TransitionState.AWAITING_EVIDENCE,
             new_home_quantity=17,
             unknown_values={},
@@ -136,15 +141,27 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path):
         assert durable["case_revision"] == 2
         assert durable["case"]["new_home_quantity"] == 17
 
+        declaration = restarted.declare_supply(
+            case_id="case_000001", **IDENTITY,
+            reference_kind="SUPPLY", reference_id="987654321",
+            declared_shipped_units=148, dispatch_date="2026-11-05",
+            expected_case_revision=2, idempotency_key="declare-transition-001",
+        )
+        assert declaration["error"] is False, declaration
+        assert declaration["case_revision"] == 3
+        assert restarted.get_case(
+            case_id="case_000001", **IDENTITY,
+        )["case"]["updated_at"] == "2026-11-08T13:00:00.000000Z"
+
         cancelled = restarted.cancel_case(
-            case_id="case_000001", **IDENTITY, expected_revision=2,
+            case_id="case_000001", **IDENTITY, expected_revision=3,
             idempotency_key="cancel-transition-001",
         )
         assert cancelled["error"] is False, cancelled
-        assert cancelled["case_revision"] == 3
+        assert cancelled["case_revision"] == 4
         assert cancelled["state"] == "CANCELLED"
         repeated_cancel = restarted.cancel_case(
-            case_id="case_000001", **IDENTITY, expected_revision=2,
+            case_id="case_000001", **IDENTITY, expected_revision=3,
             idempotency_key="cancel-transition-001",
         )
         assert repeated_cancel["error"] is False
@@ -153,6 +170,38 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path):
         assert restarted.list_cases(
             store_id=IDENTITY["store_id"], states=("CANCELLED",),
         )["count"] == 1
+        durable_history = restarted.read_case_history(
+            case_id="case_000001", **IDENTITY, limit=100,
+        )
+        assert durable_history["error"] is False, durable_history
+        assert [item["state"] for item in durable_history["items"]] == [
+            "DRAFT", "AWAITING_EVIDENCE", "AWAITING_EVIDENCE", "CANCELLED",
+        ]
+        assert durable_history["items"][-1]["case_revision"] == 4
+        assert "987654321" not in repr(durable_history)
+        assert "case_000001" not in repr(durable_history)
+        newest_page = restarted.read_case_history(
+            case_id="case_000001", **IDENTITY, limit=2,
+        )
+        assert [item["case_revision"] for item in newest_page["items"]] == [3, 4]
+        assert newest_page["has_more"] is True
+        older_page = restarted.read_case_history(
+            case_id="case_000001", **IDENTITY, limit=2,
+            before_revision=newest_page["next_before_revision"],
+        )
+        assert [item["case_revision"] for item in older_page["items"]] == [1, 2]
+        assert older_page["has_more"] is False
+        assert restarted.read_case_history(
+            case_id="case_000001", **IDENTITY, limit=101,
+        )["code"] == "FIFO_TRANSITION_LIMIT_INVALID"
+        declaration_evidence = restarted.repository.read_transition_evidence(
+            case_id="case_000001", **IDENTITY,
+            kind="SUPPLY_DECLARATION", limit=100,
+        )
+        assert declaration_evidence["error"] is False, declaration_evidence
+        assert len(declaration_evidence["items"]) == 1
+        assert declaration_evidence["items"][0]["lookup_reference_available"] is True
+        assert "encrypted_lookup_reference" not in declaration_evidence["items"][0]
 
         # Cancellation closes the active transition slot without deleting its audit.
         next_case = replace(
@@ -171,7 +220,7 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path):
             assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
             assert connection.execute(
                 "SELECT COUNT(*) FROM fifo_cost_transition_case_revisions"
-            ).fetchone()[0] == 4
+            ).fetchone()[0] == 5
         finally:
             connection.close()
     finally:

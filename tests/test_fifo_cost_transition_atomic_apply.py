@@ -292,6 +292,17 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
 ):
     repository, tenant, stock, bridge, impact, _cutover, prepared, _clock = _prepared_repository(tmp_path)
     try:
+        connection = repository.get_connection()
+        try:
+            preview_before = tuple(connection.execute(
+                """SELECT case_revision, fifo_revision, allocation_revision,
+                          evidence_set_fingerprint, tax_policy_fingerprint,
+                          preview_fingerprint, expires_at, payload_json
+                   FROM fifo_cost_transition_previews WHERE preview_id=?""",
+                (prepared["preview_id"],),
+            ).fetchone())
+        finally:
+            connection.close()
         changed_stock = replace(
             stock,
             file_sha256=source_fingerprint("atomic-initial-stock-updated"),
@@ -302,6 +313,18 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
             idempotency_key="stock-evidence-after-preview-1",
         )
         assert appended["error"] is False
+        connection = repository.get_connection()
+        try:
+            preview_after = tuple(connection.execute(
+                """SELECT case_revision, fifo_revision, allocation_revision,
+                          evidence_set_fingerprint, tax_policy_fingerprint,
+                          preview_fingerprint, expires_at, payload_json
+                   FROM fifo_cost_transition_previews WHERE preview_id=?""",
+                (prepared["preview_id"],),
+            ).fetchone())
+        finally:
+            connection.close()
+        assert preview_after == preview_before
         result = _commit(repository, bridge, impact, prepared)
         assert result["error"] is True
         assert result["code"] == "FIFO_TRANSITION_REVISION_CONFLICT"
@@ -393,6 +416,44 @@ def test_uninitialized_fifo_preview_is_read_only_and_atomic_cutover_applies_once
             offer_id=SCOPE.offer_id, sku=SCOPE.sku,
         )
         assert applied["state"] == "APPLIED"
+        applied_case = replace(
+            _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE),
+            metadata=replace(
+                _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE).metadata,
+                scope=SCOPE,
+            ),
+            case_revision=applied["case_revision"],
+            state=TransitionState.APPLIED,
+            updated_at="2026-11-08T12:00:00Z",
+        )
+        attempted_overwrite = replace(
+            applied_case, case_revision=applied["case_revision"] + 1,
+            state=TransitionState.AWAITING_EVIDENCE,
+            new_unit_cost_rub="15.00",
+            updated_at="2026-11-08T12:01:00Z",
+        )
+        rejected_overwrite = repository.save_transition_case(
+            case=attempted_overwrite,
+            expected_revision=applied["case_revision"],
+            idempotency_key="applied-case-overwrite-01",
+        )
+        assert rejected_overwrite["code"] == "FIFO_TRANSITION_CASE_NOT_READY"
+        correction = replace(
+            applied_case, case_id="transition-correction-0001", case_revision=1,
+            state=TransitionState.DRAFT,
+            created_at="2026-11-08T12:02:00Z",
+            updated_at="2026-11-08T12:02:00Z",
+            supersedes_case_id=CASE_ID,
+        )
+        correction_saved = repository.save_transition_case(
+            case=correction, expected_revision=0,
+            idempotency_key="applied-case-correction-01",
+        )
+        assert correction_saved["error"] is False, correction_saved
+        assert repository.read_transition_case(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )["state"] == "APPLIED"
         assert _table_counts(repository)["fifo_cost_allocations"] == 1
         assert _table_counts(repository)["fifo_cost_rate_changes"] == 1
         mapping = repository.read_cutoff_sale_mapping_set(

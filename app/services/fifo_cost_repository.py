@@ -261,6 +261,39 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def read_transition_case_history(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        limit=100, before_revision=None,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return self._error("FIFO_TRANSITION_LIMIT_INVALID")
+        if before_revision is not None and (
+            type(before_revision) is not int or before_revision < 2
+        ):
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_case_history(
+                connection, case_id, scope, identity,
+                limit=limit, before_revision=before_revision,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
     def append_supply_declaration(
         self, *, declaration, expected_case_revision, idempotency_key,
     ):

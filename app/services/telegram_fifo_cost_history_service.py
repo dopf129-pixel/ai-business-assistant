@@ -80,10 +80,15 @@ class TelegramFifoCostHistoryService:
             "open", "history", "new", "late", "correct", "sku",
             "anchor", "zero_rate", "cancel_rate", "confirm_rate_cancel", "export",
             "drafts", "late_total", "late_components", "resume",
+            "transition_cases", "case_history", "case_history_page",
         }:
             return {"error": False, "handled": False, "read_only_ozon": True}
         if action == "resume":
             return self._resume_transition_case(owner, token)
+        if action == "case_history":
+            return self._render_transition_case_history(owner, token)
+        if action == "case_history_page":
+            return self._render_transition_case_history(owner, token)
         ticket = self._validated_ticket(owner, token)
         if isinstance(ticket, dict) and ticket.get("error") is True:
             return ticket
@@ -178,6 +183,8 @@ class TelegramFifoCostHistoryService:
             }
         if action == "drafts":
             return self._render_transition_drafts(ticket)
+        if action == "transition_cases":
+            return self._render_transition_cases(ticket)
         if action == "correct":
             return self._message_result(
                 "Исправление сохранённой записи пока недоступно. Старую запись нельзя заменить "
@@ -262,7 +269,14 @@ class TelegramFifoCostHistoryService:
         expected = ticket["identity"]
         cases = []
         for item in result.get("cases", ()):
-            payload = item.get("case") if isinstance(item, dict) else None
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("case_id"), str)
+                or type(item.get("case_revision")) is not int
+                or item.get("state") not in {"DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"}
+            ):
+                return None
+            payload = item.get("case")
             metadata = payload.get("metadata") if isinstance(payload, dict) else None
             scope = metadata.get("scope") if isinstance(metadata, dict) else None
             if not isinstance(item, dict) or not isinstance(scope, dict):
@@ -357,11 +371,185 @@ class TelegramFifoCostHistoryService:
                     "callback": f"{self.CALLBACK_PREFIX}:resume:{token}",
                 })
             buttons.append({"text": "➕ Новая партия отправлена", "callback": f"{self.CALLBACK_PREFIX}:late:{ticket['token']}"})
+        if self.transition_service is not None:
+            buttons.append({
+                "text": "📜 История изменений",
+                "callback": f"{self.CALLBACK_PREFIX}:transition_cases:{ticket['token']}",
+            })
         buttons.append({"text": "↩️ К SKU", "callback": f"{self.CALLBACK_PREFIX}:sku:{ticket['token']}"})
         return {
             "error": False,
             "handled": True,
             "message": message,
+            "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
+            "read_only_ozon": True,
+        }
+
+    def _render_transition_cases(self, ticket):
+        if self.transition_service is None:
+            return self._message_result(
+                "История переходов FIFO пока недоступна. Сохранённые данные не изменены.",
+                ticket["token"],
+            )
+        result = self.transition_service.list_cases(
+            store_id=ticket["identity"]["store_id"],
+            sku=ticket["identity"]["sku"],
+            states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED"),
+            limit=100,
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._message_result(
+                "Не удалось безопасно прочитать историю изменений. Данные не изменены.",
+                ticket["token"],
+            )
+        expected = ticket["identity"]
+        cases = []
+        for item in result.get("cases", ()):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("case_id"), str)
+                or type(item.get("case_revision")) is not int
+                or item.get("state") not in {
+                    "DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM",
+                    "APPLIED", "CANCELLED",
+                }
+            ):
+                return self._message_result(
+                    "В истории обнаружена повреждённая запись. История не показана.",
+                    ticket["token"],
+                )
+            payload = item.get("case")
+            metadata = payload.get("metadata") if isinstance(payload, dict) else None
+            scope = metadata.get("scope") if isinstance(metadata, dict) else None
+            if not isinstance(scope, dict):
+                return self._message_result(
+                    "В истории обнаружены неполные данные области. История не показана.",
+                    ticket["token"],
+                )
+            if all(scope.get(key) == expected.get(key) for key in (
+                "store_id", "product_id", "offer_id", "sku",
+            )):
+                cases.append(item)
+        if not cases:
+            return self._message_result(
+                "Для этого SKU нет сохранённых переходов FIFO.", ticket["token"],
+            )
+        lines = [
+            f"📜 История изменений · {ticket['display_name']} · SKU {ticket['sku']}",
+            "Каждая запись сохранена отдельно; применённые суммы не перезаписываются.",
+        ]
+        buttons = []
+        owner = ticket.get("owner_key")
+        if not owner:
+            return self._stale_ticket()
+        now = monotonic()
+        for index, item in enumerate(cases[:20], start=1):
+            payload = item.get("case") or {}
+            lines.append(
+                f"{index}. {item.get('state')} · редакция {item.get('case_revision')} · "
+                f"отправка {payload.get('dispatch_date') or 'дата не указана'} · "
+                f"новая стоимость {payload.get('new_unit_cost_rub') or 'не указана'} ₽/шт."
+            )
+            case_token = uuid4().hex[:12]
+            with self._lock:
+                self._purge_expired(now)
+                self._case_tickets[(owner, case_token)] = {
+                    "tenant_scope": ticket["tenant_scope"],
+                    "identity": dict(ticket["identity"]),
+                    "display_name": ticket["display_name"],
+                    "case_id": item["case_id"],
+                    "history_before_revision": None,
+                    "parent_token": ticket["token"],
+                    "expires_at": now + self.TTL_SECONDS,
+                }
+                while len(self._case_tickets) > self.MAX_TICKETS:
+                    oldest = min(
+                        self._case_tickets,
+                        key=lambda key: self._case_tickets[key]["expires_at"],
+                    )
+                    self._case_tickets.pop(oldest, None)
+            buttons.append({
+                "text": f"Открыть историю {index} · {item.get('state')}",
+                "callback": f"{self.CALLBACK_PREFIX}:case_history:{case_token}",
+            })
+        if result.get("has_more") or len(cases) > 20:
+            lines.append(
+                f"Показаны последние 20 из {len(cases)} прочитанных переходов; "
+                "чтение ограничено 100 записями. ID поставок скрыты."
+            )
+        buttons.append({"text": "↩️ Назад", "callback": f"{self.CALLBACK_PREFIX}:drafts:{ticket['token']}"})
+        return {
+            "error": False, "handled": True, "message": "\n".join(lines),
+            "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
+            "read_only_ozon": True,
+        }
+
+    def _render_transition_case_history(self, owner, token):
+        if owner is None or not token or self.transition_service is None:
+            return self._stale_ticket()
+        now = monotonic()
+        with self._lock:
+            self._purge_expired(now)
+            ticket = self._case_tickets.get((owner, token))
+        if (
+            not isinstance(ticket, dict)
+            or ticket.get("tenant_scope") != self._tenant_scope()
+        ):
+            return self._stale_ticket()
+        result = self.transition_service.read_case_history(
+            case_id=ticket["case_id"], **ticket["identity"],
+            limit=20, before_revision=ticket.get("history_before_revision"),
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._message_result(
+                "Не удалось безопасно открыть историю. Данные не изменены.",
+                ticket.get("parent_token") or "",
+            )
+        items = result.get("items")
+        if not isinstance(items, list):
+            return self._message_result(
+                "История содержит неполные данные и не показана.",
+                ticket.get("parent_token") or "",
+            )
+        lines = [
+            f"📜 История перехода FIFO · {ticket['display_name']}",
+            f"SKU: {ticket['identity']['sku']} · показаны сохранённые редакции",
+        ]
+        labels = {
+            "DRAFT": "черновик", "AWAITING_EVIDENCE": "ожидает данных",
+            "READY_TO_CONFIRM": "preview подтверждения", "APPLIED": "применено",
+            "CANCELLED": "отменено",
+        }
+        for item in items:
+            lines.append(
+                f"Редакция {item['case_revision']} · {labels.get(item['state'], item['state'])} · "
+                f"{item.get('updated_at') or item.get('created_at')} · "
+                f"новая себестоимость {item.get('new_unit_cost_rub') or 'не указана'} ₽/шт."
+            )
+        buttons = []
+        if result.get("has_more") and type(result.get("next_before_revision")) is int:
+            next_token = uuid4().hex[:12]
+            next_ticket = dict(ticket)
+            next_ticket["history_before_revision"] = result["next_before_revision"]
+            next_ticket["expires_at"] = now + self.TTL_SECONDS
+            with self._lock:
+                self._case_tickets[(owner, next_token)] = next_ticket
+                while len(self._case_tickets) > self.MAX_TICKETS:
+                    oldest = min(
+                        self._case_tickets,
+                        key=lambda key: self._case_tickets[key]["expires_at"],
+                    )
+                    self._case_tickets.pop(oldest, None)
+            buttons.append({
+                "text": "← Более ранние редакции",
+                "callback": f"{self.CALLBACK_PREFIX}:case_history_page:{next_token}",
+            })
+        buttons.append({
+            "text": "↩️ К списку",
+            "callback": f"{self.CALLBACK_PREFIX}:transition_cases:{ticket.get('parent_token', '')}",
+        })
+        return {
+            "error": False, "handled": True, "message": "\n".join(lines),
             "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
             "read_only_ozon": True,
         }
@@ -493,16 +681,6 @@ class TelegramFifoCostHistoryService:
             or len(layers) + len(rates) > 10_000
         ):
             return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_LIMIT", "message": "История слишком большая или неполная; файл не сформирован.", "read_only_ozon": True}
-        stream = io.StringIO(newline="")
-        writer = csv.writer(stream, delimiter=";")
-        writer.writerow((
-            "Режим", "SKU", "Тип записи", "Порядок", "Действует с",
-            "Количество", "Место", "Себестоимость за шт., ₽",
-            "Режим разбивки", "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
-            "Подтверждение", "Состояние источника", "Полнота источника",
-            "Ревизия FIFO", "Ревизия распределения", "Дата cutoff",
-            "Ссылка строки",
-        ))
         allocation = snapshot.get("latest_allocation")
         allocation_revision = (
             allocation.get("revision") if isinstance(allocation, dict) else None
@@ -514,6 +692,83 @@ class TelegramFifoCostHistoryService:
             "allocation_revision": allocation_revision,
             "cutoff_date": snapshot.get("cutoff_date") or "",
         }
+        transition_rows = []
+        if self.transition_service is not None:
+            cases_result = self.transition_service.list_cases(
+                store_id=ticket["identity"]["store_id"],
+                sku=ticket["identity"]["sku"],
+                states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED"),
+                limit=100,
+            )
+            if not isinstance(cases_result, dict) or cases_result.get("error") is not False:
+                return {"error": True, "handled": True, "code": "FIFO_HISTORY_TRANSITION_UNAVAILABLE", "message": "История переходов недоступна; файл не сформирован.", "read_only_ozon": True}
+            if cases_result.get("has_more"):
+                return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_LIMIT", "message": "Переходов больше безопасного лимита. Файл не сформирован; откройте историю по выбранному SKU.", "read_only_ozon": True}
+            expected = ticket["identity"]
+            for case_ordinal, case_item in enumerate(cases_result.get("cases", ()), start=1):
+                case_payload = case_item.get("case") if isinstance(case_item, dict) else None
+                metadata = case_payload.get("metadata") if isinstance(case_payload, dict) else None
+                scope = metadata.get("scope") if isinstance(metadata, dict) else None
+                if not isinstance(scope, dict):
+                    return {"error": True, "handled": True, "code": "FIFO_HISTORY_TRANSITION_INVALID", "message": "История содержит неполные данные; файл не сформирован.", "read_only_ozon": True}
+                if not all(scope.get(key) == expected.get(key) for key in (
+                    "store_id", "product_id", "offer_id", "sku",
+                )):
+                    continue
+                case_history = self.transition_service.read_case_history(
+                    case_id=case_item["case_id"], **expected, limit=100,
+                )
+                if not isinstance(case_history, dict) or case_history.get("error") is not False:
+                    return {"error": True, "handled": True, "code": "FIFO_HISTORY_TRANSITION_UNAVAILABLE", "message": "История переходов неполна; файл не сформирован.", "read_only_ozon": True}
+                if case_history.get("has_more"):
+                    return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_LIMIT", "message": "История одного перехода превышает безопасный лимит. Файл не сформирован.", "read_only_ozon": True}
+                for item in case_history.get("items", ()):
+                    safe = {
+                        "case_ordinal": case_ordinal,
+                        "case_revision": item.get("case_revision"),
+                        "state": item.get("state"),
+                        "updated_at": item.get("updated_at") or item.get("created_at"),
+                        "dispatch_date": item.get("dispatch_date") or "",
+                        "new_unit_cost_rub": item.get("new_unit_cost_rub"),
+                        "cost_input_mode": item.get("cost_input_mode") or "UNKNOWN",
+                        "cost_components": item.get("cost_components") or {},
+                        "declared_shipped_units": item.get("declared_shipped_units"),
+                    }
+                    components = safe["cost_components"]
+                    if not isinstance(components, dict):
+                        components = {}
+                    transition_rows.append({
+                        **common,
+                        "kind": "TRANSITION_CASE_REVISION",
+                        "sequence": safe["case_revision"],
+                        "effective_date": safe["dispatch_date"],
+                        "quantity": safe["declared_shipped_units"],
+                        "location": "",
+                        "unit_cost": safe["new_unit_cost_rub"],
+                        "cost_input_mode": safe["cost_input_mode"],
+                        "purchase": components.get("purchase_cost_rub", ""),
+                        "delivery": components.get("delivery_cost_rub", ""),
+                        "packaging": components.get("packaging_cost_rub", ""),
+                        "status": safe["state"],
+                        "provenance": "OWNER_RECORDED",
+                        "source_status": "PERSISTED_REVISION",
+                        "coverage": "",
+                        "case_revision": safe["case_revision"],
+                        "case_updated_at": safe["updated_at"],
+                        "case_ordinal": case_ordinal,
+                    })
+        if len(layers) + len(rates) + len(transition_rows) > 10_000:
+            return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_LIMIT", "message": "История слишком большая; файл не сформирован.", "read_only_ozon": True}
+        stream = io.StringIO(newline="")
+        writer = csv.writer(stream, delimiter=";")
+        writer.writerow((
+            "Режим", "SKU", "Тип записи", "Порядок", "Действует с",
+            "Количество", "Место", "Себестоимость за шт., ₽",
+            "Режим разбивки", "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
+            "Подтверждение", "Состояние источника", "Полнота источника",
+            "Ревизия FIFO", "Ревизия распределения", "Дата cutoff",
+            "Ссылка строки", "Редакция перехода", "Обновлено перехода",
+        ))
         rows = []
         for layer in layers:
             if not isinstance(layer, dict):
@@ -553,13 +808,15 @@ class TelegramFifoCostHistoryService:
                 "source_status": rate.get("source_status") or "UNKNOWN",
                 "coverage": rate.get("coverage_status") or "UNKNOWN",
             })
+        rows.extend(transition_rows)
         for row in rows:
             reference_payload = {
                 key: row.get(key) for key in (
                     "mode", "sku", "kind", "sequence", "effective_date",
                     "quantity", "unit_cost", "stream_revision",
                     "allocation_revision", "cutoff_date", "provenance",
-                    "cost_input_mode",
+                    "cost_input_mode", "case_revision", "case_updated_at",
+                    "case_ordinal",
                 )
             }
             reference = "fifo-export-" + hashlib.sha256(
@@ -570,7 +827,8 @@ class TelegramFifoCostHistoryService:
                 row["sequence"], row["effective_date"],
                 "" if row["quantity"] is None else row["quantity"],
                 self._spreadsheet_safe(row["location"]),
-                row["unit_cost"], row["cost_input_mode"], row["purchase"],
+                "" if row["unit_cost"] is None else row["unit_cost"],
+                row["cost_input_mode"], row["purchase"],
                 row["delivery"], row["packaging"],
                 self._spreadsheet_safe(row["status"]),
                 self._spreadsheet_safe(row["provenance"]),
@@ -578,13 +836,15 @@ class TelegramFifoCostHistoryService:
                 self._spreadsheet_safe(row["coverage"]), row["stream_revision"],
                 "" if row["allocation_revision"] is None else row["allocation_revision"],
                 row["cutoff_date"], reference,
+                row.get("case_revision", ""),
+                self._spreadsheet_safe(row.get("case_updated_at", "")),
             ))
         if not rows:
             writer.writerow((
                 "FIFO", self._spreadsheet_safe(ticket.get("sku")), "EMPTY", "", "",
                 "", "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
                 "UNKNOWN", "UNKNOWN", "UNKNOWN", snapshot.get("revision"), "",
-                snapshot.get("cutoff_date") or "", "",
+                snapshot.get("cutoff_date") or "", "", "", "",
             ))
         content = "\ufeff" + stream.getvalue()
         if len(content.encode("utf-8")) > 1_000_000:

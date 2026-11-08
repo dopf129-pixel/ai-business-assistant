@@ -632,8 +632,10 @@ class FifoCostTransitionStore:
         rows = connection.execute(
             """SELECT case_id, product_id, offer_id, sku FROM fifo_cost_transition_cases
                WHERE """ + " AND ".join(where) + " ORDER BY updated_at DESC, case_id LIMIT ?",
-            params,
+            [*params[:-1], limit + 1],
         ).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         cases = []
         for row in rows:
             item = cls.read_case(
@@ -655,6 +657,85 @@ class FifoCostTransitionStore:
             "cases": cases,
             "count": len(cases),
             "limit": limit,
+            "has_more": has_more,
+        }
+
+    @classmethod
+    def read_case_history(
+        cls, connection, case_id: str, scope: dict, identity: dict, *,
+        limit: int = 100, before_revision: int | None = None,
+    ) -> dict:
+        """Return a bounded, allowlisted view of immutable case revisions."""
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return {"error": True, "code": "FIFO_TRANSITION_LIMIT_INVALID"}
+        if before_revision is not None and (
+            type(before_revision) is not int or before_revision < 2
+        ):
+            return {"error": True, "code": "FIFO_TRANSITION_REVISION_INVALID"}
+        case_row = cls._load_case(connection, case_id, scope, identity)
+        if case_row is None:
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_NOT_FOUND"}
+        where = ["case_id=?"]
+        params: list[object] = [case_id]
+        if before_revision is not None:
+            where.append("case_revision < ?")
+            params.append(before_revision)
+        params.append(limit + 1)
+        rows = connection.execute(
+            """SELECT case_revision, state, created_at, updated_at, payload_json
+               FROM fifo_cost_transition_case_revisions WHERE """
+            + " AND ".join(where)
+            + " ORDER BY case_revision DESC LIMIT ?",
+            params,
+        ).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
+            # Never return metadata, command/evidence references, encrypted lookup
+            # references, or arbitrary payload fields from the revision document.
+            safe = {
+                "case_revision": row["case_revision"],
+                "state": row["state"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for key in (
+                "dispatch_date", "old_unit_cost_rub", "new_unit_cost_rub",
+                "cost_input_mode", "cost_components", "owner_old_home_units",
+                "owner_old_transit_units", "new_home_quantity",
+                "declared_shipped_units",
+            ):
+                if key in payload:
+                    value = payload[key]
+                    if key == "cost_components":
+                        safe[key] = {
+                            field: value[field]
+                            for field in (
+                                "purchase_cost_rub", "delivery_cost_rub",
+                                "packaging_cost_rub",
+                            )
+                            if isinstance(value, dict) and field in value
+                        } if isinstance(value, dict) else None
+                    else:
+                        safe[key] = value
+            items.append(safe)
+        items.reverse()
+        next_before_revision = (
+            items[0]["case_revision"] if has_more and items else None
+        )
+        return {
+            "error": False,
+            "code": "FIFO_TRANSITION_CASE_HISTORY_FOUND",
+            "items": items,
+            "count": len(items),
+            "limit": limit,
+            "has_more": has_more,
+            "next_before_revision": next_before_revision,
         }
 
     @classmethod
@@ -760,7 +841,11 @@ class FifoCostTransitionStore:
             return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
         case_snapshot["case_revision"] = new_revision
         case_snapshot["state"] = "AWAITING_EVIDENCE"
-        case_snapshot["updated_at"] = recorded_at
+        # Source clocks can lag the last owner edit. Keep the case timeline
+        # monotonic while retaining the source's original recorded_at on the
+        # evidence row itself.
+        updated_at = max(recorded_at, case_row["updated_at"])
+        case_snapshot["updated_at"] = updated_at
         case_snapshot["_command_fingerprint"] = payload_fingerprint
         case_snapshot["last_evidence"] = {
             "kind": evidence_kind,
@@ -774,7 +859,7 @@ class FifoCostTransitionStore:
                SET current_revision=?, current_state='AWAITING_EVIDENCE', updated_at=?
                WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
                  AND store_id=? AND sku=? AND current_revision=?""",
-            (new_revision, recorded_at, case_id, scope["owner_fingerprint"],
+            (new_revision, updated_at, case_id, scope["owner_fingerprint"],
              scope["tenant_fingerprint"], identity["store_id"], identity["sku"],
              expected_case_revision),
         )
@@ -784,7 +869,7 @@ class FifoCostTransitionStore:
             connection, case_id=case_id, case_revision=new_revision,
             state="AWAITING_EVIDENCE", payload_json=revision_json,
             fingerprint=revision_fingerprint, idempotency_key=idempotency_key,
-            created_at=recorded_at, updated_at=recorded_at,
+            created_at=recorded_at, updated_at=updated_at,
         )
         return {
             "error": False,
