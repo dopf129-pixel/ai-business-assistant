@@ -43,6 +43,13 @@ class FifoCostReportImportResult:
     issue_codes: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _XlsxPackageInspection:
+    sheet_paths: dict[str, str]
+    sheet_dimensions: dict[str, tuple[int, int]]
+    header_formula_cells: dict[str, set[str]]
+
+
 class FifoCostReportImportService:
     """Parse the allowlisted Ozon turnover workbook into safe evidence."""
 
@@ -353,6 +360,101 @@ class FifoCostReportImportService:
         )
 
     def _read_profile(self, payload, *, target_sku, started):
+        inspection = self._preflight_xlsx_package(
+            payload,
+            started=started,
+            expected_sheets={self.SHEET_NAME},
+            header_cells_by_sheet={
+                self.SHEET_NAME: set(self._EXPECTED_HEADERS),
+            },
+            sku_columns_by_sheet={self.SHEET_NAME: "A"},
+            max_columns_by_sheet={self.SHEET_NAME: 40},
+        )
+        try:
+            workbook = load_workbook(
+                BytesIO(payload), read_only=True, data_only=True,
+                keep_links=False,
+            )
+            try:
+                if set(workbook.sheetnames) != {self.SHEET_NAME}:
+                    raise _ReportInputError("FIFO_REPORT_SHEET_SET_UNSUPPORTED")
+                worksheet = workbook[self.SHEET_NAME]
+                max_row, _ = inspection.sheet_dimensions[self.SHEET_NAME]
+                headers = {}
+                for row_number, row in enumerate(
+                    worksheet.iter_rows(
+                        min_row=1, max_row=min(3, max_row),
+                        min_col=1, max_col=40,
+                    ),
+                    start=1,
+                ):
+                    for column_index, cell in enumerate(row, start=1):
+                        headers[f"{self._column_name(column_index)}{row_number}"] = cell.value
+                target_row_numbers = []
+                for row_number, row in enumerate(
+                    worksheet.iter_rows(
+                        min_row=4, max_row=max_row, min_col=1, max_col=1,
+                    ),
+                    start=4,
+                ):
+                    self._check_parse_time(started)
+                    if self._normalize_sku(row[0].value) == target_sku:
+                        target_row_numbers.append(row_number)
+                if len(target_row_numbers) > 1:
+                    raise _ReportInputError("FIFO_REPORT_TARGET_SKU_DUPLICATED")
+                if not target_row_numbers:
+                    return headers, None, inspection.header_formula_cells[self.SHEET_NAME]
+                target_row_number = target_row_numbers[0]
+                target_row = next(worksheet.iter_rows(
+                    min_row=target_row_number,
+                    max_row=target_row_number,
+                    min_col=1,
+                    max_col=40,
+                ))
+                target_values = {
+                    self._column_name(column_index): cell.value
+                    for column_index, cell in enumerate(target_row, start=1)
+                }
+                required_columns = self._required_data_columns()
+                if any(
+                    getattr(cell, "data_type", None) == "e"
+                    and self._column_name(column_index) in required_columns
+                    for column_index, cell in enumerate(target_row, start=1)
+                ):
+                    raise _ReportInputError("FIFO_REPORT_EXCEL_ERROR_CELL")
+                with ZipFile(BytesIO(payload), "r") as archive:
+                    target_formula_cells = self._formula_cells_for_row(
+                        archive,
+                        inspection.sheet_paths[self.SHEET_NAME],
+                        target_row_number,
+                        required_columns,
+                        started=started,
+                    )
+                return (
+                    headers,
+                    (target_row_number, target_values),
+                    inspection.header_formula_cells[self.SHEET_NAME] | target_formula_cells,
+                )
+            finally:
+                workbook.close()
+        except _ReportInputError:
+            raise
+        except MemoryError:
+            raise
+        except Exception:
+            raise _ReportInputError("FIFO_REPORT_XLSX_PACKAGE_INVALID") from None
+
+    def _preflight_xlsx_package(
+        self,
+        payload,
+        *,
+        started,
+        expected_sheets,
+        header_cells_by_sheet,
+        sku_columns_by_sheet,
+        max_columns_by_sheet=None,
+    ):
+        max_columns_by_sheet = max_columns_by_sheet or {}
         try:
             with ZipFile(BytesIO(payload), "r") as archive:
                 infos = archive.infolist()
@@ -375,102 +477,45 @@ class FifoCostReportImportService:
                         or info.file_size / info.compress_size > self.MAX_COMPRESSION_RATIO
                     ):
                         raise _ReportInputError("FIFO_REPORT_COMPRESSION_RATIO_LIMIT")
-                    if "vbaproject.bin" in info.filename.casefold() or "externallinks" in info.filename.casefold():
+                    entry_name = info.filename.casefold()
+                    if "vbaproject.bin" in entry_name or "externallinks" in entry_name:
                         raise _ReportInputError("FIFO_REPORT_MACRO_OR_EXTERNAL_LINK_UNSUPPORTED")
                 if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
                     raise _ReportInputError("FIFO_REPORT_XLSX_PACKAGE_INVALID")
                 content_types = archive.read("[Content_Types].xml").lower()
-                if any(marker in content_types for marker in (b"macroenabled", b"vbaproject", b"externallink")):
+                if any(marker in content_types for marker in (
+                    b"macroenabled", b"vbaproject", b"externallink",
+                )):
                     raise _ReportInputError("FIFO_REPORT_MACRO_OR_EXTERNAL_LINK_UNSUPPORTED")
                 self._validate_relationships(archive, names)
                 sheet_paths = self._worksheet_paths(archive, names)
-                if self.SHEET_NAME not in sheet_paths:
-                    raise _ReportInputError("FIFO_REPORT_TURNOVER_SHEET_MISSING")
+                if set(sheet_paths) != set(expected_sheets):
+                    raise _ReportInputError("FIFO_REPORT_SHEET_SET_UNSUPPORTED")
                 sheet_dimensions = {}
-                header_formula_cells = set()
+                header_formula_cells = {}
                 for sheet_name, path in sheet_paths.items():
                     max_row, max_column, formulas = self._inspect_sheet_xml(
                         archive,
                         path,
-                        is_turnover_sheet=sheet_name == self.SHEET_NAME,
+                        header_cells=header_cells_by_sheet.get(sheet_name, set()),
+                        sku_column=sku_columns_by_sheet.get(sheet_name),
                         started=started,
                     )
                     if max_row > self.MAX_ROWS_PER_SHEET:
                         raise _ReportInputError("FIFO_REPORT_ROW_LIMIT")
                     if max_column > self.MAX_COLUMNS_PER_SHEET:
                         raise _ReportInputError("FIFO_REPORT_COLUMN_LIMIT")
-                    if sheet_name == self.SHEET_NAME and max_column > 40:
+                    if max_column > max_columns_by_sheet.get(
+                        sheet_name, self.MAX_COLUMNS_PER_SHEET,
+                    ):
                         raise _ReportInputError("FIFO_REPORT_FORMAT_UNSUPPORTED")
                     sheet_dimensions[sheet_name] = (max_row, max_column)
-                    if sheet_name == self.SHEET_NAME:
-                        header_formula_cells = formulas
-                workbook = load_workbook(
-                    BytesIO(payload), read_only=True, data_only=True,
-                    keep_links=False,
+                    header_formula_cells[sheet_name] = formulas
+                return _XlsxPackageInspection(
+                    sheet_paths=sheet_paths,
+                    sheet_dimensions=sheet_dimensions,
+                    header_formula_cells=header_formula_cells,
                 )
-                try:
-                    if self.SHEET_NAME not in workbook.sheetnames:
-                        raise _ReportInputError("FIFO_REPORT_TURNOVER_SHEET_MISSING")
-                    worksheet = workbook[self.SHEET_NAME]
-                    max_row, _ = sheet_dimensions[self.SHEET_NAME]
-                    headers = {}
-                    for row_number, row in enumerate(
-                        worksheet.iter_rows(
-                            min_row=1, max_row=min(3, max_row),
-                            min_col=1, max_col=40,
-                        ),
-                        start=1,
-                    ):
-                        for column_index, cell in enumerate(row, start=1):
-                            headers[
-                                f"{self._column_name(column_index)}{row_number}"
-                            ] = cell.value
-                    target_row_numbers = []
-                    for row_number, row in enumerate(
-                        worksheet.iter_rows(
-                            min_row=4, max_row=max_row, min_col=1, max_col=1,
-                        ),
-                        start=4,
-                    ):
-                        self._check_parse_time(started)
-                        if self._normalize_sku(row[0].value) == target_sku:
-                            target_row_numbers.append(row_number)
-                    if len(target_row_numbers) > 1:
-                        raise _ReportInputError("FIFO_REPORT_TARGET_SKU_DUPLICATED")
-                    if not target_row_numbers:
-                        return headers, None, header_formula_cells
-                    target_row_number = target_row_numbers[0]
-                    target_row = next(worksheet.iter_rows(
-                        min_row=target_row_number,
-                        max_row=target_row_number,
-                        min_col=1,
-                        max_col=40,
-                    ))
-                    target_values = {
-                        self._column_name(column_index): cell.value
-                        for column_index, cell in enumerate(target_row, start=1)
-                    }
-                    required_columns = self._required_data_columns()
-                    if any(
-                        getattr(cell, "data_type", None) == "e"
-                        and self._column_name(column_index) in required_columns
-                        for column_index, cell in enumerate(target_row, start=1)
-                    ):
-                        raise _ReportInputError("FIFO_REPORT_EXCEL_ERROR_CELL")
-                    target_formula_cells = self._formula_cells_for_row(
-                        archive,
-                        sheet_paths[self.SHEET_NAME],
-                        target_row_number,
-                        required_columns,
-                        started=started,
-                    )
-                    return (
-                        headers,
-                        (target_row_number, target_values),
-                        header_formula_cells | target_formula_cells,
-                    )
-                finally:
-                    workbook.close()
         except _ReportInputError:
             raise
         except MemoryError:
@@ -540,9 +585,15 @@ class FifoCostReportImportService:
             raise _ReportInputError("FIFO_REPORT_WORKBOOK_XML_INVALID")
         for sheet in sheets.findall(f"{{{self._MAIN_NS}}}sheet"):
             name = sheet.attrib.get("name")
+            state = sheet.attrib.get("state", "visible")
             relation_id = sheet.attrib.get(f"{{{self._OFFICE_REL_NS}}}id")
             target = relationships.get(relation_id)
-            if not isinstance(name, str) or not isinstance(target, str) or not target:
+            if (
+                not isinstance(name, str)
+                or state != "visible"
+                or not isinstance(target, str)
+                or not target
+            ):
                 raise _ReportInputError("FIFO_REPORT_WORKBOOK_RELATIONSHIP_INVALID")
             if name in result:
                 raise _ReportInputError("FIFO_REPORT_WORKBOOK_RELATIONSHIP_INVALID")
@@ -568,7 +619,9 @@ class FifoCostReportImportService:
             result[name] = normalized_path
         return result
 
-    def _inspect_sheet_xml(self, archive, path, *, is_turnover_sheet, started):
+    def _inspect_sheet_xml(
+        self, archive, path, *, header_cells, sku_column, started,
+    ):
         try:
             stream = archive.open(path, "r")
             row_count = 0
@@ -608,9 +661,13 @@ class FifoCostReportImportService:
                     if column > self.MAX_COLUMNS_PER_SHEET:
                         raise _ReportInputError("FIFO_REPORT_COLUMN_LIMIT")
                     if cell.find(f"{{{self._MAIN_NS}}}f") is not None:
-                        if is_turnover_sheet and reference in self._EXPECTED_HEADERS:
+                        if reference in header_cells:
                             formulas.add(reference)
-                        elif is_turnover_sheet and column == 1 and row_number >= 4:
+                        elif (
+                            sku_column is not None
+                            and column == sku_column
+                            and row_number >= 4
+                        ):
                             raise _ReportInputError("FIFO_REPORT_SKU_FORMULA_UNSUPPORTED")
                 element.clear()
             stream.close()

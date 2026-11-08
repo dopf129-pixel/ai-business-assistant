@@ -98,7 +98,7 @@ _SCOPE = ScopeIdentity(
 )
 
 
-def _turnover_payload(*, mutate=None, second_sku=True):
+def _turnover_payload(*, mutate=None, second_sku=True, hidden_extra_sheet=False):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Оборотная ведомость"
@@ -119,6 +119,9 @@ def _turnover_payload(*, mutate=None, second_sku=True):
     if second_sku:
         sheet["A5"] = 1234567890
         sheet["D5"] = 17
+    if hidden_extra_sheet:
+        hidden = workbook.create_sheet("Hidden extra")
+        hidden.sheet_state = "hidden"
     if mutate:
         mutate(sheet)
     output = BytesIO()
@@ -295,6 +298,13 @@ def test_header_case_is_not_normalized():
 
     assert result.status == "INVALID"
     assert result.issue_codes == ("FIFO_REPORT_FORMAT_UNSUPPORTED",)
+
+
+def test_hidden_extra_sheet_is_rejected_before_parsing():
+    result = _parse(_turnover_payload(hidden_extra_sheet=True))
+
+    assert result.status == "INVALID"
+    assert result.issue_codes == ("FIFO_REPORT_WORKBOOK_RELATIONSHIP_INVALID",)
 
 
 def test_filename_period_is_candidate_and_missing_period_stays_unknown():
