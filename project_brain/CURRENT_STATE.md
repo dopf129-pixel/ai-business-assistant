@@ -1,6 +1,9 @@
-# 2026-11-08 — FIFO late-entry completion FL14
+# 2026-11-08 — FIFO late-entry completion FL15
 
-- FL00–FL14 реализованы на уровне кода и синтетических проверок; end-to-end мост продаж, readiness, атомарное применение, полная production-приёмка и реальный owner case ещё не завершены.
+- FL00–FL15 реализованы на уровне кода и синтетических проверок; end-to-end мост продаж, readiness, атомарное применение, полная production-приёмка и реальный owner case ещё не завершены.
+- `FifoCostTransitionSupplyReconciliationService` строит раздельные declared, observed, accepted, pending и discrepancy; сохраняет capture/source-as-of, report period/provenance/fingerprint и всегда возвращает `is_atomic_snapshot=False`. MISSING/unknown не превращается в ноль или подтверждённую приёмку.
+- Контроль 6 982; owner-linked RECEIVING 148; XLSX `supplier_planned=600`, `supplier_transit=6 234`: проверен синтетически. Известный остаток owner total 6 834 — только арифметически нераспределённое количество, а принятие остаётся неизвестным.
+- FL15 focused reconciliation + supply/acceptance/stock/report parser profile: **74 passed in 3.39s**; linked FIFO/Telegram profile: **449 passed in 20.34s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS; данные не менялись. Следующий FL16 — proposal начального среза только для owner review, без изменения FIFO.
 - Новый `TelegramFifoCostReportImportService` принимает XLSX только для явно выбранного редактируемого дела. До отдельного подтверждения persistent evidence и case revision не меняются. Подтверждение привязано к tenant/store/SKU/case revision, повтор callback идемпотентен, дата имени файла остаётся `FILENAME_CANDIDATE`.
 - `FifoCostReportImportWorkerClient` запускает allowlisted parser в собственном subprocess с timeout 15 секунд и глобальным пределом 3 workers; payload evidence проверяется против 262,144-byte storage cap. XLSX-маршрут отделён от прежнего CSV-потока; oversized XLSX отклоняется до скачивания при известном Telegram-размере.
 - FL14 code SHA `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused **47 passed**, linked FIFO/Telegram/seller-cost/return profile **462 passed**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. `data/` не менялась.

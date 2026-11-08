@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL15.
-Выполненных этапов:15/36 (FL00–FL14 VERIFIED в коде на синтетических проверках: baseline, map, contracts, schema/cipher, repository, pre-FIFO boundaries, landed cost, case lifecycle, supply declarations/observations/reconciliation, bounded refresh, read-only parsers, scoped bounded XLSX worker и preview/explicit confirm; supply reconciliation/readiness/bridge/apply, full user flow и owner case ещё не завершены).
+Следующий этап: FL16.
+Выполненных этапов:16/36 (FL00–FL15 VERIFIED на кодовых и синтетических проверках; далее FL16–FL35: opening proposal, readiness, cutoff bridge, impact/replay/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL14 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; документационный checkpoint будет следующим. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL15 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code checkpoint `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`, документационный checkpoint последует отдельным commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -35,7 +35,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL12 | Ведомость parser | VERIFIED | initial code `1f209a23`; current shared parser regression 22 passed; linked FIFO/Telegram FIFO profile 423 passed; compileall/diff-check/data unchanged PASS |
 | FL13 | Остатки parser | VERIFIED | code `52a5b9fb3b3cf605b8c500003d48d254f1453337`; parser modules 35 passed (22 FL12 + 13 FL13); linked FIFO/Telegram FIFO 423 passed; compileall/diff-check/data unchanged PASS |
 | FL14 | Контекстный XLSX import | VERIFIED | `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused 47 passed; linked FIFO/Telegram/seller-cost/returns 462 passed; compileall/diff-check/data unchanged PASS |
-| FL15 | Сверка поставок | NOT_STARTED | — |
+| FL15 | Сверка поставок | VERIFIED | `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; focused 74 passed in 3.39s; FIFO/Telegram profile 449 passed in 20.34s; compileall/diff-check/data unchanged PASS |
 | FL16 | Proposal opening | NOT_STARTED | — |
 | FL17 | Readiness и missing evidence | NOT_STARTED | — |
 | FL18 | Cutoff bridge | NOT_STARTED | — |
@@ -224,6 +224,15 @@ Source readiness:
 - Code commit `58ba757b52d0d92708e8d2aaa6bb88adb666f77a` (`Add scoped FIFO workbook import confirmation`). Focused parser/worker/runtime/adapter set: **47 passed in 3.08s**; связанный FIFO/Telegram/seller-cost/return-inventory профиль: **462 passed in 20.51s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Fixtures — synthetic in-memory XLSX и `tmp_path`; owner files/DB и live APIs не использовались.
 - `IMPLEMENTATION_VERIFIED` всего продукта остаётся нет; `OWNER_CASE_VERIFIED` нет. Реальный UI выбора дела будет подключён в FL24–FL26; даты/cutoff/bridge владельца не подтверждены. Следующий этап FL15 — независимая сверка declared/observed/accepted/pending/discrepancy с сохранением времени каждого источника.
 
+## Выполнение FL15 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionSupplyReconciliationService`: owner total и известные/нераспределённые declarations; per-declaration status observation; accepted, pending и final discrepancy; отдельные stock report snapshots с period provenance, capture time, source-as-of и file fingerprint.
+- Сверка проверяет exact owner/store/SKU/case scope, declaration revisions/reference binding, timestamp conflicts и количество. Различие owner/API declaration остаётся явным; MISSING сохраняет last-known observation, но сообщает о свежести; unknown quantity не становится нулём. Статусы partial/conflict не превращаются в current acceptance.
+- Контроль `6982 = 148 + 600 + 6234`: owner-linked `148 RECEIVING` остаётся одной отдельной поставкой; `600 supplier_planned` и `6234 supplier_transit` принадлежат отдельному отчётному снимку. Известный owner remainder `6834` показан только как арифметический нераспределённый объём; он не превращён в фиктивную поставку. Принятая сумма не выводится из статуса.
+- Разные/отсутствующие `source_as_of` не схлопываются: результат всегда несёт `is_atomic_snapshot=False`, а отчётный XLSX не притворяется API-снимком. Сервис не вызывает API, не пишет базу, FIFO или прибыль.
+- Добавлен `tests/test_fifo_cost_transition_supply_reconciliation_service.py`; **13 новых regressions**. FL15 плюс observations, bounded refresh, acceptance reconciliation, stock management и turnover parser profile: **74 passed in 3.39s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Контроль синтетический; owner files/DB/live APIs не использовались.
+- Code commit `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a` (`Reconcile FIFO supply evidence by source`). FL15 + linked source/parser tests **74 passed in 3.39s**; complete FIFO/Telegram regression profile **449 passed in 20.34s**; compileall/diff-check/data-preservation PASS. Контроль синтетический; owner files/DB/live APIs не использовались.
+- Сервис является чистым архитектурным расширением и требует независимого architecture review согласно репозиторным правилам (>300 изменённых строк / новый service). Следующий этап — FL16: proposal начального среза без изменения текущего режима.
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |

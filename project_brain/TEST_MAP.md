@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO supply evidence reconciliation (FL15)
+
+- `tests/test_fifo_cost_transition_supply_reconciliation_service.py` covers the synthetic 6,982 control with separate 148 RECEIVING, 600 supplier-planned, and 6,234 supplier-transit evidence; no fictitious acceptance/atomic snapshot; MISSING retaining last-known values; pending versus final discrepancy; owner/API mismatches; unknown quantities; scope and timestamp conflicts; and declaration revisions.
+- 13 new FL15 regressions; linked observation, bounded refresh, acceptance, stock report and turnover report parser profile: **74 passed in 3.39s**. Complete `test_fifo_cost_*.py` + `test_telegram_fifo_cost_*.py` profile: **449 passed in 20.34s**. Synthetic contract/data only; no owner database or live Ozon/Telegram requests.
+
 # 2026-11-08 — FIFO XLSX worker and contextual confirmation (FL14)
 
 - `tests/test_fifo_cost_report_import_worker_client.py` tests the managed child process on an in-memory turnover XLSX, malformed worker output, timeout termination, the three-slot concurrent import limit, and persisted-evidence byte-cap rejection.
