@@ -199,6 +199,6 @@ Source readiness:
 
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
-| 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main | `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a` + FL11 docs pending | NOT_RUN |
-| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | branchPR1 | — | NOT_RUN |
-| 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | branchPR2 | — | NOT_RUN |
+| 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
+| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | planned | NOT_RUN |
+| 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | exact head of PR2 | planned | NOT_RUN |
