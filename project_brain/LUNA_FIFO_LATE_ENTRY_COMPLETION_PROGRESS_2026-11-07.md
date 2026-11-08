@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL18.
-Выполненных этапов:18/36 (FL00–FL17 VERIFIED на кодовых и синтетических проверках; далее FL18–FL35: cutoff bridge, impact/replay/atomic apply, consumers, UI, reliability и PR delivery).
+Следующий этап: FL19.
+Выполненных этапов:19/36 (FL00–FL18 VERIFIED на кодовых и синтетических проверках; далее FL19–FL35: safe opening activation, replay/impact/atomic apply, consumers, UI, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL17 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. FL14 code checkpoint `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 code `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 code `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 code `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 code `2b216dc6eeda57144c2ae0183e423e39b8a32afd`. PR2 current exact HEAD will be recorded after the documentation checkpoint commit. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -38,7 +38,7 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL15 | Сверка поставок | VERIFIED | `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; focused 74 passed in 3.39s; FIFO/Telegram profile 449 passed in 20.34s; compileall/diff-check/data unchanged PASS |
 | FL16 | Proposal opening | VERIFIED | `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; focused 83 passed in 3.65s; FIFO/Telegram profile 458 passed in 20.20s; compileall/diff-check/data unchanged PASS |
 | FL17 | Readiness и missing evidence | VERIFIED | `df7c095b20d556c1b333f0157c6b6d6448fd1329`; focused 34 passed; FIFO/Telegram profile 477 passed in 20.53s; compileall/diff-check/data unchanged PASS |
-| FL18 | Cutoff bridge | NOT_STARTED | — |
+| FL18 | Cutoff bridge | VERIFIED | `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused 36 passed; linked FIFO/Telegram 496 passed; compileall/diff-check/data-preservation PASS; synthetic only |
 | FL19 | Начальная активация proposal | NOT_STARTED | — |
 | FL20 | Deterministic replay | NOT_STARTED | — |
 | FL21 | Возвраты/выбытия | NOT_STARTED | — |
@@ -252,10 +252,19 @@ Source readiness:
 - Добавлено 10 readiness regressions и 2 reconciliation regressions. Тесты: focused readiness + proposal + supply reconciliation **34 passed in 0.90s**; полный файл-профиль `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **477 passed in 20.53s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только синтетические данные; пользовательская DB/files, real APIs и бот не использовались.
 - Code commit `df7c095b20d556c1b333f0157c6b6d6448fd1329` (`Add FIFO late-entry readiness queue`). Изменение расширяет pure service/reconciliation contracts и >300 LOC, поэтому требует architecture review. Следующий этап FL18 — отдельный proof-bound cutoff/sales bridge; реальный owner case остаётся AWAITING_EVIDENCE.
 
+## Выполнение FL18 — 2026-11-08
+
+- Добавлен `FifoCostCutoffBridgeService` и типизированные evidence DTO. Ozon `/v1/finance/realization/posting` даёт только полный набор identity (posting/SKU/offer/product); физические дата и количество берутся из точных owner-documented строк. Отдельное подтверждение владельца фиксирует семантику физического выбытия в часовом поясе магазина. Даты финансового начисления не используются для физического FIFO порядка.
+- Bridge требует точного owner/store/SKU/product/offer/case/revision scope; подтверждённый cutoff и привязанный complete stock snapshot; complete identity pagination; точное полное соответствие document rows; полный период до заявленного watermark; отсутствие необработанных возвратов/выбытий и неизвестных stock buckets. Не создаёт posting identity из номера строки или агрегатного отчёта.
+- Повторные finance identity строки дедуплицируются и не становятся повторной физической продажей. Неоднозначность, неполнота или конфликт закрывают bridge. Output — `preview_only`, без writes в FIFO, налог или Period Profit. Readiness удаляет только соответствующее требование bridge для того же case/revision; `ready_to_apply` остаётся false.
+- Интеграция использует существующий sale normalizer через production factory. Новый bridge service добавлен в production transition service, но UI и atomic apply не включены. Архитектурный класс: **Architecture Review Required** (новый service, изменённые contracts/wiring, >300 LOC).
+- FL18 code commit `2b216dc6eeda57144c2ae0183e423e39b8a32afd` (`Build proof-bound FIFO cutoff bridge`). Focused bridge/readiness/sale-normalizer: **36 passed**; linked FIFO/Telegram profile: **496 passed**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только synthetic fixtures, без owner files/DB и live APIs.
+- `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; реальные строки продаж и cutoff владельца ещё не проверялись. Следующий этап FL19: ограниченное opening proposal и новая ставка без прежнего manual anchor; до общего commit — proposal-only, неизвестный домашний остаток не должен становиться запасом.
+
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
 | 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
-| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after docs; CI pending | NOT_RUN |
+| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after FL18 documentation checkpoint; CI not yet queried | NOT_RUN |
 | 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | exact head of PR2 | planned | NOT_RUN |

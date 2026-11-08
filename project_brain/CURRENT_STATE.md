@@ -1,3 +1,10 @@
+# 2026-11-08 — FIFO physical-sale cutoff bridge FL18
+
+- FL18 добавляет отдельный read-only proof-bound bridge. Полный список identities из `/v1/finance/realization/posting` сопоставляется с точными строками физической даты/количества из owner-documented файла и отдельным подтверждением владельца семантики `PHYSICAL_OUTFLOW` для `Europe/Moscow`.
+- Bridge проверяет scope/case/revision, cutoff и stock snapshot, полный период, pagination/source proof, уникальность identity, returns/non-sale coverage и unknown stock buckets. Дата финансовой строки не трактуется как физическое выбытие; повторные финансовые строки не создают повторную продажу.
+- Выход остаётся preview-only, не пишет FIFO, налог или Period Profit. FL18 code SHA `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused **36 passed**, linked FIFO/Telegram profile **496 passed**; compileall/diff-check/data-preservation PASS. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` остаются false до завершения последующих этапов и проверки данных владельца.
+- Следующий этап — FL19: безопасный opening proposal и ставка без прежнего manual anchor, пока без применения FIFO.
+
 # 2026-11-08 — FIFO late-entry completion FL17
 
 - FL00–FL17 реализованы на уровне кода и синтетических проверок; end-to-end мост продаж, атомарное применение, полная production-приёмка и реальный owner case ещё не завершены.

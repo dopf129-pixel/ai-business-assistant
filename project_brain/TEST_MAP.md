@@ -1,3 +1,8 @@
+# 2026-11-08 — FIFO physical-sale cutoff bridge regressions (FL18)
+
+- `tests/test_fifo_cost_cutoff_bridge_service.py` covers complete finance identity pagination, exact documented identity/date/quantity mapping, explicit owner confirmation for physical-date semantics, case/store/SKU/revision binding, cutoff boundary/timezone, report period and stock bucket completeness, unresolved returns/non-sale movements, duplicate/conflicting identities, duplicate finance rows, posting-accrual date rejection, redaction, and preview-only output.
+- Focused bridge/readiness/sale-normalizer profile: **36 passed**. Linked FIFO/Telegram profile: **496 passed**. `compileall`, `git diff --check`, and unchanged `data/` checks PASS; synthetic fixtures only.
+
 # 2026-11-08 — FIFO readiness requirements regressions (FL17)
 
 - `tests/test_fifo_cost_transition_readiness_service.py` covers exact required supply manifest (6,982 declared / 148 linked / 6,834 unassigned), confirmed 05.11 → factual 06–07.11 coverage gap, filename-candidate period confirmation without factual gap claims, unknown reserved/FBS overlap, exact sale bridge requirement, source/as-of gap without an invented freshness SLA, explicit act-binding conflict plus saved fingerprint/as-of, cutoff missing, wrong case/revision rejection, deterministic order, and unchanged `AWAITING_EVIDENCE` state.

@@ -1,4 +1,10 @@
 
+# 2026-11-08 — Proof-bound FIFO cutoff bridge (FL18)
+
+- Added a read-only bridge joining exact Ozon realization identities with separately owner-documented physical sale dates/quantities and explicit confirmation of date semantics. It requires matching scope, complete periods, confirmed cutoff/stock snapshot, and linked returns/non-sale coverage.
+- Finance accrual dates are not promoted to physical outflow dates; recurring finance rows do not create duplicate physical sales. The bridge remains preview-only and does not write FIFO or Period Profit.
+- FL18 focused profile: **36 passed**; linked FIFO/Telegram profile: **496 passed**; compileall, diff-check, and data-preservation checks PASS. Owner-case validation remains pending.
+
 # 2026-11-08 — Очередь недостающих FIFO-доказательств (FL17)
 
 - Добавлен read-only readiness service с детерминированными действиями, точными полями/периодами и компактными ссылками на уже сохранённые отчёты. Он выделяет незакрытый manifest поставок, даты оборотной ведомости, неизвестный reserved/overlap, конфликт акта, source as-of gap и неподтверждённый bridge продаж.
