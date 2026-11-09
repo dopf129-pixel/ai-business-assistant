@@ -116,6 +116,180 @@ class EvidencePresence(str, Enum):
     MISSING = "MISSING"
 
 
+class TransitionBridgeEvidenceKind(str, Enum):
+    PHYSICAL_SALES_DOCUMENT = "PHYSICAL_SALES_DOCUMENT"
+    FINANCE_IDENTITY_SNAPSHOT = "FINANCE_IDENTITY_SNAPSHOT"
+    MOVEMENT_COVERAGE = "MOVEMENT_COVERAGE"
+    CUTOFF_SELECTION = "CUTOFF_SELECTION"
+    OPENING_COMPOSITION = "OPENING_COMPOSITION"
+    RATE_BOUNDARY_PROOF = "RATE_BOUNDARY_PROOF"
+    PERIOD_SUMMARY_SNAPSHOT = "PERIOD_SUMMARY_SNAPSHOT"
+    TAX_POLICY_SNAPSHOT = "TAX_POLICY_SNAPSHOT"
+
+
+class TransitionEvidenceConfirmationKind(str, Enum):
+    SOURCE_SELECTION = "SOURCE_SELECTION"
+    PERIOD = "PERIOD"
+    PHYSICAL_SALES = "PHYSICAL_SALES"
+    MOVEMENT_COVERAGE = "MOVEMENT_COVERAGE"
+    CUTOFF_SELECTION = "CUTOFF_SELECTION"
+    OPENING_COMPOSITION = "OPENING_COMPOSITION"
+    RATE_BOUNDARY = "RATE_BOUNDARY"
+    TAX_POLICY = "TAX_POLICY"
+    EVIDENCE_REVIEW = "EVIDENCE_REVIEW"
+
+
+_BRIDGE_PAYLOAD_KEYS = {
+    TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT: frozenset({
+        "document_fingerprint", "row_count", "period_from", "period_to",
+        "timezone", "semantics", "identity_fingerprint",
+    }),
+    TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT: frozenset({
+        "snapshot_fingerprint", "identity_fingerprint", "row_count",
+        "matched_rows", "page_count", "scope_complete", "pagination_complete",
+    }),
+    TransitionBridgeEvidenceKind.MOVEMENT_COVERAGE: frozenset({
+        "snapshot_fingerprint", "identity_fingerprint", "event_count",
+        "period_from", "complete_through", "page_count", "scope_complete",
+        "pagination_complete",
+    }),
+    TransitionBridgeEvidenceKind.CUTOFF_SELECTION: frozenset({
+        "cutoff_date", "complete_through", "bridge_fingerprint",
+        "selected_event_count", "identity_fingerprint",
+    }),
+    TransitionBridgeEvidenceKind.OPENING_COMPOSITION: frozenset({
+        "opening_date", "total_units", "component_count",
+        "composition_fingerprint", "identity_fingerprint",
+    }),
+    TransitionBridgeEvidenceKind.RATE_BOUNDARY_PROOF: frozenset({
+        "effective_date", "rate_fingerprint", "predecessor_fingerprint",
+        "reconciliation_fingerprint", "replay_fingerprint", "identity_fingerprint",
+    }),
+    TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT: frozenset({
+        "report_type", "period_from", "period_to", "row_count",
+        "summary_fingerprint", "identity_fingerprint",
+    }),
+    TransitionBridgeEvidenceKind.TAX_POLICY_SNAPSHOT: frozenset({
+        "tax_policy_fingerprint", "policy_code", "rate_percent",
+        "effective_from", "calculation_basis", "identity_fingerprint",
+    }),
+}
+
+
+_CONFIRMATION_PAYLOAD_KEYS = {
+    TransitionEvidenceConfirmationKind.SOURCE_SELECTION: frozenset({
+        "selected_source_fingerprint", "selection_reason",
+    }),
+    TransitionEvidenceConfirmationKind.PERIOD: frozenset({
+        "period_from", "period_to", "timezone",
+    }),
+    TransitionEvidenceConfirmationKind.PHYSICAL_SALES: frozenset({
+        "document_fingerprint", "row_count", "rows_fingerprint",
+        "period_from", "period_to", "timezone", "semantics",
+    }),
+    TransitionEvidenceConfirmationKind.MOVEMENT_COVERAGE: frozenset({
+        "coverage_fingerprint", "complete_through", "event_count",
+    }),
+    TransitionEvidenceConfirmationKind.CUTOFF_SELECTION: frozenset({
+        "cutoff_date", "bridge_fingerprint", "stock_semantics",
+    }),
+    TransitionEvidenceConfirmationKind.OPENING_COMPOSITION: frozenset({
+        "composition_fingerprint", "opening_date", "total_units",
+    }),
+    TransitionEvidenceConfirmationKind.RATE_BOUNDARY: frozenset({
+        "rate_fingerprint", "effective_date", "reconciliation_fingerprint",
+    }),
+    TransitionEvidenceConfirmationKind.TAX_POLICY: frozenset({
+        "tax_policy_fingerprint", "effective_from", "calculation_basis",
+    }),
+    TransitionEvidenceConfirmationKind.EVIDENCE_REVIEW: frozenset({
+        "reviewed_fingerprint", "review_outcome",
+    }),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionBridgeEvidence:
+    """Typed, bounded evidence envelope; sensitive source bytes remain separate."""
+
+    metadata: TransitionMetadata
+    evidence_kind: TransitionBridgeEvidenceKind
+    captured_at: str
+    payload: Mapping[str, object]
+    sensitive_payload: str
+    period_from: str | None = None
+    period_to: str | None = None
+    as_of: str | None = None
+    complete_through: str | None = None
+    row_count: int | None = None
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        _require_metadata(self.metadata)
+        if not isinstance(self.evidence_kind, TransitionBridgeEvidenceKind):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if (self.period_from is None) != (self.period_to is None):
+            _fail(TransitionReasonCode.DATE_INVALID)
+        if self.period_from is not None:
+            start = normalize_date_only(self.period_from)
+            end = normalize_date_only(self.period_to)
+            if end < start:
+                _fail(TransitionReasonCode.DATE_INVALID)
+            object.__setattr__(self, "period_from", start)
+            object.__setattr__(self, "period_to", end)
+        if self.as_of is not None:
+            if self.period_from is not None:
+                _fail(TransitionReasonCode.CONTRACT_INVALID)
+            object.__setattr__(self, "as_of", normalize_utc_timestamp(self.as_of))
+        if self.complete_through is not None:
+            object.__setattr__(
+                self, "complete_through", normalize_date_only(self.complete_through),
+            )
+        object.__setattr__(self, "captured_at", normalize_utc_timestamp(self.captured_at))
+        if self.row_count is not None:
+            count = normalize_quantity(self.row_count)
+            if count < 1 or count > 50_000:
+                _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED)
+            object.__setattr__(self, "row_count", count)
+        if self.evidence_kind is TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT:
+            if self.metadata.source_kind is not EvidenceSourceKind.OWNER_IMPORTED:
+                _fail(TransitionReasonCode.CONTRACT_INVALID)
+            if self.row_count is None or self.period_from is None:
+                _fail(TransitionReasonCode.FIFO_PHYSICAL_SALES_DOCUMENT_INVALID)
+        if not isinstance(self.sensitive_payload, str) or not self.sensitive_payload:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        raw_size = len(self.sensitive_payload.encode("utf-8"))
+        raw_limit = (
+            12 * 1024 * 1024
+            if self.evidence_kind is TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT
+            else 48 * 1024 * 1024
+        )
+        if raw_size > raw_limit:
+            _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED)
+        _validate_bridge_source(self.evidence_kind, self.metadata.source_kind)
+        normalized = _validate_transition_bridge_payload(self.evidence_kind, self.payload)
+        _validate_bridge_completeness(self)
+        object.__setattr__(self, "payload", MappingProxyType(normalized))
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionEvidenceConfirmation:
+    """Typed owner confirmation bound by the repository to one evidence hash."""
+
+    confirmation_kind: TransitionEvidenceConfirmationKind
+    confirmed_fields: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.confirmation_kind, TransitionEvidenceConfirmationKind):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        normalized = _validate_transition_confirmation_fields(
+            self.confirmation_kind, self.confirmed_fields,
+        )
+        object.__setattr__(self, "confirmed_fields", MappingProxyType(normalized))
+
+
 @dataclass(frozen=True, slots=True)
 class SupplyActEvidence:
     """Allowlisted acceptance-act facts; references are opaque digests only."""
@@ -905,6 +1079,207 @@ def _freeze_json(value: object) -> object:
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_json(item) for item in value)
     return value
+
+
+def _validate_transition_bridge_payload(
+    kind: TransitionBridgeEvidenceKind, value: Mapping[str, object],
+) -> dict[str, object]:
+    if not isinstance(value, Mapping) or set(value) != _BRIDGE_PAYLOAD_KEYS[kind]:
+        _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_MISSING)
+    result = dict(value)
+    digest_fields = {
+        "document_fingerprint", "snapshot_fingerprint", "identity_fingerprint",
+        "bridge_fingerprint", "composition_fingerprint", "rate_fingerprint",
+        "predecessor_fingerprint", "reconciliation_fingerprint",
+        "replay_fingerprint", "summary_fingerprint", "tax_policy_fingerprint",
+    }
+    date_fields = {
+        "period_from", "period_to", "complete_through", "cutoff_date",
+        "opening_date", "effective_date", "as_of", "effective_from",
+    }
+    count_fields = {
+        "row_count", "matched_rows", "page_count", "event_count",
+        "selected_event_count", "total_units", "component_count",
+    }
+    boolean_fields = {"scope_complete", "pagination_complete"}
+    for key in digest_fields & result.keys():
+        if result[key] is None and key == "predecessor_fingerprint":
+            continue
+        result[key] = normalize_digest(result[key])
+    for key in date_fields & result.keys():
+        result[key] = normalize_date_only(result[key])
+    for key in count_fields & result.keys():
+        if type(result[key]) is not int or not 0 <= result[key] <= MAX_TRANSITION_QUANTITY:
+            _fail(TransitionReasonCode.QUANTITY_INVALID)
+    for key in ("event_count", "selected_event_count"):
+        if key in result and result[key] > 100_000:
+            _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED)
+    if "page_count" in result and result["page_count"] < 1:
+        _fail(TransitionReasonCode.EVENT_COVERAGE_INCOMPLETE)
+    for key in boolean_fields & result.keys():
+        if type(result[key]) is not bool:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+    for key in ("timezone",):
+        if key in result:
+            result[key] = normalize_store_timezone(result[key])
+    for key in ("semantics", "report_type", "policy_code", "calculation_basis"):
+        if key in result:
+            token = _required_text(result[key], 64)
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", token):
+                _fail(TransitionReasonCode.CONTRACT_INVALID)
+            result[key] = token
+    if "rate_percent" in result:
+        raw_rate = result["rate_percent"]
+        if not isinstance(raw_rate, (str, Decimal)) or isinstance(raw_rate, bool):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        try:
+            rate = Decimal(str(raw_rate))
+        except InvalidOperation:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if not rate.is_finite() or rate < 0 or rate > Decimal("100"):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        result["rate_percent"] = format(rate, "f")
+    if kind is TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT:
+        if result["semantics"] != "PHYSICAL_OUTFLOW":
+            _fail(TransitionReasonCode.FIFO_PHYSICAL_SALES_DOCUMENT_INVALID)
+        if result["row_count"] < 1:
+            _fail(TransitionReasonCode.FIFO_PHYSICAL_SALES_DOCUMENT_INVALID)
+        if result["period_to"] < result["period_from"]:
+            _fail(TransitionReasonCode.DATE_INVALID)
+    if kind is TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT:
+        if result["matched_rows"] > result["row_count"]:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+    if kind is TransitionBridgeEvidenceKind.MOVEMENT_COVERAGE:
+        if result["period_from"] > result["complete_through"]:
+            _fail(TransitionReasonCode.DATE_INVALID)
+    if kind is TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT:
+        if result["period_to"] < result["period_from"]:
+            _fail(TransitionReasonCode.DATE_INVALID)
+    return {key: _freeze_json(item) for key, item in result.items()}
+
+
+def _validate_bridge_completeness(evidence: TransitionBridgeEvidence) -> None:
+    completeness = evidence.metadata.completeness
+    if completeness is not EvidenceCompleteness.COMPLETE:
+        return
+    payload = evidence.payload
+    kind = evidence.evidence_kind
+    if kind is TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT:
+        complete = payload["scope_complete"] is True and payload["pagination_complete"] is True
+    elif kind is TransitionBridgeEvidenceKind.MOVEMENT_COVERAGE:
+        complete = (
+            payload["scope_complete"] is True
+            and payload["pagination_complete"] is True
+            and evidence.complete_through == payload["complete_through"]
+        )
+    elif kind is TransitionBridgeEvidenceKind.CUTOFF_SELECTION:
+        complete = (
+            evidence.metadata.source_kind is EvidenceSourceKind.LOCAL_DERIVED
+            and evidence.complete_through == payload["complete_through"]
+            and payload["selected_event_count"] <= 100_000
+        )
+    elif kind is TransitionBridgeEvidenceKind.OPENING_COMPOSITION:
+        complete = evidence.metadata.source_kind is EvidenceSourceKind.LOCAL_DERIVED
+    elif kind is TransitionBridgeEvidenceKind.RATE_BOUNDARY_PROOF:
+        complete = evidence.metadata.source_kind is EvidenceSourceKind.LOCAL_DERIVED
+    elif kind is TransitionBridgeEvidenceKind.TAX_POLICY_SNAPSHOT:
+        complete = evidence.metadata.source_kind in {
+            EvidenceSourceKind.OZON_API, EvidenceSourceKind.LOCAL_DERIVED,
+        }
+    elif kind is TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT:
+        complete = (
+            evidence.row_count == payload["row_count"]
+            and evidence.period_from == payload["period_from"]
+            and evidence.period_to == payload["period_to"]
+        )
+    elif kind is TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT:
+        complete = (
+            evidence.period_from == payload["period_from"]
+            and evidence.period_to == payload["period_to"]
+            and evidence.row_count == payload["row_count"]
+        )
+    else:
+        complete = True
+    if not complete:
+        _fail(TransitionReasonCode.EVENT_COVERAGE_INCOMPLETE)
+
+
+def _validate_bridge_source(
+    kind: TransitionBridgeEvidenceKind, source: EvidenceSourceKind,
+) -> None:
+    allowed = {
+        TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT: {
+            EvidenceSourceKind.OWNER_IMPORTED,
+        },
+        TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT: {
+            EvidenceSourceKind.OZON_API, EvidenceSourceKind.OWNER_IMPORTED,
+        },
+        TransitionBridgeEvidenceKind.MOVEMENT_COVERAGE: {
+            EvidenceSourceKind.OZON_API, EvidenceSourceKind.OWNER_IMPORTED,
+        },
+        TransitionBridgeEvidenceKind.CUTOFF_SELECTION: {
+            EvidenceSourceKind.OWNER_INPUT, EvidenceSourceKind.LOCAL_DERIVED,
+        },
+        TransitionBridgeEvidenceKind.OPENING_COMPOSITION: {
+            EvidenceSourceKind.OWNER_INPUT, EvidenceSourceKind.LOCAL_DERIVED,
+        },
+        TransitionBridgeEvidenceKind.RATE_BOUNDARY_PROOF: {
+            EvidenceSourceKind.OWNER_INPUT, EvidenceSourceKind.OZON_API,
+            EvidenceSourceKind.LOCAL_DERIVED,
+        },
+        TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT: {
+            EvidenceSourceKind.OZON_API, EvidenceSourceKind.OWNER_IMPORTED,
+        },
+        TransitionBridgeEvidenceKind.TAX_POLICY_SNAPSHOT: {
+            EvidenceSourceKind.OWNER_INPUT, EvidenceSourceKind.OZON_API,
+            EvidenceSourceKind.LOCAL_DERIVED,
+        },
+    }
+    if source not in allowed[kind]:
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
+
+
+def _validate_transition_confirmation_fields(
+    kind: TransitionEvidenceConfirmationKind, value: Mapping[str, object],
+) -> dict[str, object]:
+    if not isinstance(value, Mapping) or set(value) != _CONFIRMATION_PAYLOAD_KEYS[kind]:
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
+    result = dict(value)
+    digest_fields = {
+        "selected_source_fingerprint", "document_fingerprint", "rows_fingerprint",
+        "coverage_fingerprint", "bridge_fingerprint", "composition_fingerprint",
+        "rate_fingerprint", "reconciliation_fingerprint", "tax_policy_fingerprint",
+        "reviewed_fingerprint",
+    }
+    for key in digest_fields & result.keys():
+        result[key] = normalize_digest(result[key])
+    for key in ("period_from", "period_to", "complete_through", "cutoff_date",
+                "opening_date", "effective_date", "effective_from"):
+        if key in result:
+            result[key] = normalize_date_only(result[key])
+    for key in ("row_count", "event_count", "total_units"):
+        if key in result:
+            if type(result[key]) is not int or not 0 <= result[key] <= MAX_TRANSITION_QUANTITY:
+                _fail(TransitionReasonCode.QUANTITY_INVALID)
+    if "timezone" in result:
+        result["timezone"] = normalize_store_timezone(result["timezone"])
+    for key in ("selection_reason", "semantics", "stock_semantics",
+                "calculation_basis", "review_outcome"):
+        if key in result:
+            token = _required_text(result[key], 64)
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", token):
+                _fail(TransitionReasonCode.CONTRACT_INVALID)
+            result[key] = token
+    if "period_from" in result and "period_to" in result:
+        if result["period_to"] < result["period_from"]:
+            _fail(TransitionReasonCode.DATE_INVALID)
+    if "semantics" in result and result["semantics"] != "PHYSICAL_OUTFLOW":
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
+    if "review_outcome" in result and result["review_outcome"] not in {
+        "CONFIRMED", "REJECTED",
+    }:
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
+    return {key: _freeze_json(item) for key, item in result.items()}
 
 
 def _fail(reason_code: TransitionReasonCode) -> None:

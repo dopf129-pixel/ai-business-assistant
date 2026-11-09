@@ -20,6 +20,7 @@ from services.fifo_cost_transition_contracts import (
     SupplyDeclaration,
     SupplyObservation,
     TransitionCase,
+    TransitionBridgeEvidenceKind,
 )
 
 
@@ -29,6 +30,9 @@ class FifoCostTransitionStore:
     MAX_OBSERVATIONS_PER_CASE = 2000
     MAX_CASE_PAYLOAD_BYTES = 262_144
     MAX_EVIDENCE_PAYLOAD_BYTES = 262_144
+    MAX_BRIDGE_EVIDENCE_VERSIONS_PER_CASE = 100
+    MAX_BRIDGE_EVIDENCE_CIPHER_BYTES_PER_CASE = 64 * 1024 * 1024
+    MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES = 16 * 1024 * 1024
 
     @classmethod
     def case_payload(cls, case: TransitionCase) -> dict:
@@ -420,6 +424,200 @@ class FifoCostTransitionStore:
             payload_fingerprint=fingerprint, evidence_kind="REPORT_EVIDENCE",
             insert=insert, recorded_at=recorded_at,
         )
+
+    @classmethod
+    def append_bridge_evidence(
+        cls, connection, *, case_id, metadata, scope, identity,
+        expected_case_revision, idempotency_key, row, recorded_at,
+    ):
+        """Append one encrypted, typed evidence version and invalidate READY."""
+        def insert(case_row):
+            totals = connection.execute(
+                """SELECT COUNT(*) AS versions,
+                          COALESCE(SUM(length(encrypted_payload)), 0) AS cipher_bytes
+                   FROM fifo_cost_transition_bridge_evidence WHERE case_id=?""",
+                (case_id,),
+            ).fetchone()
+            if totals["versions"] >= cls.MAX_BRIDGE_EVIDENCE_VERSIONS_PER_CASE:
+                return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED"}
+            if (
+                totals["cipher_bytes"] + len(row["encrypted_payload"])
+                > cls.MAX_BRIDGE_EVIDENCE_CIPHER_BYTES_PER_CASE
+            ):
+                return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED"}
+            if row["evidence_kind"] == "PHYSICAL_SALES_DOCUMENT":
+                if len(row["encrypted_payload"]) > cls.MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES:
+                    return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED"}
+            revision = connection.execute(
+                """SELECT COALESCE(MAX(evidence_revision), 0) + 1
+                   FROM fifo_cost_transition_bridge_evidence
+                   WHERE case_id=? AND evidence_kind=?""",
+                (case_id, row["evidence_kind"]),
+            ).fetchone()[0]
+            evidence_id = "bridge_" + hashlib.sha256(
+                f"{case_id}:{row['evidence_kind']}:{revision}:{row['payload_fingerprint']}".encode()
+            ).hexdigest()[:40]
+            connection.execute(
+                """INSERT INTO fifo_cost_transition_bridge_evidence (
+                    evidence_id, case_id, store_id, owner_fingerprint,
+                    tenant_fingerprint, scope_fingerprint, identity_fingerprint,
+                    evidence_kind, schema_version, source_kind, source_fingerprint,
+                    evidence_revision, period_from, period_to, as_of, captured_at,
+                    complete_through, completeness, row_count, payload_json,
+                    encrypted_payload, payload_fingerprint, idempotency_key, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (evidence_id, case_id, row["store_id"], row["owner_fingerprint"],
+                 row["tenant_fingerprint"], row["scope_fingerprint"],
+                 row["identity_fingerprint"], row["evidence_kind"],
+                 row["schema_version"], row["source_kind"],
+                 row["source_fingerprint"], revision, row["period_from"],
+                 row["period_to"], row["as_of"], row["captured_at"],
+                 row["complete_through"], row["completeness"], row["row_count"],
+                 row["payload_json"], row["encrypted_payload"],
+                 row["payload_fingerprint"], idempotency_key, recorded_at),
+            )
+            return {"evidence_id": evidence_id, "evidence_revision": revision}
+
+        result = cls._append_evidence_revision(
+            connection, case_id=case_id, metadata=metadata, scope=scope,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+            payload_json=row["payload_json"],
+            payload_fingerprint=row["payload_fingerprint"],
+            evidence_kind=f"BRIDGE_EVIDENCE:{row['evidence_kind']}",
+            insert=insert, recorded_at=recorded_at,
+        )
+        if result.get("error") is False:
+            result["payload_fingerprint"] = (
+                row["payload_fingerprint"]
+                if not result.get("replayed")
+                else (result.get("result") or {}).get("payload_fingerprint")
+            )
+        return result
+
+    @classmethod
+    def confirm_bridge_evidence(
+        cls, connection, *, case_id, metadata, scope, expected_case_revision,
+        idempotency_key, evidence, confirmation, recorded_at,
+    ):
+        """Append a confirmation bound to the exact scoped evidence digest."""
+        def insert(case_row):
+            current = connection.execute(
+                """SELECT evidence_id FROM fifo_cost_transition_bridge_evidence
+                   WHERE evidence_id=? AND case_id=? AND payload_fingerprint=?
+                     AND owner_fingerprint=? AND scope_fingerprint=?""",
+                (evidence["evidence_id"], case_id, evidence["payload_fingerprint"],
+                 scope["owner_fingerprint"], evidence["scope_fingerprint"]),
+            ).fetchone()
+            if current is None:
+                return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_MISSING"}
+            confirmation_id = "bridgeconfirm_" + hashlib.sha256(
+                f"{case_id}:{evidence['evidence_id']}:{confirmation['payload_fingerprint']}".encode()
+            ).hexdigest()[:36]
+            connection.execute(
+                """INSERT INTO fifo_cost_transition_evidence_confirmations (
+                    confirmation_id, evidence_id, case_id, evidence_fingerprint,
+                    owner_fingerprint, scope_fingerprint, confirmation_kind,
+                    confirmed_fields_json, payload_fingerprint,
+                    expected_case_revision, idempotency_key, confirmed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (confirmation_id, evidence["evidence_id"], case_id,
+                 evidence["payload_fingerprint"], scope["owner_fingerprint"],
+                 evidence["scope_fingerprint"], confirmation["confirmation_kind"],
+                 confirmation["confirmed_fields_json"],
+                 confirmation["payload_fingerprint"], expected_case_revision,
+                 idempotency_key, recorded_at),
+            )
+            return {"evidence_id": evidence["evidence_id"],
+                    "confirmation_id": confirmation_id}
+
+        return cls._append_evidence_revision(
+            connection, case_id=case_id, metadata=metadata, scope=scope,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+            payload_json=confirmation["confirmed_fields_json"],
+            payload_fingerprint=confirmation["payload_fingerprint"],
+            evidence_kind=f"CONFIRMATION:{confirmation['confirmation_kind']}",
+            insert=insert, recorded_at=recorded_at,
+        )
+
+    @classmethod
+    def read_bridge_evidence(
+        cls, connection, case_id, scope, identity, *, evidence_kind=None, limit=100,
+    ):
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return {"error": True, "code": "FIFO_TRANSITION_LIMIT_INVALID"}
+        case_row = cls._load_case(connection, case_id, scope, identity)
+        if case_row is None:
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_NOT_FOUND"}
+        if evidence_kind is not None:
+            if not isinstance(evidence_kind, str) or evidence_kind not in {
+                item.value for item in TransitionBridgeEvidenceKind
+            }:
+                return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_KIND_INVALID"}
+            rows = connection.execute(
+                """SELECT * FROM fifo_cost_transition_bridge_evidence
+                   WHERE case_id=? AND evidence_kind=?
+                   ORDER BY evidence_revision DESC LIMIT ?""",
+                (case_id, evidence_kind, limit),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """SELECT * FROM fifo_cost_transition_bridge_evidence
+                   WHERE case_id=? ORDER BY recorded_at DESC, evidence_id DESC LIMIT ?""",
+                (case_id, limit),
+            ).fetchall()
+        evidence_ids = [row["evidence_id"] for row in rows]
+        confirmations = {}
+        if evidence_ids:
+            placeholders = ",".join("?" for _ in evidence_ids)
+            confirmation_rows = connection.execute(
+                f"""SELECT confirmation_id, evidence_id, case_id,
+                           evidence_fingerprint, owner_fingerprint, scope_fingerprint,
+                           confirmation_kind, confirmed_fields_json, payload_fingerprint,
+                           expected_case_revision, confirmed_at
+                    FROM fifo_cost_transition_evidence_confirmations
+                    WHERE case_id=? AND evidence_id IN ({placeholders})
+                    ORDER BY confirmed_at, confirmation_id""",
+                (case_id, *evidence_ids),
+            ).fetchall()
+            for confirmation in confirmation_rows:
+                confirmations.setdefault(confirmation["evidence_id"], []).append(
+                    dict(confirmation),
+                )
+        return {
+            "error": False, "code": "FIFO_TRANSITION_EVIDENCE_FOUND",
+            "case_revision": case_row["current_revision"],
+            "state": case_row["current_state"],
+            "items": [
+                {**dict(row), "confirmations": confirmations.get(row["evidence_id"], [])}
+                for row in rows
+            ],
+        }
+
+    @classmethod
+    def read_preview(cls, connection, preview_id, case_id, scope, identity):
+        case_row = cls._load_case(connection, case_id, scope, identity)
+        if case_row is None:
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_NOT_FOUND"}
+        row = connection.execute(
+            """SELECT p.* FROM fifo_cost_transition_previews AS p
+               JOIN fifo_cost_transition_cases AS c ON c.case_id=p.case_id
+               WHERE p.preview_id=? AND p.case_id=?
+                 AND c.owner_fingerprint=? AND c.tenant_fingerprint=?
+                 AND c.store_id=? AND c.sku=? AND c.product_id IS ? AND c.offer_id IS ?""",
+            (preview_id, case_id, scope["owner_fingerprint"],
+             scope["tenant_fingerprint"], identity["store_id"], identity["sku"],
+             identity["product_id"], identity["offer_id"]),
+        ).fetchone()
+        if row is None:
+            return {"error": True, "code": "FIFO_TRANSITION_PREVIEW_NOT_FOUND"}
+        return {
+            "error": False, "code": "FIFO_TRANSITION_PREVIEW_FOUND",
+            "current_case_revision": case_row["current_revision"],
+            "current_case_state": case_row["current_state"],
+            "preview": dict(row),
+        }
 
     @classmethod
     def read_case(cls, connection, case_id: str, scope: dict, identity: dict) -> dict:

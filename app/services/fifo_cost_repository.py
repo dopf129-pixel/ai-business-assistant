@@ -28,14 +28,21 @@ from services.fifo_cost_replay_service import (
 from services.fifo_cost_transition_contracts import (
     CostInputMode,
     DEFAULT_STORE_TIMEZONE,
+    EvidenceCompleteness,
+    EvidenceSourceKind,
     ReportEvidence,
     SupplyDeclaration,
     SupplyObservation,
+    TransitionBridgeEvidence,
+    TransitionBridgeEvidenceKind,
     TransitionCase,
+    TransitionEvidenceConfirmation,
+    TransitionEvidenceConfirmationKind,
     TransitionMetadata,
     TransitionState,
 )
 from services.fifo_cost_transition_store import FifoCostTransitionStore
+from services.tenant_cipher_provider import decrypt_tenant_value, encrypt_tenant_value
 from services.tenant_context import get_current_tenant_user_id
 from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
@@ -50,6 +57,20 @@ class FifoCostRepository:
     MAX_PAYLOAD_BYTES = 64 * 1024
     PREVIEW_TTL_SECONDS = 600
     MAX_PREVIEWS = 5000
+    MAX_TRANSITION_EVIDENCE_METADATA_BYTES = 256 * 1024
+    MAX_TRANSITION_EVIDENCE_CONFIRMATION_BYTES = 64 * 1024
+    MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE = 64 * 1024 * 1024
+    MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES = 16 * 1024 * 1024
+    _TRANSITION_CONFIRMATIONS_BY_EVIDENCE = {
+        "PHYSICAL_SALES_DOCUMENT": frozenset({"PHYSICAL_SALES", "PERIOD"}),
+        "FINANCE_IDENTITY_SNAPSHOT": frozenset({"SOURCE_SELECTION", "EVIDENCE_REVIEW"}),
+        "MOVEMENT_COVERAGE": frozenset({"MOVEMENT_COVERAGE", "EVIDENCE_REVIEW"}),
+        "CUTOFF_SELECTION": frozenset({"CUTOFF_SELECTION", "EVIDENCE_REVIEW"}),
+        "OPENING_COMPOSITION": frozenset({"OPENING_COMPOSITION", "EVIDENCE_REVIEW"}),
+        "RATE_BOUNDARY_PROOF": frozenset({"RATE_BOUNDARY", "EVIDENCE_REVIEW"}),
+        "PERIOD_SUMMARY_SNAPSHOT": frozenset({"PERIOD", "EVIDENCE_REVIEW"}),
+        "TAX_POLICY_SNAPSHOT": frozenset({"TAX_POLICY", "EVIDENCE_REVIEW"}),
+    }
     _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
     _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
     _EVENT_KINDS = frozenset({
@@ -399,6 +420,471 @@ class FifoCostRepository:
         finally:
             if connection is not None:
                 connection.close()
+
+    def append_transition_bridge_evidence(
+        self, *, case_id, evidence, expected_case_revision, idempotency_key,
+    ):
+        """Persist one typed bridge snapshot without exposing raw source data."""
+        if not isinstance(evidence, TransitionBridgeEvidence):
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if (
+            not self._valid_transition_idempotency_key(idempotency_key)
+            or len(idempotency_key) > 80
+        ):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        scope, identity = self._transition_metadata_scope(evidence.metadata)
+        if scope.get("error"):
+            return scope
+        try:
+            source_kind = self._transition_evidence_source_kind(evidence.metadata.source_kind)
+            raw_bytes = evidence.sensitive_payload.encode("utf-8")
+            cipher_text = encrypt_tenant_value(evidence.sensitive_payload)
+            if cipher_text is None:
+                return self._error("FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE")
+            encrypted_payload = cipher_text.encode("ascii")
+            cipher_limit = (
+                self.MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES
+                if evidence.evidence_kind is TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT
+                else self.MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE
+            )
+            if len(encrypted_payload) > cipher_limit:
+                return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+            if len(raw_bytes) > self.MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE:
+                return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+            identity_fingerprint = self._sha256(identity)
+            scope_fingerprint = self._sha256({
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "store_id": identity["store_id"],
+            })
+            safe_payload = dict(evidence.payload)
+            envelope = {
+                "schema_version": evidence.schema_version,
+                "evidence_kind": evidence.evidence_kind.value,
+                "source_kind": source_kind,
+                "source_fingerprint": evidence.metadata.source_fingerprint,
+                "scope_fingerprint": scope_fingerprint,
+                "identity_fingerprint": identity_fingerprint,
+                "captured_at": evidence.captured_at,
+                "period_from": evidence.period_from,
+                "period_to": evidence.period_to,
+                "as_of": evidence.as_of,
+                "complete_through": evidence.complete_through,
+                "completeness": evidence.metadata.completeness.value,
+                "row_count": evidence.row_count,
+                "payload": safe_payload,
+                "sensitive_payload_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            }
+            payload_json = self._canonical_json(envelope)
+            if len(payload_json.encode("utf-8")) > self.MAX_TRANSITION_EVIDENCE_METADATA_BYTES:
+                return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+            payload_fingerprint = self._sha256(envelope)
+            recorded_at = self._iso(self._now())
+            row = {
+                "store_id": identity["store_id"],
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "scope_fingerprint": scope_fingerprint,
+                "identity_fingerprint": identity_fingerprint,
+                "evidence_kind": evidence.evidence_kind.value,
+                "schema_version": evidence.schema_version,
+                "source_kind": source_kind,
+                "source_fingerprint": evidence.metadata.source_fingerprint,
+                "period_from": evidence.period_from,
+                "period_to": evidence.period_to,
+                "as_of": evidence.as_of,
+                "captured_at": evidence.captured_at,
+                "complete_through": evidence.complete_through,
+                "completeness": evidence.metadata.completeness.value,
+                "row_count": evidence.row_count,
+                "payload_json": payload_json,
+                "encrypted_payload": encrypted_payload,
+                "payload_fingerprint": payload_fingerprint,
+            }
+        except (TypeError, ValueError, UnicodeError, OverflowError):
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_bridge_evidence(
+                connection, case_id=case_id, metadata=evidence.metadata,
+                scope=scope, identity=identity,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key, row=row,
+                recorded_at=recorded_at,
+            )
+        )
+
+    def confirm_transition_evidence(
+        self, *, case_id, metadata, evidence_id, expected_evidence_fingerprint,
+        confirmation, expected_case_revision, idempotency_key,
+    ):
+        """Append an owner confirmation bound to an exact encrypted snapshot."""
+        if not isinstance(metadata, TransitionMetadata):
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+        if not isinstance(confirmation, TransitionEvidenceConfirmation):
+            return self._error("FIFO_TRANSITION_CONFIRMATION_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if (
+            not self._valid_transition_idempotency_key(idempotency_key)
+            or len(idempotency_key) > 80
+        ):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        if (
+            not self._valid_transition_case_id(case_id)
+            or not isinstance(evidence_id, str)
+            or re.fullmatch(r"bridge_[a-f0-9]{40}", evidence_id) is None
+            or not self._valid_digest(expected_evidence_fingerprint)
+        ):
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        scope, identity = self._transition_metadata_scope(metadata)
+        if scope.get("error"):
+            return scope
+        fields_json = self._canonical_json(dict(confirmation.confirmed_fields))
+        if len(fields_json.encode("utf-8")) > self.MAX_TRANSITION_EVIDENCE_CONFIRMATION_BYTES:
+            return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+        fingerprint_payload = {
+            "case_id": case_id,
+            "evidence_id": evidence_id,
+            "evidence_fingerprint": expected_evidence_fingerprint,
+            "owner_fingerprint": scope["owner_fingerprint"],
+            "scope_fingerprint": self._sha256({
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "store_id": identity["store_id"],
+            }),
+            "confirmation_kind": confirmation.confirmation_kind.value,
+            "confirmed_fields": dict(confirmation.confirmed_fields),
+            "expected_case_revision": expected_case_revision,
+        }
+        confirmation_fingerprint = self._sha256(fingerprint_payload)
+        connection = None
+        try:
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            rows = FifoCostTransitionStore.read_bridge_evidence(
+                connection, case_id, scope, identity, limit=100,
+            )
+            if rows.get("error"):
+                connection.rollback()
+                return rows
+            evidence_row = next(
+                (item for item in rows["items"] if item["evidence_id"] == evidence_id),
+                None,
+            )
+            if (
+                evidence_row is None
+                or evidence_row["payload_fingerprint"] != expected_evidence_fingerprint
+            ):
+                connection.rollback()
+                return self._error("FIFO_TRANSITION_EVIDENCE_MISMATCH")
+            if confirmation.confirmation_kind.value not in (
+                self._TRANSITION_CONFIRMATIONS_BY_EVIDENCE.get(
+                    evidence_row["evidence_kind"], frozenset(),
+                )
+            ):
+                connection.rollback()
+                return self._error("FIFO_TRANSITION_CONFIRMATION_INVALID")
+            verified = self._verify_transition_evidence_row(
+                evidence_row, decrypt=True, expected_scope=scope,
+                expected_identity=identity,
+            )
+            if (
+                verified.get("error")
+                or verified.get("item", {}).get("sensitive_payload_available") is not True
+            ):
+                connection.rollback()
+                return verified if verified.get("error") else self._error(
+                    "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE",
+                )
+            confirmation_row = {
+                "confirmation_kind": confirmation.confirmation_kind.value,
+                "confirmed_fields_json": fields_json,
+                "payload_fingerprint": confirmation_fingerprint,
+            }
+            result = FifoCostTransitionStore.confirm_bridge_evidence(
+                connection, case_id=case_id, metadata=metadata,
+                scope=scope, expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                evidence=evidence_row, confirmation=confirmation_row,
+                recorded_at=self._iso(self._now()),
+            )
+            if result.get("error"):
+                connection.rollback()
+                return result
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+        except (sqlite3.Error, OSError, TypeError, ValueError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_transition_bridge_evidence(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        evidence_kind=None, limit=100, include_sensitive_payload=False,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        if type(include_sensitive_payload) is not bool:
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            result = FifoCostTransitionStore.read_bridge_evidence(
+                connection, case_id, scope, identity,
+                evidence_kind=(
+                    evidence_kind.value
+                    if isinstance(evidence_kind, TransitionBridgeEvidenceKind)
+                    else evidence_kind
+                ), limit=limit,
+            )
+            if result.get("error"):
+                return result
+            safe_items = []
+            for row in result["items"]:
+                verified = self._verify_transition_evidence_row(
+                    row, decrypt=include_sensitive_payload,
+                    expected_scope=scope, expected_identity=identity,
+                )
+                if verified.get("error"):
+                    return verified
+                safe_items.append(verified["item"])
+            return {**result, "items": safe_items}
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_transition_preview(
+        self, *, case_id, preview_id, store_id, product_id=None, offer_id=None, sku,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not self._valid_transition_case_id(case_id)
+            or not isinstance(preview_id, str)
+            or re.fullmatch(r"transpreview_[a-f0-9]{40}", preview_id) is None
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_INPUT_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            result = FifoCostTransitionStore.read_preview(
+                connection, preview_id, case_id, scope, identity,
+            )
+            if result.get("error"):
+                return result
+            preview_row = result.pop("preview")
+            try:
+                payload = json.loads(preview_row["payload_json"])
+            except (TypeError, ValueError):
+                return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+            if (
+                not isinstance(payload, dict)
+                or payload.get("case_id") != case_id
+                or self._sha256(payload) != preview_row["preview_fingerprint"]
+                or preview_id != "transpreview_" + preview_row["preview_fingerprint"][:40]
+                or type(payload.get("case_revision")) is not int
+                or preview_row["case_revision"] != payload["case_revision"] + 1
+                or payload.get("base_fifo_revision") != preview_row["fifo_revision"]
+                or payload.get("base_allocation_revision") != preview_row["allocation_revision"]
+                or payload.get("evidence_set_fingerprint")
+                    != preview_row["evidence_set_fingerprint"]
+                or payload.get("tax_policy_fingerprint")
+                    != preview_row["tax_policy_fingerprint"]
+            ):
+                return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+            now_text = self._iso(self._now())
+            row_metadata = {
+                key: preview_row[key]
+                for key in preview_row
+                if key != "payload_json"
+            }
+            return {
+                **result,
+                "preview": payload,
+                "sealed_preview": row_metadata,
+                "is_current": (
+                    result["current_case_state"] == "READY_TO_CONFIRM"
+                    and result["current_case_revision"] == preview_row["case_revision"]
+                ),
+                "expired": preview_row["expires_at"] <= now_text,
+            }
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    @staticmethod
+    def _transition_evidence_source_kind(source_kind):
+        return {
+            EvidenceSourceKind.OWNER_INPUT: "OWNER_CONFIRMED",
+            EvidenceSourceKind.OWNER_IMPORTED: "OWNER_IMPORTED",
+            EvidenceSourceKind.OZON_API: "OZON_API",
+            EvidenceSourceKind.LOCAL_DERIVED: "DERIVED",
+        }[source_kind]
+
+    def _verify_transition_evidence_row(
+        self, row, *, decrypt=False, expected_scope=None, expected_identity=None,
+    ):
+        try:
+            payload_json = row["payload_json"]
+            if len(payload_json.encode("utf-8")) > self.MAX_TRANSITION_EVIDENCE_METADATA_BYTES:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            envelope = json.loads(payload_json)
+            required_keys = {
+                "schema_version", "evidence_kind", "source_kind",
+                "source_fingerprint", "scope_fingerprint", "identity_fingerprint",
+                "captured_at", "period_from", "period_to", "as_of",
+                "complete_through", "completeness", "row_count", "payload",
+                "sensitive_payload_sha256",
+            }
+            if not isinstance(envelope, dict) or set(envelope) != required_keys:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            for column in (
+                "evidence_kind", "source_kind", "source_fingerprint",
+                "scope_fingerprint", "identity_fingerprint", "captured_at",
+                "period_from", "period_to", "as_of", "complete_through",
+                "completeness", "row_count", "schema_version",
+            ):
+                if envelope[column] != row[column]:
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            if self._sha256(envelope) != row["payload_fingerprint"]:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            if expected_scope is not None and (
+                row["owner_fingerprint"] != expected_scope["owner_fingerprint"]
+                or row["tenant_fingerprint"] != expected_scope["tenant_fingerprint"]
+            ):
+                return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            if expected_identity is not None:
+                expected_identity_fingerprint = self._sha256(expected_identity)
+                expected_scope_fingerprint = self._sha256({
+                    "owner_fingerprint": expected_scope["owner_fingerprint"],
+                    "tenant_fingerprint": expected_scope["tenant_fingerprint"],
+                    "store_id": expected_identity["store_id"],
+                })
+                if (
+                    row["identity_fingerprint"] != expected_identity_fingerprint
+                    or row["scope_fingerprint"] != expected_scope_fingerprint
+                    or row["store_id"] != expected_identity["store_id"]
+                ):
+                    return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            item = {
+                key: row[key] for key in (
+                    "evidence_id", "case_id", "store_id", "evidence_kind",
+                    "schema_version", "source_kind", "source_fingerprint",
+                    "evidence_revision", "period_from", "period_to", "as_of",
+                    "captured_at", "complete_through", "completeness", "row_count",
+                    "payload_fingerprint", "recorded_at",
+                )
+            }
+            item["payload"] = envelope["payload"]
+            verified_confirmations = []
+            for confirmation_row in row.get("confirmations", []):
+                try:
+                    confirmed_fields = json.loads(
+                        confirmation_row["confirmed_fields_json"],
+                    )
+                    confirmation_kind = TransitionEvidenceConfirmationKind(
+                        confirmation_row["confirmation_kind"],
+                    )
+                    if confirmation_kind.value not in (
+                        self._TRANSITION_CONFIRMATIONS_BY_EVIDENCE.get(
+                            row["evidence_kind"], frozenset(),
+                        )
+                    ):
+                        return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                    typed_confirmation = TransitionEvidenceConfirmation(
+                        confirmation_kind=confirmation_kind,
+                        confirmed_fields=confirmed_fields,
+                    )
+                    canonical_fields = self._canonical_json(
+                        dict(typed_confirmation.confirmed_fields),
+                    )
+                except (TypeError, ValueError):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                expected_confirmation = self._sha256({
+                    "case_id": row["case_id"],
+                    "evidence_id": row["evidence_id"],
+                    "evidence_fingerprint": row["payload_fingerprint"],
+                    "owner_fingerprint": row["owner_fingerprint"],
+                    "scope_fingerprint": row["scope_fingerprint"],
+                    "confirmation_kind": confirmation_kind.value,
+                    "confirmed_fields": dict(typed_confirmation.confirmed_fields),
+                    "expected_case_revision": confirmation_row[
+                        "expected_case_revision"
+                    ],
+                })
+                if (
+                    confirmation_row["evidence_fingerprint"]
+                        != row["payload_fingerprint"]
+                    or confirmation_row["owner_fingerprint"]
+                        != row["owner_fingerprint"]
+                    or confirmation_row["scope_fingerprint"]
+                        != row["scope_fingerprint"]
+                    or canonical_fields != confirmation_row["confirmed_fields_json"]
+                    or expected_confirmation != confirmation_row["payload_fingerprint"]
+                ):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                safe_confirmation = {
+                    key: confirmation_row[key]
+                    for key in (
+                        "confirmation_id", "confirmation_kind", "confirmed_at",
+                        "expected_case_revision", "payload_fingerprint",
+                    )
+                }
+                safe_confirmation["confirmed_fields"] = dict(
+                    typed_confirmation.confirmed_fields,
+                )
+                verified_confirmations.append(safe_confirmation)
+            item["confirmations"] = verified_confirmations
+            cipher_value = row["encrypted_payload"]
+            if isinstance(cipher_value, bytes):
+                cipher_value = cipher_value.decode("ascii")
+            sensitive_plaintext = decrypt_tenant_value(cipher_value)
+            if sensitive_plaintext is None:
+                item["sensitive_payload_available"] = False
+                item["blocker"] = "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE"
+                if decrypt:
+                    return {"error": False, "code": "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE",
+                            "item": item}
+            else:
+                if hashlib.sha256(sensitive_plaintext.encode("utf-8")).hexdigest() != (
+                    envelope["sensitive_payload_sha256"]
+                ):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                item["sensitive_payload_available"] = True
+                if decrypt:
+                    item["sensitive_payload"] = sensitive_plaintext
+            return {"error": False, "item": item}
+        except (KeyError, TypeError, ValueError, UnicodeError):
+            return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
 
     def prepare_transition_preview(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
