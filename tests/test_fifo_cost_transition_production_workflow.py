@@ -106,20 +106,39 @@ def test_production_workflow_builder_wires_durable_evidence_review_apply_and_run
     )
     history = FifoCostHistoryService(repository)
     transition = FifoCostTransitionService(repository, now_provider=now)
+    source_collection = object()
+    tax_service = object()
+    period_profit_service = object()
+    invalidations = []
     workflow = builder(
         repository=repository,
         history_service=history,
         transition_service=transition,
-        source_collection_service=object(),
-        tax_service=object(),
-        period_profit_service=object(),
+        source_collection_service=source_collection,
+        tax_service=tax_service,
+        period_profit_service=period_profit_service,
+        cache_invalidator=lambda identity: invalidations.append(identity),
         now_provider=now,
     )
 
     assert workflow["runtime_service"].apply_service is workflow["apply_service"]
+    assert workflow["runtime_service"].cache_invalidator is None
     assert workflow["review_service"].evidence_service is workflow["evidence_service"]
     assert workflow["review_service"].transition_service is transition
     assert workflow["evidence_service"].repository is repository
+    assert workflow["apply_service"].repository is repository
+    assert workflow["apply_service"].review_service is workflow["review_service"]
+    assert workflow["period_summary_collection_service"].impact_service is (
+        workflow["impact_service"]
+    )
+    assert workflow["source_collection_service"] is source_collection
+    assert workflow["tax_service"] is tax_service
+    assert workflow["period_profit_service"] is period_profit_service
+    workflow["apply_service"].cache_invalidator(
+        identity=IDENTITY, case_id="case-a", case_revision=5,
+        fifo_revision=4, allocation_revision=6,
+    )
+    assert invalidations == [IDENTITY]
 
 
 def test_durable_physical_sale_document_is_available_to_production_workflow(tmp_path):
@@ -146,7 +165,7 @@ def test_durable_physical_sale_document_is_available_to_production_workflow(tmp_
         now_provider=now,
     )
     importer = workflow["physical_sales_import_service"]
-    assert callable(getattr(importer, "create_selection_callback", None))
+    assert callable(getattr(importer, "start_selection", None))
     assert callable(getattr(importer, "handle_document", None))
     assert callable(getattr(importer, "handle_callback", None))
 
