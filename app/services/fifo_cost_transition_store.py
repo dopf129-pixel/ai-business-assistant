@@ -879,6 +879,7 @@ class FifoCostTransitionStore:
         case_payload.pop("_command_fingerprint", None)
         case_payload["last_commit"] = {
             "preview_id": preview_id,
+            "idempotency_key": idempotency_key,
             "commit_payload_fingerprint": payload_fingerprint,
         }
         revision_json = cls._json(case_payload, cls.MAX_CASE_PAYLOAD_BYTES)

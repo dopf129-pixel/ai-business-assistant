@@ -499,6 +499,15 @@ def test_distinct_review_actions_fail_closed_before_ready_and_do_not_write(tmp_p
             item["callback"] for item in readiness["keyboard"]["buttons"]
             if item["text"] == "📊 Посмотреть пересчёт"
         )
+        prepare_calls = []
+        runtime.apply_service = SimpleNamespace(
+            prepare=lambda **kwargs: prepare_calls.append(kwargs) or {
+                "error": False,
+                "code": "FIFO_TRANSITION_NOT_READY",
+                "requirements": ("FINANCIAL_PERIOD_SUMMARY_MISSING",),
+                "candidate_total_cogs_rub": "92.30",
+            },
+        )
         preview = runtime.handle_callback(101, preview_callback)
         assert "Подтверждённый FIFO cutoff: отсутствует" in preview["message"]
         assert "Старая очередь FIFO не инициализирована" in preview["message"]
@@ -510,6 +519,20 @@ def test_distinct_review_actions_fail_closed_before_ready_and_do_not_write(tmp_p
         assert "период OWNER_CONFIRMED" in preview["message"]
         assert "снимок 2026-11-08" in preview["message"]
         assert "прибыли" in preview["message"].lower()
+        assert "Seal не создан: FIFO_TRANSITION_NOT_READY" in preview["message"]
+        assert "кандидатная себестоимость" in preview["message"].lower()
+        assert len(prepare_calls) == 1
+        assert prepare_calls[0]["expected_case_revision"] == 8
+        assert prepare_calls[0]["idempotency_key"].startswith("tg-fr25-prepare-")
+        assert len(prepare_calls[0]["idempotency_key"]) <= 128
+        retry_view = runtime._show_summary("101")
+        retry_callback = next(
+            button["callback"] for button in retry_view["keyboard"]["buttons"]
+            if button["text"] == "📊 Посмотреть пересчёт"
+        )
+        runtime.handle_callback(101, retry_callback)
+        assert len(prepare_calls) == 2
+        assert prepare_calls[1]["idempotency_key"] == prepare_calls[0]["idempotency_key"]
 
         apply_calls = []
         runtime.apply_service = SimpleNamespace(apply=lambda **kwargs: apply_calls.append(kwargs))
@@ -555,7 +578,7 @@ def test_components_cost_mode_preview_shows_components_without_reinterpreting_pr
         reset_current_tenant_user_id(tenant)
 
 
-def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
+def test_ready_case_reopens_saved_preview_after_restart_without_repreparing():
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
         class ReadyTransitions:
@@ -571,9 +594,9 @@ def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
         runtime = TelegramFifoCostTransitionRuntimeService(
             ReadyTransitions(), history_service=None,
         )
-        summary_calls = []
-        runtime._show_summary = lambda owner: summary_calls.append(owner) or {
-            "error": False, "message": "sealed READY summary",
+        preview_calls = []
+        runtime._show_recalculation = lambda owner: preview_calls.append(owner) or {
+            "error": False, "message": "same persisted seal",
         }
 
         result = runtime.resume_case(
@@ -584,11 +607,222 @@ def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
             expected_case_revision=9,
         )
 
-        assert result["message"] == "sealed READY summary"
-        assert summary_calls == ["101"]
+        assert result["message"] == "same persisted seal"
+        assert preview_calls == ["101"]
         session = runtime._sessions["101"]
         assert session["state"] == "READY_TO_CONFIRM"
         assert "step" not in session
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_ready_preview_ticket_binds_exact_persisted_seal_and_replays_commit(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        preview_id = "preview-12345678"
+        preview_fingerprint = "a" * 64
+        preview = {
+            "case_revision": 8,
+            "effective_date": "2026-11-07",
+            "complete_through": "2026-11-06",
+            "allocation_preview": {"total_cogs_rub": "92.30"},
+            "impact_preview": {
+                "error": False,
+                "complete": True,
+                "candidate_only": False,
+                "related_return_count": 2,
+                "non_sale_outflow_count": 1,
+                "periods": [{
+                    "period": "2026-11",
+                    "before_profit_rub": "240.00",
+                    "after_profit_rub": "252.70",
+                    "delta_profit_rub": "12.70",
+                    "before_tax_rub": "60.00",
+                    "after_tax_rub": "60.00",
+                }],
+            },
+            "idempotency_key": "tg-fr25-prepare-012345678901234567890123456789012345678901234567",
+        }
+        state = {
+            "case_revision": 9,
+            "state": "READY_TO_CONFIRM",
+            "case": {
+                "metadata": {"scope": dict(IDENTITY)},
+                "last_preview": {
+                    "preview_id": preview_id,
+                    "preview_fingerprint": preview_fingerprint,
+                },
+            },
+        }
+
+        class ReadyTransitions:
+            def get_case(self, *, case_id, **identity):
+                return {"error": False, "case_id": case_id, **state}
+
+        class ExactApply:
+            def __init__(self):
+                self.apply_calls = []
+                self.read_calls = []
+                self.expired = False
+
+            def prepare(self, **kwargs):
+                raise AssertionError("READY restart must read, never prepare a new seal")
+
+            def read_preview(self, *, case_id, identity, preview_id):
+                self.read_calls.append((case_id, dict(identity), preview_id))
+                return {
+                    "error": False,
+                    "case_revision": 9,
+                    "basis_case_revision": 8,
+                    "preview_id": preview_id,
+                    "preview_fingerprint": preview_fingerprint,
+                    "current_case_revision": state["case_revision"],
+                    "current_case_state": state["state"],
+                    "is_current": True,
+                    "expired": self.expired,
+                    "preview": preview,
+                    "read_only": True,
+                }
+
+            def apply(self, **kwargs):
+                self.apply_calls.append(kwargs)
+                state["case_revision"] = 10
+                state["state"] = "APPLIED"
+                return {
+                    "error": False,
+                    "code": "FIFO_TRANSITION_APPLIED",
+                    "commit_id": "transcommit_1234567890",
+                    "preview_id": preview_id,
+                    "case_revision": 10,
+                    "complete_through": "2026-11-06",
+                    "committed_at": "2026-11-10T12:00:00Z",
+                }
+
+            def read_commit(self, *, case_id, identity):
+                return {
+                    "error": False,
+                    "code": "FIFO_TRANSITION_APPLIED",
+                    "commit_id": "transcommit_1234567890",
+                    "preview_id": preview_id,
+                    "case_revision": 10,
+                    "complete_through": "2026-11-06",
+                }
+
+        service = ExactApply()
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        opened = runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=9,
+        )
+        assert "Подтверждённый предпросмотр FIFO" in opened["message"]
+        assert "2026-11: прибыль 240.00 → 252.70 ₽" in opened["message"]
+        assert "Покрытие финансовых данных до: 2026-11-06" in opened["message"]
+        assert len(service.read_calls) == 1
+
+        readiness_bindings = []
+
+        class ReadyReview:
+            def assess(self, *, case_id, identity, sealed_preview_id=None):
+                readiness_bindings.append((case_id, sealed_preview_id))
+                return {
+                    "error": False,
+                    "case_revision": 8,
+                    "readiness": SimpleNamespace(
+                        status="PREVIEW_READY", ready_to_apply=True,
+                        source_data_through="2026-11-06",
+                        candidate_data_through=None,
+                        complete_through="2026-11-06",
+                        requirements=(),
+                    ),
+                }
+
+        runtime.review_service = ReadyReview()
+        readiness_button = runtime._issue_ticket(
+            "101", runtime._sessions["101"], "check_readiness",
+        )
+        readiness = runtime.handle_callback(101, readiness_button)
+        assert "Состояние: PREVIEW_READY" in readiness["message"]
+        assert "Проверка только читает" in readiness["message"]
+        assert readiness_bindings == [("case-ready-12345678", preview_id)]
+
+        restart_runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        restarted = restart_runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=9,
+        )
+        assert restarted["message"] == opened["message"]
+
+        service.expired = True
+        expired_runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        expired_preview = expired_runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=9,
+        )
+        assert "2026-11: прибыль 240.00 → 252.70 ₽" in expired_preview["message"]
+        assert "Срок подтверждения seal истёк" in expired_preview["message"]
+        assert all(
+            button["text"] != "Продолжить к подтверждению"
+            for button in expired_preview["keyboard"]["buttons"]
+        )
+        service.expired = False
+        first_apply_ticket = next(
+            button["callback"] for button in opened["keyboard"]["buttons"]
+            if button["text"] == "Продолжить к подтверждению"
+        )
+        first_apply_token = first_apply_ticket.rsplit(":", 1)[-1]
+        first_ticket = runtime._ticket("101", first_apply_token)
+        assert first_ticket["preview_id"] == preview_id
+        assert first_ticket["preview_fingerprint"] == preview_fingerprint
+        assert first_ticket["expected_preview_case_revision"] == 9
+        assert preview_id not in first_apply_ticket
+        assert preview_fingerprint not in first_apply_ticket
+
+        prompt = runtime.handle_callback(101, first_apply_ticket)
+        confirm_callback = prompt["keyboard"]["buttons"][0]["callback"]
+        confirm_token = confirm_callback.rsplit(":", 1)[-1]
+        confirm_ticket = runtime._ticket("101", confirm_token)
+        assert confirm_ticket["preview_id"] == preview_id
+        assert confirm_ticket["preview_fingerprint"] == preview_fingerprint
+        assert confirm_ticket["expected_preview_case_revision"] == 9
+        assert confirm_ticket["idempotency_key"] == first_ticket["idempotency_key"]
+
+        changed_fingerprint = "b" * 64
+        state["case"]["last_preview"]["preview_fingerprint"] = changed_fingerprint
+        rejected = runtime.handle_callback(101, confirm_callback)
+        assert rejected["error"] is True
+        assert service.apply_calls == []
+
+        state["case"]["last_preview"]["preview_fingerprint"] = preview_fingerprint
+        applied = runtime.handle_callback(101, confirm_callback)
+        assert "Commit: transcommit_1234567890" in applied["message"]
+        assert "Покрытие подтверждено до: 2026-11-06" in applied["message"]
+        assert service.apply_calls == [{
+            "case_id": "case-ready-12345678",
+            "identity": IDENTITY,
+            "expected_case_revision": 9,
+            "expected_preview_id": preview_id,
+            "expected_preview_fingerprint": preview_fingerprint,
+            "idempotency_key": confirm_ticket["idempotency_key"],
+        }]
+        replayed = runtime.handle_callback(101, confirm_callback)
+        assert replayed == applied
+        assert len(service.apply_calls) == 1
+
+        applied_restart_runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        applied_restart = applied_restart_runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=10,
+        )
+        assert "Commit: transcommit_1234567890" in applied_restart["message"]
+        assert "Покрытие подтверждено до: 2026-11-06" in applied_restart["message"]
     finally:
         reset_current_tenant_user_id(tenant)
 

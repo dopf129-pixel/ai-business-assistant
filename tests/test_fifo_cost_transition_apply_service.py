@@ -388,6 +388,11 @@ def test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl
         )
         assert current["state"] == "APPLIED"
         assert current["case_revision"] == prepared["case_revision"] + 1
+        receipt = service.read_commit(case_id=CASE_ID, identity=IDENTITY)
+        assert receipt["error"] is False, receipt
+        assert receipt["commit_id"] == applied["commit_id"]
+        assert receipt["complete_through"] == COMPLETE_THROUGH
+        assert receipt["case_revision"] == current["case_revision"]
 
         retry_repository = FifoCostRepository(
             db_path=tmp_path / "transition-atomic.sqlite",
@@ -403,6 +408,12 @@ def test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl
             tax_configuration_service=changed_tax,
             cache_invalidator=fail_cache_invalidation,
         )
+        restarted_receipt = retry_service.read_commit(
+            case_id=CASE_ID, identity=IDENTITY,
+        )
+        assert restarted_receipt["error"] is False, restarted_receipt
+        assert restarted_receipt["commit_id"] == applied["commit_id"]
+        assert restarted_receipt["complete_through"] == COMPLETE_THROUGH
         retry = retry_service.apply(
             case_id=CASE_ID, identity=IDENTITY,
             expected_case_revision=prepared["case_revision"],

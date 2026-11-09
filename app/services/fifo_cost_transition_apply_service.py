@@ -338,6 +338,67 @@ class FifoCostTransitionApplyService:
             "read_only": True,
         }
 
+    def read_commit(self, *, case_id, identity):
+        """Read the exact durable receipt for an APPLIED case after restart."""
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"store_id", "product_id", "offer_id", "sku"}
+            or not self.repository._valid_transition_case_id(case_id)
+        ):
+            return self._error("FIFO_TRANSITION_COMMIT_INPUT_INVALID")
+        current = self.transition_service.get_case(case_id=case_id, **identity)
+        if (
+            not isinstance(current, dict) or current.get("error") is not False
+            or current.get("state") != "APPLIED"
+            or type(current.get("case_revision")) is not int
+            or current["case_revision"] < 3
+        ):
+            return self._error("FIFO_TRANSITION_COMMIT_UNAVAILABLE")
+        payload = current.get("case")
+        last_commit = payload.get("last_commit") if isinstance(payload, dict) else None
+        if not isinstance(last_commit, dict):
+            return self._error("FIFO_TRANSITION_COMMIT_CORRUPT")
+        preview_id = last_commit.get("preview_id")
+        if not isinstance(preview_id, str):
+            return self._error("FIFO_TRANSITION_COMMIT_CORRUPT")
+        stored = self.read_preview(
+            case_id=case_id, identity=identity, preview_id=preview_id,
+        )
+        if not isinstance(stored, dict) or stored.get("error") is not False:
+            return stored if isinstance(stored, dict) else self._error(
+                "FIFO_TRANSITION_PREVIEW_UNAVAILABLE",
+            )
+        preview = stored.get("preview")
+        preview_fingerprint = stored.get("preview_fingerprint")
+        idempotency_key = last_commit.get("idempotency_key")
+        ready_revision = current["case_revision"] - 1
+        if (
+            stored.get("case_revision") != ready_revision
+            or not isinstance(preview, dict)
+            or preview.get("case_revision") != ready_revision - 1
+            or not self.repository._valid_digest(preview_fingerprint)
+            or not self.repository._valid_transition_idempotency_key(idempotency_key)
+        ):
+            return self._error("FIFO_TRANSITION_COMMIT_CORRUPT")
+        result = self.repository.read_transition_commit(
+            case_id=case_id, **identity,
+            expected_case_revision=ready_revision,
+            preview_id=preview_id,
+            preview_fingerprint=preview_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        if (
+            not isinstance(result, dict) or result.get("error") is not False
+            or result.get("found") is not True
+            or not isinstance(result.get("result"), dict)
+            or result["result"].get("case_revision") != current["case_revision"]
+            or result["result"].get("preview_id") != preview_id
+        ):
+            return result if isinstance(result, dict) and result.get("error") is True else self._error(
+                "FIFO_TRANSITION_COMMIT_UNAVAILABLE",
+            )
+        return {**result["result"], "read_only": True}
+
     def apply(
         self, *, case_id, identity, expected_case_revision, expected_preview_id,
         expected_preview_fingerprint, idempotency_key,

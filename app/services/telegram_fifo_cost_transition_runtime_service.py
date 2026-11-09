@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from threading import RLock
@@ -194,7 +196,9 @@ class TelegramFifoCostTransitionRuntimeService:
         if (
             not isinstance(case, dict) or case.get("error") is not False
             or case.get("case_revision") != expected_case_revision
-            or case.get("state") not in self._EDITABLE_STATES | {"READY_TO_CONFIRM"}
+            or case.get("state") not in self._EDITABLE_STATES | {
+                "READY_TO_CONFIRM", "APPLIED",
+            }
             or not self._case_matches_identity(case.get("case"), identity)
         ):
             return self._failure(
@@ -206,9 +210,10 @@ class TelegramFifoCostTransitionRuntimeService:
         ):
             return self._failure("Черновик не удалось загрузить в мастер. Откройте список изменений заново.")
         if case.get("state") == "READY_TO_CONFIRM":
-            # A sealed READY preview is immutable. After restart, reopen its
-            # summary so the owner can inspect/reconfirm it; never resume the
-            # editable field wizard for a non-editable case.
+            # Reopen the exact persisted seal; never rebuild a READY preview
+            # after restart or resume the editable field wizard.
+            return self._show_recalculation(owner)
+        if case.get("state") == "APPLIED":
             return self._show_summary(owner)
         return self._prompt_next(owner)
 
@@ -331,13 +336,23 @@ class TelegramFifoCostTransitionRuntimeService:
         if action == "finish":
             return self._show_summary(owner)
         if action == "check_readiness":
-            return self._show_readiness(owner)
+            result = self._show_readiness(owner)
+            ticket["confirmed_result"] = dict(result)
+            return result
         if action == "view_recalculation":
-            return self._show_recalculation(owner)
+            result = self._show_recalculation(owner)
+            ticket["confirmed_result"] = dict(result)
+            return result
         if action == "apply_transition":
-            return self._confirm_apply_prompt(user_id, owner, session)
+            result = self._confirm_apply_prompt(owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
         if action == "confirm_apply":
-            return self._apply_transition(user_id, owner, session, ticket)
+            result = self._apply_transition(user_id, owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
         if action == "refresh_supplies":
             return self._refresh_supplies_prompt(owner, page=0)
         if action == "refresh_supplies_page":
@@ -839,6 +854,16 @@ class TelegramFifoCostTransitionRuntimeService:
         if not isinstance(case, dict) or case.get("error") is not False:
             return self._failure("Не удалось открыть сохранённый черновик. Данные не изменены.")
         self._refresh_session(session, case)
+        if case.get("state") == "APPLIED":
+            receipt = None
+            if self.apply_service is not None:
+                read_commit = getattr(self.apply_service, "read_commit", None)
+                if callable(read_commit):
+                    receipt = read_commit(
+                        case_id=session["case_id"],
+                        identity=dict(session["identity"]),
+                    )
+            return self._show_applied_summary(owner, receipt)
         manifest = self.transition_service.get_supply_manifest(
             case_id=session["case_id"], **session["identity"],
         )
@@ -865,6 +890,8 @@ class TelegramFifoCostTransitionRuntimeService:
             f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n\n"
             "Это сохранённые сведения для сверки. История FIFO, текущая себестоимость и прибыль не применялись."
         )
+        if case.get("state") == "READY_TO_CONFIRM":
+            text += "\nСохранённый предпросмотр доступен через кнопку «Посмотреть пересчёт»; применить его можно только после просмотра и отдельного подтверждения."
         buttons = []
         if case.get("state") in self._EDITABLE_STATES:
             buttons.extend([
@@ -876,11 +903,6 @@ class TelegramFifoCostTransitionRuntimeService:
             {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},
             {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
         ])
-        if case.get("state") == "READY_TO_CONFIRM" and self.apply_service is not None:
-            buttons.append({
-                "text": "✅ Применить подтверждённую историю",
-                "callback": self._issue_ticket(owner, session, "apply_transition"),
-            })
         if case.get("state") in self._EDITABLE_STATES:
             buttons.append({
                 "text": "✖️ Отменить изменение",
@@ -892,7 +914,25 @@ class TelegramFifoCostTransitionRuntimeService:
         session = self._sessions.get(owner)
         if not isinstance(session, dict):
             return self._stale()
-        review = self._assess_case(session)
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Не удалось проверить готовность. Черновик не изменён; попробуйте открыть его заново.")
+        self._refresh_session(session, case)
+        sealed = None
+        if case.get("state") == "READY_TO_CONFIRM":
+            sealed = self._load_current_ready_preview(session, case)
+            if sealed is None:
+                return self._result(
+                    "Сохранённый предпросмотр READY истёк или устарел. Он не будет применён; обновите доказательства и откройте пересчёт заново.",
+                    keyboard=self._keyboard([{
+                        "text": "📊 Проверить пересчёт",
+                        "callback": self._issue_ticket(owner, session, "view_recalculation"),
+                    }]),
+                )
+        review = self._assess_case(
+            session,
+            sealed_preview_id=sealed.get("preview_id") if sealed else None,
+        )
         if not isinstance(review, dict) or review.get("error") is not False:
             return self._failure("Не удалось проверить готовность. Черновик не изменён; попробуйте открыть его заново.")
         readiness = review.get("readiness")
@@ -924,9 +964,56 @@ class TelegramFifoCostTransitionRuntimeService:
         if not isinstance(case, dict) or case.get("error") is not False:
             return self._failure("Не удалось открыть дело для пересчёта; данные не изменены.")
         self._refresh_session(session, case)
+        if case.get("state") == "READY_TO_CONFIRM":
+            sealed = self._load_current_ready_preview(
+                session, case, allow_expired=True,
+            )
+            if sealed is None:
+                return self._result(
+                    "Сохранённый READY-предпросмотр недоступен или устарел. Ничего не применено; проверьте готовность и источники заново.",
+                    keyboard=self._keyboard([{
+                        "text": "🔍 Проверить готовность",
+                        "callback": self._issue_ticket(owner, session, "check_readiness"),
+                    }]),
+                )
+            return self._show_sealed_preview(owner, session, sealed)
+        if case.get("state") not in self._EDITABLE_STATES:
+            return self._failure("Для этого состояния пересчёт недоступен. Данные не изменены.")
         review = self._assess_case(session)
         if not isinstance(review, dict) or review.get("error") is not False:
             return self._failure("Не удалось собрать пересчёт по сохранённым источникам. Дело не изменено.")
+        prepare_result = None
+        if self.apply_service is not None:
+            prepare_method = getattr(self.apply_service, "prepare", None)
+            if not callable(prepare_method):
+                return self._failure("Сервис сохранённого предпросмотра недоступен. Дело не изменено.")
+            prepare_result = prepare_method(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                expected_case_revision=case["case_revision"],
+                idempotency_key=self._stable_action_key(
+                    "prepare", session, case["case_revision"],
+                ),
+            )
+            if (
+                isinstance(prepare_result, dict)
+                and prepare_result.get("error") is False
+                and prepare_result.get("code") == "FIFO_TRANSITION_PREVIEW_READY"
+            ):
+                current = self._read_case(session["case_id"], session["identity"])
+                if (
+                    not isinstance(current, dict) or current.get("error") is not False
+                    or current.get("state") != "READY_TO_CONFIRM"
+                ):
+                    return self._failure("Seal сохранён, но состояние дела не удалось перечитать. Откройте его заново.")
+                self._refresh_session(session, current)
+                sealed = self._load_current_ready_preview(session, current)
+                if sealed is None or (
+                    sealed.get("preview_id") != prepare_result.get("preview_id")
+                    or sealed.get("preview_fingerprint")
+                        != prepare_result.get("preview_fingerprint")
+                ):
+                    return self._failure("Seal изменился после подготовки. Применение недоступно; проверьте дело заново.")
+                return self._show_sealed_preview(owner, session, sealed)
         proposal = review["proposal"]
         status = review["readiness"].status
         cost_components = case["case"].get("cost_components")
@@ -1000,6 +1087,23 @@ class TelegramFifoCostTransitionRuntimeService:
         ]
         if missing_fields:
             lines.append("Не введено владельцем: " + ", ".join(missing_fields))
+        if isinstance(prepare_result, dict):
+            if prepare_result.get("error") is False:
+                lines.append(
+                    "Seal не создан: " + str(prepare_result.get("code") or "готовность не подтверждена")
+                )
+                requirements = prepare_result.get("requirements")
+                if isinstance(requirements, (tuple, list)) and requirements:
+                    lines.append("Не выполнено: " + ", ".join(str(item) for item in requirements[:8]))
+                candidate = prepare_result.get("candidate_total_cogs_rub")
+                if candidate is not None:
+                    lines.append(f"Кандидатная себестоимость по найденным данным: {candidate} ₽; это не готовый результат.")
+            else:
+                lines.append(
+                    "Seal не создан из-за ошибки проверки: "
+                    + str(prepare_result.get("code") or "источники недоступны")
+                    + ". FIFO и прибыль не изменены."
+                )
         old_cost = case["case"].get("old_unit_cost_rub")
         new_cost = case["case"].get("new_unit_cost_rub")
         if old_cost is not None and new_cost is not None:
@@ -1019,6 +1123,140 @@ class TelegramFifoCostTransitionRuntimeService:
                 {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
             ]),
         )
+
+    def _load_current_ready_preview(self, session, case, *, allow_expired=False):
+        if self.apply_service is None or not isinstance(case, dict):
+            return None
+        payload = case.get("case")
+        last_preview = payload.get("last_preview") if isinstance(payload, dict) else None
+        if not isinstance(last_preview, dict):
+            return None
+        preview_id = last_preview.get("preview_id")
+        preview_fingerprint = last_preview.get("preview_fingerprint")
+        if (
+            not isinstance(preview_id, str) or not preview_id
+            or not isinstance(preview_fingerprint, str)
+            or case.get("state") != "READY_TO_CONFIRM"
+            or type(case.get("case_revision")) is not int
+        ):
+            return None
+        read_method = getattr(self.apply_service, "read_preview", None)
+        if not callable(read_method):
+            return None
+        sealed = read_method(
+            case_id=session["case_id"], identity=dict(session["identity"]),
+            preview_id=preview_id,
+        )
+        preview = sealed.get("preview") if isinstance(sealed, dict) else None
+        if (
+            not isinstance(sealed, dict) or sealed.get("error") is not False
+            or sealed.get("is_current") is not True
+            or (sealed.get("expired") is True and not allow_expired)
+            or sealed.get("current_case_state") != "READY_TO_CONFIRM"
+            or sealed.get("current_case_revision") != case["case_revision"]
+            or sealed.get("case_revision") != case["case_revision"]
+            or sealed.get("preview_fingerprint") != preview_fingerprint
+            or not isinstance(preview, dict)
+            or preview.get("case_revision") != case["case_revision"] - 1
+        ):
+            return None
+        return {
+            "preview_id": preview_id,
+            "preview_fingerprint": preview_fingerprint,
+            "case_revision": case["case_revision"],
+            "preview": preview,
+            "expired": sealed.get("expired") is True,
+        }
+
+    def _show_sealed_preview(self, owner, session, sealed):
+        preview = sealed["preview"]
+        impact = preview.get("impact_preview")
+        allocation = preview.get("allocation_preview")
+        if (
+            not isinstance(impact, dict) or impact.get("error") is not False
+            or impact.get("complete") is not True
+            or impact.get("candidate_only") is True
+            or not isinstance(impact.get("periods"), list)
+            or not isinstance(allocation, dict)
+            or not all(isinstance(row, dict) for row in impact["periods"])
+        ):
+            return self._failure("Сохранённый seal не содержит полного impact. Применение запрещено.")
+        lines = [
+            f"📊 Подтверждённый предпросмотр FIFO · редакция {sealed['case_revision']}",
+            f"Дата применения: {preview.get('effective_date') or 'не указана'}",
+            f"Покрытие финансовых данных до: {preview.get('complete_through') or 'не подтверждено'}",
+            f"Себестоимость после пересчёта: {allocation.get('total_cogs_rub', 'нет данных')} ₽",
+            f"Полный impact: {len(impact['periods'])} финансовых периодов; возвращено {impact.get('related_return_count', 0)} шт.; отдельные выбытия {impact.get('non_sale_outflow_count', 0)}",
+        ]
+        for period in impact["periods"][:6]:
+            lines.append(
+                f"• {period.get('period')}: прибыль {period.get('before_profit_rub')} → "
+                f"{period.get('after_profit_rub')} ₽; изменение {period.get('delta_profit_rub')} ₽; "
+                f"налог {period.get('before_tax_rub')} → {period.get('after_tax_rub')} ₽"
+            )
+        if len(impact["periods"]) > 6:
+            lines.append(f"• Ещё периодов: {len(impact['periods']) - 6}")
+        if sealed.get("expired") is True:
+            lines.append("Срок подтверждения seal истёк. Этот исторический предпросмотр доступен для просмотра, но применить его нельзя.")
+        else:
+            lines.append("Это сохранённый exact seal. Применение ещё раз проверит его fingerprint, редакцию дела, источники, cutoff, налоги и FIFO.")
+        if sealed.get("expired") is True:
+            return self._result(
+                "\n".join(lines),
+                keyboard=self._keyboard([{
+                    "text": "↩️ К делу",
+                    "callback": self._issue_ticket(owner, session, "finish"),
+                }]),
+            )
+        apply_ticket = self._issue_ticket(
+            owner, session, "apply_transition",
+            preview_id=sealed["preview_id"],
+            preview_fingerprint=sealed["preview_fingerprint"],
+            expected_preview_case_revision=sealed["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "apply", session, sealed["preview_id"],
+                sealed["preview_fingerprint"],
+            ),
+        )
+        return self._result(
+            "\n".join(lines),
+            keyboard=self._keyboard([
+                {"text": "Продолжить к подтверждению", "callback": apply_ticket},
+                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    def _show_applied_summary(self, owner, receipt):
+        if (
+            not isinstance(receipt, dict) or receipt.get("error") is not False
+            or receipt.get("code") != "FIFO_TRANSITION_APPLIED"
+            or not isinstance(receipt.get("commit_id"), str)
+            or not isinstance(receipt.get("complete_through"), str)
+        ):
+            return self._result(
+                "Переход FIFO имеет состояние APPLIED, но квитанцию commit не удалось прочитать. Не повторяйте действие; откройте дело и проверьте сохранённый результат.",
+            )
+        return self._result(
+            "✅ Переход FIFO применён\n"
+            f"Commit: {receipt['commit_id']}\n"
+            f"Покрытие подтверждено до: {receipt['complete_through']}\n"
+            f"Редакция дела: {receipt.get('case_revision')}\n"
+            "Это подтверждение сохранённой операции; повторное нажатие не создаёт второй commit.",
+        )
+
+    @staticmethod
+    def _stable_action_key(action, session, *binding):
+        material = json.dumps(
+            {
+                "action": action,
+                "case_id": session.get("case_id"),
+                "identity": session.get("identity"),
+                "tenant": session.get("tenant"),
+                "binding": binding,
+            },
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+        return f"tg-fr25-{action}-" + hashlib.sha256(material).hexdigest()[:48]
 
     @staticmethod
     def _append_readiness_requirements(lines, readiness, *, limit):
@@ -1046,14 +1284,15 @@ class TelegramFifoCostTransitionRuntimeService:
         if len(requirements) > limit:
             lines.append(f"• Ещё требований: {len(requirements) - limit}")
 
-    def _assess_case(self, session):
+    def _assess_case(self, session, *, sealed_preview_id=None):
         if self.review_service is None:
             return {"error": True, "code": "FIFO_TRANSITION_REVIEW_UNAVAILABLE"}
         return self.review_service.assess(
             case_id=session["case_id"], identity=session["identity"],
+            sealed_preview_id=sealed_preview_id,
         )
 
-    def _confirm_apply_prompt(self, user_id, owner, session):
+    def _confirm_apply_prompt(self, owner, session, ticket):
         current = self._read_case(session["case_id"], session["identity"])
         if (
             not isinstance(current, dict) or current.get("error") is not False
@@ -1062,9 +1301,25 @@ class TelegramFifoCostTransitionRuntimeService:
             or self.apply_service is None
         ):
             return self._failure("Применение недоступно: нет актуального READY предпросмотра. FIFO не изменена.")
-        callback = self._issue_ticket(owner, session, "confirm_apply")
+        sealed = self._load_current_ready_preview(session, current)
+        if (
+            sealed is None
+            or ticket.get("preview_id") != sealed.get("preview_id")
+            or ticket.get("preview_fingerprint") != sealed.get("preview_fingerprint")
+            or ticket.get("expected_preview_case_revision") != current.get("case_revision")
+            or ticket.get("case_revision") != current.get("case_revision")
+            or not isinstance(ticket.get("idempotency_key"), str)
+        ):
+            return self._failure("Предпросмотр изменился или устарел. Повторно откройте точный пересчёт; FIFO не изменена.")
+        callback = self._issue_ticket(
+            owner, session, "confirm_apply",
+            preview_id=sealed["preview_id"],
+            preview_fingerprint=sealed["preview_fingerprint"],
+            expected_preview_case_revision=sealed["case_revision"],
+            idempotency_key=ticket["idempotency_key"],
+        )
         return self._result(
-            "Проверьте подтверждённый предпросмотр. Применение ещё раз проверит редакции дела, источников, cutoff, налогов и FIFO.",
+            "Применить этот сохранённый предпросмотр FIFO? Будут использованы только показанный seal и его точные редакции; источники, cutoff, налоги и FIFO проверяются повторно.",
             keyboard=self._keyboard([
                 {"text": "✅ Применить подтверждённую историю", "callback": callback},
                 {"text": "↩️ Назад", "callback": self._issue_ticket(owner, session, "finish")},
@@ -1076,28 +1331,35 @@ class TelegramFifoCostTransitionRuntimeService:
         if (
             not isinstance(current, dict) or current.get("error") is not False
             or current.get("state") != "READY_TO_CONFIRM"
+            or current.get("case_revision") != ticket.get("expected_preview_case_revision")
             or current.get("case_revision") != ticket.get("case_revision")
             or self.apply_service is None
         ):
             return self._failure("Предпросмотр устарел или больше не готов. Применение отклонено, FIFO не изменена.")
+        sealed = self._load_current_ready_preview(session, current)
+        if (
+            sealed is None
+            or ticket.get("preview_id") != sealed.get("preview_id")
+            or ticket.get("preview_fingerprint") != sealed.get("preview_fingerprint")
+            or not isinstance(ticket.get("idempotency_key"), str)
+        ):
+            return self._failure("Точный предпросмотр не совпал с кнопкой подтверждения. FIFO не изменена.")
         apply_method = getattr(self.apply_service, "apply", None)
         if not callable(apply_method):
             return self._failure("Сервис применения недоступен. FIFO не изменена.")
         result = apply_method(
             case_id=session["case_id"], identity=dict(session["identity"]),
-            expected_case_revision=current["case_revision"],
+            expected_case_revision=ticket["expected_preview_case_revision"],
+            expected_preview_id=ticket["preview_id"],
+            expected_preview_fingerprint=ticket["preview_fingerprint"],
+            idempotency_key=ticket["idempotency_key"],
         )
         if not isinstance(result, dict) or result.get("error") is not False:
             return self._failure("Серверная проверка применения не пройдена. Данные FIFO не изменены.")
-        if callable(self.cache_invalidator):
-            try:
-                self.cache_invalidator(dict(session["identity"]))
-            except Exception:
-                # The atomic commit is already authoritative. Detail callbacks
-                # still validate the exact local cost/allocation revision.
-                pass
-        self._refresh_session(session, self._read_case(session["case_id"], session["identity"]))
-        return self._show_summary(owner)
+        updated = self._read_case(session["case_id"], session["identity"])
+        if isinstance(updated, dict) and updated.get("error") is False:
+            self._refresh_session(session, updated)
+        return self._show_applied_summary(owner, result)
 
     def _refresh_supplies_prompt(self, owner, *, page):
         session = self._sessions.get(owner)
