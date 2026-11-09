@@ -9,6 +9,7 @@
 - Текущий этап FR11 NOT_STARTED: FR10 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности и Resume записаны ниже. Продолжить с readers/gateB.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
+- Current HEAD after FR10 checkpoint: `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - Существуют 17 modified tracked-файлов review corrections без commit. Сохранить весь исходный diff. Staged state на входе FR00 был пуст.
@@ -32,7 +33,7 @@
 | FR07 | DONE | Schema v16; additive tables/indexes/FK/immutable guards/quotas; local migrations and replay profile 104 passed. |
 | FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; implementation checkpoint `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` |
 | FR09 | DONE | Public MR01–MR03; exact prefix replay; complete bridge for lower stock; atomic rate/reconciliation/allocation/projection; **136 passed in 7.79s** |
-| FR10 | DONE | Owner latest-allocation-first policy; MR04–MR06 linked profile 142 passed; compile/diff/data manifest PASS; local checkpoint follows |
+| FR10 | DONE | Owner latest-allocation-first policy; MR04–MR06 linked profile 142 passed; compile/diff/data manifest PASS; checkpoint `5534917c0f14dbed6610e084dd7d3d839862b13d` |
 | FR11 | NOT_STARTED | Readers/gateB |
 | FR12 | NOT_STARTED | Typed evidence |
 | FR13 | NOT_STARTED | Physical CSV |
@@ -91,7 +92,8 @@
 - Реализация в `fifo_cost_repository.py`, `fifo_cost_return_restock_service.py` и `fifo_cost_allocation_service.py`: исходная стоимость возврата читается из обычных layer allocation lines и rate-derived allocation lines; при mixed-basis partial return назначаются последние оригинальные allocation lines первыми. Ранее возвращённые количества вычитаются из этой же обратной очереди по стабильному layer/rate basis identity. Полный return сохраняет исходный порядок allocation lines. Rate-derived basis сохраняется при последующей продаже.
 - Регрессии: MR04 возвращает 1 из двух R2 units продажи MR02 по 16 ₽; MR05 продаёт восстановленную единицу за COGS 16 ₽ без изменения COGS предыдущих продаж. Повторные partial returns исчерпывают R2, затем переходят к R1. Полный return через разные ставки сохраняет 7×16 ₽ + 3×18 ₽. Over-return блокируется. Non-sale outflow остаётся вне sales COGS. Обновлён прежний тест, закреплявший блокировку mixed-basis partial return.
 - Связанный профиль из 10 FIFO suites: **142 passed in 9.07s**. `compileall` всех затронутых Python-файлов, `git diff --check`, `git diff --exit-code -- data` и five-file FR00 SHA-256 manifest — PASS.
-- Это synthetic local verification, не full-suite/current-head CI. Owner case remains `SOURCE_BLOCKED`; реальные данные владельца, Ozon/Telegram запросы, бот, deploy и merge не использовались. FR10 checkpoint будет зафиксирован отдельным commit; следующий этап — FR11.
+- Checkpoint `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
+- Это synthetic local verification, не full-suite/current-head CI. Owner case remains `SOURCE_BLOCKED`; реальные данные владельца, Ozon/Telegram запросы, бот, deploy и merge не использовались. Следующий этап — FR11.
 
 ## Проверка подготовки ТЗ — 09.11.2026
 
