@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO review-blocker execution FR00–FR20
+
+- FR20 freezes whole-store financial amounts from the existing Period Profit chain per financial recognition month and binds them to exact reconstruction COGS, sale-identity digests, daily finance data, and the tax-policy fingerprint. Collection is resumable, capped at four days per call, 20 seconds and 10 shared HTTP attempts; a partial month is never persisted. Retry after a failed snapshot write resumes from before the final chunk, avoiding double counting.
+- Finance identity snapshots now preserve each sale's financial month. Mismatched store/product scope, missing month, incomplete source, or missing historical before-cost blocks the freeze. Other-SKU cost and whole-store amounts remain unchanged. Collection does not run in prepare/confirm. Linked profile: **88 passed in 3.96s**; changed Python modules compile. FR24–FR25 remain responsible for production assembly and the explicit user action. No real owner case, live API, bot, or deployment was used. Next: FR21 canonical impact.
+
 # 2026-11-09 — FIFO review-blocker execution FR00–FR19
 
 - Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR19 are complete. FR13 provides the strict owner-imported physical-sales CSV parser; FR14 stores and separately confirms its exact encrypted source; FR15 routes selected physical-sales CSV through Telegram; FR16 adds bounded finance identity and return-status snapshots without treating status changes as physical movement.

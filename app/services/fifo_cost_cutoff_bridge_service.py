@@ -64,6 +64,7 @@ class FifoFinanceSaleIdentity:
     finance_sku: str
     offer_id: str | None
     product_id: str | None
+    financial_period: str | None = None
 
     def __post_init__(self):
         for name in ("posting_number", "finance_sku"):
@@ -77,6 +78,12 @@ class FifoFinanceSaleIdentity:
                 if not isinstance(value, str) or not value.strip() or len(value.strip()) > 256:
                     raise ValueError("FIFO_CUTOFF_BRIDGE_IDENTITY_INVALID")
                 object.__setattr__(self, name, value.strip())
+        if self.financial_period is not None:
+            if (
+                not isinstance(self.financial_period, str)
+                or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", self.financial_period)
+            ):
+                raise ValueError("FIFO_CUTOFF_BRIDGE_PERIOD_INVALID")
         if self.offer_id is None and self.product_id is None:
             raise ValueError("FIFO_CUTOFF_BRIDGE_IDENTITY_INVALID")
 
@@ -193,6 +200,15 @@ class FifoCutoffBridgeSourceAdapter:
                 finance_sku=finance_sku,
                 offer_id=offer_id,
                 product_id=product_id,
+                financial_period=(
+                    period_from[:7]
+                    if isinstance(period_from, str)
+                    and isinstance(period_to, str)
+                    and len(period_from) >= 7
+                    and len(period_to) >= 7
+                    and period_from[:7] == period_to[:7]
+                    else None
+                ),
             ))
 
         if not proof.api_read_complete:

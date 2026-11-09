@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR20: frozen financial-period baselines
+
+- Added a bounded, resumable collector that reads canonical whole-store Period Profit in four-day chunks under the shared 20-second/10-request trace. It binds each financial month to exact, confirmed finance identities, exact before-reconstruction SKU COGS, current tax-policy fingerprint, and complete daily-accrual source fingerprints; only complete month snapshots are persisted.
+- Finance recognition month is retained on each encrypted finance-identity row. Scope mismatch, unknown month, incomplete pagination/cache, missing historical COGS, conflicting product identity, and failed month write remain blocked; retry does not double-count the last chunk. No collection occurs during prepare or confirmation.
+- Linked synthetic FR20 profile: **88 passed in 3.96s**. Touched modules compile; owner data, live Ozon/Telegram, bot, and deployment are unchanged. Telegram action and production factory wiring remain in FR24–FR25.
+
 # 2026-11-09 — FIFO FR19: public read-only transition reconstruction
 
 - Added a scoped repository reconstruction path that runs the exact baseline/candidate replay used by prepare without creating a READY seal. An uninitialized FIFO opening may be staged only inside the transaction and is rolled back before return; error and unexpected-exception paths also roll back.

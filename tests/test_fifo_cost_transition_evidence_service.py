@@ -130,7 +130,8 @@ def test_finance_identity_batches_rehydrate_from_durable_snapshot_after_restart(
             expected_case_revision=_current_revision(restarted_transition, case_id),
         )
         assert restored["error"] is False, restored
-        assert restored["bundle"].finance_batch.rows == batch.rows
+        assert len(restored["bundle"].finance_batch.rows) == len(batch.rows)
+        assert restored["bundle"].finance_batch.rows[0].financial_period == "2026-11"
         assert restored["bundle"].finance_batch.period_from == PERIOD_FROM
         assert "FINANCE_IDENTITY_COVERAGE_INCOMPLETE" not in restored["missing_requirements"]
         stored = restarted_repository.read_transition_bridge_evidence(
@@ -140,6 +141,64 @@ def test_finance_identity_batches_rehydrate_from_durable_snapshot_after_restart(
         )
         assert stored["error"] is False, stored
         assert "synthetic-posting-1" not in repr(stored)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_finance_identity_snapshot_preserves_recognition_month_per_sale(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    tenant = set_current_tenant_user_id(TENANT)
+    now = lambda: datetime(2026, 12, 16, 12, tzinfo=timezone.utc)
+    database = tmp_path / "finance-month-map.sqlite"
+    try:
+        _repository, _history, transition, case_id = _create_case(database, now)
+        case_result = transition.get_case(case_id=case_id, **IDENTITY)
+        scope = transition._case_from_payload(case_result["case"]).metadata.scope
+        batches = []
+        for month, start, end, posting in (
+            ("2026-11", "2026-11-01", "2026-11-30", "synthetic-nov-sale"),
+            ("2026-12", "2026-12-01", "2026-12-31", "synthetic-dec-sale"),
+        ):
+            fingerprint = source_fingerprint((month, posting))
+            proof_fingerprint = source_fingerprint(("proof", month))
+            proof = SourceProof(
+                metadata=_api_metadata(scope, EvidenceCompleteness.COMPLETE, proof_fingerprint),
+                scope_complete=True, pagination_complete=True,
+                source_as_of="2026-12-15T12:00:00Z",
+            )
+            batches.append(FifoFinanceSaleIdentityBatch(
+                metadata=_api_metadata(scope, EvidenceCompleteness.COMPLETE, fingerprint),
+                source_fingerprint=fingerprint, period_from=start, period_to=end,
+                source_as_of=proof.source_as_of, proof=proof,
+                rows=(FifoFinanceSaleIdentity(
+                    posting_number=posting, finance_sku=IDENTITY["sku"],
+                    offer_id=IDENTITY["offer_id"], product_id=IDENTITY["product_id"],
+                    financial_period=month,
+                ),),
+            ))
+        evidence = FifoCostTransitionEvidenceService(transition)
+        saved = evidence.record_finance_identity_batches(
+            case_id=case_id, identity=IDENTITY, batches=tuple(batches),
+            requested_period_from="2026-11-01", requested_period_to="2026-12-31",
+            source_complete=True,
+            expected_case_revision=_current_revision(transition, case_id),
+            idempotency_key="fr20-finance-month-map",
+        )
+        assert saved["error"] is False, saved
+        loaded = evidence.load(
+            case_id=case_id, identity=IDENTITY,
+            expected_case_revision=_current_revision(transition, case_id),
+        )
+        assert loaded["error"] is False, loaded
+        restored = loaded["bundle"].finance_batch.rows
+        assert {
+            row.posting_number: row.financial_period for row in restored
+        } == {
+            "synthetic-nov-sale": "2026-11",
+            "synthetic-dec-sale": "2026-12",
+        }
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -424,7 +483,9 @@ def test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart(
             expected_case_revision=_current_revision(restarted_transition, case_id),
         )
         assert bundle["error"] is False, bundle
-        assert bundle["missing_requirements"] == ()
+        assert bundle["missing_requirements"] == (
+            "FINANCIAL_PERIOD_SUMMARY_SNAPSHOT_MISSING",
+        )
         review = FifoCostTransitionReviewService(
             restarted_transition, restarted_history,
             evidence_service=restarted_evidence,
@@ -432,7 +493,9 @@ def test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart(
         reviewed = review.assess(case_id=case_id, identity=IDENTITY)
         assert reviewed["error"] is False, reviewed
         assert reviewed["cutoff_bridge_status"] == "READY"
-        assert reviewed["cutoff_bridge_missing_requirements"] == ()
+        assert reviewed["cutoff_bridge_missing_requirements"] == (
+            "FINANCIAL_PERIOD_SUMMARY_SNAPSHOT_MISSING",
+        )
         assert reviewed["ready_to_apply"] is False
         assert reviewed["preview_only"] is True
     finally:

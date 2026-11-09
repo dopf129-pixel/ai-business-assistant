@@ -209,6 +209,102 @@ _CONFIRMATION_PAYLOAD_KEYS = {
 
 
 @dataclass(frozen=True, slots=True)
+class FifoFinancialPeriodSummary:
+    """Frozen Period Profit values bound to exact financial sale identities.
+
+    ``current_sku_product_cost_rub`` is the proven before-COGS for the exact
+    transition sales listed here. ``current_total_product_cost_rub`` remains the
+    canonical whole-store Period Profit cost, so all unaffected SKU and sale
+    costs stay in the unchanged portion of the impact calculation.
+    """
+
+    period_from: str
+    period_to: str
+    source_fingerprint: str
+    reconstruction_fingerprint: str
+    tax_policy_fingerprint: str
+    sale_identity_digests: tuple[str, ...]
+    revenue_rub: Decimal
+    discount_points_rub: Decimal
+    net_accrual_rub: Decimal
+    current_total_product_cost_rub: Decimal
+    current_sku_product_cost_rub: Decimal
+    complete: bool = True
+
+    def __post_init__(self) -> None:
+        start = normalize_date_only(self.period_from)
+        end = normalize_date_only(self.period_to)
+        if start > end or start[:7] != end[:7]:
+            _fail(TransitionReasonCode.DATE_INVALID)
+        object.__setattr__(self, "period_from", start)
+        object.__setattr__(self, "period_to", end)
+        for name in (
+            "source_fingerprint", "reconstruction_fingerprint",
+            "tax_policy_fingerprint",
+        ):
+            object.__setattr__(self, name, normalize_digest(getattr(self, name)))
+        if type(self.complete) is not bool or self.complete is not True:
+            _fail(TransitionReasonCode.EVENT_COVERAGE_INCOMPLETE)
+        identities = self.sale_identity_digests
+        if (
+            not isinstance(identities, tuple)
+            or not identities
+            or len(identities) > 100_000
+        ):
+            _fail(TransitionReasonCode.EVENT_COVERAGE_INCOMPLETE)
+        normalized_identities = tuple(normalize_digest(value) for value in identities)
+        if len(normalized_identities) != len(set(normalized_identities)):
+            _fail(TransitionReasonCode.FINGERPRINT_INVALID)
+        object.__setattr__(self, "sale_identity_digests", normalized_identities)
+        for name in (
+            "revenue_rub", "discount_points_rub",
+            "current_total_product_cost_rub", "current_sku_product_cost_rub",
+        ):
+            object.__setattr__(self, name, normalize_money(getattr(self, name)))
+        net = self.net_accrual_rub
+        if isinstance(net, bool) or not isinstance(net, (Decimal, int, str)):
+            _fail(TransitionReasonCode.MONEY_INVALID)
+        try:
+            net = Decimal(str(net))
+        except (InvalidOperation, ValueError):
+            _fail(TransitionReasonCode.MONEY_INVALID)
+        if not net.is_finite() or abs(net) > MAX_TRANSITION_MONEY:
+            _fail(TransitionReasonCode.MONEY_INVALID)
+        object.__setattr__(
+            self, "net_accrual_rub",
+            net.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP),
+        )
+        if self.current_sku_product_cost_rub > self.current_total_product_cost_rub:
+            _fail(TransitionReasonCode.FIFO_RATE_BALANCE_MISMATCH)
+
+    @property
+    def period(self) -> str:
+        return self.period_from[:7]
+
+    def as_impact_summary(self) -> dict[str, object]:
+        """Return the existing late-entry impact service input contract."""
+        return {
+            "period": self.period,
+            "complete": self.complete,
+            "source_fingerprint": self.source_fingerprint,
+            "sale_identity_digests": list(self.sale_identity_digests),
+            "revenue": format(self.revenue_rub, ".2f"),
+            "discount_points": format(self.discount_points_rub, ".2f"),
+            "net_accrual": format(self.net_accrual_rub, ".2f"),
+            "current_total_product_cost": format(
+                self.current_total_product_cost_rub, ".2f",
+            ),
+            "current_sku_product_cost": format(
+                self.current_sku_product_cost_rub, ".2f",
+            ),
+            "period_from": self.period_from,
+            "period_to": self.period_to,
+            "reconstruction_fingerprint": self.reconstruction_fingerprint,
+            "tax_policy_fingerprint": self.tax_policy_fingerprint,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class TransitionBridgeEvidence:
     """Typed, bounded evidence envelope; sensitive source bytes remain separate."""
 
@@ -1232,6 +1328,7 @@ def _validate_bridge_source(
         },
         TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT: {
             EvidenceSourceKind.OZON_API, EvidenceSourceKind.OWNER_IMPORTED,
+            EvidenceSourceKind.LOCAL_DERIVED,
         },
         TransitionBridgeEvidenceKind.TAX_POLICY_SNAPSHOT: {
             EvidenceSourceKind.OWNER_INPUT, EvidenceSourceKind.OZON_API,

@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR20 frozen financial-period summaries
+
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py` covers four-day continuation, exact month and store/product identity mapping, whole-account versus target-SKU COGS, daily source completeness, missing before baseline, scope binding, and retry after an unsuccessful month snapshot write without double-counting.
+- `tests/test_fifo_cost_financial_period_summary_service.py` verifies exact reconstruction before COGS and preserves total-store costs; `tests/test_fifo_cost_transition_period_summary_evidence.py` and the extended `tests/test_fifo_cost_transition_evidence_service.py` verify encrypted persistence, restart, conflict detection, and financial-recognition month mapping.
+- Linked FR20/FR19/source/impact profile: **88 passed in 3.96s**. Python compile passed. Full suite/current-head CI remain FR30; production assembly and Telegram UI remain FR24–FR25.
+
 # 2026-11-09 — FIFO FR19 read-only reconstruction
 
 - `tests/test_fifo_cost_transition_atomic_apply.py::test_read_only_reconstruction_matches_prepare_seal_without_business_writes` verifies an uninitialized opening is staged and rolled back, exact identity/revisions/lineage/coverage are returned, repeated reconstruction is stable, and baseline/candidate replay fingerprints and COGS match the persisted prepare seal. After explicit synthetic confirmation, committed allocation lines equal the read-only candidate lines.

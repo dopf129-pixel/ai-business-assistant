@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR19 выполнены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR20 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR20 NOT_STARTED. FR19 implementation checkpoint `6d02a188` (`Add read-only FIFO transition reconstruction`). `FifoCostRepository.reconstruct_transition_preview` shares the exact baseline/candidate replay path with prepare and returns identity, revisions, fingerprints, lineage, COGS and coverage. An uninitialized opening is staged only inside the transaction and always rolled back. FR19 linked profile: **372 passed in 25.57s**; atomic-apply suite **18 passed in 2.78s**; compile, `git diff --check`, and `git diff --exit-code -- data` pass. Documentation is updated in `CHANGELOG.md`, `CURRENT_STATE.md`, and `TEST_MAP.md`. Next: FR20 frozen financial summaries for each affected financial period.
+- Текущий этап FR21 NOT_STARTED. FR20 добавил ограниченный resumable collector canonical Period Profit, который сохраняет только полный финансовый месяц, связанный с точными recognition identities, before-COGS реконструкции, дневным finance fingerprint и налоговой политикой. Per-call: максимум 4 дня, 20 секунд, 10 общих HTTP-попыток. Неизвестный месяц, неполный источник, чужой scope и недоказанная себестоимость блокируют запись; ошибка записи месяца не сдвигает continuation и не удваивает последний chunk. Finance identity schema v2 хранит recognition month; v1 остаётся читаемой для bridge, но недостаточна для FR20 freeze до полной новой выборки. Linked profile: **88 passed in 3.96s**; Python compile PASS. CHANGELOG/CURRENT_STATE/TEST_MAP обновлены. FR24–FR25 добавят production assembly и отдельное действие владельца; prepare/confirm не выполняют сбор. Следующий этап: FR21 canonical impact.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current implementation HEAD after FR19 code: `6d02a188` (`Add read-only FIFO transition reconstruction`); FR19 docs/checkpoint updates are recorded in this journal.
@@ -43,7 +43,7 @@
 | FR17 | DONE | Durable exact-report cutoff/opening confirmations; FR17 linked profile **152 passed in 9.21s**; final cross-source condition verified by FR18 |
 | FR18 | DONE | Code checkpoint `ebf2218d`; encrypted finance/document/movement evidence reload; actual `READY` cutoff bridge after service restart; **210 passed in 15.82s**; no FIFO apply |
 | FR19 | DONE | Code checkpoint `6d02a188`; public read-only reconstruction shares prepare candidate replay; exact identity/revisions/lineage/COGS/coverage; staged opening and exception rollback; candidate fingerprint matched seal and committed allocation lines; **372 passed in 25.57s**, compile/diff/data checks PASS |
-| FR20 | NOT_STARTED | Financial baseline |
+| FR20 | DONE | `FifoCostFinancialPeriodSummaryCollectionService`; frozen whole-store month with exact target-SKU before COGS and finance identity map; **88 passed in 3.96s**; synthetic only, no UI/factory yet |
 | FR21 | NOT_STARTED | Impact |
 | FR22 | NOT_STARTED | Prepare seal |
 | FR23 | NOT_STARTED | Apply/restart |
@@ -232,3 +232,12 @@
 - Schema/migration tests and prior FR04–FR06 replay suite: **104 passed in 2.78s** on implementation commit `43e6d5e5`; touched-file `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed; five owner-data SHA-256 values still match FR00. Test databases use `tmp_path`; no owner DB/files, live API or bot were used.
 - Implementation commit: `43e6d5e5` (`Add FIFO transition evidence schema v16`). `.fl12-deps/` remains untracked/unstaged.
 - Next: FR08 repository adapter for the existing proven multi-rate replay kernel.
+
+## FR20 — 2026-11-10
+
+- Added `FifoFinancialPeriodSummary` and a pure snapshot builder. Each freeze retains canonical whole-store revenue, discount points, net Ozon accrual and total product cost, while separately binding exact target-SKU COGS from FR19's before allocations. The binding includes the exact monthly finance identity digest set, reconstruction fingerprint, canonical Period Profit summary fingerprint, complete daily finance-cache fingerprint, and normalized tax-policy fingerprint. Snapshots are appended only through existing tenant-encrypted transition evidence; costs of other products remain unchanged.
+- Added `FifoCostFinancialPeriodSummaryCollectionService`. It requires a complete pre-cost reconstruction and finance identity snapshot, validates store/product/offer/SKU scope and each row identity, uses a known financial recognition month, and reads the existing canonical Period Profit chain in at most four-day chunks with the shared 20-second/10-request operation trace. Every day must have a complete cached accrual response; account accruals, revenue, sale quantity, effective cost, fee components and exact target SKU cost must reconcile. Opaque single-use continuation expires after 10 minutes and binds case, revision, identity, reconstruction, finance snapshot, tax policy and product catalog.
+- A monthly freeze is written only after the whole month succeeds. If the final write fails, continuation stays before that final chunk, so an idempotent retry cannot double-count it. Missing/legacy recognition month, wrong store/product, incomplete cache, missing historical before-COGS or malformed canonical result fail closed. `prepare`/`confirm` do not collect or call HTTP. Production assembly and an explicit owner action remain FR24–FR25; there is no UI hook yet.
+- Finance identity snapshots now preserve recognition month in encrypted payload schema v2; schema v1 remains readable but cannot drive FR20 collection until a fresh complete identity snapshot is stored. No FIFO DB migration. Modified paths are the finance identity DTO/adapter, transition contracts/evidence, two new financial summary services, and focused regressions.
+- Verification: Python compile of all changed Python modules — PASS. Linked FR20/FR19/source/impact profile — **88 passed in 3.96s**. It covers bounded continuation, whole-store vs target-SKU COGS, evidence persistence/restart/conflict, daily-source completeness, exact scope and product identity, missing before cost, and retry after failed final snapshot write. An earlier command used a nonexistent test filename and executed no tests; corrected command passed. After documentation edits, `git diff --check` and `git diff --exit-code -- data` passed; all five FR00 owner-data SHA-256 values still match.
+- Test DBs and fixtures are synthetic; no owner case/data, Ozon/Telegram calls, bot launch, merge or deployment. `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`. Next: FR21 canonical before/after impact across every affected financial month.

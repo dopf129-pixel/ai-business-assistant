@@ -33,6 +33,7 @@ from services.fifo_cost_transition_contracts import (
     TransitionEvidenceConfirmationKind,
     TransitionMetadata,
     TransitionCase,
+    FifoFinancialPeriodSummary,
     source_fingerprint,
 )
 from services.fifo_cost_transition_service import FifoCostTransitionService
@@ -45,6 +46,7 @@ class FifoCostTransitionEvidenceBundle:
     case: TransitionCase
     stock_evidence: object = None
     finance_batch: FifoFinanceSaleIdentityBatch | None = None
+    period_summaries: tuple[FifoFinancialPeriodSummary, ...] = ()
     physical_sale_document: FifoDocumentedPhysicalSaleDocument | None = None
     owner_confirmation: FifoPhysicalSaleDocumentConfirmation | None = None
     movement_coverage: FifoCutoffMovementCoverage | None = None
@@ -113,12 +115,19 @@ class FifoCostTransitionEvidenceService:
                 if period_end is not None and start != period_end + timedelta(days=1):
                     raise ValueError("FIFO_FINANCE_IDENTITY_PERIOD_GAP")
                 period_end = end
-                rows.extend({
+                batch_period = batch.period_from[:7]
+                if batch.period_to[:7] != batch_period:
+                    raise ValueError("FIFO_FINANCE_IDENTITY_MONTH_UNRESOLVED")
+                batch_rows = [{
                     "posting_number": row.posting_number,
                     "finance_sku": row.finance_sku,
                     "offer_id": row.offer_id,
                     "product_id": row.product_id,
-                } for row in batch.rows)
+                    "financial_period": row.financial_period or batch_period,
+                } for row in batch.rows]
+                if any(row["financial_period"] != batch_period for row in batch_rows):
+                    raise ValueError("FIFO_FINANCE_IDENTITY_PERIOD_MISMATCH")
+                rows.extend(batch_rows)
             if len(rows) > self.MAX_FINANCE_ROWS:
                 raise ValueError("FIFO_FINANCE_IDENTITY_ROW_LIMIT")
             if len(rows) != len({(row["posting_number"], row["finance_sku"]) for row in rows}):
@@ -187,7 +196,7 @@ class FifoCostTransitionEvidenceService:
                     "pagination_complete": all_pages_complete,
                 },
                 sensitive_payload=self._json({
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "requested_period_from": requested_period_from,
                     "requested_period_to": requested_period_to,
                     "source_complete": complete,
@@ -288,6 +297,62 @@ class FifoCostTransitionEvidenceService:
             if code.startswith("FIFO_"):
                 return self._error(code)
             return self._error("FIFO_MOVEMENT_COVERAGE_SNAPSHOT_INVALID")
+        return self.repository.append_transition_bridge_evidence(
+            case_id=case_id, evidence=evidence,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def record_period_profit_summary(
+        self, *, case_id, identity, summary, expected_case_revision,
+        idempotency_key,
+    ):
+        """Persist one complete canonical Period Profit financial-period freeze."""
+        loaded = self._case_context(
+            case_id=case_id, identity=identity,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return loaded
+        if not isinstance(summary, FifoFinancialPeriodSummary):
+            return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+        if summary.complete is not True:
+            return self._error("FIFO_PERIOD_SUMMARY_COVERAGE_INCOMPLETE")
+        scope = loaded["case"].metadata.scope
+        try:
+            identity_fingerprint = (
+                self.transition_service._transition_identity_fingerprint(scope)
+            )
+            safe_summary = summary.as_impact_summary()
+            evidence = TransitionBridgeEvidence(
+                metadata=TransitionMetadata(
+                    scope=scope,
+                    source_kind=EvidenceSourceKind.LOCAL_DERIVED,
+                    completeness=EvidenceCompleteness.COMPLETE,
+                    source_fingerprint=summary.source_fingerprint,
+                    store_timezone=loaded["case"].metadata.store_timezone,
+                ),
+                evidence_kind=TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT,
+                captured_at=self.transition_service._transition_now(),
+                period_from=summary.period_from,
+                period_to=summary.period_to,
+                row_count=1,
+                payload={
+                    "report_type": "PERIOD_PROFIT_FINANCIAL_SUMMARY",
+                    "period_from": summary.period_from,
+                    "period_to": summary.period_to,
+                    "row_count": 1,
+                    "summary_fingerprint": summary.source_fingerprint,
+                    "identity_fingerprint": identity_fingerprint,
+                },
+                sensitive_payload=self._json({
+                    "schema_version": 1,
+                    "identity_fingerprint": identity_fingerprint,
+                    "summary": safe_summary,
+                }),
+            )
+        except (TypeError, ValueError, KeyError, OverflowError):
+            return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
         return self.repository.append_transition_bridge_evidence(
             case_id=case_id, evidence=evidence,
             expected_case_revision=expected_case_revision,
@@ -429,6 +494,32 @@ class FifoCostTransitionEvidenceService:
             ):
                 missing.append("FINANCE_IDENTITY_START_GAP")
 
+        period_summaries = self._read_period_profit_summaries(
+            case_id=case_id, identity=identity, scope=scope,
+        )
+        if period_summaries.get("error"):
+            summary_missing = {
+                "FIFO_PERIOD_SUMMARY_SNAPSHOT_MISSING": (
+                    "FINANCIAL_PERIOD_SUMMARY_SNAPSHOT_MISSING"
+                ),
+                "FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT": (
+                    "FINANCIAL_PERIOD_SUMMARY_VERSION_CONFLICT"
+                ),
+                "FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID": (
+                    "FINANCIAL_PERIOD_SUMMARY_SNAPSHOT_INVALID"
+                ),
+                "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE": (
+                    "FINANCIAL_PERIOD_SUMMARY_ENCRYPTION_UNAVAILABLE"
+                ),
+            }
+            blocker = summary_missing.get(period_summaries.get("code"))
+            if blocker:
+                missing.append(blocker)
+            else:
+                return period_summaries
+        else:
+            fingerprints.extend(period_summaries["fingerprints"])
+
         physical = self._read_physical_document(
             case_id=case_id, identity=identity, scope=scope, case=case,
         )
@@ -485,6 +576,10 @@ class FifoCostTransitionEvidenceService:
             case=case,
             stock_evidence=stock_evidence,
             finance_batch=finance.get("batch") if finance.get("error") is False else None,
+            period_summaries=(
+                period_summaries["summaries"]
+                if period_summaries.get("error") is False else ()
+            ),
             physical_sale_document=physical.get("document") if physical.get("error") is False else None,
             owner_confirmation=physical.get("confirmation") if physical.get("error") is False else None,
             movement_coverage=movement.get("coverage") if movement.get("error") is False else None,
@@ -510,10 +605,14 @@ class FifoCostTransitionEvidenceService:
         """Call the production bridge only when every typed source is present."""
         if not isinstance(bundle, FifoCostTransitionEvidenceBundle):
             return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
-        if bundle.missing_requirements:
+        bridge_missing = tuple(
+            code for code in bundle.missing_requirements
+            if not code.startswith("FINANCIAL_PERIOD_SUMMARY_")
+        )
+        if bridge_missing:
             return {
                 "error": False, "result": None,
-                "missing_requirements": bundle.missing_requirements,
+                "missing_requirements": bridge_missing,
             }
         if any(value is None for value in (
             bundle.stock_evidence, bundle.finance_batch,
@@ -552,6 +651,113 @@ class FifoCostTransitionEvidenceService:
             "source_fingerprints": bundle.source_fingerprints,
             "preview_only": True,
         }
+
+    def _read_period_profit_summaries(self, *, case_id, identity, scope):
+        """Load encrypted, conflict-free monthly freezes without recalculation."""
+        result = self.repository.read_transition_bridge_evidence(
+            case_id=case_id, **identity,
+            evidence_kind=TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT,
+            limit=100, include_sensitive_payload=True,
+        )
+        if result.get("error"):
+            return result
+        items = result.get("items")
+        if not isinstance(items, list) or len(items) > 100:
+            return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+        if not items:
+            return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_MISSING")
+
+        expected_identity = self.transition_service._transition_identity_fingerprint(scope)
+        by_period = {}
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("payload"), dict):
+                continue
+            safe = item["payload"]
+            if safe.get("report_type") != "PERIOD_PROFIT_FINANCIAL_SUMMARY":
+                continue
+            if (
+                item.get("source_kind") != "DERIVED"
+                or item.get("completeness") != EvidenceCompleteness.COMPLETE.value
+            ):
+                return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+            if item.get("sensitive_payload_available") is not True:
+                return self._error(
+                    item.get("blocker") or "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE",
+                )
+            period_from = item.get("period_from")
+            period_to = item.get("period_to")
+            if (
+                not isinstance(period_from, str)
+                or not isinstance(period_to, str)
+                or len(period_from) < 7
+                or period_from[:7] != period_to[:7]
+            ):
+                return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+            period = period_from[:7]
+            identity_fingerprint = safe.get("identity_fingerprint")
+            if identity_fingerprint != expected_identity:
+                return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+            try:
+                raw = json.loads(item.get("sensitive_payload") or "")
+                if (
+                    not isinstance(raw, dict)
+                    or raw.get("schema_version") != 1
+                    or raw.get("identity_fingerprint") != expected_identity
+                    or not isinstance(raw.get("summary"), dict)
+                ):
+                    raise ValueError
+                summary = self._period_summary_from_payload(raw["summary"])
+                if (
+                    summary.period != period
+                    or summary.period_from != period_from
+                    or summary.period_to != period_to
+                    or summary.source_fingerprint != item.get("source_fingerprint")
+                    or safe.get("summary_fingerprint") != summary.source_fingerprint
+                    or item.get("row_count") != 1
+                    or safe.get("row_count") != 1
+                    or safe.get("period_from") != period_from
+                    or safe.get("period_to") != period_to
+                ):
+                    raise ValueError
+            except (TypeError, ValueError, KeyError, OverflowError):
+                return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+            existing = by_period.get(period)
+            if existing is not None and existing.source_fingerprint != summary.source_fingerprint:
+                return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT")
+            by_period[period] = summary
+
+        if not by_period:
+            return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_MISSING")
+        summaries = tuple(by_period[period] for period in sorted(by_period))
+        return {
+            "error": False,
+            "code": "FIFO_PERIOD_SUMMARY_SNAPSHOTS_READY",
+            "summaries": summaries,
+            "fingerprints": tuple(sorted({
+                summary.source_fingerprint for summary in summaries
+            })),
+            "periods": tuple(summary.period for summary in summaries),
+            "read_only": True,
+        }
+
+    @staticmethod
+    def _period_summary_from_payload(raw):
+        if not isinstance(raw, dict):
+            raise ValueError("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+        return FifoFinancialPeriodSummary(
+            period_from=raw.get("period_from"),
+            period_to=raw.get("period_to"),
+            source_fingerprint=raw.get("source_fingerprint"),
+            reconstruction_fingerprint=raw.get("reconstruction_fingerprint"),
+            tax_policy_fingerprint=raw.get("tax_policy_fingerprint"),
+            sale_identity_digests=tuple(raw.get("sale_identity_digests") or ()),
+            revenue_rub=raw.get("revenue"),
+            discount_points_rub=raw.get("discount_points"),
+            net_accrual_rub=raw.get("net_accrual"),
+            current_total_product_cost_rub=raw.get("current_total_product_cost"),
+            current_sku_product_cost_rub=raw.get("current_sku_product_cost"),
+            complete=raw.get("complete"),
+        )
 
     def _read_finance_identity(self, *, case_id, identity, scope):
         result = self.repository.read_transition_bridge_evidence(
@@ -614,7 +820,7 @@ class FifoCostTransitionEvidenceService:
             })
             if (
                 not isinstance(payload, dict)
-                or payload.get("schema_version") != 1
+                or payload.get("schema_version") not in {1, 2}
                 or not isinstance(rows, list)
                 or len(rows) != safe.get("row_count")
                 or source_fingerprint(rows) != payload.get("rows_fingerprint")
@@ -637,9 +843,14 @@ class FifoCostTransitionEvidenceService:
                 return self._error("FIFO_FINANCE_IDENTITY_COVERAGE_INCOMPLETE")
             identities = []
             for row in rows:
-                if not isinstance(row, dict) or set(row) != {
+                base_keys = {
                     "posting_number", "finance_sku", "offer_id", "product_id",
-                }:
+                }
+                expected_keys = base_keys | (
+                    {"financial_period"}
+                    if payload.get("schema_version") == 2 else set()
+                )
+                if not isinstance(row, dict) or set(row) != expected_keys:
                     return self._error("FIFO_FINANCE_IDENTITY_SNAPSHOT_CORRUPT")
                 identities.append(FifoFinanceSaleIdentity(**row))
             proof_fp = payload["proof_source_fingerprint"]
