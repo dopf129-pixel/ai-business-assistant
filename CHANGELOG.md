@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR17: durable cutoff and opening declarations
+
+- Added exact report-bound, store-local cutoff selection and separate append-only owner confirmations for cutoff stock semantics and the proposed opening layers. The saved composition is checked against the exact complete stock report, owner-known old home/transit counts, reserved-stock inclusion and FIFO layer order; accepted shipment quantities are explicitly not added again to stock totals.
+- Restart reads revalidate case basis, report fingerprint, source evidence manifest and immutable confirmation fields. Changed owner inputs or source evidence make prior confirmation stale. These records remain preview-only and do not initialize or mutate the live FIFO queue. Full acceptance/movement bridge reconciliation is completed by FR18 before any READY seal.
+- Linked FIFO transition, evidence, acceptance, schema, and readiness profile: **152 passed in 9.21s**. Compileall, `git diff --check`, and tracked `data/` equality passed. Synthetic local SQLite only; no owner case, live API, bot launch, merge, or deployment.
+
 # 2026-11-09 — FIFO FR16: bounded finance and returns source snapshots
 
 - Added scoped, budget-aware finance-identity collection through the existing monthly realization adapter and return-status snapshots through the existing Returns API normalizer. Pagination, source size, duplicate IDs, scope, date basis and one-shot continuation bindings fail closed; complete empty results remain distinct from unavailable or unpublished months.

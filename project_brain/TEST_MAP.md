@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR17 cutoff/opening owner confirmations
+
+- `tests/test_fifo_cost_transition_service.py::test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new` uses public service calls and a synthetic saved stock report. It verifies exact store-local cutoff, `available + reserved` semantics, 3 old home units plus 100 new Ozon units, explicit rejection of double-counting, separately confirmed restart reads, stale confirmation after owner-basis change, and no FIFO event writes.
+- `tests/test_fifo_cost_transition_review_service.py::test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready` verifies a process-memory cutoff is not authority and review remains read-only/non-ready.
+- Linked FIFO transition, evidence, acceptance, schema and readiness profile: **152 passed in 9.21s**. FR18 still owns reconciliation against complete acceptance/movement bridge before READY.
+
 # 2026-11-09 — FIFO FR15 Telegram physical-sales route
 
 - `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers explicit case-bound selection, preview/save/separate confirm, exact callback replay and stale preview after switching cases while both durable cases survive.
