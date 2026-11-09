@@ -1,18 +1,18 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR11 выполнены; далее FR12.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR12 выполнены; далее FR13.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR12 NOT_STARTED: FR11 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — typed transition evidence API.
+- Текущий этап FR13 NOT_STARTED: FR12 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — собственный CSV parser physical sales поверх durable evidence API.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current HEAD after FR10 checkpoint: `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
+- Current implementation HEAD after FR12: `7e0f44b4ac50c7144a2dc329afd256e63553b154` (`Add durable FIFO transition evidence API`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
-- Существуют 17 modified tracked-файлов review corrections без commit. Сохранить весь исходный diff. Staged state на входе FR00 был пуст.
+- На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
 - .fl12-deps/ — существующие untracked dependencies, не stage.
 - Manifest data/ до и после целевых тестов (SHA-256): history.json `520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; profiles.json `8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; tasks.json `6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; tax_configuration.json `F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; users.json `2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`. `git diff -- data` пустой, data status пустой. Не восстанавливать будущие пользовательские изменения из Git.
 - Старый CI #730 на 0de5522d PASS; новые corrections им не покрыты. NOT READY TO MERGE.
@@ -35,7 +35,7 @@
 | FR09 | DONE | Public MR01–MR03; exact prefix replay; complete bridge for lower stock; atomic rate/reconciliation/allocation/projection; **136 passed in 7.79s** |
 | FR10 | DONE | Owner latest-allocation-first policy; MR04–MR06 linked profile 142 passed; compile/diff/data manifest PASS; checkpoint `5534917c0f14dbed6610e084dd7d3d839862b13d` |
 | FR11 | DONE | History/current/export/Period Profit сверены по полным replay revisions; FR11 profile **79 passed in 4.66s**; saved-plan restart regression PASS |
-| FR12 | NOT_STARTED | Typed evidence |
+| FR12 | DONE | Typed bridge-evidence and confirmation APIs; **133 passed in 10.53s** on linked profile; exact data manifest preserved |
 | FR13 | NOT_STARTED | Physical CSV |
 | FR14 | NOT_STARTED | Durable confirmation |
 | FR15 | NOT_STARTED | Telegram routing |
@@ -61,6 +61,17 @@
 Дата; этап; base/head SHA; изменённые функции; контракты; команда и среда проверки; фактический результат; original data manifest before/after; ссылки PR/CI; ограничения; следующий этап.
 
 Старые результаты 110/5115 tests не являются проверкой нового кода. При подготовке этого ТЗ pytest и live API не запускались.
+
+## FR12 — 2026-11-09
+
+- Реализация добавлена поверх уже существующей схемы v16, без новой миграции: `TransitionBridgeEvidence`/`TransitionEvidenceConfirmation` задают allowlist по каждому виду доказательства, типы дат/digest/количеств, проверку полноты по пагинации и coverage, owner/source compatibility, предел event set 100,000 и лимиты размера.
+- `FifoCostRepository.append_transition_bridge_evidence` вычисляет content fingerprint, шифрует весь sensitive payload существующим tenant Fernet provider и атомарно добавляет exact scoped evidence + новую case revision с CAS/idempotency. Нет ключа — нет записи. Лимиты одного физического документа, total ciphertext и версий проверяются до вставки и SQL append transaction; данные не обрезаются.
+- `confirm_transition_evidence` связывает typed confirmation с точным evidence fingerprint, owner/scope, case revision и допустимым confirmation kind, проверяет decrypt/key, записывает immutable confirmation и case revision. Чтение evidence возвращает только allowlisted metadata и подтверждения; ciphertext не раскрывается. При недоступном ключе сохранённый факт остаётся с явным blocker и не подтверждается.
+- `read_transition_preview` извлекает только заданный `preview_id` из точного tenant/store/SKU/case scope. Проверяет hash и binding preview row к сохранённым ревизиям/снимкам; расчёт не повторяет. Новое evidence переводит READY в AWAITING_EVIDENCE и оставляет прежний seal доступным как исторический, уже не-current.
+- Тесты: `tests/test_fifo_cost_transition_bridge_evidence.py` и существующие v16/schema, transition store/service/atomic apply, multi-rate history/current/Period Profit/CSV and saved-plan restart regressions — **133 passed in 10.53s**. Изменённые Python modules `compileall` PASS; `git diff --check` PASS; `git diff --exit-code -- data` PASS. Пять user-data SHA-256 совпали с FR00; `.fl12-deps/` осталась неотслеживаемой и не stage.
+- Использованы только synthetic `tmp_path` SQLite и временные Fernet keys. Владелец/его данные, реальные Ozon/Telegram, merge/deploy и запуск бота не затрагивались. Полный pytest и exact-head CI относятся к FR30.
+- Code commit: `7e0f44b4ac50c7144a2dc329afd256e63553b154` (`Add durable FIFO transition evidence API`).
+- Следующий этап FR13: фиксированный UTF-8 CSV physical-sales parser; не распознавать произвольный XLSX и не менять legacy cost CSV route.
 
 ## FR08 — 2026-11-09
 

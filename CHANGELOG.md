@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR12: durable, scoped transition evidence
+
+- Added typed evidence and owner-confirmation contracts plus repository APIs for append, exact-scope read, confirmation and sealed-preview read. Every append is CAS/idempotency guarded and atomically reopens READY cases while preserving prior previews.
+- Sensitive source payloads are Fernet-encrypted with no plaintext fallback; reads verify scope, evidence/confirmation hashes and key availability. Per-case document/version/ciphertext and event-set limits reject oversized input without truncation. Schema v16 is unchanged.
+- FR12 linked FIFO transition/history/Period Profit/export profile: **133 passed in 10.53s**; compileall, `git diff --check` and user-data manifest passed. Local synthetic verification only; exact-head CI remains FR30.
+
 # 2026-11-09 — FIFO FR11: multi-rate readers use replay balances
 
 - Current cost and history now use per-rate residuals from the same current, complete allocation revision as the FIFO layers. Historical rate-boundary quantities remain distinguishable from stock still on hand; proven zero balances stay visible without becoming a next-unit layer.

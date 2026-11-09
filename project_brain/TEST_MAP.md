@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR12: durable bridge evidence and seals
+
+- `tests/test_fifo_cost_transition_bridge_evidence.py` covers keyword-only API signatures, typed per-kind payloads, complete-source proofs, encrypted raw source material, restart, exact case revision/idempotency, separate typed confirmation and confirmation-kind binding. Negative cases cover missing/wrong Fernet key, wrong tenant, canceled case, stale revision, corrupt payload/hash, and quota-sensitive physical-document validation.
+- The suite verifies new evidence moves a READY case back to `AWAITING_EVIDENCE` while preserving its exact historical preview; `read_transition_preview` checks its stored seal and scope without recomputing FIFO/financial calculations.
+- Linked transition/schema-v16/history/current/Period Profit/export/frozen-plan profile: **133 passed in 10.53s**. Compileall and user-data hash checks pass. Synthetic SQLite only; full suite and exact-head CI remain for FR30.
+
 # 2026-11-09 — FIFO FR11: readers, exports, and frozen plans
 
 - `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` verifies that a fresh repository instance exposes one consistent replay revision through history, current cost, Telegram CSV and Period Profit; exact mixed-rate COGS is 1872.50 ₽, two closed rate balances are zero, and the 18 ₽ open-rate quantity stays unknown.
