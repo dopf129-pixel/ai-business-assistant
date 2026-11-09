@@ -46,7 +46,7 @@ def test_readiness_assessment_reloads_saved_evidence_before_cutoff_bridge_review
 
             def load(
                 self, *, case_id, identity, expected_case_revision,
-                require_opening_composition=True,
+                require_opening_composition=True, sealed_preview_id=None,
             ):
                 self.calls.append((case_id, dict(identity), expected_case_revision))
                 self.opening_requirements.append(require_opening_composition)

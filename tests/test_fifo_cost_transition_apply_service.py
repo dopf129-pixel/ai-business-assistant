@@ -1,7 +1,9 @@
 """Deterministic prepare-seal coverage for FIFO late-entry transitions."""
 
 from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 
 from services.fifo_cost_late_entry_impact_service import (
     FifoCostLateEntryImpactService,
@@ -12,7 +14,12 @@ from services.fifo_cost_transition_apply_service import (
 from services.fifo_cost_transition_contracts import FifoFinancialPeriodSummary
 from services.fifo_cost_transition_evidence_service import (
     FifoCostTransitionEvidenceBundle,
+    FifoCostTransitionEvidenceService,
 )
+from services.fifo_cost_transition_review_service import (
+    FifoCostTransitionReviewService,
+)
+from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.tax_service import TaxService
 from test_fifo_cost_transition_atomic_apply import (
@@ -22,10 +29,15 @@ from test_fifo_cost_transition_atomic_apply import (
     STORE,
     TAX_POLICY,
     _prepared_repository,
+    _table_counts,
     _transition_no_write_snapshot,
+    TENANT,
 )
 from test_fifo_cost_transition_store import OWNER, _case
-from services.tenant_context import reset_current_tenant_user_id
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 from services.fifo_cost_repository import FifoCostRepository
 
 
@@ -46,13 +58,18 @@ class _ReadyReview:
     def __init__(self, *, initialized=False):
         self.initialized = initialized
 
-    def assess(self, *, case_id, identity, for_transition_prepare=False):
+    def assess(
+        self, *, case_id, identity, for_transition_prepare=False,
+        sealed_preview_id=None,
+    ):
         from types import SimpleNamespace
 
         assert for_transition_prepare is True
         return {
             "error": False,
             "case_revision": 3,
+            "current_case_revision": 4,
+            "case_state": "READY_TO_CONFIRM",
             "readiness": SimpleNamespace(status="PREVIEW_READY", requirements=()),
             "proposal": object(),
             "fifo_queue_initialized": self.initialized,
@@ -67,7 +84,7 @@ class _SavedEvidence:
 
     def load(
         self, *, case_id, identity, expected_case_revision,
-        require_opening_composition=True,
+        require_opening_composition=True, sealed_preview_id=None,
     ):
         assert expected_case_revision == 3
         return {
@@ -109,7 +126,10 @@ def _make_period_summary(reconstruction):
     )
 
 
-def _service(repository, bridge, cutover, bundle, clock):
+def _service(
+    repository, bridge, cutover, bundle, clock, *,
+    tax_configuration_service=None, cache_invalidator=None, review_service=None,
+):
     transition = FifoCostTransitionService(
         repository, now_provider=lambda: clock[0],
     )
@@ -125,9 +145,12 @@ def _service(repository, bridge, cutover, bundle, clock):
         transition,
         history_service=object(),
         evidence_service=evidence,
-        review_service=_ReadyReview(),
-        tax_configuration_service=_TaxConfiguration(),
+        review_service=review_service or _ReadyReview(),
+        tax_configuration_service=(
+            tax_configuration_service or _TaxConfiguration()
+        ),
         impact_service=FifoCostLateEntryImpactService(TaxService()),
+        cache_invalidator=cache_invalidator,
     )
 
 
@@ -265,5 +288,207 @@ def test_uninitialized_prepare_requires_owner_confirmed_opening_composition(
         )
         assert result["code"] == "FIFO_OPENING_COMPOSITION_NOT_CONFIRMED"
         assert _transition_no_write_snapshot(repository) == before
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl(
+    tmp_path,
+):
+    repository, tenant, _stock, bridge, _impact, cutover, _prepared, clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    invalidation_calls = []
+
+    def fail_cache_invalidation(**kwargs):
+        invalidation_calls.append(kwargs)
+        raise RuntimeError("simulated cache failure after commit")
+
+    try:
+        reconstruction = _reconstruct(repository, bridge, cutover)
+        bundle = _bundle((_make_period_summary(reconstruction),))
+        service = _service(
+            repository, bridge, cutover, bundle, clock,
+            cache_invalidator=fail_cache_invalidation,
+        )
+        prepared = service.prepare(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=3,
+            idempotency_key="apply-service-prepare-0001",
+        )
+        assert prepared["error"] is False, prepared
+        assert prepared["preview_fingerprint"]
+
+        real_evidence = FifoCostTransitionEvidenceService(
+            service.transition_service,
+        )
+        sealed_basis = real_evidence.load(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=3,
+            # This case already has a FIFO stream; the saved seal must be
+            # reviewed against its historical basis without asking for a new
+            # opening composition.
+            require_opening_composition=False,
+            sealed_preview_id=prepared["preview_id"],
+        )
+        assert sealed_basis["error"] is False, sealed_basis
+        assert sealed_basis["bundle"].case.case_revision == 3
+        assert sealed_basis["missing_requirements"]
+        class InitializedHistory(FifoCostHistoryService):
+            def get_sku_history(self, **kwargs):
+                result = super().get_sku_history(**kwargs)
+                result["queue_initialized"] = True
+                return result
+
+        real_review = FifoCostTransitionReviewService(
+            service.transition_service, InitializedHistory(repository),
+            evidence_service=real_evidence,
+        ).assess(
+            case_id=CASE_ID, identity=IDENTITY,
+            for_transition_prepare=True,
+            sealed_preview_id=prepared["preview_id"],
+        )
+        assert real_review["error"] is False, real_review
+        assert real_review["case_revision"] == 3
+        assert real_review["current_case_revision"] == prepared["case_revision"]
+        assert real_review["case_state"] == "READY_TO_CONFIRM"
+
+        before_read = _transition_no_write_snapshot(repository)
+        service.impact_service.preview = lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("read_preview must not recalculate impact"),
+        )
+        preview = service.read_preview(
+            case_id=CASE_ID, identity=IDENTITY,
+            preview_id=prepared["preview_id"],
+        )
+        assert preview["error"] is False, preview
+        assert preview["is_current"] is True
+        assert preview["preview_fingerprint"] == prepared["preview_fingerprint"]
+        assert _transition_no_write_snapshot(repository) == before_read
+        service.impact_service = FifoCostLateEntryImpactService(TaxService())
+
+        applied = service.apply(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=prepared["case_revision"],
+            expected_preview_id=prepared["preview_id"],
+            expected_preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="apply-service-commit-0001",
+        )
+        assert applied["error"] is False, applied
+        assert applied["code"] == "FIFO_TRANSITION_APPLIED"
+        assert applied["replayed"] is False
+        assert applied["cache_invalidation"] == "FAILED"
+        assert len(invalidation_calls) == 1
+        assert invalidation_calls[0]["identity"] == IDENTITY
+        assert invalidation_calls[0]["case_id"] == CASE_ID
+        assert invalidation_calls[0]["case_revision"] == prepared["case_revision"] + 1
+        assert _table_counts(repository)["fifo_cost_transition_commits"] == 1
+        current = repository.read_transition_case(
+            case_id=CASE_ID, **IDENTITY,
+        )
+        assert current["state"] == "APPLIED"
+        assert current["case_revision"] == prepared["case_revision"] + 1
+
+        retry_repository = FifoCostRepository(
+            db_path=tmp_path / "transition-atomic.sqlite",
+            now_provider=lambda: clock[0] + timedelta(days=2),
+        )
+        changed_tax = _TaxConfiguration({
+            "error": False, "configured": True,
+            "policy": {"mode": "USN_INCOME", "tax_rate": 6,
+                       "minimum_tax_rate": 1},
+        })
+        retry_service = _service(
+            retry_repository, bridge, cutover, bundle, clock,
+            tax_configuration_service=changed_tax,
+            cache_invalidator=fail_cache_invalidation,
+        )
+        retry = retry_service.apply(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=prepared["case_revision"],
+            expected_preview_id=prepared["preview_id"],
+            expected_preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="apply-service-commit-0001",
+        )
+        assert retry["error"] is False, retry
+        assert retry["commit_id"] == applied["commit_id"]
+        assert retry["replayed"] is True
+        assert retry["cache_invalidation"] == "FAILED"
+        assert len(invalidation_calls) == 2
+        assert _table_counts(retry_repository)["fifo_cost_transition_commits"] == 1
+        stale_new_key = retry_service.apply(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=prepared["case_revision"],
+            expected_preview_id=prepared["preview_id"],
+            expected_preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="apply-service-new-key-0001",
+        )
+        assert stale_new_key == {
+            "error": True, "code": "FIFO_TRANSITION_PREVIEW_EXPIRED",
+        }
+        bad_retry = retry_service.apply(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=prepared["case_revision"],
+            expected_preview_id=prepared["preview_id"],
+            expected_preview_fingerprint="f" * 64,
+            idempotency_key="apply-service-commit-0001",
+        )
+        assert bad_retry["error"] is True
+        assert bad_retry["code"] == "FIFO_TRANSITION_IDEMPOTENCY_CONFLICT"
+        assert _table_counts(retry_repository)["fifo_cost_transition_commits"] == 1
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_apply_same_key_concurrent_services_commit_one_transition(tmp_path):
+    repository, tenant, _stock, bridge, _impact, cutover, _prepared, clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    barrier = Barrier(2)
+    try:
+        reconstruction = _reconstruct(repository, bridge, cutover)
+        bundle = _bundle((_make_period_summary(reconstruction),))
+        preparer = _service(repository, bridge, cutover, bundle, clock)
+        prepared = preparer.prepare(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=3,
+            idempotency_key="apply-race-prepare-0001",
+        )
+        assert prepared["error"] is False, prepared
+
+        class RacingReview(_ReadyReview):
+            def assess(self, **kwargs):
+                result = super().assess(**kwargs)
+                barrier.wait(timeout=5)
+                return result
+
+        def apply_once(_index):
+            request_tenant = set_current_tenant_user_id(TENANT)
+            try:
+                request_repository = FifoCostRepository(
+                    db_path=tmp_path / "transition-atomic.sqlite",
+                    now_provider=lambda: clock[0],
+                )
+                request_service = _service(
+                    request_repository, bridge, cutover, bundle, clock,
+                    review_service=RacingReview(),
+                )
+                return request_service.apply(
+                    case_id=CASE_ID, identity=IDENTITY,
+                    expected_case_revision=prepared["case_revision"],
+                    expected_preview_id=prepared["preview_id"],
+                    expected_preview_fingerprint=prepared["preview_fingerprint"],
+                    idempotency_key="apply-race-confirm-0001",
+                )
+            finally:
+                reset_current_tenant_user_id(request_tenant)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(apply_once, range(2)))
+        assert all(result["error"] is False for result in results), results
+        assert sorted(result["replayed"] for result in results) == [False, True]
+        assert _table_counts(repository)["fifo_cost_transition_commits"] == 1
+        assert _table_counts(repository)["fifo_cost_rate_changes"] == 1
+        assert _table_counts(repository)["fifo_cost_allocations"] == 1
     finally:
         reset_current_tenant_user_id(tenant)

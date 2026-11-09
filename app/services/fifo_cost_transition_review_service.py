@@ -87,9 +87,15 @@ class FifoCostTransitionReviewService:
 
     def assess(
         self, *, case_id, identity, owner_confirmed_cutoff_date=None,
-        for_transition_prepare=False,
+        for_transition_prepare=False, sealed_preview_id=None,
     ):
-        if type(for_transition_prepare) is not bool:
+        if (
+            type(for_transition_prepare) is not bool
+            or (
+                sealed_preview_id is not None
+                and not isinstance(sealed_preview_id, str)
+            )
+        ):
             return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
         case_result = self.transition_service.get_case(
             case_id=case_id, **identity,
@@ -99,22 +105,50 @@ class FifoCostTransitionReviewService:
         if case_result.get("state") not in {"DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"}:
             return self._error("FIFO_TRANSITION_CASE_NOT_REVIEWABLE")
         try:
-            case = self.transition_service._case_from_payload(case_result["case"])
-            scope = case.metadata.scope
+            current_case = self.transition_service._case_from_payload(
+                case_result["case"],
+            )
+            scope = current_case.metadata.scope
             if any(getattr(scope, key) != identity.get(key) for key in (
                 "store_id", "product_id", "offer_id", "sku",
             )):
                 return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            evidence_case_revision = case_result["case_revision"]
+            if sealed_preview_id is not None:
+                last_preview = case_result["case"].get("last_preview")
+                sealed = self.repository.read_transition_preview(
+                    case_id=case_id, preview_id=sealed_preview_id, **identity,
+                )
+                preview = sealed.get("preview") if sealed.get("error") is False else None
+                row = sealed.get("sealed_preview") if sealed.get("error") is False else None
+                if (
+                    case_result.get("state") != "READY_TO_CONFIRM"
+                    or case_result["case_revision"] < 2
+                    or not isinstance(last_preview, dict)
+                    or last_preview.get("preview_id") != sealed_preview_id
+                    or not isinstance(preview, dict)
+                    or not isinstance(row, dict)
+                    or sealed.get("is_current") is not True
+                    or sealed.get("expired") is True
+                    or row.get("case_revision") != case_result["case_revision"]
+                    or row.get("preview_fingerprint")
+                    != last_preview.get("preview_fingerprint")
+                    or preview.get("case_revision")
+                    != case_result["case_revision"] - 1
+                ):
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                evidence_case_revision = preview["case_revision"]
             history = self.history_service.get_sku_history(**identity)
             if not isinstance(history, dict) or history.get("error") is not False:
                 return self._error("FIFO_TRANSITION_FIFO_STATE_UNAVAILABLE")
             fifo_initialized = history.get("queue_initialized") is True
             saved_evidence = self.evidence_service.load(
                 case_id=case_id, identity=identity,
-                expected_case_revision=case_result["case_revision"],
+                expected_case_revision=evidence_case_revision,
                 require_opening_composition=not (
                     for_transition_prepare and fifo_initialized
                 ),
+                sealed_preview_id=sealed_preview_id,
             )
             if saved_evidence.get("error") is not False:
                 if saved_evidence.get("code") == "FIFO_TRANSITION_EVIDENCE_MISSING":
@@ -129,6 +163,12 @@ class FifoCostTransitionReviewService:
                 evidence_missing_requirements = tuple(
                     saved_evidence.get("missing_requirements", ())
                 )
+                if sealed_preview_id is not None:
+                    case = evidence_bundle.case
+                else:
+                    case = current_case
+            if evidence_bundle is None:
+                case = current_case
             # The compatibility argument is deliberately not authoritative.
             # A cutoff date is accepted only from the latest exact, durable
             # owner confirmation bound to the saved stock report.
@@ -199,7 +239,8 @@ class FifoCostTransitionReviewService:
             "code": "FIFO_TRANSITION_READINESS_ASSESSED",
             "case_id": case.case_id,
             "case_revision": case.case_revision,
-            "case_state": case.state.value,
+            "current_case_revision": case_result["case_revision"],
+            "case_state": case_result["state"],
             "proposal": proposal,
             "readiness": readiness,
             "supply_reconciliation": reconciliation,

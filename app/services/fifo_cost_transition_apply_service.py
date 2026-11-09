@@ -34,6 +34,7 @@ class FifoCostTransitionApplyService:
         self, transition_service, history_service, *,
         tax_configuration_service=None, evidence_service=None,
         review_service=None, impact_service=None,
+        cache_invalidator=None,
     ):
         self.transition_service = transition_service
         self.history_service = history_service
@@ -49,6 +50,7 @@ class FifoCostTransitionApplyService:
             evidence_service=self.evidence_service,
         )
         self.impact_service = impact_service or FifoCostLateEntryImpactService()
+        self.cache_invalidator = cache_invalidator
 
     def prepare(
         self, *, case_id, identity, expected_case_revision, idempotency_key,
@@ -279,6 +281,7 @@ class FifoCostTransitionApplyService:
             "case_id": case_id,
             "case_revision": prepared.get("case_revision"),
             "preview_id": prepared.get("preview_id"),
+            "preview_fingerprint": prepared.get("preview_fingerprint"),
             "effective_date": effective_date,
             "candidate_cogs_rub": prepared.get("candidate_cogs_rub"),
             "complete_through": prepared.get("complete_through"),
@@ -294,11 +297,377 @@ class FifoCostTransitionApplyService:
         if (
             not isinstance(identity, dict)
             or set(identity) != {"store_id", "product_id", "offer_id", "sku"}
+            or not self.repository._valid_transition_case_id(case_id)
         ):
             return self._error("FIFO_TRANSITION_PREVIEW_INPUT_INVALID")
-        return self.repository.read_transition_preview(
+        normalized_identity = self.repository._normalize_transition_read_identity(
+            identity.get("store_id"), product_id=identity.get("product_id"),
+            offer_id=identity.get("offer_id"), sku=identity.get("sku"),
+        )
+        if normalized_identity.get("error"):
+            return normalized_identity
+        identity = {
+            key: normalized_identity[key]
+            for key in ("store_id", "product_id", "offer_id", "sku")
+        }
+        result = self.repository.read_transition_preview(
             case_id=case_id, preview_id=preview_id, **identity,
         )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return result if isinstance(result, dict) else self._error(
+                "FIFO_TRANSITION_PREVIEW_UNAVAILABLE",
+            )
+        preview = result.get("preview")
+        sealed = result.get("sealed_preview")
+        if not isinstance(preview, dict) or not isinstance(sealed, dict):
+            return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+        return {
+            "error": False,
+            "code": "FIFO_TRANSITION_PREVIEW_READ",
+            "case_id": case_id,
+            "case_revision": sealed.get("case_revision"),
+            "basis_case_revision": preview.get("case_revision"),
+            "preview_id": preview_id,
+            "preview_fingerprint": sealed.get("preview_fingerprint"),
+            "expires_at": sealed.get("expires_at"),
+            "current_case_revision": result.get("current_case_revision"),
+            "current_case_state": result.get("current_case_state"),
+            "is_current": result.get("is_current") is True,
+            "expired": result.get("expired") is True,
+            "preview": preview,
+            "read_only": True,
+        }
+
+    def apply(
+        self, *, case_id, identity, expected_case_revision, expected_preview_id,
+        expected_preview_fingerprint, idempotency_key,
+    ):
+        """Recheck one exact READY seal, then atomically apply it once."""
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"store_id", "product_id", "offer_id", "sku"}
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 2
+            or not self.repository._valid_transition_case_id(case_id)
+            or not isinstance(expected_preview_id, str)
+            or not self.repository._valid_digest(expected_preview_fingerprint)
+            or not self.repository._valid_transition_idempotency_key(idempotency_key)
+        ):
+            return self._error("FIFO_TRANSITION_APPLY_INPUT_INVALID")
+        normalized_identity = self.repository._normalize_transition_read_identity(
+            identity.get("store_id"), product_id=identity.get("product_id"),
+            offer_id=identity.get("offer_id"), sku=identity.get("sku"),
+        )
+        if normalized_identity.get("error"):
+            return normalized_identity
+        identity = {
+            key: normalized_identity[key]
+            for key in ("store_id", "product_id", "offer_id", "sku")
+        }
+
+        # A committed exact retry is resolved before current tax/source/TTL
+        # checks: mutable evidence must not turn a successful commit into a
+        # second write or make a lost response impossible to recover.
+        prior = self.repository.read_transition_commit(
+            case_id=case_id, **identity,
+            expected_case_revision=expected_case_revision,
+            preview_id=expected_preview_id,
+            preview_fingerprint=expected_preview_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        if not isinstance(prior, dict) or prior.get("error") is not False:
+            return prior if isinstance(prior, dict) else self._error(
+                "FIFO_TRANSITION_COMMIT_UNAVAILABLE",
+            )
+        sealed_read = self.read_preview(
+            case_id=case_id, identity=identity, preview_id=expected_preview_id,
+        )
+        if not isinstance(sealed_read, dict) or sealed_read.get("error") is not False:
+            return sealed_read if isinstance(sealed_read, dict) else self._error(
+                "FIFO_TRANSITION_PREVIEW_UNAVAILABLE",
+            )
+        preview = sealed_read.get("preview")
+        if (
+            not isinstance(preview, dict)
+            or sealed_read.get("case_revision") != expected_case_revision
+            or sealed_read.get("preview_fingerprint") != expected_preview_fingerprint
+            or preview.get("case_revision") != expected_case_revision - 1
+        ):
+            recovered = self._recover_committed_retry(
+                case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key,
+                preview=preview if isinstance(preview, dict) else {},
+            )
+            if recovered is not None:
+                return recovered
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+        if prior.get("found") is True:
+            result = prior.get("result")
+            if not isinstance(result, dict) or result.get("error") is not False:
+                return self._error("FIFO_TRANSITION_COMMIT_CORRUPT")
+            return self._with_cache_invalidation(
+                result, case_id=case_id, identity=identity, preview=preview,
+            )
+        if sealed_read.get("expired") is True:
+            return self._error("FIFO_TRANSITION_PREVIEW_EXPIRED")
+        if sealed_read.get("is_current") is not True or (
+            sealed_read.get("current_case_revision") != expected_case_revision
+            or sealed_read.get("current_case_state") != "READY_TO_CONFIRM"
+        ):
+            recovered = self._recover_committed_retry(
+                case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key,
+                preview=preview,
+            )
+            if recovered is not None:
+                return recovered
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+        current = self.transition_service.get_case(case_id=case_id, **identity)
+        if (
+            not isinstance(current, dict)
+            or current.get("error") is not False
+            or current.get("case_revision") != expected_case_revision
+            or current.get("state") != "READY_TO_CONFIRM"
+        ):
+            recovered = self._recover_committed_retry(
+                case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key,
+                preview=preview,
+            )
+            if recovered is not None:
+                return recovered
+            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        basis_revision = expected_case_revision - 1
+        review = self.review_service.assess(
+            case_id=case_id, identity=identity,
+            for_transition_prepare=True,
+            sealed_preview_id=expected_preview_id,
+        )
+        if not isinstance(review, dict) or review.get("error") is not False:
+            failure = review if isinstance(review, dict) else self._error(
+                "FIFO_TRANSITION_READINESS_UNAVAILABLE",
+            )
+            return self._failure_or_committed_retry(
+                failure, case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key, preview=preview,
+            )
+        if (
+            review.get("case_revision") != basis_revision
+            or review.get("current_case_revision") != expected_case_revision
+            or review.get("case_state") != "READY_TO_CONFIRM"
+        ):
+            return self._failure_or_committed_retry(
+                self._error("FIFO_TRANSITION_PREVIEW_STALE"),
+                case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key, preview=preview,
+            )
+        initialized = review.get("fifo_queue_initialized") is True
+        if initialized and review.get("fifo_remaining_status") == "REPLAY_REQUIRED":
+            return self._error("FIFO_HISTORY_INCOMPLETE")
+        blockers = self._readiness_blockers(
+            review.get("readiness"), allow_initialized=initialized,
+        )
+        if blockers:
+            return self._blocked("FIFO_TRANSITION_NOT_READY", requirements=blockers)
+
+        loaded = self.evidence_service.load(
+            case_id=case_id, identity=identity,
+            expected_case_revision=basis_revision,
+            require_opening_composition=not initialized,
+            sealed_preview_id=expected_preview_id,
+        )
+        if not isinstance(loaded, dict) or loaded.get("error") is not False:
+            return loaded if isinstance(loaded, dict) else self._error(
+                "FIFO_TRANSITION_EVIDENCE_UNAVAILABLE",
+            )
+        bundle = loaded.get("bundle")
+        if (
+            not isinstance(bundle, FifoCostTransitionEvidenceBundle)
+            or bundle.case.case_id != case_id
+            or bundle.case.case_revision != basis_revision
+            or bundle.case.metadata.scope != self.transition_service._case_from_payload(
+                current["case"],
+            ).metadata.scope
+            or loaded.get("case_revision") != basis_revision
+            or loaded.get("missing_requirements")
+        ):
+            return self._blocked(
+                "FIFO_TRANSITION_EVIDENCE_INCOMPLETE",
+                requirements=tuple(loaded.get("missing_requirements", ())) or (
+                    "SEALED_EVIDENCE_BASIS_MISMATCH",
+                ),
+            )
+        bridge_result = self.evidence_service.build_cutoff_bridge(
+            bundle=bundle, proposal=review.get("proposal"),
+        )
+        if not isinstance(bridge_result, dict) or bridge_result.get("error") is not False:
+            return bridge_result if isinstance(bridge_result, dict) else self._error(
+                "FIFO_CUTOFF_BRIDGE_BUILD_FAILED",
+            )
+        cutoff_bridge = bridge_result.get("result")
+        from services.fifo_cost_cutoff_bridge_service import FifoCutoffBridgeResult
+
+        if (
+            not isinstance(cutoff_bridge, FifoCutoffBridgeResult)
+            or cutoff_bridge.status != "READY"
+            or cutoff_bridge.case_id != case_id
+            or cutoff_bridge.case_revision != basis_revision
+            or cutoff_bridge.source_set_fingerprint != preview.get(
+                "bridge_fingerprint",
+            )
+            or cutoff_bridge.scope != bundle.case.metadata.scope
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+
+        try:
+            tax_policy_result = self.tax_configuration_service.get_policy()
+        except Exception:
+            return self._error("FIFO_TAX_POLICY_UNAVAILABLE")
+        current_tax_fingerprint = self._tax_policy_fingerprint(tax_policy_result)
+        if (
+            not self.repository._valid_digest(current_tax_fingerprint)
+            or current_tax_fingerprint != preview.get("tax_policy_fingerprint")
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+        reconstruction = self.repository.reconstruct_transition_preview(
+            case_id=case_id, **identity,
+            expected_case_revision=basis_revision,
+            effective_date=preview.get("effective_date"),
+            cutoff_bridge=cutoff_bridge,
+            impact_preview=None,
+            tax_policy_fingerprint=current_tax_fingerprint,
+            idempotency_key=preview.get("idempotency_key"),
+            initial_opening_cutover=preview.get("initial_opening_cutover"),
+        )
+        if (
+            not isinstance(reconstruction, dict)
+            or reconstruction.get("error") is not False
+            or reconstruction.get("code") != "FIFO_TRANSITION_RECONSTRUCTION_READY"
+        ):
+            failure = reconstruction if isinstance(reconstruction, dict) else self._error(
+                "FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE",
+            )
+            return self._failure_or_committed_retry(
+                failure, case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key, preview=preview,
+            )
+        summaries = getattr(bundle, "period_summaries", ())
+        impact = self.impact_service.preview(
+            reconstruction=reconstruction,
+            period_summaries=[summary.as_impact_summary() for summary in summaries],
+            tax_policy_result=tax_policy_result,
+        )
+        stored_impact = preview.get("impact_preview")
+        if (
+            not isinstance(impact, dict)
+            or impact.get("error") is not False
+            or impact.get("candidate_only") is True
+            or impact.get("complete") is not True
+            or not isinstance(stored_impact, dict)
+            or impact.get("preview_fingerprint")
+                != stored_impact.get("preview_fingerprint")
+            or impact.get("reconstruction_fingerprint")
+                != reconstruction.get("preview_fingerprint")
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+        committed = self.repository.commit_transition_case(
+            case_id=case_id, **identity,
+            expected_case_revision=expected_case_revision,
+            preview_id=expected_preview_id,
+            idempotency_key=idempotency_key,
+            cutoff_bridge=cutoff_bridge,
+            impact_preview=impact,
+            current_tax_policy_fingerprint=current_tax_fingerprint,
+        )
+        if not isinstance(committed, dict) or committed.get("error") is not False:
+            failure = committed if isinstance(committed, dict) else self._error(
+                "FIFO_TRANSITION_COMMIT_UNAVAILABLE",
+            )
+            return self._failure_or_committed_retry(
+                failure, case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=expected_preview_id,
+                preview_fingerprint=expected_preview_fingerprint,
+                idempotency_key=idempotency_key, preview=preview,
+            )
+        return self._with_cache_invalidation(
+            committed, case_id=case_id, identity=identity, preview=preview,
+        )
+
+    def _with_cache_invalidation(self, result, *, case_id, identity, preview):
+        if not callable(self.cache_invalidator):
+            return {**result, "cache_invalidation": "NOT_CONFIGURED"}
+        if (
+            not isinstance(preview, dict)
+            or type(preview.get("base_fifo_revision")) is not int
+            or preview["base_fifo_revision"] < 0
+            or type(preview.get("base_allocation_revision")) is not int
+            or preview["base_allocation_revision"] < 0
+        ):
+            return {**result, "cache_invalidation": "FAILED"}
+        try:
+            invalidated = self.cache_invalidator(
+                identity=dict(identity),
+                case_id=case_id,
+                case_revision=result.get("case_revision"),
+                fifo_revision=preview.get("base_fifo_revision", 0) + 1,
+                allocation_revision=preview.get("base_allocation_revision", 0) + 1,
+            )
+            if isinstance(invalidated, dict) and invalidated.get("error") is True:
+                return {**result, "cache_invalidation": "FAILED"}
+            return {**result, "cache_invalidation": "COMPLETED"}
+        except Exception:
+            # The FIFO commit is already durable. Report invalidation separately
+            # so callers can retry the idempotent invalidation without replaying
+            # or duplicating business writes.
+            return {**result, "cache_invalidation": "FAILED"}
+
+    def _recover_committed_retry(
+        self, *, case_id, identity, expected_case_revision,
+        preview_id, preview_fingerprint, idempotency_key, preview,
+    ):
+        """Recover the exact commit if it won a concurrent same-key race."""
+        prior = self.repository.read_transition_commit(
+            case_id=case_id, **identity,
+            expected_case_revision=expected_case_revision,
+            preview_id=preview_id,
+            preview_fingerprint=preview_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        if not isinstance(prior, dict) or prior.get("error") is not False:
+            return prior if isinstance(prior, dict) else self._error(
+                "FIFO_TRANSITION_COMMIT_UNAVAILABLE",
+            )
+        if prior.get("found") is not True:
+            return None
+        result = prior.get("result")
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._error("FIFO_TRANSITION_COMMIT_CORRUPT")
+        return self._with_cache_invalidation(
+            result, case_id=case_id, identity=identity, preview=preview,
+        )
+
+    def _failure_or_committed_retry(self, failure, **retry_context):
+        recovered = self._recover_committed_retry(**retry_context)
+        return recovered if recovered is not None else failure
 
     def _read_idempotent_preview(
         self, current, *, case_id, identity, expected_case_revision,
@@ -334,9 +703,12 @@ class FifoCostTransitionApplyService:
                 "FIFO_TRANSITION_PREVIEW_EXPIRED" if stored.get("expired")
                 else "FIFO_TRANSITION_PREVIEW_STALE",
             )
-        current_policy_fingerprint = self._tax_policy_fingerprint(
-            self.tax_configuration_service.get_policy(),
-        )
+        try:
+            current_policy_fingerprint = self._tax_policy_fingerprint(
+                self.tax_configuration_service.get_policy(),
+            )
+        except Exception:
+            return self._error("FIFO_TAX_POLICY_UNAVAILABLE")
         if current_policy_fingerprint != preview.get("tax_policy_fingerprint"):
             return self._error("FIFO_TRANSITION_PREVIEW_STALE")
         return {

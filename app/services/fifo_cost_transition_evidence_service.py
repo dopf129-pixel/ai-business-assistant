@@ -412,14 +412,21 @@ class FifoCostTransitionEvidenceService:
 
     def load(
         self, *, case_id, identity, expected_case_revision,
-        require_opening_composition=True,
+        require_opening_composition=True, sealed_preview_id=None,
     ):
         """Rehydrate typed evidence at one exact case revision, without HTTP."""
-        if type(require_opening_composition) is not bool:
+        if (
+            type(require_opening_composition) is not bool
+            or (
+                sealed_preview_id is not None
+                and not isinstance(sealed_preview_id, str)
+            )
+        ):
             return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
         loaded = self._case_context(
             case_id=case_id, identity=identity,
             expected_case_revision=expected_case_revision,
+            sealed_preview_id=sealed_preview_id,
         )
         if loaded.get("error"):
             return loaded
@@ -575,8 +582,16 @@ class FifoCostTransitionEvidenceService:
         ):
             missing.append("FINANCE_IDENTITY_END_GAP")
 
-        current = self.transition_service.get_case(case_id=case_id, **identity)
-        if current.get("error") or current.get("case_revision") != expected_case_revision:
+        current_basis = self._case_context(
+            case_id=case_id, identity=identity,
+            expected_case_revision=expected_case_revision,
+            sealed_preview_id=sealed_preview_id,
+        )
+        if current_basis.get("error") or (
+            self.transition_service._transition_case_basis_fingerprint(
+                current_basis.get("case"),
+            ) != self.transition_service._transition_case_basis_fingerprint(case)
+        ):
             return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
 
         bundle = FifoCostTransitionEvidenceBundle(
@@ -1096,7 +1111,10 @@ class FifoCostTransitionEvidenceService:
             return self._error("FIFO_MOVEMENT_COVERAGE_INCOMPLETE")
         return {"error": False, "coverage": coverage, "fingerprint": item["payload_fingerprint"]}
 
-    def _case_context(self, *, case_id, identity, expected_case_revision):
+    def _case_context(
+        self, *, case_id, identity, expected_case_revision,
+        sealed_preview_id=None,
+    ):
         if (
             not isinstance(identity, dict)
             or set(identity) != self._IDENTITY_KEYS
@@ -1107,15 +1125,59 @@ class FifoCostTransitionEvidenceService:
         current = self.transition_service.get_case(case_id=case_id, **identity)
         if current.get("error"):
             return current
-        if current.get("case_revision") != expected_case_revision:
-            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        case_payload = current.get("case")
+        if sealed_preview_id is None:
+            if current.get("case_revision") != expected_case_revision:
+                return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        else:
+            last_preview = (
+                case_payload.get("last_preview")
+                if isinstance(case_payload, dict) else None
+            )
+            if (
+                current.get("state") != "READY_TO_CONFIRM"
+                or current.get("case_revision") != expected_case_revision + 1
+                or not isinstance(last_preview, dict)
+                or last_preview.get("preview_id") != sealed_preview_id
+            ):
+                return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+            sealed = self.repository.read_transition_preview(
+                case_id=case_id, preview_id=sealed_preview_id, **identity,
+            )
+            preview = sealed.get("preview") if sealed.get("error") is False else None
+            row = sealed.get("sealed_preview") if sealed.get("error") is False else None
+            if (
+                not isinstance(preview, dict)
+                or not isinstance(row, dict)
+                or sealed.get("is_current") is not True
+                or sealed.get("expired") is True
+                or row.get("case_revision") != current.get("case_revision")
+                or preview.get("case_revision") != expected_case_revision
+                or row.get("preview_fingerprint") != last_preview.get(
+                    "preview_fingerprint",
+                )
+            ):
+                return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+            historical = self.transition_service.get_case_revision(
+                case_id=case_id, **identity,
+                case_revision=expected_case_revision,
+            )
+            if historical.get("error"):
+                return historical
+            if historical.get("state") not in {"DRAFT", "AWAITING_EVIDENCE"}:
+                return self._error("FIFO_TRANSITION_CASE_CORRUPT")
+            case_payload = historical.get("case")
         try:
-            case = self.transition_service._case_from_payload(current["case"])
+            case = self.transition_service._case_from_payload(case_payload)
         except (TypeError, ValueError, KeyError):
             return self._error("FIFO_TRANSITION_CASE_CORRUPT")
         if any(getattr(case.metadata.scope, key) != value for key, value in identity.items()):
             return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
-        return {"error": False, "case": case}
+        return {
+            "error": False, "case": case,
+            "current_case_revision": current.get("case_revision"),
+            "basis_case_revision": expected_case_revision,
+        }
 
     def _case_timezone(self, case_id, identity):
         current = self.transition_service.get_case(case_id=case_id, **identity)

@@ -263,6 +263,35 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def read_transition_case_revision(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        case_revision,
+    ):
+        """Read one exact immutable case basis for a sealed preview check."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        if type(case_revision) is not int or case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_case_revision(
+                connection, case_id, case_revision, scope, identity,
+            )
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
     def list_transition_cases(
         self, *, store_id, sku=None,
         states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
@@ -735,6 +764,98 @@ class FifoCostRepository:
                     and result["current_case_revision"] == preview_row["case_revision"]
                 ),
                 "expired": preview_row["expires_at"] <= now_text,
+            }
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_transition_commit(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, preview_id, preview_fingerprint,
+        idempotency_key,
+    ):
+        """Return an exact committed retry before checking mutable evidence or TTL."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        if (
+            type(expected_case_revision) is not int
+            or expected_case_revision < 2
+            or not self._valid_transition_idempotency_key(idempotency_key)
+            or not self._valid_digest(preview_fingerprint)
+        ):
+            return self._error("FIFO_TRANSITION_COMMIT_INPUT_INVALID")
+        sealed = self.read_transition_preview(
+            case_id=case_id, preview_id=preview_id,
+            store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if not isinstance(sealed, dict) or sealed.get("error") is not False:
+            return sealed if isinstance(sealed, dict) else self._error(
+                "FIFO_TRANSITION_PREVIEW_UNAVAILABLE",
+            )
+        preview = sealed.get("preview")
+        row = sealed.get("sealed_preview")
+        if (
+            not isinstance(preview, dict)
+            or not isinstance(row, dict)
+            or row.get("case_revision") != expected_case_revision
+            or row.get("preview_fingerprint") != preview_fingerprint
+            or preview.get("case_revision") != expected_case_revision - 1
+        ):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            connection = self.get_connection()
+            case = FifoCostTransitionStore.read_case(
+                connection, case_id, scope, identity,
+            )
+            if case.get("error"):
+                return case
+            prior = connection.execute(
+                """SELECT commit_id, payload_fingerprint, preview_id,
+                          case_revision, complete_through, committed_at
+                   FROM fifo_cost_transition_commits
+                   WHERE case_id=? AND idempotency_key=?""",
+                (case_id, idempotency_key),
+            ).fetchone()
+            if prior is None:
+                return {"error": False, "found": False}
+            expected_commit_fingerprint = self._sha256({
+                "case_id": case_id,
+                "preview_id": preview_id,
+                "preview_fingerprint": preview_fingerprint,
+                "impact_fingerprint": (
+                    preview.get("impact_preview", {}).get("preview_fingerprint")
+                    if isinstance(preview.get("impact_preview"), dict) else None
+                ),
+                "tax_policy_fingerprint": preview.get("tax_policy_fingerprint"),
+                "bridge_fingerprint": preview.get("bridge_fingerprint"),
+            })
+            if (
+                prior["preview_id"] != preview_id
+                or prior["case_revision"] != expected_case_revision + 1
+                or prior["payload_fingerprint"] != expected_commit_fingerprint
+            ):
+                return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+            return {
+                "error": False, "found": True,
+                "result": {
+                    "error": False, "code": "FIFO_TRANSITION_APPLIED",
+                    "commit_id": prior["commit_id"],
+                    "case_revision": prior["case_revision"],
+                    "preview_id": prior["preview_id"],
+                    "complete_through": prior["complete_through"],
+                    "committed_at": prior["committed_at"],
+                    "replayed": True,
+                },
             }
         except (sqlite3.Error, OSError, ValueError, TypeError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")

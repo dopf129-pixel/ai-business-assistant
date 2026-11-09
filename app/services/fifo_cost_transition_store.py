@@ -667,6 +667,48 @@ class FifoCostTransitionStore:
         }
 
     @classmethod
+    def read_case_revision(
+        cls, connection, case_id: str, case_revision: int,
+        scope: dict, identity: dict,
+    ) -> dict:
+        """Return one immutable case basis after exact tenant/SKU authorization."""
+        if type(case_revision) is not int or case_revision < 1:
+            return {"error": True, "code": "FIFO_TRANSITION_REVISION_INVALID"}
+        current = cls._load_case(connection, case_id, scope, identity)
+        if current is None:
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_NOT_FOUND"}
+        if case_revision > current["current_revision"]:
+            return {"error": True, "code": "FIFO_TRANSITION_REVISION_CONFLICT"}
+        row = connection.execute(
+            """SELECT state, payload_json
+               FROM fifo_cost_transition_case_revisions
+               WHERE case_id=? AND case_revision=?""",
+            (case_id, case_revision),
+        ).fetchone()
+        if row is None:
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, ValueError):
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
+        if (
+            not isinstance(payload, dict)
+            or payload.get("case_id") != case_id
+            or payload.get("case_revision") != case_revision
+            or payload.get("state") != row["state"]
+        ):
+            return {"error": True, "code": "FIFO_TRANSITION_CASE_CORRUPT"}
+        payload.pop("_command_fingerprint", None)
+        return {
+            "error": False,
+            "code": "FIFO_TRANSITION_CASE_REVISION_FOUND",
+            "case_id": case_id,
+            "case_revision": case_revision,
+            "state": row["state"],
+            "case": payload,
+        }
+
+    @classmethod
     def prepare_case_preview(
         cls, connection, *, case_id, scope, identity, expected_case_revision,
         preview_id, preview_payload, preview_fingerprint, fifo_revision,

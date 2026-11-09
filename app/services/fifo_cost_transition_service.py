@@ -1093,6 +1093,16 @@ class FifoCostTransitionService:
             offer_id=offer_id, sku=sku,
         )
 
+    def get_case_revision(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        case_revision,
+    ):
+        """Read one scoped immutable basis revision for a sealed preview."""
+        return self.repository.read_transition_case_revision(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, case_revision=case_revision,
+        )
+
     def list_cases(
         self, *, store_id, sku=None,
         states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
