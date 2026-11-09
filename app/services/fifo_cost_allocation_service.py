@@ -433,7 +433,11 @@ class FifoCostAllocationService:
                 )
                 allocation_by_sale[event.event_id] = allocation
                 for line in allocation.lines:
-                    allocation_line_by_sale_layer[(event.event_id, line.layer_id)] = line
+                    basis_id = (
+                        line.rate_change_id
+                        if line.rate_change_id is not None else line.layer_id
+                    )
+                    allocation_line_by_sale_layer[(event.event_id, basis_id)] = line
                 sale_allocations.append(allocation)
                 total_cogs += allocation.total_cost_rub
                 continue

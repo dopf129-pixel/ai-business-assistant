@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR09 выполнены; далее FR10.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR09 выполнены; безопасная часть FR10 реализована, но MR04 заблокирован бизнес-правилом частичного возврата по смешанным ставкам.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR10 IN_PROGRESS: провести возвраты и непродажные движения через temporal multi-rate replay с точной исходной стоимостью, не смешивая возвраты с COGS продаж.
+- Текущий этап FR10 BLOCKED: безопасные пути возврата и непродажных движений реализованы. Для MR04 нужно решить, как выбирать ставку возвращённой единицы из одной продажи, распределённой по нескольким FIFO-базам. Источник фиксирует sale identity и количество возврата, но не идентичность конкретной единицы/базы. Сейчас неоднозначный частичный возврат блокируется до записи. FR11 и следующие зависимые этапы не начинать до решения и завершения MR04.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -32,7 +32,7 @@
 | FR07 | DONE | Schema v16; additive tables/indexes/FK/immutable guards/quotas; local migrations and replay profile 104 passed. |
 | FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; implementation checkpoint `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` |
 | FR09 | DONE | Public MR01–MR03; exact prefix replay; complete bridge for lower stock; atomic rate/reconciliation/allocation/projection; **136 passed in 7.79s** |
-| FR10 | IN_PROGRESS | Returns/non-sale |
+| FR10 | BLOCKED | 141 passed targeted; MR04 requires owner policy for a partial return from mixed cost bases; no full-suite/CI |
 | FR11 | NOT_STARTED | Readers/gateB |
 | FR12 | NOT_STARTED | Typed evidence |
 | FR13 | NOT_STARTED | Physical CSV |
@@ -79,6 +79,14 @@
 - Временная проекция при транзакции ставит только новую ревизию/fingerprint/неполный флаг; она не публикует остаток из другого горизонта. После полного candidate replay в той же транзакции вычисляются и публикуются exact finite balances, известная стоимость/количество и следующий FIFO unit cost. До commit все записи атомарны.
 - Проверка после последней правки: связанный профиль FR04–FR09, 9 файлов — **136 passed in 7.79s**. `compileall` трёх изменённых Python-файлов — PASS; `git diff --check` — PASS; `git diff --exit-code -- data` — PASS. Пять файлов `data/` совпадают с FR00 hashes. `.fl12-deps/` оставлена существующей, не изменена и не включена.
 - Использованы только synthetic SQLite в `tmp_path`; реальные данные владельца, Ozon/Telegram, deployment и запуск бота не трогались. Изменение ещё не опубликовано; exact-head CI не запускался. Следующий шаг — FR10: разрешить temporal replay возвратов из rate-derived sales и подтвердить точное lineage, outflow и Return COGS isolation.
+
+## FR10 — 2026-11-09 — безопасные сценарии реализованы; MR04 ожидает бизнес-решение
+
+- Реализация в `fifo_cost_repository.py`, `fifo_cost_return_restock_service.py` и `fifo_cost_allocation_service.py`: исходная стоимость возврата теперь читается из обычных layer allocation lines и rate-derived allocation lines; mixed-basis полный возврат восстанавливает каждую базу точно; rate-derived basis сохраняется при последующей продаже. Частичный возврат допускается, если у продажи одна точная исходная база. Превышение остатка возврата отклоняется. Непродажный outflow остаётся отдельным от sales COGS.
+- Регрессии в `tests/test_fifo_cost_repository_multi_rate_replay.py`: полный возврат 10 единиц через несколько ставок восстанавливает 7×16 ₽ и 3×18 ₽; новая продажа списывает восстановленные 16 ₽ с сохранением origin lineage; single-basis partial return проходит; mixed-basis partial return и over-return отклоняются до записи; non-sale outflow не попадает в sales COGS.
+- FR10 профиль из 10 файлов: **141 passed in 9.06s** после последней правки. Compileall трёх изменённых сервисов и теста — PASS; `git diff --check` — PASS; `git diff --exit-code -- data` — PASS; все 5 SHA-256 из FR00 совпадают. `.fl12-deps/` сохранена и не включена.
+- Почему MR04 не завершён: матрица требует вернуть 1 из 2 единиц по ставке R2 из продажи MR02, которая содержит несколько cost bases. Доступные данные возврата связывают возврат с продажей и количеством, но не указывают конкретную единицу или rate basis. Текущий путь fail-closed для такого partial return. Нужно решение: **(A)** применять заранее закреплённый детерминированный порядок выбора базы (например, последние FIFO-списанные единицы возвращаются первыми), либо **(B)** блокировать такой частичный возврат и потребовать owner указать basis/ставку вручную. Самостоятельно выбирать учётную политику нельзя.
+- Этот branch checkpoint локальный; push/PR/CI не выполнены. FR11+ не начинались, потому что зависят от полного FR10. Не запускались полный pytest, реальные Ozon/Telegram запросы или бот. Следующий шаг — получить выбор A/B, зафиксировать контракт в ТЗ/решении, добавить MR04 regression и закончить FR10.
 
 ## Проверка подготовки ТЗ — 09.11.2026
 

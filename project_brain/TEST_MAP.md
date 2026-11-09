@@ -31,6 +31,11 @@
 - `tests/test_fifo_cost_transition_schema_v13.py` keeps prior v12 rate-table rebuild, v13 cutoff-mapping, and v14 period-confirmation migration coverage aligned with the new current schema version.
 - Combined v16/schema migration and FR04–FR06 replay profile: **104 passed in 2.78s**. Touched-file compileall, `git diff --check`, and tracked `data/` integrity passed. Local targeted evidence only; exact-head CI and full suite remain for FR30.
 
+# 2026-11-09 — FIFO return lineage on multi-rate allocations (FR10)
+
+- `tests/test_fifo_cost_repository_multi_rate_replay.py` exercises the public return-restock service against rate-derived sale lines: full return across multiple bases restores exact costs/lineage; a subsequent sale consumes the restored rate slice; a partial return is accepted for a single-basis sale; an ambiguous partial return across mixed bases and an over-return are rejected before business writes. The same profile verifies finite non-sale outflow remains separate from sales COGS.
+- Linked FR04–FR10 profile: **141 passed in 9.06s**. Compileall, diff check, and five tracked user-data hashes pass. The task's MR04 mixed-basis partial case remains blocked pending a policy decision; this local profile is not full-suite or remote CI.
+
 # 2026-11-09 — FIFO repository multi-rate replay (FR08)
 
 - `tests/test_fifo_cost_repository_multi_rate_replay.py` checks a synthetic three-rate chain through repository replay/persistence and a fresh repository reader, including exact allocation costs, materialized predecessor balances, current unknown balance and publication guard. Negative cases cover a missing reconciliation, missing cutoff mapping, and a mapping revision changed after preview.

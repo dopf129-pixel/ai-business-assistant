@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR09
+# 2026-11-09 — FIFO review-blocker execution FR00–FR10 safe subset
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR09 are complete. FR06 adds proof-ordered store-local rate replay; FR07 adds FIFO schema v16; FR08 connects the repository to a complete multi-rate chain; FR09 adds prefix reconciliation and atomic replay publication for ordinary cost changes after late entry.
-- FR09 linked FIFO profile: **136 passed in 7.79s**; changed modules compile, `git diff --check` passes, and all five tracked user-data hashes match the FR00 manifest. Planning `PRAGMA user_version` remains unchanged. PR #730 is still not merge-ready; PR A is not opened yet. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used. Full-suite/exact-head CI remains for FR30.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR09 are complete. FR10 now supports exact returns from rate-derived allocations, full multi-basis returns, unambiguous partial returns, replay of returned rate lineage, and non-sale movement separation. FR10 is blocked on the business rule for partial returns from a sale containing multiple cost bases; ambiguous cases currently fail closed.
+- FR10 linked FIFO profile: **141 passed in 9.06s**; changed modules compile, `git diff --check` passes, and all five tracked user-data hashes match the FR00 manifest. This is targeted local verification only: the mixed-basis partial-return MR04 case is not implemented, the full suite and exact-head CI have not run, and no PR for this branch is ready. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

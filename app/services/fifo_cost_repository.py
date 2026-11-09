@@ -4873,6 +4873,7 @@ class FifoCostRepository:
     def preview_command(
         self, *, store_id, product_id=None, offer_id=None, sku,
         policy_version=1, events, source, expected_revision=None,
+        validate_return_basis=False,
     ):
         """Create a short-lived, read-only ticket bound to tenant and SKU."""
         scope = self._tenant_scope(store_id)
@@ -4935,6 +4936,26 @@ class FifoCostRepository:
                 or expected_revision != current_revision
             ):
                 return self._error("FIFO_REVISION_CONFLICT")
+
+            if type(validate_return_basis) is not bool:
+                return self._error("FIFO_RETURN_BASIS_VALIDATION_INVALID")
+            return_events = (
+                [
+                    event for event in normalized_events
+                    if event["kind"] == "SALEABLE_RETURN_RESTOCK"
+                ]
+                if validate_return_basis else []
+            )
+            if return_events:
+                connection = self.get_connection()
+                try:
+                    for event in return_events:
+                        self._prepare_return_basis(
+                            connection, stream_id, event, normalized_source,
+                            expected_stream_revision=current_revision,
+                        )
+                finally:
+                    connection.close()
 
             now = self._now()
             command_id = "cmd_" + uuid4().hex
@@ -6864,25 +6885,27 @@ class FifoCostRepository:
             raise ValueError("FIFO_RETURN_ORIGIN_SALE_MISMATCH")
 
         basis_rows = connection.execute(
-            """SELECT line_number, layer_id, quantity, unit_cost_rub,
-                      total_cost_rub
-               FROM fifo_cost_allocation_lines
-               WHERE allocation_id=? AND event_id=?
-               ORDER BY line_number LIMIT 100001""",
-            (allocation["allocation_id"], sale["event_id"]),
+            """SELECT l.line_number, l.layer_id, NULL AS rate_change_id,
+                      l.quantity, l.unit_cost_rub, l.total_cost_rub,
+                      layer_sequence AS source_order
+               FROM fifo_cost_allocation_lines AS l
+               JOIN fifo_cost_layers AS layer USING(layer_id)
+               WHERE l.allocation_id=? AND l.event_id=?
+               UNION ALL
+               SELECT r.line_number, NULL AS layer_id, r.rate_change_id,
+                      r.quantity, r.unit_cost_rub, r.total_cost_rub,
+                      100001 + rate.rate_sequence AS source_order
+               FROM fifo_cost_allocation_rate_lines AS r
+               JOIN fifo_cost_rate_changes AS rate USING(rate_change_id)
+               WHERE r.allocation_id=? AND r.event_id=?
+               ORDER BY source_order, line_number LIMIT 100001""",
+            (
+                allocation["allocation_id"], sale["event_id"],
+                allocation["allocation_id"], sale["event_id"],
+            ),
         ).fetchall()
-        rate_rows = connection.execute(
-            """SELECT line_number, rate_change_id, quantity, unit_cost_rub,
-                      total_cost_rub
-               FROM fifo_cost_allocation_rate_lines
-               WHERE allocation_id=? AND event_id=?
-               ORDER BY line_number LIMIT 100001""",
-            (allocation["allocation_id"], sale["event_id"]),
-        ).fetchall()
-        if len(basis_rows) + len(rate_rows) > 100_000:
+        if len(basis_rows) > 100_000:
             raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
-        if rate_rows:
-            raise ValueError("FIFO_RETURN_OPEN_RATE_BASIS_UNSUPPORTED")
         if not basis_rows or sum(row["quantity"] for row in basis_rows) != sale["quantity"]:
             raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
 
@@ -6893,7 +6916,12 @@ class FifoCostRepository:
         ).fetchone()[0]
         if prior + event["quantity"] > sale["quantity"]:
             raise ValueError("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
-        if event["quantity"] != sale["quantity"] and len(basis_rows) != 1:
+        basis_keys = {
+            ("LAYER", row["layer_id"]) if row["layer_id"] is not None
+            else ("RATE", row["rate_change_id"])
+            for row in basis_rows
+        }
+        if event["quantity"] != sale["quantity"] and len(basis_keys) != 1:
             raise ValueError("FIFO_RETURN_SPLIT_AMBIGUOUS")
         if event["quantity"] == sale["quantity"] and prior:
             raise ValueError("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
@@ -6901,11 +6929,20 @@ class FifoCostRepository:
         remaining = event["quantity"]
         prepared = []
         for row in basis_rows:
+            if row["layer_id"] is not None:
+                restored_query = """SELECT COALESCE(SUM(quantity), 0)
+                    FROM fifo_cost_return_basis
+                    WHERE origin_sale_event_id=? AND layer_id=?
+                      AND rate_change_id IS NULL"""
+                restored_params = (sale["event_id"], row["layer_id"])
+            else:
+                restored_query = """SELECT COALESCE(SUM(quantity), 0)
+                    FROM fifo_cost_return_basis
+                    WHERE origin_sale_event_id=? AND layer_id IS NULL
+                      AND rate_change_id=?"""
+                restored_params = (sale["event_id"], row["rate_change_id"])
             previously_restored = connection.execute(
-                """SELECT COALESCE(SUM(quantity), 0)
-                   FROM fifo_cost_return_basis
-                   WHERE origin_sale_event_id=? AND layer_id=?""",
-                (sale["event_id"], row["layer_id"]),
+                restored_query, restored_params,
             ).fetchone()[0]
             available = row["quantity"] - previously_restored
             take = min(available, remaining)
@@ -6918,7 +6955,7 @@ class FifoCostRepository:
                     "allocation_id": allocation["allocation_id"],
                     "allocation_line_number": row["line_number"],
                     "layer_id": row["layer_id"],
-                    "rate_change_id": None,
+                    "rate_change_id": row["rate_change_id"],
                     "quantity": take,
                     "unit_cost_rub": unit_cost,
                     "total_cost_rub": format(total_cost, ".2f"),
@@ -8486,12 +8523,22 @@ class FifoCostRepository:
                       l.event_id AS allocated_event_id, l.layer_id AS allocated_layer_id,
                       l.quantity AS allocated_quantity,
                       l.unit_cost_rub AS allocated_unit_cost,
-                      l.total_cost_rub AS allocated_total_cost
+                      l.total_cost_rub AS allocated_total_cost,
+                      r.event_id AS allocated_rate_event_id,
+                      r.rate_change_id AS allocated_rate_change_id,
+                      r.quantity AS allocated_rate_quantity,
+                      r.unit_cost_rub AS allocated_rate_unit_cost,
+                      r.total_cost_rub AS allocated_rate_total_cost
                FROM fifo_cost_return_basis AS b
                JOIN fifo_cost_allocations AS a ON a.allocation_id=b.allocation_id
                LEFT JOIN fifo_cost_allocation_lines AS l
                  ON l.allocation_id=b.allocation_id
+                AND b.layer_id IS NOT NULL
                 AND l.line_number=b.allocation_line_number
+               LEFT JOIN fifo_cost_allocation_rate_lines AS r
+                 ON r.allocation_id=b.allocation_id
+                AND b.rate_change_id IS NOT NULL
+                AND r.line_number=b.allocation_line_number
                JOIN fifo_cost_events AS e ON e.event_id=b.return_event_id
                WHERE e.stream_id=? AND e.event_kind='SALEABLE_RETURN_RESTOCK'
                ORDER BY b.return_event_id, b.basis_line_number LIMIT 250001""",
@@ -8536,11 +8583,25 @@ class FifoCostRepository:
                 or sum(base["quantity"] for base in bases) != row["quantity"]
                 or any(
                     base["origin_sale_event_id"] != row["supersedes_event_id"]
-                    or base["layer_id"] is None or base["rate_change_id"] is not None
-                    or base["allocated_event_id"] != row["supersedes_event_id"]
-                    or base["allocated_layer_id"] != base["layer_id"]
-                    or base["quantity"] > base["allocated_quantity"]
-                    or base["unit_cost_rub"] != base["allocated_unit_cost"]
+                    or ((base["layer_id"] is None) == (base["rate_change_id"] is None))
+                    or (
+                        base["layer_id"] is not None and (
+                            base["allocated_event_id"] != row["supersedes_event_id"]
+                            or base["allocated_layer_id"] != base["layer_id"]
+                            or base["allocated_rate_event_id"] is not None
+                            or base["quantity"] > base["allocated_quantity"]
+                            or base["unit_cost_rub"] != base["allocated_unit_cost"]
+                        )
+                    )
+                    or (
+                        base["rate_change_id"] is not None and (
+                            base["allocated_rate_event_id"] != row["supersedes_event_id"]
+                            or base["allocated_rate_change_id"] != base["rate_change_id"]
+                            or base["allocated_event_id"] is not None
+                            or base["quantity"] > base["allocated_rate_quantity"]
+                            or base["unit_cost_rub"] != base["allocated_rate_unit_cost"]
+                        )
+                    )
                     or Decimal(base["total_cost_rub"]) != (
                         Decimal(base["unit_cost_rub"]) * base["quantity"]
                     ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -8555,7 +8616,8 @@ class FifoCostRepository:
                 event=FifoRestockEvent(
                     row["event_id"], row["quantity"], tuple(
                         FifoRestoreSlice(
-                            row["supersedes_event_id"], base["layer_id"],
+                            row["supersedes_event_id"],
+                            base["layer_id"] or base["rate_change_id"],
                             base["quantity"],
                         ) for base in bases
                     ),

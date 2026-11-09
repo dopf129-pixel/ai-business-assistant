@@ -2,6 +2,13 @@ from datetime import datetime, timezone
 import hashlib
 
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_non_sale_movement_service import (
+    FifoCostNonSaleMovementService,
+)
+from services.fifo_cost_return_restock_service import FifoCostReturnRestockService
+from services.fifo_cost_sale_evidence_normalizer import (
+    FifoCostSaleEvidenceNormalizer,
+)
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import (
     reset_current_tenant_user_id,
@@ -56,6 +63,7 @@ def _rate_source(fingerprint, captured_at):
 
 def _seed_three_rate_scenario(
     repository, *, include_last_reconciliation=True, include_mapping=True,
+    mr05_sale_quantity=0,
 ):
     opening_source = {
         "kind": "OWNER_CONFIRMATION",
@@ -94,10 +102,21 @@ def _seed_three_rate_scenario(
         ("2026-11-10", 110),
         ("2026-11-12", 10),
     ]
+    if mr05_sale_quantity:
+        sale_inputs.append(("2026-11-14", mr05_sale_quantity))
     sale_digests = []
     sale_events = []
     for index, (effective_date, quantity) in enumerate(sale_inputs, start=1):
-        identity_digest = _digest(f"physical-sale-{index}")
+        identity_digest = FifoCostSaleEvidenceNormalizer.build_identity_digest(
+            store_id=IDENTITY["store_id"],
+            posting_number=f"mr0{index}",
+            finance_sku=IDENTITY["sku"],
+            identity={
+                "mapping_confirmed": True,
+                "product_id": IDENTITY["product_id"],
+                "offer_id": IDENTITY["offer_id"],
+            },
+        )["source_identity_digest"]
         sale_digests.append((identity_digest, quantity, effective_date))
         sale_events.append({
             "kind": "PHYSICAL_SALE",
@@ -221,6 +240,37 @@ def _seed_three_rate_scenario(
     finally:
         connection.close()
     return stream_id
+
+
+def _preview_saleable_return(
+    service, *, posting_number, return_id, quantity, confirmed_on,
+):
+    return service.preview_return(
+        store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+        offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        finance_sku=IDENTITY["sku"],
+        identity={
+            "mapping_confirmed": True,
+            "product_id": IDENTITY["product_id"],
+            "offer_id": IDENTITY["offer_id"],
+        },
+        return_record={
+            "id": return_id, "posting_number": posting_number,
+            "sku": IDENTITY["sku"], "quantity": quantity,
+            "type": "ClientReturn",
+            "visual_status_sys_name": "ArrivedAtReturnPlace",
+            "compensation_status_sys_name": None,
+        },
+        recovery_evidence={
+            "error": False, "return_id": return_id,
+            "posting_number": posting_number, "sku": IDENTITY["sku"],
+            "quantity": quantity, "recovery_state": "SALEABLE_RESTORED",
+            "confirmed_on": confirmed_on,
+            "source": "SELLER_CONFIRMED_BOT",
+            "inventory_recovery_confirmed": True,
+        },
+        return_sample_complete=True, cutoff_bridge_confirmed=True,
+    )
 
 
 def test_fr08_repository_replays_and_persists_three_rate_chain(tmp_path):
@@ -486,5 +536,322 @@ def test_fr08_source_fingerprint_seals_multirate_mapping_set_before_append(tmp_p
             ).fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fr10_return_from_closed_rate_replays_exact_basis_without_rewriting_sales(
+    tmp_path,
+):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "multirate-return.sqlite",
+        now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+    )
+    token = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-multirate", IDENTITY["store_id"]),
+    )
+    try:
+        _seed_three_rate_scenario(repository, mr05_sale_quantity=1)
+        before = repository.preview_current_allocation(**IDENTITY)
+        assert before["error"] is False, before
+        initial_commit = repository.append_allocation_revision(
+            **IDENTITY, preview=before, idempotency_key="fr10-initial-replay01",
+        )
+        assert initial_commit["error"] is False, initial_commit
+        before_sale_cogs = {
+            row["event_id"]: row["total_cost_rub"] for row in before["allocations"]
+        }
+        assert set(before_sale_cogs.values()) == {
+            "92.30", "166.00", "1614.20", "18.00",
+        }
+
+        service = FifoCostReturnRestockService(
+            repository,
+            now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+        )
+        preview = service.preview_return(
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+            finance_sku=IDENTITY["sku"],
+            identity={
+                "mapping_confirmed": True,
+                "product_id": IDENTITY["product_id"],
+                "offer_id": IDENTITY["offer_id"],
+            },
+            return_record={
+                "id": "private-return-mr03", "posting_number": "mr03",
+                "sku": IDENTITY["sku"], "quantity": 10,
+                "type": "ClientReturn",
+                "visual_status_sys_name": "ArrivedAtReturnPlace",
+                "compensation_status_sys_name": None,
+            },
+            recovery_evidence={
+                "error": False, "return_id": "private-return-mr03",
+                "posting_number": "mr03", "sku": IDENTITY["sku"],
+                "quantity": 10, "recovery_state": "SALEABLE_RESTORED",
+                "confirmed_on": "2026-11-13",
+                "source": "SELLER_CONFIRMED_BOT",
+                "inventory_recovery_confirmed": True,
+            },
+            return_sample_complete=True, cutoff_bridge_confirmed=True,
+        )
+        assert preview["error"] is False, preview
+        assert preview["code"] == "FIFO_RETURN_RESTOCK_PREVIEW_READY"
+        committed = service.commit_return(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="fr10-return-closed-rate01",
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        )
+        assert committed["error"] is False, committed
+        assert committed["code"] == "FIFO_RETURN_RESTOCK_COMMITTED", committed
+
+        reopened = FifoCostRepository(
+            db_path=tmp_path / "multirate-return.sqlite",
+        )
+        after = reopened.preview_current_allocation(**IDENTITY)
+        assert after["error"] is False, after
+        assert after["restored_units"] == 10
+        assert after["total_cogs_rub"] == "1888.50"
+        after_sale_cogs = {
+            row["event_id"]: row["total_cost_rub"] for row in after["allocations"]
+        }
+        connection = reopened.get_connection()
+        try:
+            sale_ids = [row["event_id"] for row in connection.execute(
+                """SELECT event_id FROM fifo_cost_events
+                   WHERE stream_id=(SELECT stream_id FROM fifo_cost_streams WHERE store_id=?)
+                     AND event_kind='PHYSICAL_SALE'
+                   ORDER BY effective_date, event_id""",
+                (IDENTITY["store_id"],),
+            ).fetchall()]
+        finally:
+            connection.close()
+        assert [after_sale_cogs[event_id] for event_id in sale_ids] == [
+            "92.30", "1614.20", "166.00", "16.00",
+        ]
+        assert [before_sale_cogs[event_id] for event_id in sale_ids[:3]] == [
+            after_sale_cogs[event_id] for event_id in sale_ids[:3]
+        ]
+        connection = reopened.get_connection()
+        try:
+            return_basis = connection.execute(
+                """SELECT rate_change_id, quantity, unit_cost_rub, total_cost_rub
+                   FROM fifo_cost_return_basis ORDER BY basis_line_number""",
+            ).fetchall()
+            sale_lineage = connection.execute(
+                """SELECT line.rate_change_id, line.unit_cost_rub,
+                          line.basis_allocation_id, line.basis_line_number
+                   FROM fifo_cost_allocation_rate_lines AS line
+                   JOIN fifo_cost_events AS event ON event.event_id=line.event_id
+                   WHERE event.stream_id=(SELECT stream_id FROM fifo_cost_streams WHERE store_id=?)
+                     AND line.allocation_id=(
+                         SELECT allocation_id FROM fifo_cost_allocations
+                         WHERE stream_id=event.stream_id ORDER BY revision DESC LIMIT 1
+                     )
+                     AND event.event_kind='PHYSICAL_SALE'
+                     AND event.effective_date='2026-11-14'""",
+                (IDENTITY["store_id"],),
+            ).fetchall()
+        finally:
+            connection.close()
+        assert [tuple(row) for row in return_basis] == [
+            ("rate-multi-2", 7, "16.00", "112.00"),
+            ("rate-multi-3", 3, "18.00", "54.00"),
+        ]
+        assert len(sale_lineage) == 1
+        assert sale_lineage[0]["rate_change_id"] == "rate-multi-2"
+        assert sale_lineage[0]["unit_cost_rub"] == "16.00"
+        assert sale_lineage[0]["basis_allocation_id"] is not None
+        assert sale_lineage[0]["basis_line_number"] is not None
+
+        overflow_preview = _preview_saleable_return(
+            service, posting_number="mr03", return_id="private-return-overflow",
+            quantity=1, confirmed_on="2026-11-14",
+        )
+        assert overflow_preview["error"] is False, overflow_preview
+        assert overflow_preview["code"] == "FIFO_RETURN_RESTOCK_BLOCKED"
+        assert overflow_preview["reason_code"] == "FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fr10_partial_return_with_one_rate_basis_keeps_exact_cost(tmp_path):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "multirate-partial-return.sqlite",
+        now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+    )
+    token = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-multirate", IDENTITY["store_id"]),
+    )
+    try:
+        _seed_three_rate_scenario(repository, mr05_sale_quantity=2)
+        before = repository.preview_current_allocation(**IDENTITY)
+        assert before["error"] is False, before
+        committed_allocation = repository.append_allocation_revision(
+            **IDENTITY, preview=before,
+            idempotency_key="fr10-single-rate-before01",
+        )
+        assert committed_allocation["error"] is False, committed_allocation
+        service = FifoCostReturnRestockService(
+            repository,
+            now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+        )
+        preview = _preview_saleable_return(
+            service, posting_number="mr04", return_id="private-return-mr04-part",
+            quantity=1, confirmed_on="2026-11-15",
+        )
+        assert preview["error"] is False, preview
+        assert preview["code"] == "FIFO_RETURN_RESTOCK_PREVIEW_READY"
+        returned = service.commit_return(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="fr10-partial-single-rate01",
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        )
+        assert returned["error"] is False, returned
+        assert returned["code"] == "FIFO_RETURN_RESTOCK_COMMITTED", returned
+
+        reopened = FifoCostRepository(
+            db_path=tmp_path / "multirate-partial-return.sqlite",
+        )
+        after = reopened.preview_current_allocation(**IDENTITY)
+        assert after["error"] is False, after
+        assert after["restored_units"] == 1
+        assert after["total_cogs_rub"] == "1908.50"
+        mr05 = [
+            row for row in after["allocations"]
+            if row["total_cost_rub"] == "36.00"
+        ]
+        assert len(mr05) == 1
+        assert mr05[0]["total_cost_rub"] == "36.00"
+        connection = reopened.get_connection()
+        try:
+            rows = connection.execute(
+                """SELECT rate_change_id, quantity, unit_cost_rub, total_cost_rub
+                   FROM fifo_cost_return_basis""",
+            ).fetchall()
+        finally:
+            connection.close()
+        assert [tuple(row) for row in rows] == [
+            ("rate-multi-3", 1, "18.00", "18.00"),
+        ]
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fr10_ambiguous_partial_return_is_rejected_without_business_write(tmp_path):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "multirate-ambiguous-return.sqlite",
+        now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+    )
+    token = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-multirate", IDENTITY["store_id"]),
+    )
+    try:
+        stream_id = _seed_three_rate_scenario(repository)
+        before = repository.preview_current_allocation(**IDENTITY)
+        assert before["error"] is False, before
+        committed_allocation = repository.append_allocation_revision(
+            **IDENTITY, preview=before,
+            idempotency_key="fr10-ambiguous-before01",
+        )
+        assert committed_allocation["error"] is False, committed_allocation
+        service = FifoCostReturnRestockService(
+            repository,
+            now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+        )
+        preview = _preview_saleable_return(
+            service, posting_number="mr03", return_id="private-return-ambig",
+            quantity=1, confirmed_on="2026-11-13",
+        )
+        assert preview["error"] is False, preview
+        assert preview["code"] == "FIFO_RETURN_RESTOCK_BLOCKED", preview
+        assert preview["reason_code"] == "FIFO_RETURN_SPLIT_AMBIGUOUS"
+        connection = repository.get_connection()
+        try:
+            stream = connection.execute(
+                "SELECT revision FROM fifo_cost_streams WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()
+            count = connection.execute(
+                """SELECT COUNT(*) FROM fifo_cost_events
+                   WHERE stream_id=? AND event_kind='SALEABLE_RETURN_RESTOCK'""",
+                (stream_id,),
+            ).fetchone()[0]
+        finally:
+            connection.close()
+        assert stream["revision"] == committed_allocation["stream_revision"]
+        assert count == 0
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fr10_non_sale_movement_uses_restored_rate_basis_outside_sales_cogs(tmp_path):
+    repository = FifoCostRepository(
+        db_path=tmp_path / "multirate-return-outflow.sqlite",
+        now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+    )
+    token = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-multirate", IDENTITY["store_id"]),
+    )
+    try:
+        _seed_three_rate_scenario(repository)
+        before = repository.preview_current_allocation(**IDENTITY)
+        assert before["error"] is False, before
+        allocation = repository.append_allocation_revision(
+            **IDENTITY, preview=before,
+            idempotency_key="fr10-outflow-before01",
+        )
+        assert allocation["error"] is False, allocation
+        now = lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc)
+        returns = FifoCostReturnRestockService(repository, now_provider=now)
+        return_preview = _preview_saleable_return(
+            returns, posting_number="mr03", return_id="private-return-outflow",
+            quantity=10, confirmed_on="2026-11-13",
+        )
+        assert return_preview["error"] is False, return_preview
+        returned = returns.commit_return(
+            preview_id=return_preview["preview_id"],
+            active_preview_id=return_preview["preview_id"],
+            idempotency_key="fr10-return-before-outflow01",
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        )
+        assert returned["code"] == "FIFO_RETURN_RESTOCK_COMMITTED", returned
+
+        movements = FifoCostNonSaleMovementService(repository, now_provider=now)
+        movement_preview = movements.preview_movement(
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+            movement_id="private-movement-mr06", reason_code="HOME_SHORTAGE",
+            quantity=1, effective_date="2026-11-14",
+            cutoff_bridge_confirmed=True,
+        )
+        assert movement_preview["code"] == "FIFO_NON_SALE_MOVEMENT_PREVIEW_READY", movement_preview
+        assert movement_preview["estimated_fifo_value_rub"] == "16.00"
+        assert movement_preview["included_in_sales_cogs"] is False
+        movement = movements.commit_movement(
+            preview_id=movement_preview["preview_id"],
+            active_preview_id=movement_preview["preview_id"],
+            idempotency_key="fr10-outflow-mr06-01",
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        )
+        assert movement["code"] == "FIFO_NON_SALE_MOVEMENT_COMMITTED", movement
+        assert movement["estimated_outflow_value_rub"] == "16.00"
+        assert movement["included_in_sales_cogs"] is False
+
+        reopened = FifoCostRepository(
+            db_path=tmp_path / "multirate-return-outflow.sqlite",
+        )
+        after = reopened.preview_current_allocation(**IDENTITY)
+        assert after["error"] is False, after
+        assert after["total_cogs_rub"] == "1872.50"
+        assert after["non_sale_outflow_value_rub"] == "16.00"
+        assert len(after["outflows"]) == 1
+        assert after["outflows"][0]["estimated_value_rub"] == "16.00"
     finally:
         reset_current_tenant_user_id(token)
