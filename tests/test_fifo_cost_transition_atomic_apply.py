@@ -279,6 +279,35 @@ def _transition_no_write_snapshot(repository):
     }
 
 
+def test_read_only_reconstruction_can_run_before_impact_without_business_writes(
+    tmp_path,
+):
+    repository, tenant, _stock, bridge, _impact_preview, cutover, _prepared, _clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        before = _transition_no_write_snapshot(repository)
+        reconstruction = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-no-impact-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert reconstruction["error"] is False, reconstruction
+        assert reconstruction["code"] == "FIFO_TRANSITION_RECONSTRUCTION_READY"
+        assert reconstruction["candidate_total_cogs_rub"] == "92.30"
+        assert len(reconstruction["candidate_allocations"]) == 1
+        assert len(reconstruction["sale_effective_dates"]) == 1
+        assert set(reconstruction["sale_identity_digests_by_event"]) == set(
+            reconstruction["sale_effective_dates"]
+        )
+        assert _transition_no_write_snapshot(repository) == before
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_read_only_reconstruction_matches_prepare_seal_without_business_writes(
     tmp_path,
 ):

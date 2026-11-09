@@ -42,9 +42,14 @@ def test_readiness_assessment_reloads_saved_evidence_before_cutoff_bridge_review
         class SavedEvidenceReader:
             def __init__(self):
                 self.calls = []
+                self.opening_requirements = []
 
-            def load(self, *, case_id, identity, expected_case_revision):
+            def load(
+                self, *, case_id, identity, expected_case_revision,
+                require_opening_composition=True,
+            ):
                 self.calls.append((case_id, dict(identity), expected_case_revision))
+                self.opening_requirements.append(require_opening_composition)
                 return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_MISSING"}
 
         saved_evidence = SavedEvidenceReader()
@@ -59,6 +64,23 @@ def test_readiness_assessment_reloads_saved_evidence_before_cutoff_bridge_review
         assert result["ready_to_apply"] is False
         assert transition.get_case(case_id=case_id, **IDENTITY)["case_revision"] == (
             saved_evidence.calls[0][2]
+        )
+
+        history.get_sku_history = lambda **_identity: {
+            "error": False, "queue_initialized": True,
+            "remaining_status": "COMPLETE", "layers": [],
+        }
+        existing_result = review.assess(
+            case_id=case_id, identity=IDENTITY,
+            for_transition_prepare=True,
+        )
+        assert existing_result["error"] is False, existing_result
+        assert saved_evidence.opening_requirements[-1] is False
+        assert existing_result["opening_composition_required"] is False
+        assert "FIFO_ALREADY_INITIALIZED" not in existing_result["proposal"].issue_codes
+        assert existing_result["ready_to_apply"] is False
+        assert transition.get_case(case_id=case_id, **IDENTITY)["case_revision"] == (
+            saved_evidence.calls[-1][2]
         )
     finally:
         reset_current_tenant_user_id(tenant)

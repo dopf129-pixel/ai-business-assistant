@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR22: prepare and READY seal
+
+- Added an owner-evidence-driven prepare path that reconstructs the exact cutoff bridge, opening composition, tax policy, and complete financial-period impact before creating a READY preview. Candidate-only outcomes remain read-only; FIFO history, current cost, plans, and Period Profit are unchanged until a later explicit apply.
+- Exact same-key retries reuse the persisted preview only while case revision/state, tax fingerprint, and preview expiry remain valid. Existing initialized FIFO streams do not require a second opening composition. Linked FR22 verification: 31 tests passed; see the progress journal for the additional focused regression and preserved-data checks.
+
 # 2026-11-10 — FIFO FR21: canonical late-entry impact
 
 - Late-entry impact now requires each complete financial-month snapshot to cover the exact calendar month and match the exact reconstruction fingerprint. A READY comparison also requires every month snapshot's tax-policy fingerprint to match the current normalized tax policy; stale or incomplete bindings return candidate-only without delta, tax, or profit.

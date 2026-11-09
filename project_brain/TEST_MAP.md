@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR22 prepare/seal tests
+
+- `tests/test_fifo_cost_transition_apply_service.py`: prepare requires a current complete durable evidence bundle, exact cutoff bridge, financial-period impact, and current tax fingerprint; candidate-only/missing evidence never creates a seal; exact idempotent retry is scoped to key/revision/fingerprint/TTL; existing initialized queues do not request another opening composition.
+- `tests/test_fifo_cost_transition_atomic_apply.py`, `tests/test_fifo_cost_transition_evidence_service.py`, and `tests/test_fifo_cost_transition_production_workflow.py::test_readiness_assessment_reloads_saved_evidence_before_cutoff_bridge_review`: no FIFO writes before confirmation and existing-stream readiness behavior.
+- FR22 linked profile: 31 passed in 5.24s; focused existing-stream regression: 1 passed. Production factory wiring remains FR24.
+
 # 2026-11-10 — FIFO FR21 canonical impact
 
 - `tests/test_fifo_cost_late_entry_impact_service.py`: exact MR12–MR15 tax/profit matrix through the existing TaxService; complete-month validation; exact reconstruction/tax-policy snapshot binding; whole-store cost preservation across financial months; incomplete-baseline candidate-only; non-sale outflow outside sales COGS.

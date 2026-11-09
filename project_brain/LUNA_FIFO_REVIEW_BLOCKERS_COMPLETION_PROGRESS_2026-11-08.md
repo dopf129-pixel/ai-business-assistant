@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR21 выполнены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR22 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR22 NOT_STARTED. FR21 устранил пропущенную проверку FR20→FR21: каждый снимок теперь обязан совпадать с точным отпечатком reconstruction, текущей нормализованной налоговой политикой и покрывать полный календарный месяц. MR12–MR15 проверены через существующий TaxService; публичный late-entry reconstruction wrapper сквозным тестом передаёт типизированный FR20 snapshot. MR16 candidate-only, MR17 полный периодный горизонт/неизменная стоимость других SKU, MR18 отдельный outflow сохранены. Связанный профиль после последней правки: **104 passed in 6.93s**. `py_compile`, `git diff --check`, `git diff --exit-code -- data` прошли; все пять SHA-256 данных владельца совпали с FR00. Следующий этап: FR22 prepare и READY seal.
+- FR22 DONE. `FifoCostTransitionApplyService.prepare` теперь повторно оценивает durable readiness/evidence, строит cutoff bridge, считает read-only baseline/candidate и полный financial impact, а затем сохраняет READY preview ровно через repository prepare. Неполный baseline возвращает candidate-only без изменений кейса; FIFO history, allocations, current cost, plans и Period Profit не меняются до отдельного FR23 apply. Тот же idempotency key повторно читает тот же неистёкший preview, если case revision/state и налоговая политика совпадают. Связанный профиль: **31 passed in 5.24s**; дополнительная проверка существующего initialized stream: **1 passed in 0.70s**. Из двух production-factory тестов один readiness regression проходит; остальные два относятся к отсутствующей factory/physical-document wiring FR24 и остаются ожидающими этого этапа. `py_compile`, `git diff --check`, `git diff --exit-code -- data` прошли; пять owner-data SHA-256 совпали с FR00. Следующий этап: FR23 persisted preview read, apply и restart safety.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current implementation HEAD after FR19 code: `6d02a188` (`Add read-only FIFO transition reconstruction`); FR19 docs/checkpoint updates are recorded in this journal.
@@ -45,7 +45,7 @@
 | FR19 | DONE | Code checkpoint `6d02a188`; public read-only reconstruction shares prepare candidate replay; exact identity/revisions/lineage/COGS/coverage; staged opening and exception rollback; candidate fingerprint matched seal and committed allocation lines; **372 passed in 25.57s**, compile/diff/data checks PASS |
 | FR20 | DONE | `FifoCostFinancialPeriodSummaryCollectionService`; frozen whole-store month with exact target-SKU before COGS and finance identity map; **88 passed in 3.96s**; synthetic only, no UI/factory yet |
 | FR21 | DONE | Binding snapshots to exact reconstruction/tax policy, full-month validation, MR12–MR18; section below. |
-| FR22 | NOT_STARTED | Prepare seal |
+| FR22 | DONE | `FifoCostTransitionApplyService.prepare`; readiness/evidence/bridge/reconstruction/impact seal; candidate-only без writes; same-key retry/TTL/tax-change; linked profile **31 passed in 5.24s**, existing-stream regression **1 passed**; production factory remains FR24. |
 | FR23 | NOT_STARTED | Apply/restart |
 | FR24 | NOT_STARTED | Production builder |
 | FR25 | NOT_STARTED | Exact confirm UI |
@@ -240,6 +240,15 @@
 - Интеграционная регрессия через `FifoCostLateEntryReconstructionService.preview_impact` получает реальный публичный результат repository reconstruction, передаёт `FifoFinancialPeriodSummary.as_impact_summary()` и проверяет точные reconstruction/tax bindings и финансовый месяц признания. TaxService и формулы Period Profit не менялись.
 - Финальный linked FR20–FR21 профиль после assertion-only правки: **104 passed in 6.93s**. Узкие проверки до расширения профиля: impact tests **30 passed in 0.43s**, integration/reconstruction pair **38 passed in 1.35s**. `py_compile`, `git diff --check`, `git diff --exit-code -- data` прошли; все пять FR00 SHA-256 совпали.
 - Только синтетические снимки/SQLite. Нет live Ozon/Telegram, owner data, запуска бота, merge или deployment. Полный pytest/current-head CI принадлежат FR30; production assembly/action — FR24–FR25. Next: FR22 prepare and READY seal.
+
+## FR22 — prepare and READY seal — 2026-11-10
+
+- Added `FifoCostTransitionApplyService.prepare` as a separate preparation boundary. It validates exact identity, case revision and idempotency key; rebuilds readiness from durable scoped evidence; builds the current cutoff bridge; reads the current tax policy; runs the same no-write repository reconstruction used by late-entry impact; and seals only a complete, current, exact-period impact through `prepare_transition_preview`.
+- Candidate-only or blocked/missing evidence returns without creating a preview or changing the case. A complete impact produces READY revision N+1 only after the repository validates reconstruction, candidate, bridge and tax fingerprints. A same-key exact retry reads the same stored, unexpired preview; changed tax, expiry, stale state or wrong revision is rejected. Existing initialized FIFO queues skip only the obsolete requirement to re-enter opening composition; all other durable evidence and readiness blockers remain active.
+- Read-only reconstruction can now be performed before impact exists. Temporary opening layers are still staged only within the rollback savepoint; exact sale effective dates and identity digests are captured before rollback so the impact can bind sales to financial-recognition months. Candidate and baseline fingerprints are returned in the same shape consumed by FR20–FR21.
+- The opening-103 scenario remains exact: confirmed 3 old + 100 new units are supplied once; for the fixture's five post-cutoff sales candidate COGS remains 92.30 ₽ (3×21 + 2×14.65), matching both the read-only reconstruction and later persisted allocation. No extra acceptance quantity is inferred or added.
+- Verification on the local project Python: `py_compile` for all changed services PASS; prepare/evidence/atomic/review linked profile **31 passed in 5.24s**; focused existing-initialized-stream review regression **1 passed in 0.70s**; `git diff --check` and `git diff --exit-code -- data` PASS; all five FR00 user-data hashes match. Two production factory/physical-document tests remain intentionally pending FR24; full pytest/current-head CI remains FR30. Synthetic SQLite only; no live Ozon/Telegram, bot, merge or deployment.
+- Next: FR23 persisted preview read, owner-authorized atomic apply, restart/idempotency and failure-recovery coverage.
 
 ## FR20 — 2026-11-10
 

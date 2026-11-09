@@ -6,6 +6,8 @@ Keep factual FIFO evidence in a dedicated append-only repository using the exist
 
 Implementation note (2026-11-08): late-entry work is verified only with synthetic sources in the review branch. The current owner case remains `SOURCE_BLOCKED`; see `DECISIONS_066.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for the 1,191/1,192 source mismatch and remaining evidence.
 
+Implementation note (2026-11-10, FR22): prepare recomputes readiness from durable scoped evidence and can persist READY only after a complete reconstruction-bound, current-tax-bound whole-period impact. A candidate-only result does not seal or change business state. The first post-cutoff effective date is the successor store-local date; confirmed cutoff is inclusive through local end-of-day. Applying the later preview is FR23 and remains a separate owner confirmation.
+
 ## Decision 065 — owner decisions are immutable experiment evidence
 
 Keep recommendations as deterministic projections of validated immutable phase results. Rank only each candidate's latest assessed result when the exact baseline and frozen economics are shared. Persist owner decisions in an additive tenant-scoped append-only Planning Workspace ledger bound to the exact current result revision; use CAS, idempotency, a finite quota and immutable triggers. A decision based on a comparison must also match the latest phase-state, control-event and collection revisions atomically. Completion requires a current terminal owner choice, while continuing leaves the experiment in review. Choices never call Ozon or change a seller price. Details: `DECISIONS_065.md` and `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.

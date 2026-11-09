@@ -410,8 +410,13 @@ class FifoCostTransitionEvidenceService:
             idempotency_key=idempotency_key,
         )
 
-    def load(self, *, case_id, identity, expected_case_revision):
+    def load(
+        self, *, case_id, identity, expected_case_revision,
+        require_opening_composition=True,
+    ):
         """Rehydrate typed evidence at one exact case revision, without HTTP."""
+        if type(require_opening_composition) is not bool:
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
         loaded = self._case_context(
             case_id=case_id, identity=identity,
             expected_case_revision=expected_case_revision,
@@ -448,27 +453,29 @@ class FifoCostTransitionEvidenceService:
             else:
                 fingerprints.append(stock_evidence.file_sha256)
 
-        opening = self.transition_service.read_confirmed_opening_composition(
-            case_id=case_id, **identity,
-        )
-        if opening.get("error"):
-            if opening.get("code") == "FIFO_OPENING_COMPOSITION_STALE":
-                missing.append("OPENING_COMPOSITION_RECONFIRMATION_REQUIRED")
-            elif opening.get("code") == "FIFO_OPENING_COMPOSITION_NOT_CONFIRMED":
-                missing.append("OPENING_COMPOSITION_CONFIRMATION_REQUIRED")
+        opening = None
+        if require_opening_composition:
+            opening = self.transition_service.read_confirmed_opening_composition(
+                case_id=case_id, **identity,
+            )
+            if opening.get("error"):
+                if opening.get("code") == "FIFO_OPENING_COMPOSITION_STALE":
+                    missing.append("OPENING_COMPOSITION_RECONFIRMATION_REQUIRED")
+                elif opening.get("code") == "FIFO_OPENING_COMPOSITION_NOT_CONFIRMED":
+                    missing.append("OPENING_COMPOSITION_CONFIRMATION_REQUIRED")
+                else:
+                    return opening
             else:
-                return opening
-        else:
-            fingerprints.append(opening["composition_fingerprint"])
-            if (
-                cutoff_evidence_id != opening.get("cutoff_evidence_id")
-                or (
-                    cutoff.get("error") is False
-                    and opening.get("cutoff_evidence_fingerprint")
-                    != cutoff.get("evidence_fingerprint")
-                )
-            ):
-                missing.append("OPENING_COMPOSITION_STALE")
+                fingerprints.append(opening["composition_fingerprint"])
+                if (
+                    cutoff_evidence_id != opening.get("cutoff_evidence_id")
+                    or (
+                        cutoff.get("error") is False
+                        and opening.get("cutoff_evidence_fingerprint")
+                        != cutoff.get("evidence_fingerprint")
+                    )
+                ):
+                    missing.append("OPENING_COMPOSITION_STALE")
 
         finance = self._read_finance_identity(case_id=case_id, identity=identity, scope=scope)
         if finance.get("error"):
@@ -585,7 +592,9 @@ class FifoCostTransitionEvidenceService:
             movement_coverage=movement.get("coverage") if movement.get("error") is False else None,
             cutoff_evidence_id=cutoff_evidence_id,
             opening_composition_fingerprint=(
-                opening.get("composition_fingerprint") if opening.get("error") is False else None
+                opening.get("composition_fingerprint")
+                if isinstance(opening, dict) and opening.get("error") is False
+                else None
             ),
             source_fingerprints=tuple(sorted(set(fingerprints))),
             missing_requirements=tuple(sorted(set(missing))),

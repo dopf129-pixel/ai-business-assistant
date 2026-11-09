@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR22 prepare and READY seal
+
+- FR22 adds `FifoCostTransitionApplyService.prepare`: readiness is independently rebuilt from durable evidence; an exact complete impact is required before the repository seals READY at revision N+1. Candidate-only stays read-only and does not change FIFO history or Period Profit. Exact idempotent retry, expiry, changed tax/evidence, and existing-initialized-stream behavior are covered by targeted tests.
+- Verification: 31 linked tests passed in 5.24s; one focused existing-stream review regression passed; changed modules compile; the FR00 five-file owner-data manifest matches. No live API or bot was used. Next: FR23 persisted preview read, apply, and restart safety.
+
 # 2026-11-10 — FIFO review-blocker execution FR00–FR21
 
 - FR21 canonical impact now accepts only complete calendar-month Period Profit snapshots bound to the exact public FIFO reconstruction and current normalized tax policy. Missing, stale or mismatched evidence stays candidate-only, with no profit/tax deltas. TaxService and Period Profit formulas are unchanged.

@@ -41,7 +41,10 @@ class FifoCostFinancialPeriodSummaryService:
         if (
             not isinstance(reconstruction, dict)
             or reconstruction.get("error") is not False
-            or reconstruction.get("code") != "FIFO_LATE_ENTRY_RECONSTRUCTION_READY"
+            or reconstruction.get("code") not in {
+                "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+                "FIFO_TRANSITION_RECONSTRUCTION_READY",
+            }
             or reconstruction.get("before_complete") is not True
             or not isinstance(reconstruction.get("preview_fingerprint"), str)
         ):

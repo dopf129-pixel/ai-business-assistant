@@ -79,6 +79,29 @@ def _create_case(path, now):
     return repository, history, transition, runtime._sessions["101"]["case_id"]
 
 
+def test_evidence_bundle_can_skip_opening_composition_for_an_existing_fifo_stream(
+    tmp_path,
+):
+    tenant = set_current_tenant_user_id(TENANT)
+    now = lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc)
+    try:
+        _repository, _history, transition, case_id = _create_case(
+            tmp_path / "existing-stream-evidence.sqlite", now,
+        )
+        loaded = FifoCostTransitionEvidenceService(transition).load(
+            case_id=case_id, identity=IDENTITY,
+            expected_case_revision=_current_revision(transition, case_id),
+            require_opening_composition=False,
+        )
+        assert loaded["error"] is False, loaded
+        assert "OPENING_COMPOSITION_CONFIRMATION_REQUIRED" not in (
+            loaded["missing_requirements"]
+        )
+        assert loaded["bundle"].opening_composition_fingerprint is None
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def _api_metadata(scope, completeness, fingerprint):
     return TransitionMetadata(
         scope=scope, source_kind=EvidenceSourceKind.OZON_API,

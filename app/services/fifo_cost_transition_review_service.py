@@ -87,7 +87,10 @@ class FifoCostTransitionReviewService:
 
     def assess(
         self, *, case_id, identity, owner_confirmed_cutoff_date=None,
+        for_transition_prepare=False,
     ):
+        if type(for_transition_prepare) is not bool:
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
         case_result = self.transition_service.get_case(
             case_id=case_id, **identity,
         )
@@ -102,9 +105,16 @@ class FifoCostTransitionReviewService:
                 "store_id", "product_id", "offer_id", "sku",
             )):
                 return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            history = self.history_service.get_sku_history(**identity)
+            if not isinstance(history, dict) or history.get("error") is not False:
+                return self._error("FIFO_TRANSITION_FIFO_STATE_UNAVAILABLE")
+            fifo_initialized = history.get("queue_initialized") is True
             saved_evidence = self.evidence_service.load(
                 case_id=case_id, identity=identity,
                 expected_case_revision=case_result["case_revision"],
+                require_opening_composition=not (
+                    for_transition_prepare and fifo_initialized
+                ),
             )
             if saved_evidence.get("error") is not False:
                 if saved_evidence.get("code") == "FIFO_TRANSITION_EVIDENCE_MISSING":
@@ -137,9 +147,6 @@ class FifoCostTransitionReviewService:
                 observations, declarations, scope,
             )
             reports = self._read_reports(case_id, identity, scope)
-            history = self.history_service.get_sku_history(**identity)
-            if not isinstance(history, dict) or history.get("error") is not False:
-                return self._error("FIFO_TRANSITION_FIFO_STATE_UNAVAILABLE")
             stock_reports = tuple(
                 report for report in reports
                 if report.report_type is ReportType.STOCK_MANAGEMENT
@@ -158,7 +165,7 @@ class FifoCostTransitionReviewService:
             )
             proposal = self.opening_proposal_service.propose(
                 case=case,
-                fifo_initialized=history.get("queue_initialized") is not False,
+                fifo_initialized=(fifo_initialized and not for_transition_prepare),
                 owner_confirmed_cutoff_date=confirmed_cutoff_date,
                 stock_reports=stock_reports,
                 turnover_reports=turnover_reports,
@@ -205,6 +212,9 @@ class FifoCostTransitionReviewService:
                 self.transition_service.read_confirmed_opening_composition(
                     case_id=case_id, **identity,
                 ).get("error") is False
+            ) if not (for_transition_prepare and fifo_initialized) else None,
+            "opening_composition_required": not (
+                for_transition_prepare and fifo_initialized
             ),
             "cutoff_bridge_status": (
                 cutoff_bridge.status if cutoff_bridge is not None else "MISSING_EVIDENCE"

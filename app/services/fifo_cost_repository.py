@@ -948,13 +948,18 @@ class FifoCostRepository:
             )
             if bridge_error:
                 return self._error(bridge_error)
-            impact_error = self._validate_transition_impact(
-                impact_preview, tax_policy_fingerprint=tax_policy_fingerprint,
-            )
-            if impact_error:
-                return self._error(impact_error)
+            if impact_preview is None:
+                if not read_only_reconstruction:
+                    return self._error("FIFO_TRANSITION_IMPACT_UNAVAILABLE")
+            else:
+                impact_error = self._validate_transition_impact(
+                    impact_preview, tax_policy_fingerprint=tax_policy_fingerprint,
+                )
+                if impact_error:
+                    return self._error(impact_error)
             if (
-                impact_preview.get("complete_through") is not None
+                impact_preview is not None
+                and impact_preview.get("complete_through") is not None
                 and impact_preview.get("complete_through") != cutoff_bridge.complete_through
             ):
                 return self._error("FIFO_TRANSITION_EVIDENCE_MISMATCH")
@@ -1157,7 +1162,7 @@ class FifoCostRepository:
                         (stream_id,),
                     ).fetchall()
                 }
-                if (
+                if impact_preview is not None and (
                     impact_preview.get("related_return_count")
                     != event_counts.get("SALEABLE_RETURN_RESTOCK", 0)
                     or impact_preview.get("non_sale_outflow_count")
@@ -1196,10 +1201,17 @@ class FifoCostRepository:
                         old_unit_cost,
                     ) if initial_cutover_staged else None,
                 )
+                baseline_complete = bool(
+                    isinstance(baseline_preview, dict)
+                    and baseline_preview.get("complete") is True
+                )
                 if (
-                    not baseline_preview
-                    or baseline_preview.get("complete") is not True
-                    or not self._transition_impact_matches_replay(
+                    not baseline_complete
+                    and not (read_only_reconstruction and impact_preview is None)
+                ) or (
+                    impact_preview is not None
+                    and baseline_complete
+                    and not self._transition_impact_matches_replay(
                         impact_preview, baseline_preview,
                         expected_before_cogs=baseline_preview.get("total_cogs_rub"),
                         check_after=False,
@@ -1251,10 +1263,13 @@ class FifoCostRepository:
                     "case_fingerprint": evidence_fingerprint,
                     "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     "tax_policy_fingerprint": tax_policy_fingerprint,
-                    "impact_fingerprint": impact_preview["preview_fingerprint"],
+                    "impact_fingerprint": (
+                        impact_preview.get("preview_fingerprint")
+                        if impact_preview is not None else None
+                    ),
                     "financial_period_mapping_fingerprint": impact_preview.get(
                         "financial_period_mapping_fingerprint",
-                    ),
+                    ) if impact_preview is not None else None,
                 })
                 rate_payload = {
                     "rate_change_id": candidate_rate_id,
@@ -1304,9 +1319,12 @@ class FifoCostRepository:
                 if candidate_replay["complete"] is not True:
                     connection.rollback()
                     return self._error(candidate_replay.get("reason_code") or "FIFO_REPLAY_INCOMPLETE")
-                if not self._transition_impact_matches_replay(
+                if impact_preview is not None and not self._transition_impact_matches_replay(
                     impact_preview, candidate_replay,
-                    expected_before_cogs=baseline_preview["total_cogs_rub"],
+                    expected_before_cogs=(
+                        baseline_preview.get("total_cogs_rub")
+                        if isinstance(baseline_preview, dict) else None
+                    ),
                     expected_after_cogs=candidate_replay["total_cogs_rub"],
                 ):
                     connection.rollback()
@@ -1325,10 +1343,14 @@ class FifoCostRepository:
                     "base_cogs_rub": current_preview["total_cogs_rub"],
                     "candidate_source_fingerprint": candidate_source_fingerprint,
                     "allocation_preview": candidate_replay,
-                    "baseline_preview_fingerprint": baseline_preview[
-                        "preview_fingerprint"
-                    ],
-                    "baseline_cogs_rub": baseline_preview["total_cogs_rub"],
+                    "baseline_preview_fingerprint": (
+                        baseline_preview.get("preview_fingerprint")
+                        if isinstance(baseline_preview, dict) else None
+                    ),
+                    "baseline_cogs_rub": (
+                        baseline_preview.get("total_cogs_rub")
+                        if isinstance(baseline_preview, dict) else None
+                    ),
                     "impact_preview": impact_preview,
                     "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     "evidence_set_fingerprint": evidence_fingerprint,
@@ -1343,6 +1365,16 @@ class FifoCostRepository:
                     connection.rollback()
                     return self._error("FIFO_TRANSITION_PREVIEW_TOO_LARGE")
                 preview_fingerprint = self._sha256(preview_payload)
+                if read_only_reconstruction:
+                    # The opening cutover is temporary in this path, so read
+                    # the sale identities while its staged ledger is visible.
+                    # The SAVEPOINT is rolled back immediately afterwards.
+                    sale_effective_dates = self._transition_sale_effective_dates(
+                        connection, stream_id,
+                    )
+                    sale_identity_digests = self._transition_sale_identity_digests(
+                        connection, stream_id,
+                    )
                 if initial_cutover_staged:
                     connection.execute("ROLLBACK TO SAVEPOINT transition_initial_preview")
                     connection.execute("RELEASE SAVEPOINT transition_initial_preview")
@@ -1357,9 +1389,9 @@ class FifoCostRepository:
                             "fifo": stream["revision"],
                             "allocation": allocation_revision,
                         },
-                        "baseline_fingerprint": baseline_preview[
-                            "preview_fingerprint"
-                        ],
+                        "baseline_fingerprint": baseline_preview.get(
+                            "preview_fingerprint",
+                        ) if isinstance(baseline_preview, dict) else None,
                         "candidate_fingerprint": candidate_replay[
                             "preview_fingerprint"
                         ],
@@ -1374,6 +1406,7 @@ class FifoCostRepository:
                         "code": "FIFO_TRANSITION_RECONSTRUCTION_READY",
                         "read_only": True,
                         "business_writes": False,
+                        "complete": candidate_replay.get("complete") is True,
                         "identity": dict(identity),
                         "case_id": case_id,
                         "case_revision": expected_case_revision,
@@ -1385,11 +1418,18 @@ class FifoCostRepository:
                             reconstruction_material,
                         ),
                         "baseline": {
-                            "preview_fingerprint": baseline_preview[
-                                "preview_fingerprint"
-                            ],
-                            "total_cogs_rub": baseline_preview["total_cogs_rub"],
-                            "allocation_preview": baseline_preview,
+                            "complete": baseline_complete,
+                            "preview_fingerprint": (
+                                baseline_preview.get("preview_fingerprint")
+                                if isinstance(baseline_preview, dict) else None
+                            ),
+                            "total_cogs_rub": (
+                                baseline_preview.get("total_cogs_rub")
+                                if baseline_complete else None
+                            ),
+                            "allocation_preview": (
+                                baseline_preview if baseline_complete else None
+                            ),
                         },
                         "candidate": {
                             "preview_fingerprint": candidate_replay[
@@ -1408,27 +1448,68 @@ class FifoCostRepository:
                             "tax_policy_fingerprint": tax_policy_fingerprint,
                             "base_source_fingerprint": base_source_fingerprint,
                             "candidate_source_fingerprint": candidate_source_fingerprint,
-                            "baseline_fingerprint": baseline_preview[
-                                "preview_fingerprint"
-                            ],
+                            "baseline_fingerprint": (
+                                baseline_preview.get("preview_fingerprint")
+                                if isinstance(baseline_preview, dict) else None
+                            ),
                             "candidate_fingerprint": candidate_replay[
                                 "preview_fingerprint"
                             ],
                             "complete_through": cutoff_bridge.complete_through,
                         },
                         "coverage": {
-                            "complete": (
-                                baseline_preview.get("complete") is True
-                                and candidate_replay.get("complete") is True
-                            ),
+                            "complete": baseline_complete and candidate_replay.get("complete") is True,
                             "baseline_allocations": len(
-                                baseline_preview.get("allocations", ()),
+                                baseline_preview.get("allocations", ())
+                                if isinstance(baseline_preview, dict) else (),
                             ),
                             "candidate_allocations": len(
                                 candidate_replay.get("allocations", ()),
                             ),
                             "complete_through": cutoff_bridge.complete_through,
                         },
+                        "candidate_only": not baseline_complete,
+                        "before_complete": baseline_complete,
+                        "before_reason_code": (
+                            None if baseline_complete else (
+                                baseline_preview.get("reason_code")
+                                if isinstance(baseline_preview, dict)
+                                else "FIFO_BASELINE_UNAVAILABLE"
+                            )
+                        ),
+                        "before_total_cogs_rub": (
+                            baseline_preview.get("total_cogs_rub")
+                            if baseline_complete else None
+                        ),
+                        "candidate_total_cogs_rub": candidate_replay["total_cogs_rub"],
+                        "before_allocations": (
+                            baseline_preview.get("allocations", ())
+                            if baseline_complete else []
+                        ),
+                        "candidate_allocations": candidate_replay.get("allocations", ()),
+                        "sale_effective_dates": sale_effective_dates,
+                        "sale_identity_digests_by_event": sale_identity_digests,
+                        "candidate_outflows": candidate_replay.get("outflows", ()),
+                        "candidate_non_sale_outflow_value_rub": candidate_replay.get(
+                            "non_sale_outflow_value_rub", "0.00",
+                        ),
+                        "related_return_count": event_counts.get(
+                            "SALEABLE_RETURN_RESTOCK", 0,
+                        ),
+                        "non_sale_outflow_count": event_counts.get(
+                            "NON_SALE_OUTFLOW", 0,
+                        ),
+                        "return_cogs_authorization_changed": False,
+                        "read_only": True,
+                        "period_profit_changed": False,
+                        "preview_fingerprint": self._sha256(reconstruction_material),
+                        "source_set_fingerprint": cutoff_bridge.source_set_fingerprint,
+                        "candidate_rate_units": sum(
+                            line.get("quantity", 0)
+                            for allocation in candidate_replay.get("allocations", ())
+                            for line in allocation.get("lines", ())
+                            if line.get("rate_change_id") == candidate_rate_id
+                        ),
                     }
                 preview_id = "transpreview_" + preview_fingerprint[:40]
                 expires_at = self._iso(
@@ -1487,7 +1568,7 @@ class FifoCostRepository:
 
     def reconstruct_transition_preview(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
-        expected_case_revision, effective_date, cutoff_bridge, impact_preview,
+        expected_case_revision, effective_date, cutoff_bridge, impact_preview=None,
         tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
     ):
         """Rebuild baseline and candidate with prepare's exact replay path.
@@ -1519,6 +1600,32 @@ class FifoCostRepository:
         ):
             return self._error("FIFO_TRANSITION_RECONSTRUCTION_INVALID")
         return result
+
+    @classmethod
+    def _transition_sale_effective_dates(cls, connection, stream_id):
+        rows = connection.execute(
+            """SELECT event_id, effective_date FROM fifo_cost_events
+               WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rows) > 100_000:
+            raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
+        return {row["event_id"]: row["effective_date"] for row in rows}
+
+    @classmethod
+    def _transition_sale_identity_digests(cls, connection, stream_id):
+        rows = connection.execute(
+            """SELECT event_id, source_identity_digest FROM fifo_cost_events
+               WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rows) > 100_000:
+            raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
+        return {
+            row["event_id"]: row["source_identity_digest"] for row in rows
+        }
 
     def commit_transition_case(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,

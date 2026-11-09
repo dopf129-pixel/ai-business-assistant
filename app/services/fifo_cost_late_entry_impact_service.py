@@ -31,7 +31,10 @@ class FifoCostLateEntryImpactService:
     def preview(self, *, reconstruction, period_summaries, tax_policy_result):
         if not isinstance(reconstruction, dict) or reconstruction.get("error") is not False:
             return self._blocked("FIFO_RECONSTRUCTION_UNAVAILABLE")
-        if reconstruction.get("code") != "FIFO_LATE_ENTRY_RECONSTRUCTION_READY":
+        if reconstruction.get("code") not in {
+            "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+            "FIFO_TRANSITION_RECONSTRUCTION_READY",
+        }:
             return self._blocked("FIFO_RECONSTRUCTION_UNAVAILABLE")
         if type(reconstruction.get("related_return_count")) is not int:
             return self._blocked("FIFO_RETURN_EVIDENCE_INVALID")

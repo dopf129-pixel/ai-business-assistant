@@ -254,7 +254,10 @@ class FifoCostFinancialPeriodSummaryCollectionService:
     def _digests_by_period(cls, reconstruction, finance_batch, identity):
         if (
             reconstruction.get("error") is not False
-            or reconstruction.get("code") != "FIFO_LATE_ENTRY_RECONSTRUCTION_READY"
+            or reconstruction.get("code") not in {
+                "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+                "FIFO_TRANSITION_RECONSTRUCTION_READY",
+            }
             or reconstruction.get("before_complete") is not True
             or not cls._DIGEST.fullmatch(str(reconstruction.get("preview_fingerprint") or ""))
             or getattr(getattr(finance_batch, "metadata", None), "completeness", None) is None
