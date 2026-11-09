@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 import os
 from pathlib import Path
 import subprocess
@@ -11,6 +12,10 @@ from threading import BoundedSemaphore
 
 from services.fifo_cost_report_import_service import (
     FifoCostReportImportResult,
+)
+from services.fifo_cost_physical_sales_import_service import (
+    FifoCostPhysicalSalesImportService,
+    FifoPhysicalSalesParseResult,
 )
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
@@ -25,6 +30,7 @@ from services.fifo_cost_transition_contracts import (
 
 _WORKER_SLOTS = BoundedSemaphore(3)
 _MAX_OUTPUT_BYTES = 384 * 1024
+_MAX_PHYSICAL_OUTPUT_BYTES = 16 * 1024 * 1024
 
 
 class FifoCostReportImportWorkerClient:
@@ -110,6 +116,82 @@ class FifoCostReportImportWorkerClient:
             return self._decode_result(stdout, scope)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return self._error("FIFO_REPORT_WORKER_FAILED")
+        finally:
+            if process is not None and process.poll() is None:
+                self._stop_own_worker(process)
+            _WORKER_SLOTS.release()
+
+    def parse_physical_sales(self, *, filename, payload, scope):
+        """Parse owner-imported physical-sale CSV in the shared bounded worker."""
+        if not isinstance(scope, ScopeIdentity):
+            return self._physical_error("FIFO_REPORT_SCOPE_INVALID")
+        if (
+            not isinstance(filename, str) or not filename.strip()
+            or len(filename) > 255 or not filename.lower().endswith(".csv")
+        ):
+            return self._physical_error("FIFO_PHYSICAL_SALES_DOCUMENT_INVALID")
+        if isinstance(payload, memoryview):
+            if payload.nbytes > self.MAX_FILE_BYTES:
+                return self._physical_error("FIFO_REPORT_FILE_SIZE_INVALID")
+            payload = payload.tobytes()
+        if not isinstance(payload, (bytes, bytearray)):
+            return self._physical_error("FIFO_REPORT_PAYLOAD_INVALID")
+        payload = bytes(payload)
+        if not payload or len(payload) > self.MAX_FILE_BYTES:
+            return self._physical_error("FIFO_REPORT_FILE_SIZE_INVALID")
+        if not _WORKER_SLOTS.acquire(blocking=False):
+            return self._physical_error("FIFO_REPORT_WORKER_BUSY")
+        process = None
+        try:
+            header = {
+                "document_kind": "PHYSICAL_SALES_CSV",
+                "filename": filename,
+                "payload_bytes": len(payload),
+                "scope": {
+                    "owner_id": scope.owner_id,
+                    "store_id": scope.store_id,
+                    "product_id": scope.product_id,
+                    "offer_id": scope.offer_id,
+                    "sku": scope.sku,
+                },
+            }
+            request = json.dumps(
+                header, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+            if len(request) > 4096:
+                return self._physical_error("FIFO_REPORT_WORKER_HEADER_INVALID")
+            kwargs = {
+                "cwd": str(self._repo_root),
+                "env": self._worker_environment(),
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.DEVNULL,
+                "shell": False,
+            }
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            command = [self._python, "-m", "services.fifo_cost_report_import_worker"]
+            process = self._popen(command, **kwargs)
+            try:
+                stdout, _stderr = process.communicate(
+                    input=request + b"\n" + payload,
+                    timeout=self.TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                self._stop_own_worker(process)
+                return self._physical_error("FIFO_REPORT_WORKER_TIMEOUT")
+            if process.returncode != 0:
+                return self._physical_error("FIFO_REPORT_WORKER_FAILED")
+            if (
+                not isinstance(stdout, bytes) or not stdout
+                or len(stdout) > _MAX_PHYSICAL_OUTPUT_BYTES
+            ):
+                return self._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+            return self._decode_physical_sales_result(
+                stdout, filename=filename, payload=payload, scope=scope,
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return self._physical_error("FIFO_REPORT_WORKER_FAILED")
         finally:
             if process is not None and process.poll() is None:
                 self._stop_own_worker(process)
@@ -206,6 +288,56 @@ class FifoCostReportImportWorkerClient:
             issue_codes=tuple(dict.fromkeys(issues)),
         )
 
+    @classmethod
+    def _decode_physical_sales_result(cls, output, *, filename, payload, scope):
+        try:
+            value = json.loads(output.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if not isinstance(value, dict) or type(value.get("error")) is not bool:
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if value["error"]:
+            code = value.get("code")
+            if not isinstance(code, str) or not code.startswith("FIFO_") or len(code) > 96:
+                return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+            return cls._physical_error(code)
+        if set(value) != {"error", "document_kind", "document"}:
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if value.get("document_kind") != "PHYSICAL_SALES_CSV":
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        document_value = value.get("document")
+        expected_keys = {
+            "file_sha256", "document_fingerprint", "normalized_fingerprint",
+            "row_references_fingerprint", "identity_fingerprint", "row_count",
+            "unit_count", "period_from", "period_to", "rows",
+        }
+        if not isinstance(document_value, dict) or set(document_value) != expected_keys:
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        # Bind normalized rows to the original bytes independently. Re-hashing
+        # worker-supplied rows alone would allow a coherent but substituted
+        # worker result to claim the source file's byte hash.
+        parsed_source = FifoCostPhysicalSalesImportService().parse_csv(
+            filename=filename, payload=payload, scope=scope,
+        )
+        if parsed_source.document is None:
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        document = parsed_source.document
+        expected_document = document.to_worker_payload()
+        try:
+            returned_manifest = json.dumps(
+                document_value, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+            expected_manifest = json.dumps(
+                expected_document, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if returned_manifest != expected_manifest:
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if document.file_sha256 != sha256(payload).hexdigest():
+            return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        return parsed_source
+
     @staticmethod
     def _check_persisted_payload_size(report):
         from services.fifo_cost_transition_store import FifoCostTransitionStore
@@ -225,3 +357,7 @@ class FifoCostReportImportWorkerClient:
             file_sha256=None,
             issue_codes=(code,),
         )
+
+    @staticmethod
+    def _physical_error(code):
+        return FifoPhysicalSalesParseResult("ERROR", None, (code,))
