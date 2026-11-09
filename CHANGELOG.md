@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR16: bounded finance and returns source snapshots
+
+- Added scoped, budget-aware finance-identity collection through the existing monthly realization adapter and return-status snapshots through the existing Returns API normalizer. Pagination, source size, duplicate IDs, scope, date basis and one-shot continuation bindings fail closed; complete empty results remain distinct from unavailable or unpublished months.
+- The realization collector does not query a month until the fifth day of the following month has passed. Return status-change moments are retained as UTC observations and never treated as physical movement dates or complete movement coverage.
+- FR16 linked source/bridge profile: **132 passed in 3.24s**. Compileall, `git diff --check`, no `data/` changes and the five owner-data hashes passed. No live API or bot launch.
+
 # 2026-11-09 — FIFO FR14: сохраняем и отдельно подтверждаем физические продажи
 
 - Добавлен сервис сохранения owner-imported физического CSV в текущем tenant-зашифрованном transition evidence. После перезапуска исходный документ восстанавливается и повторно проверяется парсером по точным отпечаткам, scope, периоду и часовому поясу.

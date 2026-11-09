@@ -4,6 +4,11 @@
 - `tests/test_fifo_cost_report_import_telegram_adapter.py` verifies selected physical CSV reaches the new flow, preflight rejects unsupported/oversized uploads before download, and an unselected legacy cost CSV still reaches its original handler.
 - Linked Telegram/FIFO profile: **32 passed in 4.51s**. Synthetic tenant context and local SQLite only; full suite/current-head CI remain FR30.
 
+# 2026-11-09 — FIFO FR16 bounded finance and returns sources
+
+- `tests/test_fifo_cost_transition_source_snapshots.py` exercises real monthly realization and Returns normalizers with synthetic raw responses, calendar-month publication gating, complete zero versus unavailable, bounded pagination and parent HTTP budgets, duplicate identities, scope/period validation, byte/row caps, continuation scope/expiry/replay, and identifier-safe payload/repr behavior. Returns API observations preserve typed status/timestamp fields but explicitly do not prove physical movement coverage.
+- Linked FR16 profile also runs existing source collection, normalizer, cutoff bridge, return evidence and supply refresh regressions: **132 passed in 3.24s**. Compileall, `git diff --check`, tracked `data/` equality and the five owner-data hashes passed. Synthetic only; exact-head CI remains FR30.
+
 # 2026-11-09 — FIFO FR14 durable physical-sales evidence
 
 - `tests/test_fifo_cost_physical_sales_evidence_service.py` covers exact uploaded-byte reparse, safe preview, encrypted tenant storage, restart reconstruction, separate exact confirmation, idempotent save retry, stale confirmation rejection, timezone/declared-period binding, wrong-key fail-closed behavior, and persisted `PARTIAL`/unverified-coverage semantics.

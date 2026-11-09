@@ -1,15 +1,15 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR15 выполнены; далее FR16.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR16 выполнены; далее FR17.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR16 NOT_STARTED: FR15 завершён. Следующий шаг — подключить ограниченный сбор и сохранение finance identity, period и movement snapshots к существующему source collection path; использовать штатные normalizers, полную пагинацию и общий budget.
+- Текущий этап FR17 NOT_STARTED: FR16 завершён. Следующий шаг — durable подтверждения cutoff descriptor, reserved/overlap семантики и opening layer composition через существующий initial-layer format; проверки должны сверять числовой состав с отчётами, приёмкой и movement bridge.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current implementation HEAD after FR15: `913fb0554d4c22c948597fdfcbabc12a7c84ec21` (`Route physical sales evidence through Telegram`); FR15 docs checkpoint follows this code commit.
+- Current implementation HEAD after FR16: `2f3a02f4` (`Collect bounded FIFO source snapshots`); FR16 documentation checkpoint follows this code commit.
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
@@ -39,7 +39,7 @@
 | FR13 | DONE | `1dc8d95e9e0c2df6eecfdda27cfbaf1b82827193`; strict physical-sales CSV parser, template, guide and bounded worker; 74 linked tests passed |
 | FR14 | DONE | `bcd78201f800b6df93faeb14f2222ca59a1fe651`; encrypted restartable physical-sales evidence and separate bound confirmation; linked profile **157 passed in 13.95s**; five data hashes unchanged |
 | FR15 | DONE | `913fb055`; Telegram selection/preflight/preview/save/confirm route; linked profile **32 passed in 4.51s**; compileall/diff-check/data manifest PASS |
-| FR16 | NOT_STARTED | Source snapshots |
+| FR16 | DONE | `2f3a02f4`; bounded monthly finance identities, exact-scope paginated return-status observations, publication gate and shared budgets; linked profile **132 passed in 3.24s**; compile/data checks PASS |
 | FR17 | NOT_STARTED | Cutoff/opening |
 | FR18 | NOT_STARTED | Assembler/bridge |
 | FR19 | NOT_STARTED | Reconstruction |
@@ -55,6 +55,15 @@
 | FR29 | NOT_STARTED | Documentation |
 | FR30 | NOT_STARTED | Full tests/current CI |
 | FR31 | NOT_STARTED | Review package |
+
+# FR16 — bounded finance identity and Returns source snapshots, 2026-11-09
+
+- Code commit: `2f3a02f4` (`Collect bounded FIFO source snapshots`), based on FR15 `913fb0554d4c22c948597fdfcbabc12a7c84ec21`. The existing source collector now reads monthly realization rows through the actual `FifoCutoffBridgeSourceAdapter`, with confirmed finance-SKU aliases, bounded calendar-month continuation, 100,000 identity and 16 MiB snapshot limits, duplicate detection and the common operation trace. The existing `BaseOzonClient.get_realization_posting` accepts bounded timeout/attempt observer arguments so retries count against the shared budget.
+- Finance completeness is limited to reportable months. The collector waits until after the fifth day of the following store-local month before treating the prior monthly report as available; an unpublished/current month is missing evidence even when a test/API response has an empty row array. Official source audit: [Ozon for developers: new Seller API realization report method](https://dev.ozon.ru/news/333-Novaia-versiia-metoda-otcheta-o-realizatsii-v-Seller-API/) states that the monthly report is generated after the fifth day. This does not add any new API endpoint or live request.
+- The Returns collector uses `get_returns` and the existing `PeriodProfitReturnEvidenceService` normalizer. It requires the exact offer/SKU/schema, a bounded response page and explicit pagination flag; normalizes status-change moments to UTC, preserves bounded status/return-date source fields for the future movement adapter, and caps 100 pages, 100,000 rows, 16 MiB per snapshot, four shared source checkpoints/64 MiB and the common 10-attempt/20-second UI budget. Opaque continuation is single-use, 10-minute TTL, and bound to tenant/store/SKU/case/revision/period/schema/timezone.
+- A complete empty response is distinct from 429, timeout, malformed/missing pagination, unpublished months and incomplete continuation. Return status observations do **not** establish physical return date or full movement coverage; no movement coverage flag can become true here. `source_as_of` is not invented.
+- Linked profile: `tests/test_fifo_cost_transition_source_snapshots.py` plus existing source collection/normalizer/cutoff bridge/return evidence/supply refresh tests — **132 passed in 3.24s**. Compileall, `git diff --check`, `git diff --exit-code -- data`, and the five FR00 owner-data SHA-256 values passed unchanged. Only local synthetic responses and tenant context; no Ozon/Telegram request, owner database, bot start, merge or deployment.
+- Architecture classification: **Architecture Review Required** because source DTO contracts and the shared Ozon client method signature were extended. `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`; full suite/exact-head CI remain FR30. Next: FR17 durable cutoff/opening confirmations.
 
 # FR15 — Telegram physical-sales document routing, 2026-11-09
 

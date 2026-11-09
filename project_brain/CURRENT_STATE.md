@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR15
+# 2026-11-09 — FIFO review-blocker execution FR00–FR16
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR15 are complete. FR13 provides the strict owner-imported physical-sales CSV parser; FR14 stores the exact source encrypted with separate restart-safe confirmation of rows and `PHYSICAL_OUTFLOW`; FR15 routes selected physical-sales CSV through the production Telegram adapter. Evidence stays partial, and the legacy cost CSV path is preserved.
-- FR14 profile: **157 passed in 13.95s**. FR15 profile: **32 passed in 4.51s**. Compileall, `git diff --check`, `git diff --exit-code -- data` and all five owner-data hashes pass. Schema v16 unchanged. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used. FR16 is next.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR16 are complete. FR13 provides the strict owner-imported physical-sales CSV parser; FR14 stores the exact source encrypted with separate restart-safe confirmation of rows and `PHYSICAL_OUTFLOW`; FR15 routes selected physical-sales CSV through the production Telegram adapter; FR16 adds bounded finance-identity and returns status snapshots. Evidence stays partial unless each source independently proves its contract; return status is not a physical-movement date or coverage proof.
+- FR14 profile: **157 passed in 13.95s**. FR15 profile: **32 passed in 4.51s**. FR16 linked profile: **132 passed in 3.24s**. Compileall, `git diff --check`, `git diff --exit-code -- data` and all five owner-data hashes pass. Schema v16 unchanged. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used. Next: FR17 cutoff/opening semantics.
 
 # 2026-11-08 — FIFO review corrections in progress
 
