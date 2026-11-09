@@ -558,6 +558,8 @@ class FifoCostTransitionService:
                 "total_units": safe["total_units"],
                 "layers": composition["layers"],
                 "stock_report_fingerprint": composition["stock_report_fingerprint"],
+                "cutoff_evidence_id": composition["cutoff_evidence_id"],
+                "cutoff_evidence_fingerprint": composition["cutoff_evidence_fingerprint"],
                 "source_references": composition["source_references"],
                 "confirmed": True,
                 "preview_only": True,

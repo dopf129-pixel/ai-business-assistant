@@ -32,6 +32,9 @@ from services.fifo_cost_transition_contracts import (
     NormalizedSupplyStatus,
     SupplyActEvidence,
 )
+from services.fifo_cost_transition_evidence_service import (
+    FifoCostTransitionEvidenceService,
+)
 from services.fifo_cost_transition_opening_proposal_service import (
     FifoCostTransitionOpeningProposalService,
 )
@@ -61,10 +64,14 @@ class FifoCostTransitionReviewService:
         opening_proposal_service=None,
         readiness_service=None,
         acceptance_reconciliation_service=None,
+        evidence_service=None,
     ):
         self.transition_service = transition_service
         self.history_service = history_service
         self.repository = transition_service.repository
+        self.evidence_service = evidence_service or FifoCostTransitionEvidenceService(
+            transition_service,
+        )
         self.supply_reconciliation_service = (
             supply_reconciliation_service
             or FifoCostTransitionSupplyReconciliationService()
@@ -95,6 +102,23 @@ class FifoCostTransitionReviewService:
                 "store_id", "product_id", "offer_id", "sku",
             )):
                 return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            saved_evidence = self.evidence_service.load(
+                case_id=case_id, identity=identity,
+                expected_case_revision=case_result["case_revision"],
+            )
+            if saved_evidence.get("error") is not False:
+                if saved_evidence.get("code") == "FIFO_TRANSITION_EVIDENCE_MISSING":
+                    evidence_bundle = None
+                    evidence_missing_requirements = (
+                        "DURABLE_TRANSITION_EVIDENCE_MISSING",
+                    )
+                else:
+                    return self._error(saved_evidence.get("code"))
+            else:
+                evidence_bundle = saved_evidence.get("bundle")
+                evidence_missing_requirements = tuple(
+                    saved_evidence.get("missing_requirements", ())
+                )
             # The compatibility argument is deliberately not authoritative.
             # A cutoff date is accepted only from the latest exact, durable
             # owner confirmation bound to the saved stock report.
@@ -140,11 +164,26 @@ class FifoCostTransitionReviewService:
                 turnover_reports=turnover_reports,
                 supply_reconciliation=reconciliation,
             )
+            bridge_result = self.evidence_service.build_cutoff_bridge(
+                bundle=evidence_bundle, proposal=proposal,
+            ) if evidence_bundle is not None else {
+                "error": False, "result": None,
+                "missing_requirements": evidence_missing_requirements,
+            }
+            if bridge_result.get("error") is not False:
+                return self._error(bridge_result.get("code"))
+            cutoff_bridge = bridge_result.get("result")
+            bridge_missing_requirements = tuple(
+                sorted(set(evidence_missing_requirements).union(
+                    bridge_result.get("missing_requirements", ()),
+                ))
+            )
             readiness = self.readiness_service.assess(
                 case=case,
                 proposal=proposal,
                 supply_reconciliation=reconciliation,
-                cutoff_bridge=None,
+                cutoff_bridge=cutoff_bridge,
+                cutoff_bridge_missing_requirements=bridge_missing_requirements,
             )
         except (TypeError, ValueError, KeyError, AttributeError):
             return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
@@ -166,6 +205,13 @@ class FifoCostTransitionReviewService:
                 self.transition_service.read_confirmed_opening_composition(
                     case_id=case_id, **identity,
                 ).get("error") is False
+            ),
+            "cutoff_bridge_status": (
+                cutoff_bridge.status if cutoff_bridge is not None else "MISSING_EVIDENCE"
+            ),
+            "cutoff_bridge_missing_requirements": bridge_missing_requirements,
+            "cutoff_bridge_source_fingerprints": (
+                bridge_result.get("source_fingerprints", ())
             ),
             "ready_to_apply": readiness.ready_to_apply is True,
             "preview_only": True,

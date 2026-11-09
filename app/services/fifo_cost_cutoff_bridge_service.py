@@ -454,6 +454,7 @@ class FifoCutoffMovementCoverage:
     source_fingerprint: str
     proof: SourceProof
     movements: tuple[FifoCutoffMovementReference, ...] = ()
+    page_count: int = 1
 
     def __post_init__(self):
         start = normalize_date_only(self.period_from)
@@ -466,6 +467,8 @@ class FifoCutoffMovementCoverage:
         if not isinstance(self.proof, SourceProof) or self.proof.metadata.scope != self.scope:
             raise ValueError("FIFO_CUTOFF_BRIDGE_COVERAGE_INVALID")
         if self.source_fingerprint != self.proof.metadata.source_fingerprint:
+            raise ValueError("FIFO_CUTOFF_BRIDGE_COVERAGE_INVALID")
+        if type(self.page_count) is not int or not 1 <= self.page_count <= 10_000:
             raise ValueError("FIFO_CUTOFF_BRIDGE_COVERAGE_INVALID")
         movements = tuple(self.movements)
         if len(movements) > _MAX_MOVEMENTS or any(

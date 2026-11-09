@@ -96,6 +96,18 @@ class FifoCostTransitionReadinessService:
         "STOCK_REPORT_SCOPE_CONFLICT",
         "DECLARATIONS_EXCEED_OWNER_TOTAL",
     })
+    _BRIDGE_CONFLICT_CODES = frozenset({
+        "FINANCE_SALE_IDENTITY_CONFLICT",
+        "DOCUMENT_TO_FINANCE_IDENTITY_MISMATCH",
+        "DOCUMENT_TO_FINANCE_IDENTITY_DUPLICATE",
+        "FINANCE_DOCUMENT_IDENTITY_COVERAGE_MISMATCH",
+        "FIFO_MOVEMENT_IDENTITY_DUPLICATE",
+        "FIFO_RETURN_ORIGIN_SALE_NOT_IN_CUTOFF_BRIDGE",
+        "FIFO_RETURN_EVENT_ORDER_UNRESOLVED",
+        "FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN_SALE",
+        "STOCK_NOT_BOUND_TO_OPENING_PROPOSAL",
+        "STOCK_SCOPE_OR_CUTOFF_UNPROVEN",
+    })
 
     def assess(
         self,
@@ -104,6 +116,7 @@ class FifoCostTransitionReadinessService:
         proposal: FifoCostTransitionOpeningProposal,
         supply_reconciliation: FifoCostTransitionSupplyReconciliation | None,
         cutoff_bridge: FifoCutoffBridgeResult | None = None,
+        cutoff_bridge_missing_requirements: tuple[str, ...] = (),
     ) -> FifoCostTransitionReadiness:
         if (
             not isinstance(case, TransitionCase)
@@ -128,6 +141,13 @@ class FifoCostTransitionReadinessService:
                     or cutoff_bridge.case_revision != case.case_revision
                     or cutoff_bridge.cutoff_date != proposal.confirmed_cutoff_date
                 )
+            )
+            or not isinstance(cutoff_bridge_missing_requirements, tuple)
+            or len(cutoff_bridge_missing_requirements) > 32
+            or any(
+                not isinstance(value, str) or not value or len(value) > 128
+                or any(not (char.isupper() or char.isdigit() or char in "_:") for char in value)
+                for value in cutoff_bridge_missing_requirements
             )
         ):
             raise ValueError("FIFO_READINESS_INPUT_INVALID")
@@ -424,9 +444,14 @@ class FifoCostTransitionReadinessService:
             ))
 
         if not self._has_sale_bridge(cutoff_bridge):
+            bridge_conflicts = tuple(
+                sorted(set(cutoff_bridge.unresolved_issues).intersection(
+                    self._BRIDGE_CONFLICT_CODES,
+                ))
+            ) if isinstance(cutoff_bridge, FifoCutoffBridgeResult) else ()
             add(FifoMissingRequirement(
                 code="SALE_CUTOFF_BRIDGE_REQUIRED",
-                status="MISSING",
+                status="CONFLICT" if bridge_conflicts else "MISSING",
                 required_document_or_action=(
                     "Документированный bridge движений продаж/возвратов/выбытий до cutoff "
                     "с доказательством физической даты"
@@ -461,11 +486,38 @@ class FifoCostTransitionReadinessService:
                     "unresolved_issues": (
                         cutoff_bridge.unresolved_issues if cutoff_bridge is not None else ()
                     ),
+                    "conflict_codes": bridge_conflicts,
+                    "missing_evidence_requirements": tuple(sorted(set(
+                        cutoff_bridge_missing_requirements
+                    ))),
                 }),
                 explanation=(
                     "Суммарные количества и даты финансовых начислений сами по себе "
                     "не доказывают физический FIFO-порядок продаж. Нужны точные "
                     "posting/SKU/date/quantity и полное покрытие подтверждённым документом."
+                ),
+                blocks_apply=True,
+            ))
+
+        if cutoff_bridge is None and cutoff_bridge_missing_requirements:
+            add(FifoMissingRequirement(
+                code="CUTOFF_BRIDGE_SOURCE_EVIDENCE_MISSING",
+                status="MISSING",
+                required_document_or_action=(
+                    "Сохранить полный набор источников для cutoff bridge"
+                ),
+                required_fields=("complete source snapshots", "exact scope", "coverage proof"),
+                required_period=(case.dispatch_date, proposal.confirmed_cutoff_date)
+                if case.dispatch_date and proposal.confirmed_cutoff_date else None,
+                already_saved=(),
+                known_values=MappingProxyType({
+                    "missing_evidence_requirements": tuple(sorted(set(
+                        cutoff_bridge_missing_requirements
+                    ))),
+                }),
+                explanation=(
+                    "Сохранённые записи не закрывают все источники или их точное покрытие. "
+                    "Отсутствие наблюдения не интерпретируется как нулевое движение."
                 ),
                 blocks_apply=True,
             ))
@@ -480,8 +532,15 @@ class FifoCostTransitionReadinessService:
         if len(requirements_tuple) > self.MAX_REQUIREMENTS:
             raise ValueError("FIFO_READINESS_INPUT_INVALID")
         conflicts = any(item.status == "CONFLICT" for item in requirements_tuple)
+        preview_ready = bool(
+            self._has_sale_bridge(cutoff_bridge)
+            and not conflicts
+            and not any(item.blocks_apply for item in requirements_tuple)
+        )
         return FifoCostTransitionReadiness(
-            status="CONFLICT" if conflicts else "AWAITING_EVIDENCE",
+            status="CONFLICT" if conflicts else (
+                "PREVIEW_READY" if preview_ready else "AWAITING_EVIDENCE"
+            ),
             scope=case.metadata.scope,
             case_id=case.case_id,
             case_revision=case.case_revision,
@@ -491,7 +550,10 @@ class FifoCostTransitionReadinessService:
             requirements=requirements_tuple,
             source_data_through=self._latest_confirmed_end(proposal),
             candidate_data_through=self._latest_candidate_end(proposal),
-            complete_through=None,
+            complete_through=(
+                cutoff_bridge.complete_through
+                if self._has_sale_bridge(cutoff_bridge) else None
+            ),
             ready_to_apply=False,
             preview_only=True,
             is_atomic_snapshot=False,
