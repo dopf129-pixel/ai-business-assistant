@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR10
+# 2026-11-09 — FIFO review-blocker execution FR00–FR11
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR10 are complete. FR10 implements exact multi-rate return basis, the owner-approved latest-allocation-first rule for partial returns, replay of returned rate lineage, and non-sale movement separation. Return inventory restoration remains separate from sale COGS and Return COGS recognition.
-- Linked FR10 FIFO profile: **142 passed in 9.07s**; compileall, `git diff --check`, `git diff --exit-code -- data`, and all five user-data SHA-256 checks pass. This is targeted local verification only; full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR11 are complete. FR11 makes history/current/export/Period Profit readers use the same exact multi-rate replay revision; boundary quantities are not presented as new purchases, and a current open-rate quantity remains unknown. FR10 retains exact mixed-rate return basis and the owner-approved latest-allocation-first partial-return convention.
+- Linked FR11 profile: **79 passed in 4.66s**, including multi-rate repository restart, current cost, Period Profit, Telegram CSV and frozen saved-plan restart checks. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

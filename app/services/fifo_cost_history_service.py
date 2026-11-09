@@ -78,9 +78,15 @@ class FifoCostHistoryService:
         next_planned_rate = planned_rates[0] if planned_rates else None
 
         replayed_layers = self._current_replayed_layers(snapshot)
-        movements_need_replay = (
-            snapshot["movement_count"] > 0 and replayed_layers is None
+        replayed_rate_balances = self._current_replayed_rate_balances(
+            snapshot, rates,
         )
+        replay_complete = (
+            snapshot["movement_count"] > 0
+            and replayed_layers is not None
+            and replayed_rate_balances is not None
+        )
+        movements_need_replay = snapshot["movement_count"] > 0 and not replay_complete
         layers = []
         for row in snapshot["layers"]:
             replayed = (
@@ -88,7 +94,7 @@ class FifoCostHistoryService:
                 if replayed_layers is not None else None
             )
             remaining_units = (
-                replayed["remaining_units"] if replayed is not None else
+                replayed["remaining_units"] if replayed is not None and replay_complete else
                 None if movements_need_replay else row["recorded_quantity"]
             )
             layers.append({
@@ -100,7 +106,7 @@ class FifoCostHistoryService:
                 "remaining_units": remaining_units,
                 "remaining_status": (
                     "REPLAY_REQUIRED" if movements_need_replay else
-                    "AFTER_CONFIRMED_REPLAY" if replayed_layers is not None else
+                    "AFTER_CONFIRMED_REPLAY" if replay_complete else
                     "AT_CONFIRMED_SNAPSHOT"
                 ),
             })
@@ -119,19 +125,49 @@ class FifoCostHistoryService:
                 or rate.get("status") != "EFFECTIVE"
                 or rate.get("cancelled") is True
                 or transition.get("status") != "EFFECTIVE"
-                or type(quantity) is not int or quantity <= 0
+                or type(quantity) is not int or quantity < 0
             ):
                 continue
+            replay_balance = (
+                replayed_rate_balances.get(sequence)
+                if replay_complete else None
+            )
+            remaining_units = (
+                replay_balance["remaining_units"]
+                if replay_balance is not None else
+                None if movements_need_replay else quantity
+            )
             reconciled_rate_layers.append({
                 "sequence": sequence,
                 "recorded_quantity": quantity,
-                "remaining_units": quantity,
+                "remaining_units": remaining_units,
                 "unit_cost_rub": rate["unit_cost_rub"],
                 "effective_date": rate["effective_date"],
                 "provenance": rate.get("provenance"),
                 "provenance_label": rate.get("provenance_label"),
                 "kind": "RECONCILED_RATE",
+                "remaining_status": (
+                    "REPLAY_REQUIRED" if movements_need_replay else
+                    "AFTER_CONFIRMED_REPLAY" if replay_complete else
+                    "AT_CONFIRMED_SNAPSHOT"
+                ),
             })
+
+        rate_layer_by_sequence = {
+            row["sequence"]: row for row in reconciled_rate_layers
+        }
+        for rate in rates:
+            rate_layer = rate_layer_by_sequence.get(rate["sequence"])
+            if rate_layer is not None:
+                rate["remaining_units"] = rate_layer["remaining_units"]
+                rate["remaining_status"] = rate_layer["remaining_status"]
+            elif rate["status"] == "EFFECTIVE" and rate.get("reconciled_quantity") is None:
+                rate["remaining_units"] = None
+                rate["remaining_status"] = (
+                    "REPLAY_REQUIRED" if movements_need_replay else
+                    "AFTER_CONFIRMED_REPLAY" if replay_complete else
+                    "QUANTITY_UNKNOWN"
+                )
 
         next_unit_cost = None
         next_unit_cost_basis = "UNAVAILABLE"
@@ -152,7 +188,7 @@ class FifoCostHistoryService:
             elif active_rate is not None:
                 next_unit_cost = active_rate["unit_cost_rub"]
                 next_unit_cost_basis = "OPEN_RATE_QUANTITY_UNKNOWN"
-        elif replayed_layers is not None:
+        elif replay_complete:
             first_finite_layer = next(
                 (item for item in layers if item["remaining_units"] > 0), None,
             )
@@ -210,6 +246,66 @@ class FifoCostHistoryService:
         ):
             return None
         return {row["sequence"]: row for row in rows}
+
+    @classmethod
+    def _current_replayed_rate_balances(cls, snapshot, rates):
+        """Validate the rate side of the same complete allocation snapshot."""
+        if snapshot.get("movement_count", 0) <= 0:
+            return None
+        allocation = snapshot.get("latest_allocation")
+        if (
+            not isinstance(allocation, dict)
+            or allocation.get("status") != "COMPLETE"
+            or allocation.get("cutoff_status") != "RECONCILED"
+            or allocation.get("stale") is not False
+            or allocation.get("stream_revision") != snapshot.get("revision")
+        ):
+            return None
+        rates_by_sequence = {}
+        effective_rate_sequences = []
+        for rate in rates:
+            if not isinstance(rate, dict) or rate.get("status") not in {
+                "EFFECTIVE", "PLANNED",
+            }:
+                continue
+            sequence = rate.get("sequence")
+            if type(sequence) is not int or sequence < 1 or sequence in rates_by_sequence:
+                return None
+            rates_by_sequence[sequence] = rate
+            if rate["status"] == "EFFECTIVE":
+                effective_rate_sequences.append(sequence)
+        if not effective_rate_sequences:
+            return {}
+        current_effective_sequence = max(effective_rate_sequences)
+        rows = allocation.get("replayed_rate_balances")
+        if not isinstance(rows, list) or len(rows) > 256:
+            return None
+        balances = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            sequence = row.get("sequence")
+            remaining = row.get("remaining_units")
+            cost = row.get("unit_cost_rub")
+            if type(sequence) is not int or sequence in balances:
+                return None
+            source = rates_by_sequence.get(sequence)
+            if (
+                source is None or cost != source.get("unit_cost_rub")
+                or (remaining is not None and (
+                    type(remaining) is not int or remaining < 0
+                ))
+                or (
+                    remaining is None
+                    and source.get("status") == "EFFECTIVE"
+                    and sequence != current_effective_sequence
+                )
+            ):
+                return None
+            balances[sequence] = row
+        if any(sequence not in balances for sequence in effective_rate_sequences):
+            return None
+        return balances
 
     @classmethod
     def _provenance_label(cls, value):

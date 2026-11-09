@@ -1,7 +1,12 @@
-from datetime import datetime, timezone
+import csv
+import io
+from datetime import date, datetime, timezone
 import hashlib
 
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
+from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.fifo_cost_non_sale_movement_service import (
     FifoCostNonSaleMovementService,
 )
@@ -372,6 +377,92 @@ def test_fr08_repository_replays_and_persists_three_rate_chain(tmp_path):
         assert guard["error"] is False
         assert guard["eligible_for_publication"] is True
         assert guard["unsupported_rate_transition_count"] == 0
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates(tmp_path):
+    db_path = tmp_path / "fr11-multi-rate-readers.sqlite"
+    repository = FifoCostRepository(
+        db_path=db_path,
+        now_provider=lambda: datetime(2026, 11, 16, 12, tzinfo=timezone.utc),
+    )
+    token = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-multirate", IDENTITY["store_id"]),
+    )
+    try:
+        _seed_three_rate_scenario(repository)
+        preview = repository.preview_current_allocation(**IDENTITY)
+        assert preview["error"] is False, preview
+        committed = repository.append_allocation_revision(
+            **IDENTITY, preview=preview,
+            idempotency_key="fr11-reader-allocation01",
+        )
+        assert committed["error"] is False, committed
+
+        # A new repository instance must read the same immutable revision.
+        reopened = FifoCostRepository(db_path=db_path)
+        history = FifoCostHistoryService(reopened).get_sku_history(
+            **IDENTITY, as_of_date=date(2026, 11, 16),
+        )
+        assert history["error"] is False, history
+        assert history["remaining_status"] == "AFTER_CONFIRMED_REPLAY"
+        assert history["latest_allocation"]["revision"] == committed["allocation_revision"]
+        assert [row["remaining_units"] for row in history["reconciled_rate_layers"]] == [0, 0]
+        assert history["next_unit_cost_rub"] == "18.00"
+        assert history["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
+
+        class _NoLegacyCost:
+            @staticmethod
+            def get_cost(_product_id):
+                return None
+
+            @staticmethod
+            def get_current_cost_date():
+                return "2026-11-16"
+
+        current = FifoCurrentUnitCostAdapter(
+            _NoLegacyCost(), FifoCostHistoryService(reopened),
+        ).resolve_current_cost(
+            {
+                "product_id": IDENTITY["product_id"],
+                "offer_id": IDENTITY["offer_id"],
+                "sku": IDENTITY["sku"],
+            },
+            store_id=IDENTITY["store_id"],
+            as_of_date="2026-11-16",
+        )
+        assert current["cost_per_unit_rub"] == "18.00"
+        assert current["cost_basis"]["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
+
+        ui = TelegramFifoCostHistoryService(FifoCostHistoryService(reopened))
+        rendered = ui._render_history({
+            "snapshot": history, "display_name": "Товар",
+            "sku": IDENTITY["sku"], "token": "private-token",
+        })
+        assert "границе следующей ставки" in rendered["message"]
+        assert "не новая поставка" in rendered["message"]
+        exported = ui._export_history({
+            "snapshot": history, "sku": IDENTITY["sku"], "identity": IDENTITY,
+        })
+        assert exported["error"] is False, exported
+        records = list(csv.DictReader(
+            io.StringIO(exported["file_content"].lstrip("\ufeff")), delimiter=";",
+        ))
+        rate_boundaries = [row for row in records if row["Тип записи"] == "RATE_BOUNDARY"]
+        assert len(rate_boundaries) == 2
+        assert all(row["Количество / остаток на границе"] != "" for row in rate_boundaries)
+        assert all(row["Остаток после полного replay"] == "0" for row in rate_boundaries)
+        assert all(row["Ревизия распределения"] == str(committed["allocation_revision"]) for row in records)
+
+        period = reopened.read_period_allocation_summary(
+            **IDENTITY, date_from="2026-11-08", date_to="2026-11-12",
+        )
+        assert period["error"] is False and period["complete"] is True, period
+        assert period["stream_revision"] == history["revision"]
+        assert period["allocation_revision"] == committed["allocation_revision"]
+        assert period["period_cogs_rub"] == "1872.50"
+        assert any(row["basis_kind"] == "RATE" for row in period["layers"])
     finally:
         reset_current_tenant_user_id(token)
 
@@ -790,6 +881,20 @@ def test_fr10_partial_return_restores_last_fifo_basis_for_mr04_mr05(tmp_path):
         assert after["error"] is False, after
         assert after["restored_units"] == 1
         assert after["total_cogs_rub"] == "1888.50"
+        replayed_return = reopened.append_allocation_revision(
+            **IDENTITY, preview=after,
+            idempotency_key="fr11-return-reader-allocation01",
+        )
+        assert replayed_return["error"] is False, replayed_return
+        return_history = FifoCostHistoryService(
+            FifoCostRepository(db_path=tmp_path / "multirate-partial-mixed-return.sqlite"),
+        ).get_sku_history(**IDENTITY, as_of_date=date(2026, 11, 16))
+        assert return_history["latest_allocation"]["revision"] == replayed_return[
+            "allocation_revision"
+        ]
+        assert [row["remaining_units"] for row in return_history["reconciled_rate_layers"]] == [0, 0]
+        assert return_history["next_unit_cost_rub"] == "18.00"
+        assert return_history["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
         after_sale_cogs = {
             row["event_id"]: row["total_cost_rub"]
             for row in after["allocations"]

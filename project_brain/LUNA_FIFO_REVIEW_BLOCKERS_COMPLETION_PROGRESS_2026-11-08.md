@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR10 выполнены; далее FR11.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR11 выполнены; далее FR12.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR11 NOT_STARTED: FR10 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности и Resume записаны ниже. Продолжить с readers/gateB.
+- Текущий этап FR12 NOT_STARTED: FR11 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — typed transition evidence API.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current HEAD after FR10 checkpoint: `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
@@ -34,7 +34,7 @@
 | FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; implementation checkpoint `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` |
 | FR09 | DONE | Public MR01–MR03; exact prefix replay; complete bridge for lower stock; atomic rate/reconciliation/allocation/projection; **136 passed in 7.79s** |
 | FR10 | DONE | Owner latest-allocation-first policy; MR04–MR06 linked profile 142 passed; compile/diff/data manifest PASS; checkpoint `5534917c0f14dbed6610e084dd7d3d839862b13d` |
-| FR11 | NOT_STARTED | Readers/gateB |
+| FR11 | DONE | History/current/export/Period Profit сверены по полным replay revisions; FR11 profile **79 passed in 4.66s**; saved-plan restart regression PASS |
 | FR12 | NOT_STARTED | Typed evidence |
 | FR13 | NOT_STARTED | Physical CSV |
 | FR14 | NOT_STARTED | Durable confirmation |
@@ -94,6 +94,16 @@
 - Связанный профиль из 10 FIFO suites: **142 passed in 9.07s**. `compileall` всех затронутых Python-файлов, `git diff --check`, `git diff --exit-code -- data` и five-file FR00 SHA-256 manifest — PASS.
 - Checkpoint `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
 - Это synthetic local verification, не full-suite/current-head CI. Owner case remains `SOURCE_BLOCKED`; реальные данные владельца, Ozon/Telegram запросы, бот, deploy и merge не использовались. Следующий этап — FR11.
+
+## FR11 — потребители нескольких ставок, 2026-11-09
+
+- `FifoCostHistoryService` теперь читает finite-layer и per-rate balances только из одной полной, актуальной allocation revision с совпадающим stream revision и cutoff. После движений статический `prior_rate_units` отображается как исторический остаток на границе, а текущая стоимость выбирается по пересчитанному FIFO остатку; open rate сохраняет неизвестное количество. Неполная/устаревшая rate-balance часть блокирует current-unit значение.
+- Нулевой доказанный residual ставки сохраняется и показывается как `0`, но не становится next-unit layer. Regression проверяет, что следующей остаётся последняя open rate.
+- Экран истории явно различает подтверждённое количество на границе ставки и остаток после полного replay. CSV добавляет отдельный столбец replay-остатка и помечает подтверждённые rate transitions как `RATE_BOUNDARY`, а не как покупку. Неизвестный остаток открытой ставки остаётся пустым.
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` сверяет после fresh repository instance историю, текущую цену, экспорт и Period Profit: rate остатки `0, 0`, open rate `18.00 ₽` с unknown quantity, allocation revision одна и та же, COGS `1872.50 ₽`. MR04/MR05 повторно проверяют историю после возврата и перепродажи; возвратная единица 16 ₽ расходуется раньше открытой ставки 18 ₽.
+- Старые adapter fixtures без доказанного cutoff bridge больше не ожидают материализации статической ставки: они проверяют `FIFO_RATE_REPLAY_REQUIRED` и отсутствие второй сохранённой ставки. Это сохраняет strict cutoff контракт; production replay guard не ослаблялся.
+- Связанный профиль из history/current adapter/multi-rate repository/Period Profit/Telegram CSV и frozen-plan restart suites: **79 passed in 4.66s**. `compileall`, `git diff --check` и `git diff --exit-code -- data` прошли. SHA-256 до/после совпал с FR00: `history.json=520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; `profiles.json=8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; `tasks.json=6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; `tax_configuration.json=F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; `users.json=2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`.
+- Все тестовые базы находятся в `tmp_path`; `.fl12-deps/` сохранена как исходная untracked папка и не включена. Owner-case remains `SOURCE_BLOCKED`; live Ozon/Telegram, бот, deployment, merge и exact-head CI не использовались. Следующий этап — FR12.
 
 ## Проверка подготовки ТЗ — 09.11.2026
 

@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR11: readers, exports, and frozen plans
+
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` verifies that a fresh repository instance exposes one consistent replay revision through history, current cost, Telegram CSV and Period Profit; exact mixed-rate COGS is 1872.50 ₽, two closed rate balances are zero, and the 18 ₽ open-rate quantity stays unknown.
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr10_partial_return_restores_last_fifo_basis_for_mr04_mr05` also verifies history after return/restock and resale. `tests/test_fifo_cost_history_service.py::test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit` keeps a zero residual visible but excludes it as a finite next unit.
+- `tests/test_fifo_current_unit_cost_adapter.py` rejects rate materialization without a reconciled cutoff bridge. Linked FR11 profile: **79 passed in 4.66s**, including `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export`; synthetic local verification, not full-suite/CI.
+
 # 2026-11-09 — FIFO ordinary rate changes after late entry (FR09)
 
 - `tests/test_fifo_cost_transition_atomic_apply.py::test_fr09_replays_three_rates_from_prefix_and_publishes_atomically` exercises public `FifoCostRateService` preview/confirm calls for the 21.00 → 14.65 → 16.00 → 18.00 history, including rollback after injected allocation-write failure, restart reads, exact per-day COGS and finite/open balances. The neighboring negative test rejects an unexplained stock drop.

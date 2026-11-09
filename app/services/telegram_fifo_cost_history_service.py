@@ -645,9 +645,18 @@ class TelegramFifoCostHistoryService:
                     )
                 if rate.get("reconciled_quantity") is not None:
                     lines.append(
-                        f"  До следующей ставки подтверждено {rate['reconciled_quantity']} шт. "
-                        f"по этой цене из общего остатка {rate['reconciled_total_units']} шт."
+                        f"  На границе следующей ставки подтверждено "
+                        f"{rate['reconciled_quantity']} шт. остатка по этой цене "
+                        f"из общего остатка {rate['reconciled_total_units']} шт.; "
+                        "это не новая поставка."
                     )
+                if rate.get("remaining_status") == "AFTER_CONFIRMED_REPLAY":
+                    remaining = rate.get("remaining_units")
+                    if type(remaining) is int:
+                        lines.append(
+                            f"  После полного replay осталось по этой ставке: "
+                            f"{remaining} шт."
+                        )
                 if captured:
                     lines.append(f"  Записано: {captured}.")
             if len(snapshot["rates"]) > 30:
@@ -743,6 +752,7 @@ class TelegramFifoCostHistoryService:
                         "sequence": safe["case_revision"],
                         "effective_date": safe["dispatch_date"],
                         "quantity": safe["declared_shipped_units"],
+                        "remaining_after_replay": "",
                         "location": "",
                         "unit_cost": safe["new_unit_cost_rub"],
                         "cost_input_mode": safe["cost_input_mode"],
@@ -763,7 +773,8 @@ class TelegramFifoCostHistoryService:
         writer = csv.writer(stream, delimiter=";")
         writer.writerow((
             "Режим", "SKU", "Тип записи", "Порядок", "Действует с",
-            "Количество", "Место", "Себестоимость за шт., ₽",
+            "Количество / остаток на границе", "Остаток после полного replay",
+            "Место", "Себестоимость за шт., ₽",
             "Режим разбивки", "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
             "Подтверждение", "Состояние источника", "Полнота источника",
             "Ревизия FIFO", "Ревизия распределения", "Дата cutoff",
@@ -779,6 +790,11 @@ class TelegramFifoCostHistoryService:
                 "sequence": layer.get("sequence"),
                 "effective_date": layer.get("effective_date") or "",
                 "quantity": layer.get("recorded_quantity"),
+                "remaining_after_replay": (
+                    layer.get("remaining_units")
+                    if layer.get("remaining_status") == "AFTER_CONFIRMED_REPLAY"
+                    else ""
+                ),
                 "location": layer.get("location") or "UNKNOWN",
                 "unit_cost": layer.get("unit_cost_rub"),
                 "cost_input_mode": "NOT_APPLICABLE",
@@ -793,10 +809,18 @@ class TelegramFifoCostHistoryService:
                 return {"error": True, "handled": True, "code": "FIFO_HISTORY_EXPORT_INVALID", "message": "Невозможно безопасно выгрузить повреждённую историю.", "read_only_ozon": True}
             rows.append({
                 **common,
-                "kind": "OPEN_RATE",
+                "kind": (
+                    "RATE_BOUNDARY" if rate.get("reconciled_quantity") is not None
+                    else "OPEN_RATE"
+                ),
                 "sequence": rate.get("sequence"),
                 "effective_date": rate.get("effective_date") or "",
                 "quantity": rate.get("reconciled_quantity"),
+                "remaining_after_replay": (
+                    rate.get("remaining_units")
+                    if rate.get("remaining_status") == "AFTER_CONFIRMED_REPLAY"
+                    else ""
+                ),
                 "location": "UNKNOWN",
                 "unit_cost": rate.get("unit_cost_rub"),
                 "cost_input_mode": rate.get("cost_input_mode", "COMPONENTS"),
@@ -813,7 +837,7 @@ class TelegramFifoCostHistoryService:
             reference_payload = {
                 key: row.get(key) for key in (
                     "mode", "sku", "kind", "sequence", "effective_date",
-                    "quantity", "unit_cost", "stream_revision",
+                    "quantity", "remaining_after_replay", "unit_cost", "stream_revision",
                     "allocation_revision", "cutoff_date", "provenance",
                     "cost_input_mode", "case_revision", "case_updated_at",
                     "case_ordinal",
@@ -826,6 +850,7 @@ class TelegramFifoCostHistoryService:
                 row["mode"], self._spreadsheet_safe(row["sku"]), row["kind"],
                 row["sequence"], row["effective_date"],
                 "" if row["quantity"] is None else row["quantity"],
+                "" if row["remaining_after_replay"] in (None, "") else row["remaining_after_replay"],
                 self._spreadsheet_safe(row["location"]),
                 "" if row["unit_cost"] is None else row["unit_cost"],
                 row["cost_input_mode"], row["purchase"],
@@ -842,7 +867,7 @@ class TelegramFifoCostHistoryService:
         if not rows:
             writer.writerow((
                 "FIFO", self._spreadsheet_safe(ticket.get("sku")), "EMPTY", "", "",
-                "", "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
+                "", "", "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
                 "UNKNOWN", "UNKNOWN", "UNKNOWN", snapshot.get("revision"), "",
                 snapshot.get("cutoff_date") or "", "", "", "",
             ))
@@ -977,6 +1002,11 @@ class TelegramFifoCostHistoryService:
                     f"Следующая единица на подтверждённом срезе: "
                     f"{snapshot['next_unit_cost_rub']} ₽/шт. по старому слою."
                 )
+            elif snapshot["next_unit_cost_basis"] == "RECONCILED_RATE_LAYER":
+                lines.append(
+                    f"Следующая единица: {snapshot['next_unit_cost_rub']} ₽/шт. "
+                    "по конечному остатку подтверждённой ставки."
+                )
             else:
                 lines.append(
                     f"Ставка следующей партии: {snapshot['next_unit_cost_rub']} ₽/шт.; "
@@ -991,7 +1021,13 @@ class TelegramFifoCostHistoryService:
         else:
             lines.append("Стоимость следующей единицы пока не подтверждена.")
 
-        if snapshot["movement_count"]:
+        if snapshot["remaining_status"] == "AFTER_CONFIRMED_REPLAY":
+            allocation = snapshot.get("latest_allocation") or {}
+            lines.append(
+                "Остаток рассчитан полным подтверждённым replay "
+                f"(ревизия распределения {allocation.get('revision')})."
+            )
+        elif snapshot["movement_count"]:
             lines.append(
                 "После последнего среза есть движения товара. Остаток старых слоёв "
                 "не пересчитан, поэтому текущий порог смены цены не показываю."

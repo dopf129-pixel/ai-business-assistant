@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR11: multi-rate readers use replay balances
+
+- Current cost and history now use per-rate residuals from the same current, complete allocation revision as the FIFO layers. Historical rate-boundary quantities remain distinguishable from stock still on hand; proven zero balances stay visible without becoming a next-unit layer.
+- Telegram history and CSV distinguish `RATE_BOUNDARY` quantities from post-replay balances. The open rate remains quantity-unknown, and incomplete/stale multi-rate replay keeps the current FIFO result blocked.
+- FR11 targeted history/current/Period Profit/export/frozen-plan profile: **79 passed in 4.66s**. Local synthetic verification only; merge, deployment, bot launch, live API calls and owner-case validation remain out of scope.
+
 # 2026-11-09 — FIFO FR10: exact return lineage for multi-rate allocations
 
 - Return restocks restore exact historical FIFO bases from both legacy layers and rate-derived allocation lines. The owner-approved mixed-basis partial-return rule assigns units to the latest original FIFO allocation lines first, accounting for earlier returns; full returns preserve original allocation order. This is deterministic cost attribution, not physical-unit evidence. Restored rate-derived units retain lineage when sold again, and non-sale outflows remain separate from sales COGS.

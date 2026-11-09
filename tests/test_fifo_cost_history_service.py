@@ -162,6 +162,111 @@ def test_history_does_not_claim_remaining_units_after_unreplayed_movement(tmp_pa
     assert all(row["remaining_units"] is None for row in result["layers"])
 
 
+def test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit():
+    snapshot = {
+        "error": False,
+        "code": "FIFO_HISTORY_READY",
+        "revision": 3,
+        "stream_state": "FIFO_READY",
+        "cutoff_date": "2026-11-05",
+        "projection": {"queue_complete": True},
+        "layers": [{
+            "sequence": 1, "recorded_quantity": 10,
+            "unit_cost_rub": "5.00", "effective_date": "2026-11-05",
+            "location": "OZON", "provenance": "OWNER_CONFIRMED",
+        }],
+        "rates": [
+            {
+                "sequence": 1, "effective_date": "2026-11-06",
+                "unit_cost_rub": "10.00", "provenance": "OWNER_CONFIRMED",
+                "cancelled": False,
+            },
+            {
+                "sequence": 2, "effective_date": "2026-11-07",
+                "unit_cost_rub": "20.00", "provenance": "OWNER_CONFIRMED",
+                "cancelled": False,
+            },
+        ],
+        "rate_reconciliations": [{
+            "reconciled_rate_sequence": 1,
+            "transition_rate_sequence": 2,
+            "prior_rate_units": 0,
+            "reconciled_total_units": 10,
+        }],
+        "rate_cancellations": [],
+        "movement_count": 1,
+        "latest_allocation": {
+            "revision": 4,
+            "stream_revision": 3,
+            "status": "COMPLETE",
+            "cutoff_status": "RECONCILED",
+            "stale": False,
+            "replayed_remaining_layers": [{
+                "sequence": 1, "remaining_units": 0,
+            }],
+            "replayed_rate_balances": [
+                {"sequence": 1, "remaining_units": 0, "unit_cost_rub": "10.00"},
+                {"sequence": 2, "remaining_units": None, "unit_cost_rub": "20.00"},
+            ],
+        },
+    }
+
+    class _SnapshotRepository:
+        @staticmethod
+        def read_cost_history_snapshot(**_kwargs):
+            return snapshot
+
+    result = FifoCostHistoryService(_SnapshotRepository()).get_sku_history(
+        **IDENTITY, as_of_date="2026-11-07",
+    )
+
+    assert result["remaining_status"] == "AFTER_CONFIRMED_REPLAY"
+    assert result["reconciled_rate_layers"] == [{
+        "sequence": 1,
+        "recorded_quantity": 0,
+        "remaining_units": 0,
+        "unit_cost_rub": "10.00",
+        "effective_date": "2026-11-06",
+        "provenance": "OWNER_CONFIRMED",
+        "provenance_label": "подтверждено владельцем",
+        "kind": "RECONCILED_RATE",
+        "remaining_status": "AFTER_CONFIRMED_REPLAY",
+    }]
+    assert result["next_unit_cost_rub"] == "20.00"
+    assert result["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
+
+    latest = snapshot["latest_allocation"]
+    invalid_allocations = [
+        {**latest, "stream_revision": 2},
+        {**latest, "stale": True},
+        {**latest, "replayed_rate_balances": latest["replayed_rate_balances"][:1]},
+        {
+            **latest,
+            "replayed_rate_balances": [
+                {"sequence": 1, "remaining_units": 0, "unit_cost_rub": "11.00"},
+                latest["replayed_rate_balances"][1],
+            ],
+        },
+    ]
+    for invalid_allocation in invalid_allocations:
+        invalid_snapshot = {
+            **snapshot,
+            "latest_allocation": invalid_allocation,
+        }
+
+        class _InvalidSnapshotRepository:
+            @staticmethod
+            def read_cost_history_snapshot(**_kwargs):
+                return invalid_snapshot
+
+        invalid = FifoCostHistoryService(_InvalidSnapshotRepository()).get_sku_history(
+            **IDENTITY, as_of_date="2026-11-07",
+        )
+        assert invalid["remaining_status"] == "REPLAY_REQUIRED"
+        assert invalid["next_unit_cost_rub"] is None
+        assert all(row["remaining_units"] is None for row in invalid["layers"])
+
+
 def test_late_delivery_transfer_does_not_create_a_second_cost_layer(tmp_path):
     token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
