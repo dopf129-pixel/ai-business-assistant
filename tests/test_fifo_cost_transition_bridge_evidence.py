@@ -481,6 +481,43 @@ def test_new_evidence_invalidates_ready_case_and_keeps_old_preview_seal(tmp_path
         reset_current_tenant_user_id(token)
 
 
+def test_bridge_evidence_can_be_read_by_exact_scoped_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", MASTER_KEY)
+    token = set_current_tenant_user_id(TENANT)
+    try:
+        repository = _repository(tmp_path)
+        assert _create_case(repository)["error"] is False
+        first = repository.append_transition_bridge_evidence(
+            case_id="case_000001", evidence=_evidence(),
+            expected_case_revision=1, idempotency_key="append-exact-read-01",
+        )
+        second = repository.append_transition_bridge_evidence(
+            case_id="case_000001", evidence=_evidence(),
+            expected_case_revision=2, idempotency_key="append-exact-read-02",
+        )
+        assert first["error"] is False and second["error"] is False
+        exact = repository.read_transition_bridge_evidence(
+            case_id="case_000001", **IDENTITY,
+            evidence_kind=TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT,
+            evidence_id=first["evidence_id"], limit=1,
+        )
+        assert exact["error"] is False
+        assert len(exact["items"]) == 1
+        assert exact["items"][0]["evidence_id"] == first["evidence_id"]
+        missing = repository.read_transition_bridge_evidence(
+            case_id="case_000001", **IDENTITY,
+            evidence_kind=TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT,
+            evidence_id="bridge_" + "f" * 40, limit=1,
+        )
+        assert missing["error"] is False and missing["items"] == []
+        invalid = repository.read_transition_bridge_evidence(
+            case_id="case_000001", **IDENTITY, evidence_id="plaintext-id",
+        )
+        assert invalid["code"] == "FIFO_TRANSITION_EVIDENCE_INVALID"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_read_preview_returns_corruption_for_tampered_seal(tmp_path):
     token = set_current_tenant_user_id(TENANT)
     try:

@@ -631,7 +631,8 @@ class FifoCostRepository:
 
     def read_transition_bridge_evidence(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
-        evidence_kind=None, limit=100, include_sensitive_payload=False,
+        evidence_kind=None, evidence_id=None, limit=100,
+        include_sensitive_payload=False,
     ):
         identity = self._normalize_transition_read_identity(
             store_id, product_id=product_id, offer_id=offer_id, sku=sku,
@@ -654,7 +655,7 @@ class FifoCostRepository:
                     evidence_kind.value
                     if isinstance(evidence_kind, TransitionBridgeEvidenceKind)
                     else evidence_kind
-                ), limit=limit,
+                ), evidence_id=evidence_id, limit=limit,
             )
             if result.get("error"):
                 return result

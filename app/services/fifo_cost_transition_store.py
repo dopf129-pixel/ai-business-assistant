@@ -12,6 +12,7 @@ from decimal import Decimal
 from enum import Enum
 import hashlib
 import json
+import re
 import sqlite3
 from typing import Mapping
 
@@ -543,30 +544,50 @@ class FifoCostTransitionStore:
 
     @classmethod
     def read_bridge_evidence(
-        cls, connection, case_id, scope, identity, *, evidence_kind=None, limit=100,
+        cls, connection, case_id, scope, identity, *, evidence_kind=None,
+        evidence_id=None, limit=100,
     ):
         if type(limit) is not int or not 1 <= limit <= 100:
             return {"error": True, "code": "FIFO_TRANSITION_LIMIT_INVALID"}
         case_row = cls._load_case(connection, case_id, scope, identity)
         if case_row is None:
             return {"error": True, "code": "FIFO_TRANSITION_CASE_NOT_FOUND"}
+        if evidence_id is not None and (
+            not isinstance(evidence_id, str)
+            or re.fullmatch(r"bridge_[a-f0-9]{40}", evidence_id) is None
+        ):
+            return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_INVALID"}
         if evidence_kind is not None:
             if not isinstance(evidence_kind, str) or evidence_kind not in {
                 item.value for item in TransitionBridgeEvidenceKind
             }:
                 return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_KIND_INVALID"}
-            rows = connection.execute(
-                """SELECT * FROM fifo_cost_transition_bridge_evidence
-                   WHERE case_id=? AND evidence_kind=?
-                   ORDER BY evidence_revision DESC LIMIT ?""",
-                (case_id, evidence_kind, limit),
-            ).fetchall()
+            if evidence_id is not None:
+                rows = connection.execute(
+                    """SELECT * FROM fifo_cost_transition_bridge_evidence
+                       WHERE case_id=? AND evidence_kind=? AND evidence_id=?""",
+                    (case_id, evidence_kind, evidence_id),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT * FROM fifo_cost_transition_bridge_evidence
+                       WHERE case_id=? AND evidence_kind=?
+                       ORDER BY evidence_revision DESC LIMIT ?""",
+                    (case_id, evidence_kind, limit),
+                ).fetchall()
         else:
-            rows = connection.execute(
-                """SELECT * FROM fifo_cost_transition_bridge_evidence
-                   WHERE case_id=? ORDER BY recorded_at DESC, evidence_id DESC LIMIT ?""",
-                (case_id, limit),
-            ).fetchall()
+            if evidence_id is not None:
+                rows = connection.execute(
+                    """SELECT * FROM fifo_cost_transition_bridge_evidence
+                       WHERE case_id=? AND evidence_id=?""",
+                    (case_id, evidence_id),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT * FROM fifo_cost_transition_bridge_evidence
+                       WHERE case_id=? ORDER BY recorded_at DESC, evidence_id DESC LIMIT ?""",
+                    (case_id, limit),
+                ).fetchall()
         evidence_ids = [row["evidence_id"] for row in rows]
         confirmations = {}
         if evidence_ids:
