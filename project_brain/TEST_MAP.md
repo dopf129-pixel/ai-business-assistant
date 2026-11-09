@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR25 exact preview/confirmation tests
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers read-only readiness bound to the saved preview, stable prepare retry keys, candidate/missing result without READY, restart recovery of the exact READY seal, expired seal display without an apply action, opaque exact-binding confirmation, changed-fingerprint rejection, idempotent callback replay, and APPLIED receipt display after restart.
+- `tests/test_fifo_cost_transition_apply_service.py` verifies `read_commit` returns the exact durable commit and `complete_through` after a repository/service restart. `tests/test_fifo_cost_transition_atomic_apply.py` continues to cover CAS, atomicity, rollback and tenant isolation.
+- Linked production workflow/apply/evidence/review/runtime/atomic profile: **48 passed in 8.60s**; compile, diff/data checks and FR00 manifest PASS. Full suite/current-head CI remain FR30.
+
 # 2026-11-10 — FIFO FR24 production assembly tests
 
 - `tests/test_fifo_cost_transition_production_workflow.py::test_production_workflow_builder_wires_durable_evidence_review_apply_and_runtime` verifies one shared evidence/review/apply/runtime graph, exact repository/source/tax/Period Profit dependencies, period-summary impact service, and apply-only revision-aware cache invalidation.

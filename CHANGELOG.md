@@ -1,3 +1,10 @@
+# 2026-11-10 — FIFO FR25: exact preview confirmation in Telegram
+
+- «Проверить готовность» remains read-only. «Посмотреть пересчёт» now prepares an immutable READY seal or displays candidate/missing requirements; it does not change FIFO, current cost, history, caches, or saved plans.
+- READY screens read the same persisted preview after restart. The final opaque callback ticket binds exact preview ID/fingerprint, READY case revision, and a stable apply idempotency key. The apply service receives those exact values and revalidates them; changed previews are rejected. An expired seal remains visible for review but has no apply button.
+- Persisted APPLIED receipts now retain the apply idempotency key and can restore the exact commit ID and `complete_through` after restart without rebuilding the calculation.
+- Verification on implementation commit `b86d54d0`: linked production workflow/apply/evidence/review/Telegram/runtime/atomic-apply profile **48 passed in 8.60s**; changed modules compile; `git diff --check`, `data/` diff, and FR00 data SHA-256 manifest PASS. Full pytest and exact-head CI remain FR30; no owner case, live API, bot launch, merge, or deployment was used.
+
 # 2026-11-10 — FIFO FR24: shared production workflow assembly
 
 - Added `create_fifo_cost_transition_workflow` as the single composition root for durable evidence, review, apply, bounded supply refresh, report/physical-sales imports, period-summary collection, and Telegram runtime. `create_telegram_assistant` now uses the same builder and exposes the assembled workflow/runtime/apply services on its runner; the legacy `create_fifo_cost_transition_service` remains compatible.

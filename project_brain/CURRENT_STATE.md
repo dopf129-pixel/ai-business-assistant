@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR25 exact preview confirmation
+
+- Implementation commit `b86d54d0` (`Bind FIFO confirmation to exact preview`). «Проверить готовность» only reads; «Посмотреть пересчёт» now calls prepare and either shows the exact persisted READY seal or candidate/missing requirements. READY after restart reloads the saved seal; the final opaque ticket binds preview ID/fingerprint, case revision and stable idempotency key. Apply revalidates this exact binding. Expired seals remain inspectable but cannot be applied. APPLIED receipt restores commit ID and complete-through after restart.
+- Linked production workflow/apply/evidence/review/Telegram/runtime/atomic-apply profile: **48 passed in 8.60s**; compile, diff check, and FR00 data manifest pass. Full pytest/current-head CI remain FR30. The real owner case remains source-blocked; no live calls, bot launch, merge or deployment.
+
 # 2026-11-10 — FIFO FR24 shared production workflow
 
 - Added `create_fifo_cost_transition_workflow` and switched `create_telegram_assistant` to use it. Production assembly shares one repository/history/transition, durable evidence, review, apply, impact and runtime graph; it also carries source, tax, Period Profit and report/document dependencies. The runner exposes the workflow, runtime and apply service. The compatibility transition-service factory remains unchanged.
