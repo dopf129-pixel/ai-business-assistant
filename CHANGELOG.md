@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR21: canonical late-entry impact
+
+- Late-entry impact now requires each complete financial-month snapshot to cover the exact calendar month and match the exact reconstruction fingerprint. A READY comparison also requires every month snapshot's tax-policy fingerprint to match the current normalized tax policy; stale or incomplete bindings return candidate-only without delta, tax, or profit.
+- Added exact MR12–MR15 profit/tax regressions through the existing TaxService, full dependent-period/other-SKU preservation checks, a public reconstruction-to-impact integration test, and separate non-sale outflow coverage. TaxService and Period Profit formulas remain unchanged.
+- Linked synthetic FR20–FR21 profile: 104 tests passed before the final outflow assertion was added; final result recorded in the progress journal. No owner data or live service was used.
+
 # 2026-11-10 — FIFO FR20: frozen financial-period baselines
 
 - Added a bounded, resumable collector that reads canonical whole-store Period Profit in four-day chunks under the shared 20-second/10-request trace. It binds each financial month to exact, confirmed finance identities, exact before-reconstruction SKU COGS, current tax-policy fingerprint, and complete daily-accrual source fingerprints; only complete month snapshots are persisted.

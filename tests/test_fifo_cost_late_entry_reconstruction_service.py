@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 
 from services.fifo_cost_late_entry_reconstruction_service import (
     FifoCostLateEntryReconstructionService,
+)
+from services.fifo_cost_late_entry_impact_service import (
+    FifoCostLateEntryImpactService,
 )
 from services.fifo_cost_non_sale_movement_service import (
     FifoCostNonSaleMovementService,
@@ -15,6 +19,7 @@ from services.fifo_cost_sale_evidence_normalizer import (
 )
 from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
 from services.fifo_cost_supply_evidence_service import FifoCostSupplyEvidenceService
+from services.fifo_cost_transition_contracts import FifoFinancialPeriodSummary
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import (
     reset_current_tenant_user_id,
@@ -374,6 +379,53 @@ def test_fc21_keeps_unsold_old_layer_ahead_of_late_rate(old_stock_remains_stream
     assert result["code"] == "FIFO_LATE_ENTRY_RECONSTRUCTION_READY", result
     assert result["candidate_rate_units"] == 0
     assert result["candidate_total_cogs_rub"] == "100.00"
+
+
+def test_fl21_preview_impact_uses_public_reconstruction_and_bound_month_snapshot(
+    old_stock_remains_stream,
+):
+    repository, draft_id = old_stock_remains_stream
+    _publish_current_allocation(repository)
+    reconstruction_service = FifoCostLateEntryReconstructionService(repository)
+    reconstruction = reconstruction_service.preview(**IDENTITY, draft_id=draft_id)
+    assert reconstruction["code"] == "FIFO_LATE_ENTRY_RECONSTRUCTION_READY"
+    assert reconstruction["before_complete"] is True
+
+    tax_policy = {
+        "error": False,
+        "configured": True,
+        "policy": {"mode": "NONE", "tax_rate": 0.0, "minimum_tax_rate": 1.0},
+    }
+    impact_service = FifoCostLateEntryImpactService()
+    normalized_policy = impact_service._normalize_policy(tax_policy)
+    sale_digests = tuple(reconstruction["sale_identity_digests_by_event"].values())
+    summary = FifoFinancialPeriodSummary(
+        period_from="2026-11-01",
+        period_to="2026-11-30",
+        source_fingerprint="d" * 64,
+        reconstruction_fingerprint=reconstruction["preview_fingerprint"],
+        tax_policy_fingerprint=normalized_policy["fingerprint"],
+        sale_identity_digests=sale_digests,
+        revenue_rub=Decimal("1000.00"),
+        discount_points_rub=Decimal("0.00"),
+        net_accrual_rub=Decimal("500.00"),
+        current_total_product_cost_rub=Decimal("100.00"),
+        current_sku_product_cost_rub=Decimal("100.00"),
+    )
+
+    result = reconstruction_service.preview_impact(
+        **IDENTITY,
+        draft_id=draft_id,
+        period_summaries=[summary.as_impact_summary()],
+        tax_policy_result=tax_policy,
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_READY", result
+    assert result["reconstruction_fingerprint"] == reconstruction["preview_fingerprint"]
+    assert result["tax_policy_fingerprint"] == normalized_policy["fingerprint"]
+    assert result["periods"][0]["period"] == "2026-11"
+    assert result["periods"][0]["before_sku_cogs_rub"] == "100.00"
+    assert result["periods"][0]["after_sku_cogs_rub"] == "100.00"
 
 
 def test_fc21_stale_draft_is_blocked_after_new_fifo_event(stream):

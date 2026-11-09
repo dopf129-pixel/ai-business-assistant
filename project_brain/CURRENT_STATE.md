@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO review-blocker execution FR00–FR21
+
+- FR21 canonical impact now accepts only complete calendar-month Period Profit snapshots bound to the exact public FIFO reconstruction and current normalized tax policy. Missing, stale or mismatched evidence stays candidate-only, with no profit/tax deltas. TaxService and Period Profit formulas are unchanged.
+- Exact MR12–MR15 numeric regressions, dependent-month/other-SKU preservation, separate outflow handling, and a public reconstruction-to-impact integration path are covered. Linked synthetic checks and remaining limitations are in the progress journal; full suite/current-head CI remain FR30. Production assembly/action remain FR24–FR25. The owner's case is still unverified.
+
 # 2026-11-10 — FIFO review-blocker execution FR00–FR20
 
 - FR20 freezes whole-store financial amounts from the existing Period Profit chain per financial recognition month and binds them to exact reconstruction COGS, sale-identity digests, daily finance data, and the tax-policy fingerprint. Collection is resumable, capped at four days per call, 20 seconds and 10 shared HTTP attempts; a partial month is never persisted. Retry after a failed snapshot write resumes from before the final chunk, avoiding double counting.

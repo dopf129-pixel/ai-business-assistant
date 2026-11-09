@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR21 canonical impact
+
+- `tests/test_fifo_cost_late_entry_impact_service.py`: exact MR12–MR15 tax/profit matrix through the existing TaxService; complete-month validation; exact reconstruction/tax-policy snapshot binding; whole-store cost preservation across financial months; incomplete-baseline candidate-only; non-sale outflow outside sales COGS.
+- `tests/test_fifo_cost_late_entry_reconstruction_service.py::test_fl21_preview_impact_uses_public_reconstruction_and_bound_month_snapshot`: public repository reconstruction passes through the late-entry impact wrapper with typed `FifoFinancialPeriodSummary`; exact reconstruction/tax fingerprints and financial recognition month are asserted.
+- Linked FR20–FR21 profile and current result are recorded in the progress journal.
+
 # 2026-11-10 — FIFO FR20 frozen financial-period summaries
 
 - `tests/test_fifo_cost_financial_period_summary_collection_service.py` covers four-day continuation, exact month and store/product identity mapping, whole-account versus target-SKU COGS, daily source completeness, missing before baseline, scope binding, and retry after an unsuccessful month snapshot write without double-counting.

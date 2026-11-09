@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR20 выполнены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR21 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR21 NOT_STARTED. FR20 добавил ограниченный resumable collector canonical Period Profit, который сохраняет только полный финансовый месяц, связанный с точными recognition identities, before-COGS реконструкции, дневным finance fingerprint и налоговой политикой. Per-call: максимум 4 дня, 20 секунд, 10 общих HTTP-попыток. Неизвестный месяц, неполный источник, чужой scope и недоказанная себестоимость блокируют запись; ошибка записи месяца не сдвигает continuation и не удваивает последний chunk. Finance identity schema v2 хранит recognition month; v1 остаётся читаемой для bridge, но недостаточна для FR20 freeze до полной новой выборки. Linked profile: **88 passed in 3.96s**; Python compile PASS. CHANGELOG/CURRENT_STATE/TEST_MAP обновлены. FR24–FR25 добавят production assembly и отдельное действие владельца; prepare/confirm не выполняют сбор. Следующий этап: FR21 canonical impact.
+- Текущий этап FR22 NOT_STARTED. FR21 устранил пропущенную проверку FR20→FR21: каждый снимок теперь обязан совпадать с точным отпечатком reconstruction, текущей нормализованной налоговой политикой и покрывать полный календарный месяц. MR12–MR15 проверены через существующий TaxService; публичный late-entry reconstruction wrapper сквозным тестом передаёт типизированный FR20 snapshot. MR16 candidate-only, MR17 полный периодный горизонт/неизменная стоимость других SKU, MR18 отдельный outflow сохранены. Связанный профиль после последней правки: **104 passed in 6.93s**. `py_compile`, `git diff --check`, `git diff --exit-code -- data` прошли; все пять SHA-256 данных владельца совпали с FR00. Следующий этап: FR22 prepare и READY seal.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current implementation HEAD after FR19 code: `6d02a188` (`Add read-only FIFO transition reconstruction`); FR19 docs/checkpoint updates are recorded in this journal.
@@ -44,7 +44,7 @@
 | FR18 | DONE | Code checkpoint `ebf2218d`; encrypted finance/document/movement evidence reload; actual `READY` cutoff bridge after service restart; **210 passed in 15.82s**; no FIFO apply |
 | FR19 | DONE | Code checkpoint `6d02a188`; public read-only reconstruction shares prepare candidate replay; exact identity/revisions/lineage/COGS/coverage; staged opening and exception rollback; candidate fingerprint matched seal and committed allocation lines; **372 passed in 25.57s**, compile/diff/data checks PASS |
 | FR20 | DONE | `FifoCostFinancialPeriodSummaryCollectionService`; frozen whole-store month with exact target-SKU before COGS and finance identity map; **88 passed in 3.96s**; synthetic only, no UI/factory yet |
-| FR21 | NOT_STARTED | Impact |
+| FR21 | DONE | Binding snapshots to exact reconstruction/tax policy, full-month validation, MR12–MR18; section below. |
 | FR22 | NOT_STARTED | Prepare seal |
 | FR23 | NOT_STARTED | Apply/restart |
 | FR24 | NOT_STARTED | Production builder |
@@ -232,6 +232,14 @@
 - Schema/migration tests and prior FR04–FR06 replay suite: **104 passed in 2.78s** on implementation commit `43e6d5e5`; touched-file `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed; five owner-data SHA-256 values still match FR00. Test databases use `tmp_path`; no owner DB/files, live API or bot were used.
 - Implementation commit: `43e6d5e5` (`Add FIFO transition evidence schema v16`). `.fl12-deps/` remains untracked/unstaged.
 - Next: FR08 repository adapter for the existing proven multi-rate replay kernel.
+
+## FR21 — canonical financial impact — 2026-11-10
+
+- Проверкой FR20→FR21 обнаружен дефект: месячные snapshots уже содержали `reconstruction_fingerprint` и `tax_policy_fingerprint`, но impact-service их игнорировал. Теперь точный fingerprint reconstruction проверяется до расчёта, каждый READY snapshot сверяется с текущим отпечатком нормализованной налоговой политики, а `period_from/to` должны покрывать весь календарный месяц. При несовпадении — только candidate-only (`FIFO_PERIOD_SUMMARY_RECONSTRUCTION_MISMATCH` или `FIFO_PERIOD_SUMMARY_TAX_POLICY_MISMATCH`), без delta/tax/profit.
+- Добавлены точные MR12–MR15 проверки через существующий `TaxService`: NONE 295→307.70 ₽; USN доходы при 200 ₽ баллов — налог 48→48 ₽ и прибыль 247→259.70 ₽; УСН доходы-расходы 15% с half-up — налог 44.25→46.16 ₽ и прибыль 250.75→261.54 ₽; минимальный налог сохраняет 10 ₽ при прибыли −5→7.70 ₽. MR16 candidate-only остаётся; MR17 покрывает каждый месяц финансового горизонта и сохранение расходов других SKU; MR18 подтверждает, что отдельный outflow 2×21=42 ₽ не меняет COGS продаж и прибыльный delta.
+- Интеграционная регрессия через `FifoCostLateEntryReconstructionService.preview_impact` получает реальный публичный результат repository reconstruction, передаёт `FifoFinancialPeriodSummary.as_impact_summary()` и проверяет точные reconstruction/tax bindings и финансовый месяц признания. TaxService и формулы Period Profit не менялись.
+- Финальный linked FR20–FR21 профиль после assertion-only правки: **104 passed in 6.93s**. Узкие проверки до расширения профиля: impact tests **30 passed in 0.43s**, integration/reconstruction pair **38 passed in 1.35s**. `py_compile`, `git diff --check`, `git diff --exit-code -- data` прошли; все пять FR00 SHA-256 совпали.
+- Только синтетические снимки/SQLite. Нет live Ozon/Telegram, owner data, запуска бота, merge или deployment. Полный pytest/current-head CI принадлежат FR30; production assembly/action — FR24–FR25. Next: FR22 prepare and READY seal.
 
 ## FR20 — 2026-11-10
 
