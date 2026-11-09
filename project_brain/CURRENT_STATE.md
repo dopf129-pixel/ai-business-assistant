@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR13
+# 2026-11-09 — FIFO review-blocker execution FR00–FR14
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR13 are complete. FR13 adds a strict owner-imported physical-sales CSV parser and empty template through the existing bounded worker; the parent binds normalized rows to the exact uploaded bytes. The legacy cost CSV route is unchanged and physical-sales Telegram routing remains deferred to FR15.
-- Linked FR13 profile: **74 passed in 5.24s** on final FR13 code, including legacy report and cost-table imports. Compileall, `git diff --check` and all five owner-data hashes pass. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR14 are complete. FR13 provides the strict owner-imported physical-sales CSV parser; FR14 stores the exact source encrypted and supports separate restart-safe confirmation of rows and `PHYSICAL_OUTFLOW` semantics. This owner document remains partial evidence and does not establish complete movement coverage. Legacy cost CSV and Telegram routing remain unchanged; routing is FR15.
+- Linked FR14 profile: **157 passed in 13.95s**, including physical-sales parser/worker, durable evidence, bridge/store/schema/apply and legacy import paths. Compileall, `git diff --check`, `git diff --exit-code -- data` and all five owner-data hashes pass. Schema v16 unchanged. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

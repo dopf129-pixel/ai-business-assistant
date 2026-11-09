@@ -1,15 +1,15 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR13 выполнены; далее FR14.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR14 выполнены; далее FR15.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR14 NOT_STARTED: FR13 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — отдельное durable подтверждение физического CSV, привязанное к точному файлу, периоду, timezone, семантике, scope и revision.
+- Текущий этап FR15 NOT_STARTED: FR14 завершён. Следующий шаг — подключить маршрутизацию owner physical-sales CSV для выбранного FIFO case, сохранив прежний маршрут legacy cost CSV без изменений.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current implementation HEAD after FR12: `7e0f44b4ac50c7144a2dc329afd256e63553b154` (`Add durable FIFO transition evidence API`).
+- Current implementation HEAD after FR14: `bcd78201f800b6df93faeb14f2222ca59a1fe651` (`Persist confirmed FIFO physical sales evidence`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
@@ -37,7 +37,7 @@
 | FR11 | DONE | History/current/export/Period Profit сверены по полным replay revisions; FR11 profile **79 passed in 4.66s**; saved-plan restart regression PASS |
 | FR12 | DONE | Typed bridge-evidence and confirmation APIs; **133 passed in 10.53s** on linked profile; exact data manifest preserved |
 | FR13 | DONE | `1dc8d95e9e0c2df6eecfdda27cfbaf1b82827193`; strict physical-sales CSV parser, template, guide and bounded worker; 74 linked tests passed |
-| FR14 | NOT_STARTED | Durable confirmation |
+| FR14 | DONE | `bcd78201f800b6df93faeb14f2222ca59a1fe651`; encrypted restartable physical-sales evidence and separate bound confirmation; linked profile **157 passed in 13.95s**; five data hashes unchanged |
 | FR15 | NOT_STARTED | Telegram routing |
 | FR16 | NOT_STARTED | Source snapshots |
 | FR17 | NOT_STARTED | Cutoff/opening |
@@ -55,6 +55,12 @@
 | FR29 | NOT_STARTED | Documentation |
 | FR30 | NOT_STARTED | Full tests/current CI |
 | FR31 | NOT_STARTED | Review package |
+
+# FR14 — durable physical-sales confirmation, 2026-11-09
+
+- Code commit: `bcd78201f800b6df93faeb14f2222ca59a1fe651` (`Persist confirmed FIFO physical sales evidence`), based on FR13 checkpoint `a32c2970563f8c1e5242bded841fa206460e4a00`. Added a durable evidence service and exact scoped evidence-ID read. The service reparses exact uploaded bytes, stores the source only through existing tenant encryption, binds the separate confirmation to the document/row fingerprints, period, timezone, `PHYSICAL_OUTFLOW` semantics, exact scope/evidence and expected case revision, and reconstructs the same state after restart. Physical-sales owner CSV remains `PARTIAL` with `coverage_verified=false`; it cannot independently establish complete movement coverage or open the cutoff bridge. Schema v16 and the v15 owner period-confirmation flow are unchanged.
+- Linked profile: `tests/test_fifo_cost_physical_sales_import_service.py`, `tests/test_fifo_cost_physical_sales_evidence_service.py`, `tests/test_fifo_cost_report_import_worker_client.py`, `tests/test_fifo_cost_report_import_service.py`, `tests/test_fifo_cost_stock_management_import_service.py`, `tests/test_fifo_cost_report_import_telegram_adapter.py`, `tests/test_telegram_fifo_cost_report_import_service.py`, `tests/test_seller_cost_table_service.py`, `tests/test_fifo_cost_transition_bridge_evidence.py`, `tests/test_fifo_cost_transition_store.py`, `tests/test_fifo_cost_transition_service.py`, `tests/test_fifo_cost_transition_schema_v16.py`, `tests/test_fifo_cost_transition_schema_v13.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, `tests/test_fifo_cost_repository_multi_rate_replay.py`, and `tests/test_fifo_cost_late_entry_reconstruction_service.py` — **157 passed in 13.95s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` and all five FR00 data hashes passed: history `520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; profiles `8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; tasks `6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; tax `F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; users `2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`. `.fl12-deps/` remains untracked and unstaged.
+- Verification used synthetic local SQLite and CSV only. No owner source file/database, Ozon/Telegram request, bot launch, merge or deployment. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; full suite/exact-head CI remain FR30. Next: FR15 Telegram routing.
 
 ## Формат записи
 

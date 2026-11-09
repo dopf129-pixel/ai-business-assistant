@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR14: сохраняем и отдельно подтверждаем физические продажи
+
+- Добавлен сервис сохранения owner-imported физического CSV в текущем tenant-зашифрованном transition evidence. После перезапуска исходный документ восстанавливается и повторно проверяется парсером по точным отпечаткам, scope, периоду и часовому поясу.
+- Подтверждение строк и семантики `PHYSICAL_OUTFLOW` является отдельной append-only операцией с привязкой к отпечатку документа, полному отпечатку строк и ожидаемой ревизии дела. Такой CSV остаётся `PARTIAL`; он не подтверждает полноту покрытия и сам по себе не открывает cutoff bridge. Схема v16 и legacy v15 confirmation flow не менялись.
+- Связанный локальный профиль: **157 passed in 13.95s**; compileall, `git diff --check`, отсутствие изменений `data/` и пять исходных SHA-256 прошли. Telegram routing и live services не затронуты.
+
 # 2026-11-09 — FIFO FR13: owner physical-sales CSV parser
 
 - Added a fixed, empty UTF-8/semicolon CSV template and guide for owner-entered physical outflow evidence. The parser validates exact headers, quoted fields, SKU scope, unique row references and posting identity, ISO dates, positive integer units, encoding, file size, 50,000-row and aggregate-unit limits. It does not infer dates or interpret arbitrary Ozon spreadsheets.

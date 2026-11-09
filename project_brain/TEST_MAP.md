@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR14 durable physical-sales evidence
+
+- `tests/test_fifo_cost_physical_sales_evidence_service.py` covers exact uploaded-byte reparse, safe preview, encrypted tenant storage, restart reconstruction, separate exact confirmation, idempotent save retry, stale confirmation rejection, timezone/declared-period binding, wrong-key fail-closed behavior, and persisted `PARTIAL`/unverified-coverage semantics.
+- `tests/test_fifo_cost_transition_bridge_evidence.py::test_bridge_evidence_can_be_read_by_exact_scoped_id` verifies the new bounded selector cannot read evidence outside the requested case/identity/kind.
+- The linked FR14 profile runs the new persistence path with the physical-sales parser/worker, schema v16/v13, transition store/service/atomic apply, multi-rate replay, late-entry reconstruction, existing Ozon report import and legacy seller-cost CSV paths: **157 passed in 13.95s**. Local synthetic SQLite only; full suite/current-head CI remain FR30.
+
 # 2026-11-09 — FIFO FR13 physical-sales CSV parser
 
 - `tests/test_fifo_cost_physical_sales_import_service.py` covers the exact empty template, UTF-8/BOM, quoted fields, exact headers, malformed quotes/columns, file and row limits, NUL/encoding, SKU scope, dates, positive integer units, aggregate unit cap, duplicate/conflicting row references and posting/SKU identities, worker-manifest recomputation, and identifier-free repr.
