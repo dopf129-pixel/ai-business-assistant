@@ -22,6 +22,11 @@
 - Added additive append-only storage for typed transition evidence, exact owner confirmations, and allocation balances by cost-rate lineage. The migration keeps planning `PRAGMA user_version` unchanged and preserves existing v15 period confirmations.
 - Added owner/tenant/store/case and exact confirmation-scope foreign keys, evidence-kind and size constraints, physical-document row/ciphertext bounds, per-case aggregate quotas, lookup indexes, and immutable triggers. Legacy schema and rollback regressions pass.
 
+# 2026-11-09 — FIFO ordinary rate changes after late entry (FR09)
+
+- Rate-change previews now reconcile stock against a complete prefix replay at the selected store-local date; they no longer compare against future-period remaining stock. Lower snapshots are accepted only when fully explained by confirmed sales, non-sale outflows, and saleable returns.
+- A successful transition atomically persists the new rate, reconciliation, replay allocation, and final projection. Unexplained movements and incomplete mapping evidence fail closed; intermediate projection state does not expose cost from the wrong replay horizon.
+
 # 2026-11-09 — FIFO repository multi-rate replay (FR08)
 
 - Connected the repository allocation, validation, persistence, remaining-balance reader and source fingerprint to a complete, evidence-backed chain of active cost rates. Legacy single-rate fingerprints remain byte-for-byte compatible; incomplete multi-rate chains fail closed.

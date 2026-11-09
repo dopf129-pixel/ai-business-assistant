@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR08 выполнены; далее FR09.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR09 выполнены; далее FR10.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR09 IN_PROGRESS: проверить и расширить обычное изменение себестоимости после late entry через prefix replay на выбранной границе; уменьшение stock принимать только при полном bridge.
+- Текущий этап FR10 IN_PROGRESS: провести возвраты и непродажные движения через temporal multi-rate replay с точной исходной стоимостью, не смешивая возвраты с COGS продаж.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
@@ -31,8 +31,8 @@
 | FR06 | DONE | Store-local temporal ordering, exact/local-date boundaries, bounded ambiguity analysis, stable duplicate/permutation fingerprints; **86 passed in 1.39s** across temporal replay and legacy allocator/replay profiles. |
 | FR07 | DONE | Schema v16; additive tables/indexes/FK/immutable guards/quotas; local migrations and replay profile 104 passed. |
 | FR08 | DONE | Multi-rate repository adapter; linked FIFO profile **134 passed in 7.34s**, compileall/diff/data-manifest PASS; implementation checkpoint `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` |
-| FR09 | IN_PROGRESS | Ordinary rate change after late entry through prefix replay |
-| FR10 | NOT_STARTED | Returns/non-sale |
+| FR09 | DONE | Public MR01–MR03; exact prefix replay; complete bridge for lower stock; atomic rate/reconciliation/allocation/projection; **136 passed in 7.79s** |
+| FR10 | IN_PROGRESS | Returns/non-sale |
 | FR11 | NOT_STARTED | Readers/gateB |
 | FR12 | NOT_STARTED | Typed evidence |
 | FR13 | NOT_STARTED | Physical CSV |
@@ -70,6 +70,15 @@
 - Data manifest до/после: history `520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; profiles `8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; tasks `6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; tax `F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; users `2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`. `git diff -- data` пустой. `.fl12-deps/` не изменялась и не добавлялась.
 - Ограничение: synthetic repository fixture создаёт rate/reconciliation/mapping rows напрямую для изоляции adapter boundary; создание новых ставок через публичные application methods — критерий FR09. Реальные данные владельца и внешние API не использовались. Следующий шаг — FR09.
 - Итоговый code/docs checkpoint FR08: `c2b4ce2b7cc020a6ed9232d1e152289a5ab486f8` (`Connect FIFO repository multi-rate replay`). Рабочее дерево чистое, кроме заранее существующей неотслеживаемой `.fl12-deps/`; она не включена в commit.
+
+## FR09 — 2026-11-09
+
+- Реализация: `preview_cost_rate_change` выполняет prefix replay по выбранной store-local effective date для каждого изменения после первой ставки. Prefix replay требует полного exact-SKU cutoff mapping, фильтрует продажи, возвраты и non-sale outflows по локальной дате и отсекает будущие rate boundaries. Полный end-of-period остаток больше не используется для утверждения прошлой границы.
+- Снимок с меньшим количеством допускается только при объяснении полного мостового интервала подтверждёнными продажами, non-sale outflows и saleable returns. Неподтверждённая/неполная причина или временная метка блокирует изменение; необъяснённое уменьшение возвращает `FIFO_RATE_STOCK_DISCREPANCY`.
+- Public regression `test_fr09_replays_three_rates_from_prefix_and_publishes_atomically` проходит MR01–MR03 через `FifoCostRateService.preview_new_cost/confirm_new_cost` без SQL-вставки новых ставок. Инъекция ошибки после записи allocation rows доказывает rollback rate/reconciliation/allocation/projection; успешное повторное подтверждение читает текущую полную ревизию из нового repository instance. Финальный COGS по дням: 92.30 / 1614.20 / 166.00 ₽, сумма 1872.50 ₽. Проверка отдельно отвергает необъяснённое падение остатков.
+- Временная проекция при транзакции ставит только новую ревизию/fingerprint/неполный флаг; она не публикует остаток из другого горизонта. После полного candidate replay в той же транзакции вычисляются и публикуются exact finite balances, известная стоимость/количество и следующий FIFO unit cost. До commit все записи атомарны.
+- Проверка после последней правки: связанный профиль FR04–FR09, 9 файлов — **136 passed in 7.79s**. `compileall` трёх изменённых Python-файлов — PASS; `git diff --check` — PASS; `git diff --exit-code -- data` — PASS. Пять файлов `data/` совпадают с FR00 hashes. `.fl12-deps/` оставлена существующей, не изменена и не включена.
+- Использованы только synthetic SQLite в `tmp_path`; реальные данные владельца, Ozon/Telegram, deployment и запуск бота не трогались. Изменение ещё не опубликовано; exact-head CI не запускался. Следующий шаг — FR10: разрешить temporal replay возвратов из rate-derived sales и подтвердить точное lineage, outflow и Return COGS isolation.
 
 ## Проверка подготовки ТЗ — 09.11.2026
 

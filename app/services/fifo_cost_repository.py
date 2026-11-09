@@ -5542,80 +5542,12 @@ class FifoCostRepository:
                 )
                 if isinstance(stock, str):
                     return self._error(stock)
-                movement_count = connection.execute(
-                    """SELECT COUNT(*) FROM fifo_cost_events
-                       WHERE stream_id=? AND event_kind NOT IN (
-                           'OPENING_FIFO_ANCHOR', 'COST_LAYER_RECEIPT'
-                       )""",
-                    (stream_id,),
-                ).fetchone()[0]
-                replayed_finite_units = None
-                if movement_count:
-                    # A late transition already stores an exact allocation for
-                    # its complete sale bridge. Reuse it only after rebuilding
-                    # and validating the same replay from immutable events;
-                    # never infer consumption from the current stock count.
-                    allocation = connection.execute(
-                        """SELECT revision, stream_revision, status, cutoff_status,
-                                  source_set_fingerprint
-                           FROM fifo_cost_allocations WHERE stream_id=?
-                           ORDER BY revision DESC LIMIT 1""",
-                        (stream_id,),
-                    ).fetchone()
-                    allocation_revision = connection.execute(
-                        "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations "
-                        "WHERE stream_id=?", (stream_id,),
-                    ).fetchone()[0]
-                    current_source_fingerprint = self._allocation_source_fingerprint(
-                        connection, stream_id, stream["revision"],
-                        stream["policy_version"], projection["cutoff_status"],
-                    )
-                    if (
-                        allocation is None
-                        or allocation["stream_revision"] != stream["revision"]
-                        or allocation["status"] != "COMPLETE"
-                        or allocation["cutoff_status"] != "RECONCILED"
-                        or allocation["source_set_fingerprint"]
-                        != current_source_fingerprint
-                        or projection["queue_complete"] != 1
-                        or projection["cutoff_status"] != "RECONCILED"
-                    ):
-                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
-                    current_replay = self._preview_allocation_from_connection(
-                        connection, stream_id,
-                        stream_revision=stream["revision"],
-                        allocation_revision=allocation_revision,
-                        source_fingerprint=current_source_fingerprint,
-                        cutoff_status=projection["cutoff_status"],
-                        anchor_cutoff_date=projection["inventory_cutoff"],
-                    )
-                    normalized_replay = self._normalize_allocation_preview(
-                        current_replay, "rate-reconcile-current-0001",
-                    ) if current_replay else "FIFO_ALLOCATION_PREVIEW_INCOMPLETE"
-                    if isinstance(normalized_replay, str):
-                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
-                    try:
-                        self._validate_allocation_lines(
-                            connection, stream_id, normalized_replay,
-                            stream_revision=stream["revision"],
-                            allocation_revision=allocation_revision,
-                            source_fingerprint=current_source_fingerprint,
-                            cutoff_status=projection["cutoff_status"],
-                        )
-                    except (TypeError, ValueError):
-                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
-                    remaining = self._replayed_remaining_layers(
-                        connection, stream_id, allocation["revision"],
-                    )
-                    if remaining is None or any(
-                        type(item.get("remaining_units")) is not int
-                        or item["remaining_units"] < 0
-                        for item in remaining
-                    ):
-                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
-                    replayed_finite_units = sum(
-                        item["remaining_units"] for item in remaining
-                    )
+                replayed_finite_units = self._prefix_replay_finite_units(
+                    connection, stream_id, stream=stream, projection=projection,
+                    effective_date=effective_date,
+                )
+                if isinstance(replayed_finite_units, str):
+                    return self._error(replayed_finite_units)
                 previous_rate_sequence = previous["rate_sequence"]
                 prior_reconciliation_count = connection.execute(
                     """SELECT COUNT(*) FROM fifo_cost_rate_reconciliations
@@ -5654,14 +5586,30 @@ class FifoCostRepository:
                 )
                 if total_units > self.MAX_COMMAND_UNITS:
                     return self._error("FIFO_STREAM_QUANTITY_LIMIT")
-                last_total = connection.execute(
-                    """SELECT reconciled_total_units
+                last_reconciliation = connection.execute(
+                    """SELECT reconciled_total_units, effective_date
                        FROM fifo_cost_rate_reconciliations WHERE stream_id=?
                        ORDER BY transition_rate_sequence DESC LIMIT 1""",
                     (stream_id,),
                 ).fetchone()
-                if last_total is not None and total_units < last_total["reconciled_total_units"]:
-                    return self._error("FIFO_RATE_STOCK_DISCREPANCY")
+                if (
+                    last_reconciliation is not None
+                    and total_units < last_reconciliation["reconciled_total_units"]
+                ):
+                    explained = self._rate_boundary_net_depletion(
+                        connection, stream_id,
+                        after_date=last_reconciliation["effective_date"],
+                        through_date=effective_date,
+                    )
+                    minimum_explained_stock = max(
+                        0,
+                        last_reconciliation["reconciled_total_units"] - explained,
+                    ) if explained is not None else None
+                    if (
+                        minimum_explained_stock is None
+                        or total_units < minimum_explained_stock
+                    ):
+                        return self._error("FIFO_RATE_STOCK_DISCREPANCY")
                 if total_units < older_units:
                     return self._error("FIFO_RATE_RECONCILIATION_CONFLICT")
                 previous_rate_units = total_units - older_units
@@ -5681,9 +5629,9 @@ class FifoCostRepository:
                     "source_fingerprint": stock["source_fingerprint"],
                     "captured_at": stock["captured_at"],
                     "prior_rate_unit_cost_rub": previous["unit_cost_rub"],
-                    "older_finite_cost_rub": projection["known_cost_rub"],
                     "prior_total_units": (
-                        last_total["reconciled_total_units"] if last_total else None
+                        last_reconciliation["reconciled_total_units"]
+                        if last_reconciliation else None
                     ),
                 }
             latest_layer = connection.execute(
@@ -5932,6 +5880,14 @@ class FifoCostRepository:
                         "unit_cost_rub": previous["unit_cost_rub"],
                         "owner_old_home_units": previous["owner_old_home_units"],
                     }
+                    committed_allocation = connection.execute(
+                        """SELECT revision FROM fifo_cost_allocations
+                           WHERE stream_id=? AND stream_revision=? AND status='COMPLETE'
+                           ORDER BY revision DESC LIMIT 1""",
+                        (normalized["stream_id"], previous["stream_revision"]),
+                    ).fetchone()
+                    if committed_allocation is not None:
+                        result["allocation_revision"] = committed_allocation["revision"]
                     if correction_row is not None:
                         result["correction_id"] = correction_row["correction_id"]
                     connection.rollback()
@@ -5955,7 +5911,8 @@ class FifoCostRepository:
                 ).fetchone()
                 projection = connection.execute(
                     "SELECT revision, state, known_quantity, known_cost_rub, "
-                    "next_unit_cost_rub, source_set_fingerprint, queue_complete, cutoff_status "
+                    "next_unit_cost_rub, source_set_fingerprint, queue_complete, "
+                    "cutoff_status, inventory_cutoff "
                     "FROM fifo_cost_projections WHERE stream_id=?",
                     (normalized["stream_id"],),
                 ).fetchone()
@@ -6228,38 +6185,145 @@ class FifoCostRepository:
                             ),
                         )
                     else:
-                        prior_rate_cost = Decimal(
-                            reconciliation["prior_rate_unit_cost_rub"]
-                        )
-                        added_cost = (
-                            prior_rate_cost * reconciliation["prior_rate_units"]
-                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                        reconciled_cost = (
-                            Decimal(reconciliation["older_finite_cost_rub"])
-                            + added_cost
-                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                        old_next_cost = projection["next_unit_cost_rub"]
-                        if projection["known_quantity"] > 0:
-                            next_unit_cost = old_next_cost
-                        elif reconciliation["prior_rate_units"] > 0:
-                            next_unit_cost = reconciliation["prior_rate_unit_cost_rub"]
-                        else:
-                            next_unit_cost = payload["unit_cost_rub"]
                         connection.execute(
                             """UPDATE fifo_cost_projections
-                               SET revision=?, state='FIFO_PARTIAL',
-                                   known_quantity=?, known_cost_rub=?,
-                                   next_unit_cost_rub=?, queue_complete=0,
+                               SET revision=?, state='FIFO_PARTIAL', queue_complete=0,
                                    source_set_fingerprint=?, updated_at=?
                                WHERE stream_id=?""",
                             (
                                 next_revision,
-                                reconciliation["reconciled_total_units"],
-                                format(reconciled_cost, ".2f"), next_unit_cost,
                                 combined_source_set, self._iso(now),
                                 normalized["stream_id"],
                             ),
                         )
+                published_allocation = None
+                if reconciliation is not None and not zero_anchor:
+                    candidate_source_fingerprint = self._allocation_source_fingerprint(
+                        connection, normalized["stream_id"], next_revision,
+                        stream["policy_version"], projection["cutoff_status"],
+                    )
+                    current_allocation_revision = connection.execute(
+                        """SELECT COALESCE(MAX(revision), 0)
+                           FROM fifo_cost_allocations WHERE stream_id=?""",
+                        (normalized["stream_id"],),
+                    ).fetchone()[0]
+                    candidate_replay = self._preview_allocation_from_connection(
+                        connection, normalized["stream_id"],
+                        stream_revision=next_revision,
+                        allocation_revision=current_allocation_revision,
+                        source_fingerprint=candidate_source_fingerprint,
+                        cutoff_status=projection["cutoff_status"],
+                        anchor_cutoff_date=projection["inventory_cutoff"],
+                    )
+                    allocation_idempotency = "rate-" + self._sha256({
+                        "stream_id": normalized["stream_id"],
+                        "revision": next_revision,
+                        "payload": normalized["payload_fingerprint"],
+                    })[:40]
+                    normalized_allocation = self._normalize_allocation_preview(
+                        candidate_replay, allocation_idempotency,
+                    ) if candidate_replay else "FIFO_ALLOCATION_PREVIEW_INCOMPLETE"
+                    if isinstance(normalized_allocation, str):
+                        raise ValueError(
+                            candidate_replay.get("reason_code")
+                            if isinstance(candidate_replay, dict)
+                            and candidate_replay.get("reason_code")
+                            else "FIFO_RATE_REPLAY_REQUIRED"
+                        )
+                    try:
+                        rate_chain = self._validate_allocation_lines(
+                            connection, normalized["stream_id"],
+                            normalized_allocation,
+                            stream_revision=next_revision,
+                            allocation_revision=current_allocation_revision,
+                            source_fingerprint=candidate_source_fingerprint,
+                            cutoff_status=projection["cutoff_status"],
+                        )
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            str(exc) if str(exc).startswith("FIFO_")
+                            else "FIFO_RATE_REPLAY_REQUIRED"
+                        ) from None
+                    allocation_revision = current_allocation_revision + 1
+                    allocation_id = "alloc_" + uuid4().hex
+                    allocation_line_count = self._persist_allocation_revision_rows(
+                        connection,
+                        stream_id=normalized["stream_id"],
+                        allocation_id=allocation_id,
+                        allocation_revision=allocation_revision,
+                        stream_revision=next_revision,
+                        policy_version=stream["policy_version"],
+                        normalized=normalized_allocation,
+                        rate_chain=rate_chain,
+                        now_text=self._iso(now),
+                    )
+                    remaining_layers = self._replayed_remaining_layers(
+                        connection, normalized["stream_id"], allocation_revision,
+                    )
+                    if remaining_layers is None or any(
+                        type(row["remaining_units"]) is not int
+                        or row["remaining_units"] < 0
+                        for row in remaining_layers
+                    ):
+                        raise ValueError("FIFO_RATE_BALANCE_MISMATCH")
+                    finite_layers = [
+                        row for row in remaining_layers if row["remaining_units"] > 0
+                    ]
+                    finite_rates = []
+                    for rate in rate_chain["rates"]:
+                        remaining_units = normalized_allocation["rate_balances"][
+                            rate["rate_change_id"]
+                        ]["remaining_units"]
+                        if remaining_units is not None and remaining_units > 0:
+                            finite_rates.append({
+                                "sequence": rate["rate_sequence"],
+                                "remaining_units": remaining_units,
+                                "unit_cost_rub": rate["unit_cost_rub"],
+                            })
+                    known_quantity = (
+                        sum(row["remaining_units"] for row in finite_layers)
+                        + sum(row["remaining_units"] for row in finite_rates)
+                    )
+                    if known_quantity != candidate_replay.get(
+                        "remaining_confirmed_units",
+                    ):
+                        raise ValueError("FIFO_RATE_BALANCE_MISMATCH")
+                    known_cost = sum((
+                        Decimal(row["unit_cost_rub"]) * row["remaining_units"]
+                        for row in finite_layers
+                    ), Decimal("0.00")) + sum((
+                        Decimal(row["unit_cost_rub"]) * row["remaining_units"]
+                        for row in finite_rates
+                    ), Decimal("0.00"))
+                    known_cost = known_cost.quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP,
+                    )
+                    next_unit_cost = (
+                        finite_layers[0]["unit_cost_rub"] if finite_layers else
+                        finite_rates[0]["unit_cost_rub"] if finite_rates else
+                        rate_chain["rates"][-1]["unit_cost_rub"]
+                    )
+                    connection.execute(
+                        """UPDATE fifo_cost_projections
+                           SET revision=?, state='FIFO_READY', known_quantity=?,
+                               known_cost_rub=?, next_unit_cost_rub=?, queue_complete=1,
+                               source_set_fingerprint=?, updated_at=?
+                           WHERE stream_id=? AND revision=?""",
+                        (
+                            next_revision, known_quantity, format(known_cost, ".2f"),
+                            next_unit_cost, candidate_source_fingerprint,
+                            self._iso(now), normalized["stream_id"], next_revision,
+                        ),
+                    )
+                    connection.execute(
+                        "UPDATE fifo_cost_streams SET state='FIFO_READY', updated_at=? "
+                        "WHERE stream_id=? AND revision=?",
+                        (self._iso(now), normalized["stream_id"], next_revision),
+                    )
+                    published_allocation = {
+                        "allocation_revision": allocation_revision,
+                        "allocation_line_count": allocation_line_count,
+                    }
                 result = {
                     "revision": next_revision,
                     "rate_sequence": normalized["stream_snapshot"]["rate_sequence"],
@@ -6267,6 +6331,7 @@ class FifoCostRepository:
                     "owner_old_home_units": payload["owner_old_home_units"],
                     **({"reconciled_previous_rate_units": reconciliation["prior_rate_units"]}
                        if reconciliation else {}),
+                    **(published_allocation or {}),
                 }
                 if normalized_correction is not None:
                     result["correction_id"] = normalized_correction["correction_id"]
@@ -7970,8 +8035,126 @@ class FifoCostRepository:
             )
 
     @classmethod
+    def _persist_allocation_revision_rows(
+        cls, connection, *, stream_id, allocation_id, allocation_revision,
+        stream_revision, policy_version, normalized, rate_chain, now_text,
+    ):
+        """Persist one already-validated allocation within its caller transaction."""
+        connection.execute(
+            """INSERT INTO fifo_cost_allocations (
+                allocation_id, stream_id, revision, stream_revision,
+                policy_version, source_set_fingerprint, cutoff_status,
+                status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'RECONCILED', 'COMPLETE', ?)""",
+            (
+                allocation_id, stream_id, allocation_revision, stream_revision,
+                policy_version, normalized["source_set_fingerprint"], now_text,
+            ),
+        )
+        line_number = 0
+        rate_line_number = 0
+        for allocation in normalized["allocations"]:
+            for line in allocation["lines"]:
+                line_number += 1
+                basis_allocation_id = None
+                basis_line_number = None
+                origin_id = line["origin_sale_event_id"]
+                if origin_id is not None:
+                    if line["layer_id"] is not None:
+                        basis = connection.execute(
+                            """SELECT l.allocation_id, l.line_number
+                               FROM fifo_cost_allocation_lines AS l
+                               JOIN fifo_cost_allocations AS a
+                                 ON a.allocation_id=l.allocation_id
+                               WHERE a.stream_id=? AND l.event_id=? AND l.layer_id=?
+                               ORDER BY a.revision DESC, l.line_number LIMIT 1""",
+                            (stream_id, origin_id, line["layer_id"]),
+                        ).fetchone()
+                    else:
+                        basis = connection.execute(
+                            """SELECT l.allocation_id, l.line_number
+                               FROM fifo_cost_allocation_rate_lines AS l
+                               JOIN fifo_cost_allocations AS a
+                                 ON a.allocation_id=l.allocation_id
+                               WHERE a.stream_id=? AND l.event_id=?
+                                 AND l.rate_change_id=?
+                               ORDER BY a.revision DESC, l.line_number LIMIT 1""",
+                            (stream_id, origin_id, line["rate_change_id"]),
+                        ).fetchone()
+                    if basis is None:
+                        raise ValueError("FIFO_ALLOCATION_BASIS_MISSING")
+                    basis_allocation_id = basis["allocation_id"]
+                    basis_line_number = basis["line_number"]
+                if line["layer_id"] is not None:
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_lines (
+                            allocation_id, line_number, event_id, layer_id,
+                            quantity, unit_cost_rub, total_cost_rub,
+                            basis_allocation_id, basis_line_number
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            allocation_id, line_number, allocation["event_id"],
+                            line["layer_id"], line["quantity"],
+                            line["unit_cost_rub"], line["total_cost_rub"],
+                            basis_allocation_id, basis_line_number,
+                        ),
+                    )
+                else:
+                    rate_line_number += 1
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_rate_lines (
+                            allocation_id, line_number, event_id, rate_change_id,
+                            quantity, unit_cost_rub, total_cost_rub,
+                            basis_allocation_id, basis_line_number
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            allocation_id, rate_line_number, allocation["event_id"],
+                            line["rate_change_id"], line["quantity"],
+                            line["unit_cost_rub"], line["total_cost_rub"],
+                            basis_allocation_id, basis_line_number,
+                        ),
+                    )
+        outflow_line_number = 0
+        for outflow in normalized["outflows"]:
+            for line in outflow["lines"]:
+                if line["rate_change_id"] is None:
+                    outflow_line_number += 1
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_outflow_lines (
+                            allocation_id, line_number, event_id, layer_id,
+                            quantity, unit_cost_rub, estimated_value_rub,
+                            valuation_method
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            allocation_id, outflow_line_number,
+                            outflow["event_id"], line["layer_id"],
+                            line["quantity"], line["unit_cost_rub"],
+                            line["total_cost_rub"], line["valuation_method"],
+                        ),
+                    )
+                else:
+                    rate_line_number += 1
+                    connection.execute(
+                        """INSERT INTO fifo_cost_allocation_rate_lines (
+                            allocation_id, line_number, event_id, rate_change_id,
+                            quantity, unit_cost_rub, total_cost_rub,
+                            basis_allocation_id, basis_line_number
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)""",
+                        (
+                            allocation_id, rate_line_number, outflow["event_id"],
+                            line["rate_change_id"], line["quantity"],
+                            line["unit_cost_rub"], line["total_cost_rub"],
+                        ),
+                    )
+        cls._persist_rate_balance_rows(
+            connection, allocation_id, normalized, rate_chain,
+        )
+        return line_number
+
+    @classmethod
     def _load_rate_boundary_chain(
         cls, connection, stream_id, *, anchor_cutoff_date,
+        require_complete_mapping=False,
     ):
         """Load every active rate and prove each transition from immutable rows."""
         rates = connection.execute(
@@ -7988,12 +8171,14 @@ class FifoCostRepository:
         ).fetchall()
         if len(rates) > cls.MAX_RATE_CHAIN:
             return {"error": True, "reason_code": "FIFO_REPLAY_INPUT_LIMIT"}
-        if len(rates) <= 1:
+        if len(rates) <= 1 and not require_complete_mapping:
             return {
                 "error": False, "rates": rates, "boundaries": (),
                 "complete_through": None, "store_timezone": DEFAULT_STORE_TIMEZONE,
                 "reconciliations": {}, "mapping_set": None,
             }
+        if not rates:
+            return {"error": True, "reason_code": "FIFO_RATE_BOUNDARY_UNPROVEN"}
 
         cutoff_date = cls._normalize_date(anchor_cutoff_date)
         if cutoff_date is None:
@@ -8175,6 +8360,7 @@ class FifoCostRepository:
         hypothetical_open_rate=None,
         hypothetical_open_rate_effective_date=None,
         hypothetical_opening_layer_cost_replacement=None,
+        replay_through_date=None,
     ):
         """Rebuild expected FIFO output from immutable source rows before write."""
         anchor_row = connection.execute(
@@ -8490,9 +8676,10 @@ class FifoCostRepository:
                 "complete": False,
                 "reason_code": "FIFO_REPLAY_RATE_TRANSITION_UNSUPPORTED",
             }
-        if len(rate_rows) > 1:
+        if len(rate_rows) > 1 or replay_through_date is not None:
             chain = cls._load_rate_boundary_chain(
                 connection, stream_id, anchor_cutoff_date=anchor_cutoff_date,
+                require_complete_mapping=replay_through_date is not None,
             )
             if chain.get("error"):
                 return {
@@ -8500,6 +8687,33 @@ class FifoCostRepository:
                     "reason_code": chain.get("reason_code")
                     or "FIFO_RATE_CHAIN_CONFLICT",
                 }
+            boundaries = chain["boundaries"]
+            if replay_through_date is not None:
+                boundary_date = cls._normalize_date(replay_through_date)
+                if boundary_date is None:
+                    return {
+                        "complete": False,
+                        "reason_code": "FIFO_RATE_EFFECTIVE_DATE_INVALID",
+                    }
+                timezone_name = chain["store_timezone"]
+                filtered_events = []
+                for item in sales:
+                    local_date = cls._replay_event_local_date(
+                        item, timezone_name=timezone_name,
+                    )
+                    if local_date is None:
+                        return {
+                            "complete": False,
+                            "reason_code": "FIFO_RATE_BOUNDARY_UNPROVEN",
+                        }
+                    if local_date <= boundary_date:
+                        filtered_events.append(item)
+                sales = filtered_events
+                boundaries = tuple(
+                    item for item in boundaries
+                    if item.effective_date is not None
+                    and item.effective_date <= boundary_date
+                )
             return FifoCostReplayService().preview(
                 layers=layers,
                 events=sales,
@@ -8510,7 +8724,7 @@ class FifoCostRepository:
                 anchor_status=anchor_status,
                 cutoff_status=cutoff_status,
                 source_completeness="COMPLETE",
-                rate_boundaries=chain["boundaries"],
+                rate_boundaries=boundaries,
                 complete_through=chain["complete_through"],
                 store_timezone=chain["store_timezone"],
             )
@@ -8538,6 +8752,148 @@ class FifoCostRepository:
             open_rate=open_rate,
             open_rate_effective_date=open_rate_date,
         )
+
+    @classmethod
+    def _replay_event_local_date(cls, event, *, timezone_name):
+        """Return the proven store-local date used by the temporal replay."""
+        if not isinstance(event, FifoDatedAllocationEvent):
+            return None
+        if event.effective_at is not None:
+            try:
+                from zoneinfo import ZoneInfo
+
+                parsed = datetime.fromisoformat(
+                    event.effective_at.replace("Z", "+00:00"),
+                )
+                if parsed.tzinfo is None or parsed.utcoffset() is None:
+                    return None
+                return parsed.astimezone(ZoneInfo(timezone_name)).date().isoformat()
+            except (TypeError, ValueError, KeyError):
+                return None
+        return cls._normalize_date(event.effective_date)
+
+    @classmethod
+    def _rate_boundary_net_depletion(
+        cls, connection, stream_id, *, after_date, through_date,
+    ):
+        """Compute only replay-supported physical depletion between two snapshots."""
+        start = cls._normalize_date(after_date)
+        end = cls._normalize_date(through_date)
+        if start is None or end is None or end <= start:
+            return None
+        rows = connection.execute(
+            """SELECT event_kind, quantity, effective_at, effective_date
+               FROM fifo_cost_events WHERE stream_id=?
+                 AND event_kind NOT IN ('OPENING_FIFO_ANCHOR', 'COST_LAYER_RECEIPT')
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rows) > 100_000:
+            return None
+        net_depletion = 0
+        for row in rows:
+            local_date = cls._event_row_local_date(
+                row["effective_at"], row["effective_date"],
+                timezone_name=DEFAULT_STORE_TIMEZONE,
+            )
+            if local_date is None:
+                return None
+            if not start < local_date <= end:
+                continue
+            if row["event_kind"] in {"PHYSICAL_SALE", "NON_SALE_OUTFLOW"}:
+                net_depletion += row["quantity"]
+            elif row["event_kind"] == "SALEABLE_RETURN_RESTOCK":
+                net_depletion -= row["quantity"]
+            else:
+                # A correction or transfer needs its own physically confirmed
+                # bridge semantics before it can explain a stock decrease.
+                return None
+        return net_depletion
+
+    @classmethod
+    def _prefix_replay_finite_units(
+        cls, connection, stream_id, *, stream, projection, effective_date,
+    ):
+        """Require a complete current replay and return stock before the rate boundary."""
+        allocation = connection.execute(
+            """SELECT revision, stream_revision, status, cutoff_status,
+                      source_set_fingerprint
+               FROM fifo_cost_allocations WHERE stream_id=?
+               ORDER BY revision DESC LIMIT 1""",
+            (stream_id,),
+        ).fetchone()
+        allocation_revision = connection.execute(
+            "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations "
+            "WHERE stream_id=?", (stream_id,),
+        ).fetchone()[0]
+        current_source_fingerprint = cls._allocation_source_fingerprint(
+            connection, stream_id, stream["revision"],
+            stream["policy_version"], projection["cutoff_status"],
+        )
+        if (
+            allocation is None
+            or allocation["stream_revision"] != stream["revision"]
+            or allocation["status"] != "COMPLETE"
+            or allocation["cutoff_status"] != "RECONCILED"
+            or allocation["source_set_fingerprint"] != current_source_fingerprint
+            or projection["queue_complete"] != 1
+            or projection["cutoff_status"] != "RECONCILED"
+        ):
+            return "FIFO_RATE_REPLAY_REQUIRED"
+        current_replay = cls._preview_allocation_from_connection(
+            connection, stream_id,
+            stream_revision=stream["revision"],
+            allocation_revision=allocation_revision,
+            source_fingerprint=current_source_fingerprint,
+            cutoff_status=projection["cutoff_status"],
+            anchor_cutoff_date=projection["inventory_cutoff"],
+        )
+        normalized_replay = cls._normalize_allocation_preview(
+            current_replay, "rate-reconcile-current-0001",
+        ) if current_replay else "FIFO_ALLOCATION_PREVIEW_INCOMPLETE"
+        if isinstance(normalized_replay, str):
+            return "FIFO_RATE_REPLAY_REQUIRED"
+        try:
+            cls._validate_allocation_lines(
+                connection, stream_id, normalized_replay,
+                stream_revision=stream["revision"],
+                allocation_revision=allocation_revision,
+                source_fingerprint=current_source_fingerprint,
+                cutoff_status=projection["cutoff_status"],
+            )
+        except (TypeError, ValueError):
+            return "FIFO_RATE_REPLAY_REQUIRED"
+        prefix_replay = cls._preview_allocation_from_connection(
+            connection, stream_id,
+            stream_revision=stream["revision"],
+            allocation_revision=allocation_revision,
+            source_fingerprint=current_source_fingerprint,
+            cutoff_status=projection["cutoff_status"],
+            anchor_cutoff_date=projection["inventory_cutoff"],
+            replay_through_date=effective_date,
+        )
+        if (
+            not isinstance(prefix_replay, dict)
+            or prefix_replay.get("complete") is not True
+            or type(prefix_replay.get("remaining_confirmed_units")) is not int
+            or prefix_replay["remaining_confirmed_units"] < 0
+        ):
+            return "FIFO_RATE_REPLAY_REQUIRED"
+        return prefix_replay["remaining_confirmed_units"]
+
+    @staticmethod
+    def _event_row_local_date(effective_at, effective_date, *, timezone_name):
+        if effective_at is not None:
+            try:
+                from zoneinfo import ZoneInfo
+
+                parsed = datetime.fromisoformat(effective_at.replace("Z", "+00:00"))
+                if parsed.tzinfo is None or parsed.utcoffset() is None:
+                    return None
+                return parsed.astimezone(ZoneInfo(timezone_name)).date().isoformat()
+            except (AttributeError, TypeError, ValueError, KeyError):
+                return None
+        return FifoCostRepository._normalize_date(effective_date)
 
     @classmethod
     def _allocation_source_fingerprint(

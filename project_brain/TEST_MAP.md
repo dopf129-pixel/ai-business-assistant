@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO ordinary rate changes after late entry (FR09)
+
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_fr09_replays_three_rates_from_prefix_and_publishes_atomically` exercises public `FifoCostRateService` preview/confirm calls for the 21.00 → 14.65 → 16.00 → 18.00 history, including rollback after injected allocation-write failure, restart reads, exact per-day COGS and finite/open balances. The neighboring negative test rejects an unexplained stock drop.
+- `tests/test_fifo_cost_rate_service.py` now requires complete current prefix replay for every non-initial rate and verifies incomplete or unbridged history remains blocked.
+- Linked FR04–FR09 repository/allocation/rate/return/schema profile: **136 passed in 7.79s**. `compileall`, `git diff --check` and the five-file user-data hash manifest pass. Local synthetic verification; exact-head CI remains FR30.
+
 # 2026-11-09 — FIFO review blocker tests (FR02–FR05)
 
 - `tests/test_fifo_cost_temporal_rate_replay.py`: captures the exact MR01–MR03 rate-boundary contract, including proven residual materialization, multi-rate FIFO arithmetic and temporal replay. The initial replay-adapter cases remain deferred to FR06; the pure kernel matrix now passes.
