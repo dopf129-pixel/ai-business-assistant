@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR13: owner physical-sales CSV parser
+
+- Added a fixed, empty UTF-8/semicolon CSV template and guide for owner-entered physical outflow evidence. The parser validates exact headers, quoted fields, SKU scope, unique row references and posting identity, ISO dates, positive integer units, encoding, file size, 50,000-row and aggregate-unit limits. It does not infer dates or interpret arbitrary Ozon spreadsheets.
+- Added the parser to the existing killable worker using the same shared three-slot capacity and 15-second deadline. The parent independently reparses the exact source bytes and checks every worker manifest field before returning normalized evidence. The Telegram route is unchanged: legacy cost CSV still follows its existing path; physical-sales routing is deferred to FR15.
+- Linked parser/worker/import/adapter profile: **74 passed in 5.24s** on the final FR13 code; compileall, `git diff --check`, and five owner-data hash checks passed. Local synthetic files only; no owner data or live services used.
+
 # 2026-11-09 — FIFO FR12: durable, scoped transition evidence
 
 - Added typed evidence and owner-confirmation contracts plus repository APIs for append, exact-scope read, confirmation and sealed-preview read. Every append is CAS/idempotency guarded and atomically reopens READY cases while preserving prior previews.

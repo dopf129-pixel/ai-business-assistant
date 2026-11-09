@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR12 выполнены; далее FR13.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR13 выполнены; далее FR14.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR13 NOT_STARTED: FR12 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — собственный CSV parser physical sales поверх durable evidence API.
+- Текущий этап FR14 NOT_STARTED: FR13 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — отдельное durable подтверждение физического CSV, привязанное к точному файлу, периоду, timezone, семантике, scope и revision.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current implementation HEAD after FR12: `7e0f44b4ac50c7144a2dc329afd256e63553b154` (`Add durable FIFO transition evidence API`).
@@ -36,7 +36,7 @@
 | FR10 | DONE | Owner latest-allocation-first policy; MR04–MR06 linked profile 142 passed; compile/diff/data manifest PASS; checkpoint `5534917c0f14dbed6610e084dd7d3d839862b13d` |
 | FR11 | DONE | History/current/export/Period Profit сверены по полным replay revisions; FR11 profile **79 passed in 4.66s**; saved-plan restart regression PASS |
 | FR12 | DONE | Typed bridge-evidence and confirmation APIs; **133 passed in 10.53s** on linked profile; exact data manifest preserved |
-| FR13 | NOT_STARTED | Physical CSV |
+| FR13 | DONE | `1dc8d95e9e0c2df6eecfdda27cfbaf1b82827193`; strict physical-sales CSV parser, template, guide and bounded worker; 74 linked tests passed |
 | FR14 | NOT_STARTED | Durable confirmation |
 | FR15 | NOT_STARTED | Telegram routing |
 | FR16 | NOT_STARTED | Source snapshots |
@@ -61,6 +61,15 @@
 Дата; этап; base/head SHA; изменённые функции; контракты; команда и среда проверки; фактический результат; original data manifest before/after; ссылки PR/CI; ограничения; следующий этап.
 
 Старые результаты 110/5115 tests не являются проверкой нового кода. При подготовке этого ТЗ pytest и live API не запускались.
+
+## FR13 — owner physical-sales CSV parser, 2026-11-09
+
+- Кодовые commits: `4a4fb0f7d33be8348049596f9241983031a0e288` (`Add bounded physical sales CSV parser`) и self-review hardening `1dc8d95e9e0c2df6eecfdda27cfbaf1b82827193` (`Keep physical sale IDs out of worker output`). Добавлен `FifoCostPhysicalSalesImportService`: принимает только фиксированный UTF-8 CSV с необязательным BOM и разделителем `;`; exact header — `posting_number;finance_sku;quantity;physical_effective_date;row_reference`. Валидируются строгие CSV quotes/колонки, размер 10 MiB, максимум 50 000 строк и 1 000 000 units, exact case SKU, ISO date, positive integer, безопасный уникальный row reference и уникальная posting/SKU identity. Повтор row reference, повтор posting/SKU и конфликтующий content отклоняются отдельно; строки не агрегируются автоматически.
+- Хеши SHA-256 считаются по фактическим bytes, каноническим нормализованным строкам, row references и scope. Физический subprocess использует уже общий worker semaphore (3 слота) и timeout 15 секунд. Его stdout содержит только сводные значения и отпечатки; исходные posting/row references не возвращаются. Родитель повторно разбирает исходные байты и сравнивает полный canonical manifest, отклоняя согласованно подменённые summaries/хеши.
+- Добавлены [пустой CSV шаблон](../docs/templates/fifo_physical_sales_template.csv) и [инструкция формата](../docs/fifo-physical-sales-csv-guide.md). Документ явно owner-imported, не официальный отчёт Ozon. Даты финансовых операций не подставляются как физические даты. Telegram routing не изменялся; legacy cost CSV остаётся на старом обработчике до FR15.
+- Целевой профиль: `tests/test_fifo_cost_physical_sales_import_service.py`, `tests/test_fifo_cost_report_import_worker_client.py`, `tests/test_fifo_cost_report_import_service.py`, `tests/test_fifo_cost_stock_management_import_service.py`, `tests/test_fifo_cost_report_import_telegram_adapter.py`, `tests/test_telegram_fifo_cost_report_import_service.py`, `tests/test_seller_cost_table_service.py` — **74 passed in 5.24s** на финальном FR13 коде. Включены настоящий локальный subprocess, coherent-manifest substitution, общий timeout/slot limit, старые Ozon import paths и seller-cost CSV. `compileall`, `git diff --check`, `git diff --exit-code -- data` и пять owner-data hashes — PASS.
+- Хеши FR00 data manifest до/после совпали: history `520E8E1F25B2BB5C7F2A9E48B8CD6B0F8DCF9B0EA021CE622366F88BDE44E08C`; profiles `8F9E51A4545AC897A5F0324200BEAC5281428A6B248CA60A7049AD44BF5F0D51`; tasks `6D852D707927A617DFE3B23CB32AA580EC558272D40FB346B57ABF030868142F`; tax `F8EB3295F353060EAE6568A60F43E5B06DE66432AE64B8711C3F9E2BC42004BD`; users `2D289F298EB3E66EB0E65FE5A20E7F1A7A520A0845A4FD6F27FB15017BC51BE2`. `.fl12-deps/` не менялась и не stage.
+- Только synthetic CSV/subprocess; no owner files/DB, API, Telegram, bot, deployment or merge. Full suite/current-head CI — FR30. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; этап завершает parser/template, не end-to-end bridge.
 
 ## FR12 — 2026-11-09
 

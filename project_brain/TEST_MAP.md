@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR13 physical-sales CSV parser
+
+- `tests/test_fifo_cost_physical_sales_import_service.py` covers the exact empty template, UTF-8/BOM, quoted fields, exact headers, malformed quotes/columns, file and row limits, NUL/encoding, SKU scope, dates, positive integer units, aggregate unit cap, duplicate/conflicting row references and posting/SKU identities, worker-manifest recomputation, and identifier-free repr.
+- `tests/test_fifo_cost_report_import_worker_client.py` covers real subprocess parsing, exact byte/normalized-manifest binding, coherent worker substitution rejection, the shared 15-second timeout and three-slot pool. The same linked profile runs existing Ozon report parsers, Telegram report adapter, and seller-cost CSV service to retain the legacy route.
+- Linked FR13 profile: **74 passed in 5.24s** on final FR13 code. Compileall, `git diff --check`, tracked `data/` equality, and the five-file user-data SHA-256 manifest passed. This is local targeted verification; full suite and current-head CI remain FR30.
+
 # 2026-11-09 — FIFO FR12: durable bridge evidence and seals
 
 - `tests/test_fifo_cost_transition_bridge_evidence.py` covers keyword-only API signatures, typed per-kind payloads, complete-source proofs, encrypted raw source material, restart, exact case revision/idempotency, separate typed confirmation and confirmation-kind binding. Negative cases cover missing/wrong Fernet key, wrong tenant, canceled case, stale revision, corrupt payload/hash, and quota-sensitive physical-document validation.

@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR12
+# 2026-11-09 — FIFO review-blocker execution FR00–FR13
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR12 are complete. FR12 adds durable typed evidence and confirmation APIs over the existing schema v16; sensitive payloads are encrypted and exact scoped sealed previews can be read without recomputation. New evidence reopens READY cases without changing the old preview.
-- Linked FR12 profile: **133 passed in 10.53s**, including v16 migration, transition lifecycle/atomic apply, tenant scope, restart, wrong-key, corruption, idempotency, replay readers, Period Profit, CSV and frozen saved-plan checks. Compileall and `git diff --check` pass; all five owner-data hashes match FR00. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR13 are complete. FR13 adds a strict owner-imported physical-sales CSV parser and empty template through the existing bounded worker; the parent binds normalized rows to the exact uploaded bytes. The legacy cost CSV route is unchanged and physical-sales Telegram routing remains deferred to FR15.
+- Linked FR13 profile: **74 passed in 5.24s** on final FR13 code, including legacy report and cost-table imports. Compileall, `git diff --check` and all five owner-data hashes pass. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 
