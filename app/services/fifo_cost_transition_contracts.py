@@ -1109,10 +1109,12 @@ def _validate_transition_bridge_payload(
     for key in date_fields & result.keys():
         result[key] = normalize_date_only(result[key])
     for key in count_fields & result.keys():
+        if key == "selected_event_count" and result[key] is None:
+            continue
         if type(result[key]) is not int or not 0 <= result[key] <= MAX_TRANSITION_QUANTITY:
             _fail(TransitionReasonCode.QUANTITY_INVALID)
     for key in ("event_count", "selected_event_count"):
-        if key in result and result[key] > 100_000:
+        if key in result and result[key] is not None and result[key] > 100_000:
             _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED)
     if "page_count" in result and result["page_count"] < 1:
         _fail(TransitionReasonCode.EVENT_COVERAGE_INCOMPLETE)
@@ -1176,6 +1178,7 @@ def _validate_bridge_completeness(evidence: TransitionBridgeEvidence) -> None:
         complete = (
             evidence.metadata.source_kind is EvidenceSourceKind.LOCAL_DERIVED
             and evidence.complete_through == payload["complete_through"]
+            and type(payload["selected_event_count"]) is int
             and payload["selected_event_count"] <= 100_000
         )
     elif kind is TransitionBridgeEvidenceKind.OPENING_COMPOSITION:

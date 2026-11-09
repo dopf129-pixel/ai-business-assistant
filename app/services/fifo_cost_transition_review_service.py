@@ -95,6 +95,18 @@ class FifoCostTransitionReviewService:
                 "store_id", "product_id", "offer_id", "sku",
             )):
                 return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            # The compatibility argument is deliberately not authoritative.
+            # A cutoff date is accepted only from the latest exact, durable
+            # owner confirmation bound to the saved stock report.
+            cutoff_selection = self.transition_service.read_confirmed_cutoff_selection(
+                case_id=case_id, **identity,
+            )
+            if cutoff_selection.get("error"):
+                if cutoff_selection.get("code") != "FIFO_CUTOFF_SELECTION_NOT_CONFIRMED":
+                    return self._error(cutoff_selection.get("code"))
+                confirmed_cutoff_date = None
+            else:
+                confirmed_cutoff_date = cutoff_selection["descriptor"]["cutoff_date"]
             declarations = self._read_declarations(case_id, identity, scope)
             observations = self._read_observations(case_id, identity, scope)
             acceptance_snapshots = self._build_acceptance_snapshots(
@@ -123,7 +135,7 @@ class FifoCostTransitionReviewService:
             proposal = self.opening_proposal_service.propose(
                 case=case,
                 fifo_initialized=history.get("queue_initialized") is not False,
-                owner_confirmed_cutoff_date=owner_confirmed_cutoff_date,
+                owner_confirmed_cutoff_date=confirmed_cutoff_date,
                 stock_reports=stock_reports,
                 turnover_reports=turnover_reports,
                 supply_reconciliation=reconciliation,
@@ -149,6 +161,12 @@ class FifoCostTransitionReviewService:
             "fifo_queue_initialized": history.get("queue_initialized") is True,
             "fifo_remaining_status": history.get("remaining_status"),
             "reports_read": len(reports),
+            "cutoff_selection_confirmed": cutoff_selection.get("error") is False,
+            "opening_composition_confirmed": (
+                self.transition_service.read_confirmed_opening_composition(
+                    case_id=case_id, **identity,
+                ).get("error") is False
+            ),
             "ready_to_apply": readiness.ready_to_apply is True,
             "preview_only": True,
         }

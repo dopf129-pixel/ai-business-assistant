@@ -8,9 +8,28 @@ from decimal import Decimal
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 
 from services.fifo_cost_repository import FifoCostRepository
-from services.fifo_cost_cutoff_bridge_service import FifoCostCutoffBridgeService
+from services.fifo_cost_cutoff_bridge_service import (
+    FifoCostCutoffBridgeService,
+    FifoCutoffDescriptor,
+)
+from services.fifo_cost_anchor_service import FifoCostAnchorService
+from services.fifo_cost_report_import_service import FifoCostReportImportService
+from services.fifo_cost_stock_management_import_service import (
+    FifoCostStockManagementImportService,
+)
+from services.fifo_cost_transition_contracts import (
+    PeriodProvenance,
+    ReportEvidence,
+    ReportType,
+    TransitionBridgeEvidence,
+    TransitionBridgeEvidenceKind,
+    TransitionEvidenceConfirmation,
+    TransitionEvidenceConfirmationKind,
+    source_fingerprint,
+)
 from services.fifo_cost_transition_activation_proposal_service import (
     FifoCostTransitionActivationProposalService,
 )
@@ -37,6 +56,7 @@ from services.fifo_cost_transition_contracts import (
     SupplyObservation,
     SupplyReferenceKind,
     UnknownValue,
+    normalize_date_only,
     supply_reference_digest,
     utc_now,
 )
@@ -87,6 +107,800 @@ class FifoCostTransitionService:
             code = str(exc) or "FIFO_ACTIVATION_PROPOSAL_INPUT_INVALID"
             return self._error(code)
         return {"error": False, "result": result}
+
+    def record_cutoff_selection(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        cutoff_date, stock_report_fingerprint, expected_case_revision,
+        idempotency_key,
+    ) -> dict:
+        """Persist a candidate store-local cutoff bound to one saved stock report.
+
+        This records owner intent only. The derived bridge-input fingerprint is
+        not a completed movement/finance bridge and remains PARTIAL until the
+        evidence assembler proves that bridge.
+        """
+        loaded = self._read_transition_owner_context(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return loaded
+        case = loaded["case"]
+        try:
+            cutoff = self._normalize_transition_date(cutoff_date)
+            if case.dispatch_date is not None and cutoff < case.dispatch_date:
+                return self._error("FIFO_CUTOFF_PRECEDES_DISPATCH_DATE")
+            report = self._read_saved_transition_report(
+                case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
+                store_timezone=case.metadata.store_timezone,
+                file_sha256=stock_report_fingerprint,
+            )
+            if report is None:
+                return self._error("FIFO_CUTOFF_STOCK_EVIDENCE_UNAVAILABLE")
+            if (
+                report.report_type is not ReportType.STOCK_MANAGEMENT
+                or report.metadata.completeness is not EvidenceCompleteness.COMPLETE
+                or report.period_provenance is not PeriodProvenance.OWNER_CONFIRMED
+                or report.period_from != cutoff or report.period_to != cutoff
+            ):
+                return self._error("FIFO_CUTOFF_STOCK_EVIDENCE_MISMATCH")
+            refs = self._transition_source_reference_manifest(
+                case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
+            )
+            identity_fingerprint = self._transition_identity_fingerprint(case.metadata.scope)
+            bridge_fingerprint = source_fingerprint({
+                "kind": "FIFO_CUTOFF_BRIDGE_INPUT_SELECTION_V1",
+                "case_id": case_id,
+                "case_revision": expected_case_revision,
+                "scope": self._transition_scope_material(case.metadata.scope),
+                "descriptor": {
+                    "cutoff_date": cutoff,
+                    "timezone": case.metadata.store_timezone,
+                    "precision": "STORE_LOCAL_DATE",
+                    "boundary": "END_OF_LOCAL_DATE",
+                },
+                "stock_report_fingerprint": report.file_sha256,
+                "source_references": refs,
+            })
+            descriptor_metadata = TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_INPUT,
+                completeness=EvidenceCompleteness.COMPLETE,
+                source_fingerprint=bridge_fingerprint,
+                store_timezone=case.metadata.store_timezone,
+            )
+            cutoff_descriptor = FifoCutoffDescriptor(
+                metadata=descriptor_metadata,
+                case_id=case_id,
+                case_revision=expected_case_revision,
+                cutoff_date=cutoff,
+                timezone=case.metadata.store_timezone,
+                precision="STORE_LOCAL_DATE",
+                boundary="END_OF_LOCAL_DATE",
+            )
+            descriptor = {
+                "cutoff_date": cutoff_descriptor.cutoff_date,
+                "timezone": cutoff_descriptor.timezone,
+                "precision": cutoff_descriptor.precision,
+                "boundary": cutoff_descriptor.boundary,
+            }
+            metadata = TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_INPUT,
+                completeness=EvidenceCompleteness.PARTIAL,
+                source_fingerprint=bridge_fingerprint,
+                store_timezone=case.metadata.store_timezone,
+            )
+            evidence = TransitionBridgeEvidence(
+                metadata=metadata,
+                evidence_kind=TransitionBridgeEvidenceKind.CUTOFF_SELECTION,
+                captured_at=self._transition_now(),
+                period_from=cutoff,
+                period_to=cutoff,
+                payload={
+                    "cutoff_date": cutoff,
+                    "complete_through": cutoff,
+                    "bridge_fingerprint": bridge_fingerprint,
+                    "selected_event_count": None,
+                    "identity_fingerprint": identity_fingerprint,
+                },
+                sensitive_payload=self._canonical_transition_json({
+                    "schema_version": 1,
+                    "case_id": case_id,
+                    "case_revision": expected_case_revision,
+                    "case_basis_fingerprint": self._transition_case_basis_fingerprint(case),
+                    "descriptor": descriptor,
+                    "stock_report_fingerprint": report.file_sha256,
+                    "source_references": refs,
+                }),
+            )
+        except (TypeError, ValueError, KeyError, OverflowError):
+            return self._error("FIFO_CUTOFF_SELECTION_INVALID")
+        return self.repository.append_transition_bridge_evidence(
+            case_id=case_id, evidence=evidence,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def confirm_cutoff_selection(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        evidence_id, expected_evidence_fingerprint, expected_case_revision,
+        idempotency_key,
+    ) -> dict:
+        """Durably confirm an exact cutoff descriptor and its stock semantics."""
+        loaded = self._read_confirmable_owner_evidence(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, evidence_id=evidence_id,
+            expected_evidence_fingerprint=expected_evidence_fingerprint,
+            evidence_kind=TransitionBridgeEvidenceKind.CUTOFF_SELECTION,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return loaded
+        payload = loaded["sensitive_payload"]
+        descriptor = payload.get("descriptor")
+        if (
+            not self._owner_evidence_revision_matches(
+                payload, expected_case_revision,
+            )
+            or payload.get("case_basis_fingerprint")
+            != self._transition_case_basis_fingerprint(loaded["case"])
+            or
+            not isinstance(descriptor, dict)
+            or descriptor.get("cutoff_date") != loaded["item"]["payload"].get("cutoff_date")
+            or descriptor.get("timezone") != loaded["case"].metadata.store_timezone
+            or descriptor.get("precision") != "STORE_LOCAL_DATE"
+            or descriptor.get("boundary") != "END_OF_LOCAL_DATE"
+            or not self._saved_stock_report_matches(
+                loaded, payload.get("stock_report_fingerprint"),
+                descriptor.get("cutoff_date"),
+            )
+        ):
+            return self._error("FIFO_CUTOFF_SELECTION_STALE")
+        confirmation = TransitionEvidenceConfirmation(
+            confirmation_kind=TransitionEvidenceConfirmationKind.CUTOFF_SELECTION,
+            confirmed_fields={
+                "cutoff_date": descriptor["cutoff_date"],
+                "bridge_fingerprint": loaded["item"]["payload"]["bridge_fingerprint"],
+                "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+            },
+        )
+        return self.repository.confirm_transition_evidence(
+            case_id=case_id, metadata=loaded["case"].metadata,
+            evidence_id=evidence_id,
+            expected_evidence_fingerprint=expected_evidence_fingerprint,
+            confirmation=confirmation,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def record_opening_composition(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        cutoff_evidence_id, cutoff_evidence_fingerprint,
+        stock_report_fingerprint, layers, expected_case_revision,
+        idempotency_key,
+    ) -> dict:
+        """Persist a bounded FIFO opening composition, never as a live anchor."""
+        loaded = self._read_transition_owner_context(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return loaded
+        case = loaded["case"]
+        cutoff = self._read_confirmed_cutoff_evidence(
+            case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
+        )
+        if cutoff.get("error"):
+            return cutoff
+        if (
+            cutoff["item"].get("evidence_id") != cutoff_evidence_id
+            or cutoff["item"].get("payload_fingerprint") != cutoff_evidence_fingerprint
+            or cutoff["sensitive_payload"].get("stock_report_fingerprint")
+            != stock_report_fingerprint
+        ):
+            return self._error("FIFO_CUTOFF_SELECTION_STALE")
+        report = self._read_saved_transition_report(
+            case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
+            store_timezone=case.metadata.store_timezone,
+            file_sha256=stock_report_fingerprint,
+        )
+        if report is None or not self._valid_cutoff_stock_report(
+            report, cutoff["descriptor"]["cutoff_date"],
+        ):
+            return self._error("FIFO_CUTOFF_STOCK_EVIDENCE_MISMATCH")
+        normalized_layers, layer_error = FifoCostAnchorService._layers(layers)
+        if layer_error:
+            return self._error(layer_error)
+        quantities = self._opening_zone_totals(normalized_layers)
+        fields = report.normalized_fields
+        buckets = fields.get("stock_buckets")
+        available = buckets.get("available") if isinstance(buckets, Mapping) else None
+        reserved = buckets.get("reserved") if isinstance(buckets, Mapping) else None
+        fbs_return_units = fields.get("fbs_return_available_units")
+        if (
+            type(available) is not int or available < 0
+            or type(reserved) is not int or reserved < 0
+        ):
+            return self._error("FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN")
+        if (
+            type(fbs_return_units) is not int or fbs_return_units != 0
+            or fields.get("fbs_return_is_subset_of_available") is not True
+        ):
+            return self._error("FIFO_INITIAL_CUTOVER_RETURN_BASIS_UNAVAILABLE")
+        if any(
+            buckets.get(name) not in (0, None)
+            for name in ("preparing", "checking")
+        ):
+            return self._error("FIFO_INITIAL_CUTOVER_STOCK_BUCKET_UNRESOLVED")
+        if (
+            quantities["ozon_units"] != available + reserved
+            or quantities["home_units"] != case.owner_old_home_units
+            or quantities["transit_units"] != case.owner_old_transit_units
+            or sum(quantities.values()) <= 0
+        ):
+            return self._error("FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH")
+        costs = [row["unit_cost_rub"] for row in normalized_layers]
+        old_cost = self._normalize_transition_money(case.old_unit_cost_rub)
+        new_cost = self._normalize_transition_money(case.new_unit_cost_rub)
+        if old_cost is None or new_cost is None or any(
+            cost not in {old_cost, new_cost} for cost in costs
+        ):
+            return self._error("FIFO_INITIAL_CUTOVER_COST_MISMATCH")
+        new_seen = False
+        for cost in costs:
+            if cost == new_cost:
+                new_seen = True
+            elif cost == old_cost and new_seen:
+                return self._error("FIFO_INITIAL_CUTOVER_LAYER_ORDER_CONFLICT")
+        source_refs = self._transition_source_reference_manifest(
+            case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
+        )
+        composition = {
+            "schema_version": 1,
+            "case_id": case_id,
+            "case_revision": expected_case_revision,
+            "case_basis_fingerprint": self._transition_case_basis_fingerprint(case),
+            "opening_date": cutoff["descriptor"]["cutoff_date"],
+            "cutoff_evidence_id": cutoff_evidence_id,
+            "cutoff_evidence_fingerprint": cutoff_evidence_fingerprint,
+            "stock_report_fingerprint": stock_report_fingerprint,
+            "layers": normalized_layers,
+            "zone_totals": quantities,
+            "ozon_units_include_reserved_confirmed": True,
+            "transit_not_in_ozon_confirmed": True,
+            "accepted_supply_units_added_to_stock_snapshot": 0,
+            "source_references": source_refs,
+        }
+        identity_fingerprint = self._transition_identity_fingerprint(case.metadata.scope)
+        composition_fingerprint = source_fingerprint(composition)
+        composition["composition_fingerprint"] = composition_fingerprint
+        metadata = TransitionMetadata(
+            scope=case.metadata.scope,
+            source_kind=EvidenceSourceKind.OWNER_INPUT,
+            completeness=EvidenceCompleteness.PARTIAL,
+            source_fingerprint=composition_fingerprint,
+            store_timezone=case.metadata.store_timezone,
+        )
+        evidence = TransitionBridgeEvidence(
+            metadata=metadata,
+            evidence_kind=TransitionBridgeEvidenceKind.OPENING_COMPOSITION,
+            captured_at=self._transition_now(),
+            period_from=composition["opening_date"],
+            period_to=composition["opening_date"],
+            row_count=len(normalized_layers),
+            payload={
+                "opening_date": composition["opening_date"],
+                "total_units": sum(quantities.values()),
+                "component_count": len(normalized_layers),
+                "composition_fingerprint": composition_fingerprint,
+                "identity_fingerprint": identity_fingerprint,
+            },
+            sensitive_payload=self._canonical_transition_json(composition),
+        )
+        return self.repository.append_transition_bridge_evidence(
+            case_id=case_id, evidence=evidence,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def confirm_opening_composition(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        evidence_id, expected_evidence_fingerprint, expected_case_revision,
+        idempotency_key,
+    ) -> dict:
+        loaded = self._read_confirmable_owner_evidence(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, evidence_id=evidence_id,
+            expected_evidence_fingerprint=expected_evidence_fingerprint,
+            evidence_kind=TransitionBridgeEvidenceKind.OPENING_COMPOSITION,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return loaded
+        composition = loaded["sensitive_payload"]
+        safe = loaded["item"]["payload"]
+        cutoff = self._read_confirmed_cutoff_evidence(
+            case_id=case_id, identity=loaded["identity"], scope=loaded["case"].metadata.scope,
+        )
+        if cutoff.get("error") or (
+            not self._owner_evidence_revision_matches(
+                composition, expected_case_revision,
+            )
+            or composition.get("case_basis_fingerprint")
+            != self._transition_case_basis_fingerprint(loaded["case"])
+            or
+            composition.get("cutoff_evidence_id") != cutoff["item"].get("evidence_id")
+            or composition.get("cutoff_evidence_fingerprint")
+            != cutoff["item"].get("payload_fingerprint")
+            or composition.get("composition_fingerprint")
+            != safe.get("composition_fingerprint")
+        ):
+            return self._error("FIFO_OPENING_COMPOSITION_STALE")
+        confirmation = TransitionEvidenceConfirmation(
+            confirmation_kind=TransitionEvidenceConfirmationKind.OPENING_COMPOSITION,
+            confirmed_fields={
+                "composition_fingerprint": safe["composition_fingerprint"],
+                "opening_date": safe["opening_date"],
+                "total_units": safe["total_units"],
+            },
+        )
+        return self.repository.confirm_transition_evidence(
+            case_id=case_id, metadata=loaded["case"].metadata,
+            evidence_id=evidence_id,
+            expected_evidence_fingerprint=expected_evidence_fingerprint,
+            confirmation=confirmation,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def read_confirmed_cutoff_selection(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+    ) -> dict:
+        """Read the latest exact confirmed cutoff after process restart."""
+        current = self.get_case(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if current.get("error"):
+            return current
+        try:
+            case = self._case_from_payload(current["case"])
+            identity = {"store_id": store_id, "product_id": product_id,
+                        "offer_id": offer_id, "sku": sku}
+            loaded = self._read_confirmed_cutoff_evidence(
+                case_id=case_id, identity=identity, scope=case.metadata.scope,
+            )
+            if loaded.get("error"):
+                return loaded
+            return {
+                "error": False,
+                "case_revision": current["case_revision"],
+                "evidence_id": loaded["item"]["evidence_id"],
+                "evidence_fingerprint": loaded["item"]["payload_fingerprint"],
+                "descriptor": dict(loaded["descriptor"]),
+                "stock_report_fingerprint": loaded["sensitive_payload"]["stock_report_fingerprint"],
+                "confirmed": True,
+                "preview_only": True,
+            }
+        except (TypeError, ValueError, KeyError):
+            return self._error("FIFO_CUTOFF_SELECTION_INVALID")
+
+    def read_confirmed_opening_composition(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+    ) -> dict:
+        """Read only the latest composition if its separate owner confirmation survives."""
+        current = self.get_case(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if current.get("error"):
+            return current
+        try:
+            case = self._case_from_payload(current["case"])
+            identity = {"store_id": store_id, "product_id": product_id,
+                        "offer_id": offer_id, "sku": sku}
+            result = self.repository.read_transition_bridge_evidence(
+                case_id=case_id, **identity,
+                evidence_kind=TransitionBridgeEvidenceKind.OPENING_COMPOSITION,
+                limit=100, include_sensitive_payload=True,
+            )
+            if result.get("error"):
+                return result
+            items = result.get("items")
+            if not isinstance(items, list) or not items:
+                return self._error("FIFO_OPENING_COMPOSITION_NOT_CONFIRMED")
+            item = max(items, key=lambda value: value.get("evidence_revision", 0))
+            loaded = self._verified_owner_payload(item)
+            if loaded.get("error"):
+                return loaded
+            cutoff = self._read_confirmed_cutoff_evidence(
+                case_id=case_id, identity=identity, scope=case.metadata.scope,
+            )
+            composition = loaded["sensitive_payload"]
+            safe = item["payload"]
+            expected_fields = {
+                "composition_fingerprint": safe.get("composition_fingerprint"),
+                "opening_date": safe.get("opening_date"),
+                "total_units": safe.get("total_units"),
+            }
+            confirmed = any(
+                value.get("confirmation_kind") == TransitionEvidenceConfirmationKind.OPENING_COMPOSITION.value
+                and value.get("confirmed_fields") == expected_fields
+                for value in item.get("confirmations", ())
+            )
+            if (
+                cutoff.get("error") or not confirmed
+                or composition.get("case_basis_fingerprint")
+                != self._transition_case_basis_fingerprint(case)
+                or composition.get("cutoff_evidence_id") != cutoff["item"].get("evidence_id")
+                or composition.get("cutoff_evidence_fingerprint")
+                != cutoff["item"].get("payload_fingerprint")
+            ):
+                return self._error("FIFO_OPENING_COMPOSITION_NOT_CONFIRMED")
+            try:
+                current_refs = self._transition_source_reference_manifest(
+                    case_id=case_id, identity=identity, scope=case.metadata.scope,
+                )
+            except ValueError:
+                return self._error("FIFO_TRANSITION_EVIDENCE_UNAVAILABLE")
+            if composition.get("source_references") != current_refs:
+                return self._error("FIFO_OPENING_COMPOSITION_STALE")
+            return {
+                "error": False,
+                "case_revision": current["case_revision"],
+                "evidence_id": item["evidence_id"],
+                "evidence_fingerprint": item["payload_fingerprint"],
+                "composition_fingerprint": safe["composition_fingerprint"],
+                "opening_date": safe["opening_date"],
+                "total_units": safe["total_units"],
+                "layers": composition["layers"],
+                "stock_report_fingerprint": composition["stock_report_fingerprint"],
+                "source_references": composition["source_references"],
+                "confirmed": True,
+                "preview_only": True,
+            }
+        except (TypeError, ValueError, KeyError):
+            return self._error("FIFO_OPENING_COMPOSITION_INVALID")
+
+    def _read_transition_owner_context(
+        self, *, case_id, store_id, product_id, offer_id, sku,
+        expected_case_revision,
+    ):
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        identity = {
+            "store_id": store_id, "product_id": product_id,
+            "offer_id": offer_id, "sku": sku,
+        }
+        current = self.get_case(case_id=case_id, **identity)
+        if current.get("error"):
+            return current
+        if current.get("case_revision") != expected_case_revision:
+            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        try:
+            case = self._case_from_payload(current["case"])
+        except (TypeError, ValueError, KeyError):
+            return self._error("FIFO_TRANSITION_CASE_CORRUPT")
+        if case.state not in self._EDITABLE_STATES:
+            return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+        if any(
+            getattr(case.metadata.scope, name) != value
+            for name, value in (
+                ("store_id", store_id), ("product_id", product_id),
+                ("offer_id", offer_id), ("sku", sku),
+            )
+        ):
+            return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+        return {"error": False, "case": case, "identity": identity}
+
+    def _read_saved_transition_report(
+        self, *, case_id, identity, scope, store_timezone, file_sha256,
+    ):
+        try:
+            result = self.repository.read_transition_evidence(
+                case_id=case_id, **identity, kind="REPORT_EVIDENCE", limit=101,
+            )
+            if result.get("error") or not isinstance(result.get("items"), list):
+                return None
+            matches = [
+                item for item in result["items"]
+                if item.get("file_sha256") == file_sha256
+            ]
+            if len(matches) != 1:
+                return None
+            item = matches[0]
+            payload = item.get("payload")
+            if not isinstance(payload, dict):
+                return None
+            parser = (
+                FifoCostStockManagementImportService
+                if item.get("report_type") == ReportType.STOCK_MANAGEMENT.value
+                else FifoCostReportImportService
+            )
+            return ReportEvidence(
+                metadata=TransitionMetadata(
+                    scope=scope,
+                    source_kind=EvidenceSourceKind(item["source_kind"]),
+                    completeness=EvidenceCompleteness(item["completeness"]),
+                    source_fingerprint=parser._source_fingerprint(
+                        item["file_sha256"], scope,
+                    ),
+                    store_timezone=store_timezone,
+                ),
+                report_type=ReportType(item["report_type"]),
+                period_from=item.get("period_from"),
+                period_to=item.get("period_to"),
+                period_provenance=PeriodProvenance(item["period_provenance"]),
+                captured_at=item["captured_at"],
+                file_sha256=item["file_sha256"],
+                parser_version=item["parser_version"],
+                cell_references=tuple(payload["cell_references"]),
+                normalized_fields=payload["normalized_fields"],
+            )
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return None
+
+    def _transition_source_reference_manifest(self, *, case_id, identity, scope):
+        """Return bounded hashes only; never copy source identifiers into metadata."""
+        references = []
+        for kind, limit in (
+            ("REPORT_EVIDENCE", 101),
+            ("SUPPLY_DECLARATION", 501),
+            ("SUPPLY_OBSERVATION", 2000),
+        ):
+            result = self.repository.read_transition_evidence(
+                case_id=case_id, **identity, kind=kind, limit=limit,
+            )
+            if result.get("error") or not isinstance(result.get("items"), list):
+                raise ValueError("FIFO_TRANSITION_EVIDENCE_UNAVAILABLE")
+            if len(result["items"]) >= limit:
+                raise ValueError("FIFO_TRANSITION_EVIDENCE_LIMIT_REACHED")
+            for item in result["items"]:
+                references.append({
+                    "kind": kind,
+                    "fingerprint": source_fingerprint(item),
+                })
+        for kind in (
+            TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT,
+            TransitionBridgeEvidenceKind.FINANCE_IDENTITY_SNAPSHOT,
+            TransitionBridgeEvidenceKind.MOVEMENT_COVERAGE,
+        ):
+            result = self.repository.read_transition_bridge_evidence(
+                case_id=case_id, **identity, evidence_kind=kind, limit=100,
+            )
+            if result.get("error") or not isinstance(result.get("items"), list):
+                raise ValueError("FIFO_TRANSITION_EVIDENCE_UNAVAILABLE")
+            if len(result["items"]) >= 100:
+                raise ValueError("FIFO_TRANSITION_EVIDENCE_LIMIT_REACHED")
+            for item in result["items"]:
+                references.append({
+                    "kind": kind.value,
+                    "fingerprint": item["payload_fingerprint"],
+                })
+        references.sort(key=lambda item: (item["kind"], item["fingerprint"]))
+        if len(references) > 2_700:
+            raise ValueError("FIFO_TRANSITION_EVIDENCE_LIMIT_REACHED")
+        return references
+
+    def _read_confirmable_owner_evidence(
+        self, *, case_id, store_id, product_id, offer_id, sku, evidence_id,
+        expected_evidence_fingerprint, evidence_kind, expected_case_revision,
+    ):
+        loaded = self._read_transition_owner_context(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return loaded
+        result = self.repository.read_transition_bridge_evidence(
+            case_id=case_id, **loaded["identity"], evidence_kind=evidence_kind,
+            evidence_id=evidence_id, limit=1, include_sensitive_payload=True,
+        )
+        if result.get("error"):
+            return result
+        items = result.get("items")
+        if not isinstance(items, list) or len(items) != 1:
+            return self._error("FIFO_TRANSITION_EVIDENCE_MISSING")
+        item = items[0]
+        if item.get("payload_fingerprint") != expected_evidence_fingerprint:
+            return self._error("FIFO_TRANSITION_EVIDENCE_MISMATCH")
+        payload = self._verified_owner_payload(item)
+        if payload.get("error"):
+            return payload
+        return {
+            **loaded, "item": item,
+            "sensitive_payload": payload["sensitive_payload"],
+        }
+
+    @staticmethod
+    def _verified_owner_payload(item):
+        if item.get("sensitive_payload_available") is not True:
+            return {"error": True, "code": item.get(
+                "blocker", "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE",
+            )}
+        try:
+            payload = json.loads(item["sensitive_payload"])
+        except (KeyError, TypeError, ValueError):
+            return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_CORRUPT"}
+        if not isinstance(payload, dict):
+            return {"error": True, "code": "FIFO_TRANSITION_EVIDENCE_CORRUPT"}
+        return {"error": False, "sensitive_payload": payload}
+
+    def _read_confirmed_cutoff_evidence(self, *, case_id, identity, scope):
+        result = self.repository.read_transition_bridge_evidence(
+            case_id=case_id, **identity,
+            evidence_kind=TransitionBridgeEvidenceKind.CUTOFF_SELECTION,
+            limit=100, include_sensitive_payload=True,
+        )
+        if result.get("error"):
+            return result
+        items = result.get("items")
+        if not isinstance(items, list) or not items:
+            return self._error("FIFO_CUTOFF_SELECTION_NOT_CONFIRMED")
+        item = max(items, key=lambda value: value.get("evidence_revision", 0))
+        verified = self._verified_owner_payload(item)
+        if verified.get("error"):
+            return verified
+        payload = verified["sensitive_payload"]
+        safe = item.get("payload")
+        descriptor = payload.get("descriptor")
+        if not isinstance(safe, dict) or not isinstance(descriptor, dict):
+            return self._error("FIFO_CUTOFF_SELECTION_INVALID")
+        expected_fields = {
+            "cutoff_date": descriptor.get("cutoff_date"),
+            "bridge_fingerprint": safe.get("bridge_fingerprint"),
+            "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+        }
+        if not any(
+            confirmation.get("confirmation_kind")
+            == TransitionEvidenceConfirmationKind.CUTOFF_SELECTION.value
+            and confirmation.get("confirmed_fields") == expected_fields
+            for confirmation in item.get("confirmations", ())
+        ):
+            return self._error("FIFO_CUTOFF_SELECTION_NOT_CONFIRMED")
+        current_case_result = self.get_case(case_id=case_id, **identity)
+        if current_case_result.get("error"):
+            return current_case_result
+        try:
+            current_case = self._case_from_payload(current_case_result["case"])
+        except (TypeError, ValueError, KeyError):
+            return self._error("FIFO_TRANSITION_CASE_CORRUPT")
+        if (
+            descriptor.get("timezone") != current_case.metadata.store_timezone
+            or descriptor.get("precision") != "STORE_LOCAL_DATE"
+            or descriptor.get("boundary") != "END_OF_LOCAL_DATE"
+            or safe.get("cutoff_date") != descriptor.get("cutoff_date")
+            or payload.get("case_id") != case_id
+            or payload.get("case_basis_fingerprint")
+            != self._transition_case_basis_fingerprint(current_case)
+            or not self._saved_stock_report_matches(
+                {"case_id": case_id, "identity": identity, "case": current_case},
+                payload.get("stock_report_fingerprint"), descriptor.get("cutoff_date"),
+            )
+        ):
+            return self._error("FIFO_CUTOFF_SELECTION_STALE")
+        try:
+            current_refs = self._transition_source_reference_manifest(
+                case_id=case_id, identity=identity, scope=scope,
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_EVIDENCE_UNAVAILABLE")
+        if payload.get("source_references") != current_refs:
+            return self._error("FIFO_CUTOFF_SELECTION_STALE")
+        return {
+            "error": False, "item": item, "sensitive_payload": payload,
+            "descriptor": descriptor,
+        }
+
+    def _saved_stock_report_matches(self, loaded, fingerprint, cutoff_date):
+        report = self._read_saved_transition_report(
+            case_id=loaded["case_id"] if "case_id" in loaded else loaded["case"].case_id,
+            identity=loaded["identity"], scope=loaded["case"].metadata.scope,
+            store_timezone=loaded["case"].metadata.store_timezone,
+            file_sha256=fingerprint,
+        )
+        return bool(report and self._valid_cutoff_stock_report(report, cutoff_date))
+
+    @staticmethod
+    def _valid_cutoff_stock_report(report, cutoff_date):
+        return bool(
+            isinstance(report, ReportEvidence)
+            and report.report_type is ReportType.STOCK_MANAGEMENT
+            and report.metadata.completeness is EvidenceCompleteness.COMPLETE
+            and report.period_provenance is PeriodProvenance.OWNER_CONFIRMED
+            and report.period_from == cutoff_date
+            and report.period_to == cutoff_date
+        )
+
+    @staticmethod
+    def _opening_zone_totals(layers):
+        return {
+            name: sum(layer[name] for layer in layers)
+            for name in ("ozon_units", "transit_units", "home_units")
+        }
+
+    @staticmethod
+    def _owner_evidence_revision_matches(payload, expected_case_revision):
+        """Reject corrupt persisted revisions without raising during confirmation."""
+        if not isinstance(payload, dict):
+            return False
+        revision = payload.get("case_revision")
+        return (
+            type(revision) is int
+            and revision >= 1
+            and type(expected_case_revision) is int
+            and revision + 1 == expected_case_revision
+        )
+
+    @staticmethod
+    def _transition_scope_material(scope):
+        return {
+            "owner_id": scope.owner_id, "store_id": scope.store_id,
+            "product_id": scope.product_id, "offer_id": scope.offer_id,
+            "sku": scope.sku,
+        }
+
+    @staticmethod
+    def _transition_identity_fingerprint(scope):
+        return source_fingerprint({
+            "store_id": scope.store_id,
+            "product_id": scope.product_id,
+            "offer_id": scope.offer_id,
+            "sku": scope.sku,
+            "policy_version": 1,
+        })
+
+    @classmethod
+    def _transition_case_basis_fingerprint(cls, case):
+        return source_fingerprint({
+            "case_id": case.case_id,
+            "scope": cls._transition_scope_material(case.metadata.scope),
+            "dispatch_date": case.dispatch_date,
+            "old_unit_cost_rub": (
+                None if case.old_unit_cost_rub is None else str(case.old_unit_cost_rub)
+            ),
+            "new_unit_cost_rub": (
+                None if case.new_unit_cost_rub is None else str(case.new_unit_cost_rub)
+            ),
+            "cost_input_mode": case.cost_input_mode.value,
+            "cost_components": (
+                None if case.cost_components is None else {
+                    "purchase_cost_rub": str(case.cost_components.purchase_cost_rub),
+                    "delivery_cost_rub": str(case.cost_components.delivery_cost_rub),
+                    "packaging_cost_rub": str(case.cost_components.packaging_cost_rub),
+                }
+            ),
+            "owner_old_home_units": case.owner_old_home_units,
+            "owner_old_transit_units": case.owner_old_transit_units,
+            "new_home_quantity": case.new_home_quantity,
+            "declared_shipped_units": case.declared_shipped_units,
+            "store_timezone": case.metadata.store_timezone,
+        })
+
+    def _transition_now(self):
+        now = utc_now(self._now_provider)
+        return now
+
+    @staticmethod
+    def _canonical_transition_json(value):
+        return json.dumps(
+            value, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _normalize_transition_date(value):
+        return normalize_date_only(value)
+
+    @staticmethod
+    def _normalize_transition_money(value):
+        if value is None:
+            return None
+        normalized = FifoCostAnchorService._money(value)
+        return normalized
 
     def create_case(self, *, case: TransitionCase, idempotency_key: str) -> dict:
         if not isinstance(case, TransitionCase):
