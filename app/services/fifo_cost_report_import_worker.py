@@ -22,7 +22,7 @@ from services.fifo_cost_transition_contracts import ScopeIdentity
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_HEADER_BYTES = 4096
 MAX_OUTPUT_BYTES = 384 * 1024
-MAX_PHYSICAL_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
 _ALLOWED_REPORTS = {
     "TURNOVER": "parse_turnover_workbook",
     "STOCK_MANAGEMENT": "parse_stock_management_workbook",
@@ -96,7 +96,7 @@ def _run():
             response = {
                 "error": False,
                 "document_kind": parser_kind,
-                "document": parsed.document.to_worker_payload(),
+                "document": parsed.document.to_worker_summary_payload(),
             }
             encoded = json.dumps(
                 response, ensure_ascii=False, separators=(",", ":"),

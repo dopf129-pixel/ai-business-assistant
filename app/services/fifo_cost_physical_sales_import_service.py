@@ -41,8 +41,8 @@ class FifoPhysicalSalesDocument:
     period_to: str
     rows: tuple[FifoPhysicalSalesRow, ...] = field(repr=False)
 
-    def to_worker_payload(self) -> dict[str, object]:
-        """Serialize only across the parent/worker pipe, never for Telegram."""
+    def to_worker_summary_payload(self) -> dict[str, object]:
+        """Return only bounded, non-row identifiers for the worker response."""
         return {
             "file_sha256": self.file_sha256,
             "document_fingerprint": self.document_fingerprint,
@@ -53,16 +53,6 @@ class FifoPhysicalSalesDocument:
             "unit_count": self.unit_count,
             "period_from": self.period_from,
             "period_to": self.period_to,
-            "rows": [
-                {
-                    "posting_number": row.posting_number,
-                    "finance_sku": row.finance_sku,
-                    "quantity": row.quantity,
-                    "physical_effective_date": row.physical_effective_date,
-                    "row_reference": row.row_reference,
-                }
-                for row in self.rows
-            ],
         }
 
 

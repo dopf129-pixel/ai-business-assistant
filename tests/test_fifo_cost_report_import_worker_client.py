@@ -129,7 +129,7 @@ def test_physical_sales_client_rejects_tampered_worker_manifest():
     result_payload = {
         "error": False,
         "document_kind": "PHYSICAL_SALES_CSV",
-        "document": document.to_worker_payload(),
+        "document": document.to_worker_summary_payload(),
     }
     process = _MalformedProcess(json.dumps(result_payload).encode())
     result = FifoCostReportImportWorkerClient(

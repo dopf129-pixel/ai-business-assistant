@@ -30,7 +30,7 @@ from services.fifo_cost_transition_contracts import (
 
 _WORKER_SLOTS = BoundedSemaphore(3)
 _MAX_OUTPUT_BYTES = 384 * 1024
-_MAX_PHYSICAL_OUTPUT_BYTES = 16 * 1024 * 1024
+_MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
 
 
 class FifoCostReportImportWorkerClient:
@@ -309,20 +309,20 @@ class FifoCostReportImportWorkerClient:
         expected_keys = {
             "file_sha256", "document_fingerprint", "normalized_fingerprint",
             "row_references_fingerprint", "identity_fingerprint", "row_count",
-            "unit_count", "period_from", "period_to", "rows",
+            "unit_count", "period_from", "period_to",
         }
         if not isinstance(document_value, dict) or set(document_value) != expected_keys:
             return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
         # Bind normalized rows to the original bytes independently. Re-hashing
-        # worker-supplied rows alone would allow a coherent but substituted
-        # worker result to claim the source file's byte hash.
+        # a worker-supplied summary alone would allow a coherent but substituted
+        # result to claim the source file's byte hash.
         parsed_source = FifoCostPhysicalSalesImportService().parse_csv(
             filename=filename, payload=payload, scope=scope,
         )
         if parsed_source.document is None:
             return cls._physical_error("FIFO_REPORT_WORKER_RESULT_INVALID")
         document = parsed_source.document
-        expected_document = document.to_worker_payload()
+        expected_document = document.to_worker_summary_payload()
         try:
             returned_manifest = json.dumps(
                 document_value, ensure_ascii=True, sort_keys=True, separators=(",", ":"),

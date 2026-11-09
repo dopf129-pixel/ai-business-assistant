@@ -44,6 +44,10 @@ def test_exact_template_and_utf8_bom_quoted_csv_are_accepted():
         "2026-11-05", "2026-11-05",
     )
     assert len(result.document.file_sha256) == 64
+    worker_summary = result.document.to_worker_summary_payload()
+    assert "rows" not in worker_summary
+    assert "posting-1" not in repr(worker_summary)
+    assert "row-1" not in repr(worker_summary)
 
 
 def test_wrong_header_missing_extra_fields_and_malformed_quotes_are_rejected():
@@ -117,13 +121,13 @@ def test_document_manifest_rejects_worker_tampering_duplicate_rows_and_unit_over
     parsed = service.parse_csv(filename="x.csv", payload=payload, scope=SCOPE)
     document = parsed.document
     assert document is not None
-    worker_payload = document.to_worker_payload()
+    worker_payload = document.to_worker_summary_payload()
     worker_payload["unit_count"] = 99
     recomputed = service.build_document(
-        payload=payload, scope=SCOPE, rows=worker_payload["rows"],
+        payload=payload, scope=SCOPE, rows=document.rows,
     )
     assert worker_payload["unit_count"] != recomputed.unit_count == 2
-    duplicate = document.to_worker_payload()["rows"] * 2
+    duplicate = [document.rows[0], document.rows[0]]
     try:
         service.build_document(payload=payload, scope=SCOPE, rows=duplicate)
     except ValueError as error:
