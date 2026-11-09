@@ -42,6 +42,7 @@ class TelegramFifoCostTransitionRuntimeService:
         self, transition_service, history_service, report_import_service=None,
         *, review_service=None, supply_refresh_service=None,
         apply_service=None, cache_invalidator=None,
+        physical_sales_import_service=None,
         monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
@@ -51,6 +52,7 @@ class TelegramFifoCostTransitionRuntimeService:
         self.supply_refresh_service = supply_refresh_service
         self.apply_service = apply_service
         self.cache_invalidator = cache_invalidator
+        self.physical_sales_import_service = physical_sales_import_service
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -314,6 +316,16 @@ class TelegramFifoCostTransitionRuntimeService:
             return self._confirm_supply(owner, session, ticket)
         if action in {"report_turnover", "report_stock"}:
             return self._start_report_import(user_id, session, action)
+        if action == "physical_sales":
+            if self.physical_sales_import_service is None:
+                return self._failure("Загрузка физических продаж временно недоступна. Дело не изменено.")
+            session["step"] = "physical_sales"
+            return self.physical_sales_import_service.start_selection(
+                user_id=user_id,
+                case_id=session["case_id"],
+                scope=self._physical_sales_scope(owner, session),
+                expected_case_revision=session["case_revision"],
+            )
         if action == "reports":
             return self._documents_prompt(owner)
         if action == "finish":
@@ -363,6 +375,100 @@ class TelegramFifoCostTransitionRuntimeService:
             self._sessions.pop(owner, None)
             for key in [key for key in self._tickets if key[0] == owner]:
                 self._tickets.pop(key, None)
+        if self.physical_sales_import_service is not None:
+            self.physical_sales_import_service.clear_selection(user_id=user_id)
+
+    def has_physical_sales_document_selection(self, user_id):
+        service = self.physical_sales_import_service
+        return bool(service is not None and service.has_active_selection(user_id=user_id))
+
+    def preflight_physical_sales_document(self, user_id, filename, file_size):
+        service = self.physical_sales_import_service
+        if service is None or not service.has_active_selection(user_id=user_id):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if (
+            not isinstance(session, dict) or session.get("tenant") != tenant
+            or session.get("step") != "physical_sales"
+        ):
+            return {
+                "error": False, "handled": True, "selected": True,
+                "accepted": False, "code": "FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                "message": "Выбранное действие уже не относится к текущей форме. Файл не загружен; FIFO-дело сохранено.",
+                "read_only_ozon": True,
+            }
+        scope = self._physical_sales_scope(owner, session)
+        return service.preflight_document(
+            user_id=user_id,
+            filename=filename,
+            file_size=file_size,
+            expected_case_id=session["case_id"],
+            expected_scope=scope,
+            expected_case_revision=session["case_revision"],
+        )
+
+    def handle_physical_sales_document(self, user_id, content, filename=None):
+        service = self.physical_sales_import_service
+        if service is None or not service.has_active_selection(user_id=user_id):
+            return {"error": False, "handled": False, "read_only_ozon": True}
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if (
+            not isinstance(session, dict) or session.get("tenant") != tenant
+            or session.get("step") != "physical_sales"
+        ):
+            return {
+                "error": False, "handled": True,
+                "code": "FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                "message": "Выбранное действие уже не относится к текущей форме. Файл не обработан; FIFO-дело сохранено.",
+                "read_only_ozon": True,
+            }
+        scope = self._physical_sales_scope(owner, session)
+        return service.handle_document(
+            user_id=user_id,
+            content=content,
+            filename=filename,
+            expected_case_id=session["case_id"],
+            expected_scope=scope,
+            expected_case_revision=session["case_revision"],
+        )
+
+    def handle_physical_sales_callback(self, user_id, callback):
+        service = self.physical_sales_import_service
+        if service is None:
+            return self._stale()
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if (
+            not isinstance(session, dict) or session.get("tenant") != tenant
+            or session.get("step") not in {"physical_sales", "documents"}
+        ):
+            return self._stale()
+        result = service.handle_callback(
+            user_id=user_id,
+            callback=callback,
+            expected_case_id=session["case_id"],
+            expected_scope=self._physical_sales_scope(owner, session),
+            expected_case_revision=session["case_revision"],
+        )
+        if (
+            isinstance(result, dict) and result.get("error") is False
+            and result.get("code") in {
+                "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED",
+                "FIFO_PHYSICAL_SALES_CONFIRMED",
+            }
+        ):
+            current = self._read_case(session["case_id"], session["identity"])
+            if isinstance(current, dict) and current.get("error") is False:
+                self._refresh_session(session, current)
+            if result.get("code") == "FIFO_PHYSICAL_SALES_CONFIRMED":
+                session["step"] = "documents"
+        elif (
+            isinstance(result, dict) and result.get("code") == "FIFO_PHYSICAL_SALES_PREVIEW_CANCELLED"
+        ):
+            session["step"] = "documents"
+        return result
 
     def _handle_field_text(self, owner, session, text):
         step = self._next_field(session["case"])
@@ -716,10 +822,11 @@ class TelegramFifoCostTransitionRuntimeService:
         buttons = [
             {"text": "📄 Добавить оборотную ведомость", "callback": self._issue_ticket(owner, session, "report_turnover")},
             {"text": "📦 Добавить отчёт по остаткам", "callback": self._issue_ticket(owner, session, "report_stock")},
+            {"text": "🧾 Добавить подтверждение физических продаж", "callback": self._issue_ticket(owner, session, "physical_sales")},
             {"text": "Продолжить без отчётов", "callback": self._issue_ticket(owner, session, "finish")},
         ]
         return self._result(
-            "Теперь можно добавить подтверждения: оборотную ведомость и отчёт по остаткам. "
+            "Можно добавить оборотную ведомость, отчёт по остаткам и отдельно известные физические продажи. "
             "Периоды файлов бот попросит подтвердить отдельно; отсутствие отчёта не удаляет уже введённые сведения.",
             keyboard=self._keyboard(buttons),
         )
@@ -1057,8 +1164,32 @@ class TelegramFifoCostTransitionRuntimeService:
     def _ticket(self, owner, token):
         return self._tickets[(owner, token)]
 
+    @staticmethod
+    def _physical_sales_scope(owner, session):
+        identity = session["identity"]
+        return ScopeIdentity(
+            owner_id=owner,
+            store_id=identity["store_id"],
+            product_id=identity.get("product_id"),
+            offer_id=identity.get("offer_id"),
+            sku=identity["sku"],
+        )
+
     def _set_session(self, owner, tenant, identity, display_name, case_id, revision):
         now = self._now_monotonic()
+        previous = self._sessions.get(owner)
+        if (
+            self.physical_sales_import_service is not None
+            and isinstance(previous, dict)
+            and (
+                previous.get("tenant") != tenant
+                or previous.get("case_id") != case_id
+                or previous.get("identity") != identity
+            )
+        ):
+            # Drop only the transient upload/preview when the user switches
+            # forms. The durable FIFO case and any saved evidence remain intact.
+            self.physical_sales_import_service.clear_selection(user_id=owner)
         session = {
             "tenant": tenant,
             "identity": dict(identity),

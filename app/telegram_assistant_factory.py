@@ -87,6 +87,8 @@ from services.telegram_fifo_cost_late_entry_service import TelegramFifoCostLateE
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.telegram_fifo_cost_anchor_entry_service import TelegramFifoCostAnchorEntryService
 from services.telegram_fifo_cost_report_import_service import TelegramFifoCostReportImportService
+from services.fifo_cost_physical_sales_evidence_service import FifoCostPhysicalSalesEvidenceService
+from services.telegram_fifo_cost_physical_sales_import_service import TelegramFifoCostPhysicalSalesImportService
 from services.telegram_fifo_cost_transition_runtime_service import TelegramFifoCostTransitionRuntimeService
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
@@ -645,6 +647,10 @@ def create_telegram_assistant():
     telegram_fifo_cost_report_import_service = TelegramFifoCostReportImportService(
         repository=fifo_cost_repository,
     )
+    telegram_fifo_cost_physical_sales_import_service = TelegramFifoCostPhysicalSalesImportService(
+        repository=fifo_cost_repository,
+        evidence_service=FifoCostPhysicalSalesEvidenceService(),
+    )
     fifo_cost_transition_supply_refresh_service = FifoCostTransitionSupplyRefreshService(
         transition_service=fifo_cost_transition_service,
         source_collection=fifo_cost_source_collection_service,
@@ -660,6 +666,7 @@ def create_telegram_assistant():
         review_service=fifo_cost_transition_review_service,
         supply_refresh_service=fifo_cost_transition_supply_refresh_service,
         cache_invalidator=button_handler.invalidate_fifo_transition_snapshots,
+        physical_sales_import_service=telegram_fifo_cost_physical_sales_import_service,
     )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),

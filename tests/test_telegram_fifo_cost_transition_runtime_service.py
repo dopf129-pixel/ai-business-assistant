@@ -18,9 +18,18 @@ from services.fifo_cost_transition_contracts import (
     ScopeIdentity,
     TransitionMetadata,
 )
+from services.fifo_cost_physical_sales_evidence_service import (
+    FifoCostPhysicalSalesEvidenceService,
+)
+from services.fifo_cost_physical_sales_import_service import (
+    FifoCostPhysicalSalesImportService,
+)
 from services.ozon_account_repository import make_store_tenant_scope
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_report_import_service import TelegramFifoCostReportImportService
+from services.telegram_fifo_cost_physical_sales_import_service import (
+    TelegramFifoCostPhysicalSalesImportService,
+)
 from services.telegram_fifo_cost_transition_runtime_service import (
     TelegramFifoCostTransitionRuntimeService,
 )
@@ -228,6 +237,182 @@ def test_confirmed_supply_declarations_are_typed_and_report_import_is_case_bound
         assert "case_" not in choose_case
         selected = report_import.handle_callback(101, choose_case)
         assert "Теперь отправьте соответствующий XLSX" in selected["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately(tmp_path, monkeypatch):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
+    try:
+        repository, history, transitions, report_import, _runtime = _services(tmp_path)
+
+        class Worker:
+            def parse_physical_sales(self, *, filename, payload, scope):
+                return FifoCostPhysicalSalesImportService().parse_csv(
+                    filename=filename, payload=payload, scope=scope,
+                )
+
+        physical_import = TelegramFifoCostPhysicalSalesImportService(
+            repository=repository,
+            worker=Worker(),
+            evidence_service=FifoCostPhysicalSalesEvidenceService(),
+            now_provider=lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc),
+        )
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            transitions, history, report_import,
+            physical_sales_import_service=physical_import,
+            now_provider=lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc),
+        )
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        supply_stage = runtime._show_supply_stage("101")
+        skip = next(
+            item["callback"] for item in supply_stage["keyboard"]["buttons"]
+            if item["text"] == "Продолжить без списка поставок"
+        )
+        documents = runtime.handle_callback(101, skip)
+        action = next(
+            item["callback"] for item in documents["keyboard"]["buttons"]
+            if item["text"].startswith("🧾 Добавить подтверждение физических продаж")
+        )
+        selected = runtime.handle_callback(101, action)
+        assert selected["code"] == "FIFO_PHYSICAL_SALES_UPLOAD_SELECTED"
+        assert runtime.has_physical_sales_document_selection(101) is True
+
+        bad_file = runtime.preflight_physical_sales_document(
+            101, "wrong.xlsx", 200,
+        )
+        assert bad_file["selected"] is True and bad_file["accepted"] is not True
+        case_before = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        assert case_before["case_revision"] == 7
+
+        content = (
+            FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
+            "posting-111;3921245627;2;2026-11-05;source-row-1\r\n"
+            "posting-222;3921245627;3;2026-11-06;source-row-2\r\n"
+        ).encode("utf-8")
+        preflight = runtime.preflight_physical_sales_document(
+            101, "physical-sales.csv", len(content),
+        )
+        assert preflight["accepted"] is True
+        preview = runtime.handle_physical_sales_document(
+            101, content, "physical-sales.csv",
+        )
+        assert preview["code"] == "FIFO_PHYSICAL_SALES_PREVIEW_READY"
+        assert "Строк: 2 · единиц: 5" in preview["message"]
+        assert "PARTIAL" in preview["message"]
+        assert "posting-111" not in preview["message"]
+        save_callback = preview["keyboard"]["buttons"][0]["callback"]
+        assert len(save_callback.encode("utf-8")) <= 64
+        assert "case_" not in save_callback and "posting-111" not in save_callback
+
+        saved = runtime.handle_physical_sales_callback(101, save_callback)
+        assert saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED", saved
+        assert saved["error"] is False
+        assert "Теперь отдельно подтвердите" in saved["message"]
+        confirm_callback = saved["keyboard"]["buttons"][0]["callback"]
+        assert len(confirm_callback.encode("utf-8")) <= 64
+        assert "case_" not in confirm_callback and "posting-111" not in confirm_callback
+        after_save = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        assert after_save["case_revision"] == 8
+        assert after_save["state"] == "AWAITING_EVIDENCE"
+
+        confirmed = runtime.handle_physical_sales_callback(101, confirm_callback)
+        assert confirmed["code"] == "FIFO_PHYSICAL_SALES_CONFIRMED", confirmed
+        assert "полнота всех продаж и движений" in confirmed["message"]
+        replayed = runtime.handle_physical_sales_callback(101, confirm_callback)
+        assert replayed["error"] is False and replayed["replayed"] is True
+        after_confirm = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        assert after_confirm["case_revision"] == 9
+        assert runtime._sessions["101"]["step"] == "documents"
+
+        evidence = repository.read_transition_bridge_evidence(
+            case_id=runtime._sessions["101"]["case_id"],
+            **IDENTITY,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT",
+            include_sensitive_payload=True,
+        )
+        assert evidence["error"] is False and len(evidence["items"]) == 1
+        item = evidence["items"][0]
+        assert item["completeness"] == "PARTIAL"
+        assert item["confirmations"][-1]["confirmation_kind"] == "PHYSICAL_SALES"
+        assert item["payload"]["semantics"] == "PHYSICAL_OUTFLOW"
+        assert "posting-111" not in repr(item["payload"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_switching_fifo_case_invalidates_old_physical_preview_without_closing_either_case(tmp_path, monkeypatch):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
+    try:
+        repository, history, transitions, report_import, _runtime = _services(tmp_path)
+
+        class Worker:
+            def parse_physical_sales(self, *, filename, payload, scope):
+                return FifoCostPhysicalSalesImportService().parse_csv(
+                    filename=filename, payload=payload, scope=scope,
+                )
+
+        physical_import = TelegramFifoCostPhysicalSalesImportService(
+            repository=repository,
+            worker=Worker(),
+            evidence_service=FifoCostPhysicalSalesEvidenceService(),
+        )
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            transitions, history, report_import,
+            physical_sales_import_service=physical_import,
+        )
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        stage = runtime._show_supply_stage("101")
+        skip = next(
+            item["callback"] for item in stage["keyboard"]["buttons"]
+            if item["text"] == "Продолжить без списка поставок"
+        )
+        documents = runtime.handle_callback(101, skip)
+        select = next(
+            item["callback"] for item in documents["keyboard"]["buttons"]
+            if item["callback"].startswith("fifo_transition:physical_sales:")
+        )
+        runtime.handle_callback(101, select)
+        content = (
+            FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
+            "posting-111;3921245627;1;2026-11-05;source-row-1\r\n"
+        ).encode("utf-8")
+        preview = runtime.handle_physical_sales_document(
+            101, content, "physical-sales.csv",
+        )
+        old_case_id = runtime._sessions["101"]["case_id"]
+        save_callback = preview["keyboard"]["buttons"][0]["callback"]
+
+        other_identity = {
+            "store_id": "store-a", "product_id": "product-202",
+            "offer_id": "hook-3", "sku": "3921245628",
+        }
+        started = runtime.start_new_case(
+            101, other_identity, "Другой товар", 0, "TOTAL_LANDED",
+        )
+        assert started["error"] is False
+        new_case_id = runtime._sessions["101"]["case_id"]
+        assert new_case_id != old_case_id
+        assert runtime.has_physical_sales_document_selection(101) is False
+
+        stale = runtime.handle_physical_sales_callback(101, save_callback)
+        assert stale["error"] is True
+        assert runtime._sessions["101"]["case_id"] == new_case_id
+        assert runtime._sessions["101"]["step"] == "old_unit_cost_rub"
+        old_case = transitions.get_case(case_id=old_case_id, **IDENTITY)
+        new_case = transitions.get_case(case_id=new_case_id, **other_identity)
+        assert old_case["case_revision"] == 7 and old_case["state"] == "AWAITING_EVIDENCE"
+        assert new_case["case_revision"] == 1 and new_case["state"] == "DRAFT"
     finally:
         reset_current_tenant_user_id(tenant)
 

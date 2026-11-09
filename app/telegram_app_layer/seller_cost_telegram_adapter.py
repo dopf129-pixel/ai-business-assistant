@@ -97,6 +97,32 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
 
     def handle_document(self, content, user_id=None, filename=None):
         if (
+            self.fifo_transition_runtime_service is not None
+            and self.fifo_transition_runtime_service.has_physical_sales_document_selection(user_id)
+        ):
+            profile_failure = self._admit_user_profile(user_id)
+            if profile_failure:
+                return profile_failure
+            try:
+                result = self.fifo_transition_runtime_service.handle_physical_sales_document(
+                    user_id, content, filename,
+                )
+            except Exception:
+                return {
+                    "error": True,
+                    "message": "Не удалось проверить физические продажи. FIFO-дело не изменено.",
+                    "code": "FIFO_PHYSICAL_SALES_IMPORT_FAILED",
+                    "read_only_ozon": True,
+                }
+            if not isinstance(result, dict) or type(result.get("error")) is not bool:
+                return {
+                    "error": True,
+                    "message": "Не удалось проверить физические продажи. FIFO-дело не изменено.",
+                    "code": "INVALID_FIFO_PHYSICAL_SALES_RESULT",
+                    "read_only_ozon": True,
+                }
+            return result
+        if (
             isinstance(filename, str)
             and filename.lower().endswith(".xlsx")
             and self.fifo_report_import_service is not None
@@ -134,6 +160,37 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             self._clear_fifo_pending(user_id)
         return result
 
+    def preflight_document_upload(self, user_id, filename, file_size):
+        runtime = self.fifo_transition_runtime_service
+        if runtime is None or not runtime.has_physical_sales_document_selection(user_id):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        profile_failure = self._admit_user_profile(user_id)
+        if profile_failure:
+            return {**profile_failure, "selected": True, "accepted": False}
+        try:
+            result = runtime.preflight_physical_sales_document(
+                user_id, filename, file_size,
+            )
+        except Exception:
+            return {
+                "error": True,
+                "selected": True,
+                "accepted": False,
+                "code": "FIFO_PHYSICAL_SALES_PREFLIGHT_FAILED",
+                "message": "Не удалось проверить файл до загрузки. FIFO-дело не изменено.",
+                "read_only_ozon": True,
+            }
+        if not isinstance(result, dict) or type(result.get("error")) is not bool:
+            return {
+                "error": True,
+                "selected": True,
+                "accepted": False,
+                "code": "INVALID_FIFO_PHYSICAL_SALES_PREFLIGHT",
+                "message": "Не удалось проверить файл до загрузки. FIFO-дело не изменено.",
+                "read_only_ozon": True,
+            }
+        return result
+
     def handle_button(self, callback, user_id=None):
         self._clear_unit_price_calculator_for_navigation(callback, user_id)
         if (
@@ -151,6 +208,10 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             return profile_failure
         callback_text = str(callback or "")
         try:
+            if callback_text.startswith("fifo_physical:") and self.fifo_transition_runtime_service is not None:
+                return self.fifo_transition_runtime_service.handle_physical_sales_callback(
+                    user_id, callback_text,
+                )
             if callback_text.startswith("fifo_transition:") and self.fifo_transition_runtime_service is not None:
                 return self.fifo_transition_runtime_service.handle_callback(user_id, callback_text)
             if callback_text.startswith("fifo_anchor:") and self.fifo_anchor_entry_service is not None:

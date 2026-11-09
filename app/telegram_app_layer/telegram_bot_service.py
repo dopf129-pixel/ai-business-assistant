@@ -50,6 +50,15 @@ class TelegramBotService:
     def on_document(self, user_id, content, filename=None):
         return self._with_tenant(user_id, lambda: self.adapter.handle_document(content, user_id, filename))
 
+    def preflight_document_upload(self, user_id, filename, file_size):
+        checker = getattr(self.adapter, "preflight_document_upload", None)
+        if not callable(checker):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        return self._with_tenant(
+            user_id,
+            lambda: checker(user_id, filename, file_size),
+        )
+
     def on_callback(self, user_id, callback=None):
         if callback is None:
             callback = user_id

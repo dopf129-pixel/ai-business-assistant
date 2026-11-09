@@ -32,6 +32,12 @@ class TelegramRunner:
             self.history_service.add(user_id, "Загружена таблица себестоимости")
         return self.bot_service.on_document(user_id, content, filename)
 
+    def preflight_document_upload(self, user_id, filename, file_size):
+        checker = getattr(self.bot_service, "preflight_document_upload", None)
+        if not callable(checker):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        return checker(user_id, filename, file_size)
+
     @staticmethod
     def _safe_message_for_storage(text):
         raw = str(text or "")
