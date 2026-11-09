@@ -892,7 +892,26 @@ class FifoCostRepository:
         expected_case_revision, effective_date, cutoff_bridge, impact_preview,
         tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
     ):
-        """Seal a complete, scope-bound replay for later atomic confirmation.
+        """Persist a complete, scope-bound replay for later confirmation."""
+        return self._build_transition_preview(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+            expected_case_revision=expected_case_revision,
+            effective_date=effective_date, cutoff_bridge=cutoff_bridge,
+            impact_preview=impact_preview,
+            tax_policy_fingerprint=tax_policy_fingerprint,
+            idempotency_key=idempotency_key,
+            initial_opening_cutover=initial_opening_cutover,
+            read_only_reconstruction=False,
+        )
+
+    def _build_transition_preview(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, effective_date, cutoff_bridge, impact_preview,
+        tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
+        read_only_reconstruction=False,
+    ):
+        """Build baseline/candidate replays and optionally seal the candidate.
 
         The bridge and impact are rebuilt by the caller immediately before this
         call. The repository independently rebuilds the allocation from its
@@ -1324,13 +1343,97 @@ class FifoCostRepository:
                     connection.rollback()
                     return self._error("FIFO_TRANSITION_PREVIEW_TOO_LARGE")
                 preview_fingerprint = self._sha256(preview_payload)
+                if initial_cutover_staged:
+                    connection.execute("ROLLBACK TO SAVEPOINT transition_initial_preview")
+                    connection.execute("RELEASE SAVEPOINT transition_initial_preview")
+                if read_only_reconstruction:
+                    reconstruction_material = {
+                        "schema_version": 1,
+                        "identity": identity,
+                        "case_id": case_id,
+                        "case_revision": expected_case_revision,
+                        "effective_date": effective_date,
+                        "revisions": {
+                            "fifo": stream["revision"],
+                            "allocation": allocation_revision,
+                        },
+                        "baseline_fingerprint": baseline_preview[
+                            "preview_fingerprint"
+                        ],
+                        "candidate_fingerprint": candidate_replay[
+                            "preview_fingerprint"
+                        ],
+                        "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                        "evidence_set_fingerprint": evidence_fingerprint,
+                        "tax_policy_fingerprint": tax_policy_fingerprint,
+                        "complete_through": cutoff_bridge.complete_through,
+                    }
+                    connection.rollback()
+                    return {
+                        "error": False,
+                        "code": "FIFO_TRANSITION_RECONSTRUCTION_READY",
+                        "read_only": True,
+                        "business_writes": False,
+                        "identity": dict(identity),
+                        "case_id": case_id,
+                        "case_revision": expected_case_revision,
+                        "revisions": {
+                            "fifo": stream["revision"],
+                            "allocation": allocation_revision,
+                        },
+                        "reconstruction_fingerprint": self._sha256(
+                            reconstruction_material,
+                        ),
+                        "baseline": {
+                            "preview_fingerprint": baseline_preview[
+                                "preview_fingerprint"
+                            ],
+                            "total_cogs_rub": baseline_preview["total_cogs_rub"],
+                            "allocation_preview": baseline_preview,
+                        },
+                        "candidate": {
+                            "preview_fingerprint": candidate_replay[
+                                "preview_fingerprint"
+                            ],
+                            "payload_fingerprint": normalized_candidate[
+                                "payload_fingerprint"
+                            ],
+                            "total_cogs_rub": candidate_replay["total_cogs_rub"],
+                            "allocation_preview": candidate_replay,
+                        },
+                        "lineage": {
+                            "effective_date": effective_date,
+                            "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                            "evidence_set_fingerprint": evidence_fingerprint,
+                            "tax_policy_fingerprint": tax_policy_fingerprint,
+                            "base_source_fingerprint": base_source_fingerprint,
+                            "candidate_source_fingerprint": candidate_source_fingerprint,
+                            "baseline_fingerprint": baseline_preview[
+                                "preview_fingerprint"
+                            ],
+                            "candidate_fingerprint": candidate_replay[
+                                "preview_fingerprint"
+                            ],
+                            "complete_through": cutoff_bridge.complete_through,
+                        },
+                        "coverage": {
+                            "complete": (
+                                baseline_preview.get("complete") is True
+                                and candidate_replay.get("complete") is True
+                            ),
+                            "baseline_allocations": len(
+                                baseline_preview.get("allocations", ()),
+                            ),
+                            "candidate_allocations": len(
+                                candidate_replay.get("allocations", ()),
+                            ),
+                            "complete_through": cutoff_bridge.complete_through,
+                        },
+                    }
                 preview_id = "transpreview_" + preview_fingerprint[:40]
                 expires_at = self._iso(
                     now + timedelta(seconds=self.PREVIEW_TTL_SECONDS),
                 )
-                if initial_cutover_staged:
-                    connection.execute("ROLLBACK TO SAVEPOINT transition_initial_preview")
-                    connection.execute("RELEASE SAVEPOINT transition_initial_preview")
                 stored = FifoCostTransitionStore.prepare_case_preview(
                     connection, case_id=case_id, scope=scope, identity=identity,
                     expected_case_revision=expected_case_revision,
@@ -1368,6 +1471,12 @@ class FifoCostRepository:
                 if connection.in_transaction:
                     connection.rollback()
                 return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                if read_only_reconstruction:
+                    return self._error("FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE")
+                raise
             finally:
                 connection.close()
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
@@ -1375,6 +1484,41 @@ class FifoCostRepository:
             return self._error(code)
         except (sqlite3.Error, OSError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+
+    def reconstruct_transition_preview(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, effective_date, cutoff_bridge, impact_preview,
+        tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
+    ):
+        """Rebuild baseline and candidate with prepare's exact replay path.
+
+        An uninitialized opening queue may be staged inside the repository
+        transaction, but this entry point always rolls it back and never seals
+        a preview or advances a case/FIFO revision.
+        """
+        try:
+            result = self._build_transition_preview(
+                case_id=case_id, store_id=store_id, product_id=product_id,
+                offer_id=offer_id, sku=sku,
+                expected_case_revision=expected_case_revision,
+                effective_date=effective_date, cutoff_bridge=cutoff_bridge,
+                impact_preview=impact_preview,
+                tax_policy_fingerprint=tax_policy_fingerprint,
+                idempotency_key=idempotency_key,
+                initial_opening_cutover=initial_opening_cutover,
+                read_only_reconstruction=True,
+            )
+        except Exception:
+            return self._error("FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE")
+        if not isinstance(result, dict):
+            return self._error("FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE")
+        if result.get("error") is False and (
+            result.get("code") != "FIFO_TRANSITION_RECONSTRUCTION_READY"
+            or result.get("read_only") is not True
+            or result.get("business_writes") is not False
+        ):
+            return self._error("FIFO_TRANSITION_RECONSTRUCTION_INVALID")
+        return result
 
     def commit_transition_case(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
