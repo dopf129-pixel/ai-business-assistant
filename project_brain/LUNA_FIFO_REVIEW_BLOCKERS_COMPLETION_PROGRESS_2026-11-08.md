@@ -1,15 +1,15 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR16 выполнены; FR17 owner declarations реализованы, а их cross-source verification продолжается в FR18.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR18 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR18 NOT_STARTED. FR17 owner-declaration portion implemented in code commit `e33af711a9b1d28ec8c959c769e365cbd6c312ef` (`Persist FIFO cutoff and opening confirmations`); FR17 final cross-source condition intentionally remains with FR18: compare accepted supply and movement bridge before any READY result. Next: build durable evidence bundle and actual cutoff bridge; do not treat the current owner-confirmed composition as sufficient to apply.
+- Текущий этап FR19 NOT_STARTED. FR18 code checkpoint: `ebf2218d` (`Rebuild FIFO cutoff bridge from saved evidence`). EvidenceService restores encrypted typed finance, physical-sales and movement snapshots; review rebuilds the actual bridge against its current proposal. The synthetic bridge can be `READY`, but review remains preview-only and has no READY seal/apply. Next: FR19 public read-only baseline/candidate reconstruction. Do not initialize or mutate FIFO in reconstruction.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current implementation HEAD after FR17 code: `e33af711a9b1d28ec8c959c769e365cbd6c312ef` (`Persist FIFO cutoff and opening confirmations`); FR17 documentation checkpoint follows this code commit.
+- Current implementation HEAD after FR18 code: `ebf2218d` (`Rebuild FIFO cutoff bridge from saved evidence`); FR18 documentation checkpoint follows this code commit.
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
@@ -40,8 +40,8 @@
 | FR14 | DONE | `bcd78201f800b6df93faeb14f2222ca59a1fe651`; encrypted restartable physical-sales evidence and separate bound confirmation; linked profile **157 passed in 13.95s**; five data hashes unchanged |
 | FR15 | DONE | `913fb055`; Telegram selection/preflight/preview/save/confirm route; linked profile **32 passed in 4.51s**; compileall/diff-check/data manifest PASS |
 | FR16 | DONE | `2f3a02f4`; bounded monthly finance identities, exact-scope paginated return-status observations, publication gate and shared budgets; linked profile **132 passed in 3.24s**; compile/data checks PASS |
-| FR17 | PARTIAL | Owner confirmation APIs, saved-report and case-basis validation, 3 old + 100 new public synthetic flow; **152 passed in 9.21s**; code SHA `e33af711`; FR18 must cross-check acceptance/movement before READY |
-| FR18 | NOT_STARTED | Assembler/bridge |
+| FR17 | DONE | Durable exact-report cutoff/opening confirmations; FR17 linked profile **152 passed in 9.21s**; final cross-source condition verified by FR18 |
+| FR18 | DONE | Code checkpoint `ebf2218d`; encrypted finance/document/movement evidence reload; actual `READY` cutoff bridge after service restart; **210 passed in 15.82s**; no FIFO apply |
 | FR19 | NOT_STARTED | Reconstruction |
 | FR20 | NOT_STARTED | Financial baseline |
 | FR21 | NOT_STARTED | Impact |
@@ -61,9 +61,17 @@
 - Code checkpoint: `e33af711a9b1d28ec8c959c769e365cbd6c312ef` (`Persist FIFO cutoff and opening confirmations`). Modified transition contracts, transition/review services, and their tests. Schema v16 is unchanged.
 - Public methods persist a candidate store-local cutoff bound to one complete owner-confirmed saved stock report, then bind a separate append-only confirmation to its exact evidence hash and revision. Opening composition reuses the existing initial-layer contract; validates stock available + reserved, old home/transit counts, known FBS return basis, unresolved stock buckets, two approved rates and FIFO order; does not add accepted-supply quantity to stock totals.
 - Restart reads verify exact scope, encrypted evidence, immutable owner confirmation, case-basis fingerprint, original report and source-reference manifest. A changed owner basis invalidates both confirmations. Memory-only cutoff remains non-authoritative. Synthetic `3 old @ 21.00 home + 100 new @ 14.65 Ozon` is stored as a preview-only composition; duplicate Ozon inventory is rejected without advancing the case. No FIFO event, rate, allocation or live cost is written.
-- Important boundary: this checkpoint proves owner declarations against the exact stock snapshot; it does **not** prove acceptance/movement overlap. Composition evidence remains partial and is not eligible for READY/APPLY until FR18 reconstructs accepted supply and the actual movement bridge. The case supplied by the owner remains untouched.
+- Important boundary at the FR17 checkpoint: that change proves owner declarations against the exact stock snapshot; it did **not** prove acceptance/movement overlap. FR18 now validates the complete typed movement bridge against exact cutoff, stock, finance and physical-sale records. The case supplied by the owner remains untouched.
 - Verification: linked profile (transition service/review, evidence contracts/store, supply acceptance/reconciliation, schema v13/v16, opening proposal/readiness/source snapshots) **152 passed in 9.21s**; FR17 direct cases **2 passed in 1.11s**; Python compileall, `git diff --check`, and `git diff --exit-code -- data` passed. Local synthetic SQLite only; no live API or bot launch.
-- `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`; no merge/deploy. Next: FR18 evidence assembly and cross-source bridge validation.
+- `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`; no merge/deploy. The synthetic cross-source bridge is implemented, but user case evidence remains unavailable and production factory/apply wiring is scheduled for FR24 and later.
+
+# FR18 — durable evidence assembly and actual cutoff bridge, 2026-11-09
+
+- Code checkpoint: `ebf2218d` (`Rebuild FIFO cutoff bridge from saved evidence`), six code/test paths. Added `FifoCostTransitionEvidenceService`; `FifoCostTransitionReviewService` now loads saved evidence, binds it to the exact case revision and proposal, invokes `FifoCostTransitionService.build_cutoff_bridge`, and passes typed missing/conflict/bridge facts to readiness. FR17 cutoff/opening confirmations are reread from their exact saved versions; process memory is not used as authority.
+- Finance identity batches and movement coverage are written as bounded tenant-encrypted snapshots. Before reconstruction, the service checks repository-envelope hashes, identity, complete scopes/pages, exact period, row counts, source proof fingerprints and recomputed inner snapshot fingerprints. Physical document rows are reparsed from the exact stored CSV and joined to their separate owner confirmation. The confirmed document coverage window uses the period saved with the document, not merely the earliest sale row date.
+- Period-scoped evidence stores `source_as_of` inside its encrypted proof payload; repository `as_of` is reserved for point-in-time evidence because the evidence contract disallows `as_of` together with a period. Movement coverage persists both period bounds and complete-through. Partial pagination remains incomplete even after an owner confirms the exact snapshot.
+- `tests/test_fifo_cost_transition_evidence_service.py` includes finance restart restoration, partial movement blocker, and full synthetic path across exact stock report → confirmed cutoff/opening → finance identities → owner-confirmed physical-sale CSV → complete movement snapshot → fresh service instances → actual `READY` bridge. The surrounding FR18 linked transition/bridge/schema/physical-sales/source/Telegram profile passed **210 tests in 15.82s**. The two production factory tests remain intentionally assigned to FR24; the saved-evidence `ReviewService` workflow test is included. Compile, `git diff --check`, and `git diff --exit-code -- data` pass.
+- No schema migration or live API was added. `data/` and `.fl12-deps/` were not staged. All databases/files are synthetic and under pytest `tmp_path`; the owner case remains unverified. No real API, bot, merge or deployment. FR30 still owns full pytest and exact-head CI. Next: FR19 read-only baseline/candidate reconstruction.
 
 # FR16 — bounded finance identity and Returns source snapshots, 2026-11-09
 

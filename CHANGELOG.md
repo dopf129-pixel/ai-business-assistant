@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR18: durable evidence assembler and cutoff bridge
+
+- Added `FifoCostTransitionEvidenceService` to restore exact finance identity batches, confirmed physical-sales CSV and confirmed movement coverage from tenant-encrypted snapshots after restart. Snapshot and inner payload fingerprints, exact periods, scope, source proofs, and bounded row/page counts are revalidated; partial movement coverage remains a concrete blocker.
+- `FifoCostTransitionReviewService` now rebuilds typed evidence and calls the real cutoff bridge with its current proposal. Readiness exposes missing source requirements and preview-only bridge state; a bridge marked `READY` does not create a READY seal or apply FIFO changes.
+- Linked FR18 evidence/bridge/schema/physical-sales/review profile: **210 passed in 15.82s**. Compile, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic SQLite and CSV only; no owner data, live API, bot, merge, or deployment.
+
 # 2026-11-09 — FIFO FR17: durable cutoff and opening declarations
 
 - Added exact report-bound, store-local cutoff selection and separate append-only owner confirmations for cutoff stock semantics and the proposed opening layers. The saved composition is checked against the exact complete stock report, owner-known old home/transit counts, reserved-stock inclusion and FIFO layer order; accepted shipment quantities are explicitly not added again to stock totals.

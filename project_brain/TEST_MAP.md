@@ -1,8 +1,14 @@
+# 2026-11-09 — FIFO FR18 durable evidence assembly and cutoff bridge
+
+- `tests/test_fifo_cost_transition_evidence_service.py::test_finance_identity_batches_rehydrate_from_durable_snapshot_after_restart` validates rehydration of exact typed finance identities from tenant-encrypted storage. `test_incomplete_movement_snapshot_stays_a_concrete_blocker_after_restart` confirms partial pagination never becomes zero movement or a bridge. `test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart` stores owner cutoff/opening confirmation, finance, physical-sales CSV and complete movement coverage, then uses fresh services to rebuild an actual `READY` bridge; the case remains unapplied and no FIFO events are written.
+- The linked profile includes transition evidence/service/review/readiness, cutoff bridge, physical-sales parser/evidence, schema v16/v13, source snapshots, stock and supply reconciliation, report import/worker, and Telegram route regressions: **210 passed in 15.82s**. `py_compile`, `git diff --check`, and `git diff --exit-code -- data` pass. Two future production-factory tests remain assigned to FR24 and were excluded from this FR18 result.
+- Synthetic tenant context, Fernet keys, SQLite and CSV in `tmp_path` only. No live API, owner records, bot process, merge or deployment. Full suite/current-head CI are FR30.
+
 # 2026-11-09 — FIFO FR17 cutoff/opening owner confirmations
 
 - `tests/test_fifo_cost_transition_service.py::test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new` uses public service calls and a synthetic saved stock report. It verifies exact store-local cutoff, `available + reserved` semantics, 3 old home units plus 100 new Ozon units, explicit rejection of double-counting, separately confirmed restart reads, stale confirmation after owner-basis change, and no FIFO event writes.
 - `tests/test_fifo_cost_transition_review_service.py::test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready` verifies a process-memory cutoff is not authority and review remains read-only/non-ready.
-- Linked FIFO transition, evidence, acceptance, schema and readiness profile: **152 passed in 9.21s**. FR18 still owns reconciliation against complete acceptance/movement bridge before READY.
+- Linked FIFO transition, evidence, acceptance, schema and readiness profile: **152 passed in 9.21s**. At that checkpoint the cross-source bridge remained open; FR18 now completes it through durable evidence reconstruction and the actual bridge builder.
 
 # 2026-11-09 — FIFO FR15 Telegram physical-sales route
 
