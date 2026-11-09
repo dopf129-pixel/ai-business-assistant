@@ -33,8 +33,8 @@
 
 # 2026-11-09 — FIFO return lineage on multi-rate allocations (FR10)
 
-- `tests/test_fifo_cost_repository_multi_rate_replay.py` exercises the public return-restock service against rate-derived sale lines: full return across multiple bases restores exact costs/lineage; a subsequent sale consumes the restored rate slice; a partial return is accepted for a single-basis sale; an ambiguous partial return across mixed bases and an over-return are rejected before business writes. The same profile verifies finite non-sale outflow remains separate from sales COGS.
-- Linked FR04–FR10 profile: **141 passed in 9.06s**. Compileall, diff check, and five tracked user-data hashes pass. The task's MR04 mixed-basis partial case remains blocked pending a policy decision; this local profile is not full-suite or remote CI.
+- `tests/test_fifo_cost_repository_multi_rate_replay.py` exercises the public return-restock service against rate-derived sale lines: full return across multiple bases restores exact costs/lineage; MR04 returns one of two R2 units from the mixed-basis MR02 sale using the owner-approved latest-allocation-first convention; MR05 resells that unit at 16 ₽ without changing earlier sales COGS. Repeated partial returns exhaust the latest basis before moving to the prior basis; over-return remains rejected. The same profile verifies finite non-sale outflow remains separate from sales COGS.
+- Return selection is deterministic cost attribution, not physical-unit proof. Return COGS authorization/recognition remains independent. Linked FR10 FIFO profile: **142 passed in 9.07s**; compileall and `git diff --check` pass. Full suite and remote CI remain pending.
 
 # 2026-11-09 — FIFO repository multi-rate replay (FR08)
 

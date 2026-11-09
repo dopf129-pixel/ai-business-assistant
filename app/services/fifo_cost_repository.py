@@ -6886,19 +6886,17 @@ class FifoCostRepository:
 
         basis_rows = connection.execute(
             """SELECT l.line_number, l.layer_id, NULL AS rate_change_id,
-                      l.quantity, l.unit_cost_rub, l.total_cost_rub,
-                      layer_sequence AS source_order
+                      l.quantity, l.unit_cost_rub, l.total_cost_rub
                FROM fifo_cost_allocation_lines AS l
                JOIN fifo_cost_layers AS layer USING(layer_id)
                WHERE l.allocation_id=? AND l.event_id=?
                UNION ALL
                SELECT r.line_number, NULL AS layer_id, r.rate_change_id,
-                      r.quantity, r.unit_cost_rub, r.total_cost_rub,
-                      100001 + rate.rate_sequence AS source_order
+                      r.quantity, r.unit_cost_rub, r.total_cost_rub
                FROM fifo_cost_allocation_rate_lines AS r
                JOIN fifo_cost_rate_changes AS rate USING(rate_change_id)
                WHERE r.allocation_id=? AND r.event_id=?
-               ORDER BY source_order, line_number LIMIT 100001""",
+               ORDER BY line_number LIMIT 100001""",
             (
                 allocation["allocation_id"], sale["event_id"],
                 allocation["allocation_id"], sale["event_id"],
@@ -6908,6 +6906,8 @@ class FifoCostRepository:
             raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
         if not basis_rows or sum(row["quantity"] for row in basis_rows) != sale["quantity"]:
             raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
+        if len({row["line_number"] for row in basis_rows}) != len(basis_rows):
+            raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
 
         prior = connection.execute(
             """SELECT COALESCE(SUM(quantity), 0) FROM fifo_cost_return_basis
@@ -6916,35 +6916,53 @@ class FifoCostRepository:
         ).fetchone()[0]
         if prior + event["quantity"] > sale["quantity"]:
             raise ValueError("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
-        basis_keys = {
-            ("LAYER", row["layer_id"]) if row["layer_id"] is not None
-            else ("RATE", row["rate_change_id"])
-            for row in basis_rows
-        }
-        if event["quantity"] != sale["quantity"] and len(basis_keys) != 1:
-            raise ValueError("FIFO_RETURN_SPLIT_AMBIGUOUS")
         if event["quantity"] == sale["quantity"] and prior:
             raise ValueError("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
 
+        prior_basis_rows = connection.execute(
+            """SELECT layer_id, rate_change_id, SUM(quantity) AS quantity
+               FROM fifo_cost_return_basis
+               WHERE origin_sale_event_id=?
+               GROUP BY layer_id, rate_change_id""",
+            (sale["event_id"],),
+        ).fetchall()
+        if sum(row["quantity"] for row in prior_basis_rows) != prior:
+            raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
+        remaining_by_line = {
+            row["line_number"]: row["quantity"] for row in basis_rows
+        }
+        for previous in prior_basis_rows:
+            key = (
+                ("LAYER", previous["layer_id"])
+                if previous["layer_id"] is not None
+                else ("RATE", previous["rate_change_id"])
+            )
+            to_match = previous["quantity"]
+            for row in reversed(basis_rows):
+                row_key = (
+                    ("LAYER", row["layer_id"])
+                    if row["layer_id"] is not None
+                    else ("RATE", row["rate_change_id"])
+                )
+                if row_key != key:
+                    continue
+                take = min(remaining_by_line[row["line_number"]], to_match)
+                remaining_by_line[row["line_number"]] -= take
+                to_match -= take
+                if to_match == 0:
+                    break
+            if to_match:
+                raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
+
         remaining = event["quantity"]
         prepared = []
-        for row in basis_rows:
-            if row["layer_id"] is not None:
-                restored_query = """SELECT COALESCE(SUM(quantity), 0)
-                    FROM fifo_cost_return_basis
-                    WHERE origin_sale_event_id=? AND layer_id=?
-                      AND rate_change_id IS NULL"""
-                restored_params = (sale["event_id"], row["layer_id"])
-            else:
-                restored_query = """SELECT COALESCE(SUM(quantity), 0)
-                    FROM fifo_cost_return_basis
-                    WHERE origin_sale_event_id=? AND layer_id IS NULL
-                      AND rate_change_id=?"""
-                restored_params = (sale["event_id"], row["rate_change_id"])
-            previously_restored = connection.execute(
-                restored_query, restored_params,
-            ).fetchone()[0]
-            available = row["quantity"] - previously_restored
+        selection_rows = list(basis_rows)
+        if event["quantity"] < sale["quantity"]:
+            # The owner-approved rule assigns partial returns to the latest
+            # units consumed by the original FIFO sale first.
+            selection_rows.reverse()
+        for row in selection_rows:
+            available = remaining_by_line[row["line_number"]]
             take = min(available, remaining)
             if take > 0:
                 unit_cost = cls._normalize_money(row["unit_cost_rub"])

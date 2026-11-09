@@ -74,10 +74,11 @@ Errors contain no raw SKU, posting, shipment, product name, ciphertext, or owner
 4. Verify `physical_total = expected_older_finite_units + previous_rate_remaining_units`. Materialize only the predecessor residual as a finite derived balance at the queue tail; activate the new open rate after it.
 5. Do not move the predecessor residual to replay start and do not infer residual from future sales. Past sales were valued at the rate active then.
 6. A return referring to a closed/open rate restores a finite slice with the original sale cost and exact origin lineage at the return position, before the currently open rate. It does not amend prior sales COGS automatically.
-7. Confirmed non-sale outflow consumes proven finite balances only. It never consumes the unknown open-rate quantity.
-8. Cancellation guards remain authoritative. Cancelled rates are excluded by exact existing cancellation records; do not derive predecessor by `rate_sequence - 1`.
-9. Physical event order uses proof boundaries and the store timezone, not `created_at`, database sequence, or rate ID. Existing bounded same-day order analysis and work limits remain.
-10. Unknown/missing proof is incomplete, not zero. No latest-rate-for-history fallback.
+7. Owner-approved partial-return policy (2026-11-09): when a returned quantity is linked to a sale but the source cannot identify individual units, assign it to the latest original FIFO allocation lines first (reverse allocation-line order). Earlier partial returns consume that same latest-first capacity before a later partial return is assigned. This is a deterministic costing convention, not evidence that Ozon identified the physical unit or cost layer. A full-sale return keeps the original allocation order.
+8. Confirmed non-sale outflow consumes proven finite balances only. It never consumes the unknown open-rate quantity.
+9. Cancellation guards remain authoritative. Cancelled rates are excluded by exact existing cancellation records; do not derive predecessor by `rate_sequence - 1`.
+10. Physical event order uses proof boundaries and the store timezone, not `created_at`, database sequence, or rate ID. Existing bounded same-day order analysis and work limits remain.
+11. Unknown/missing proof is incomplete, not zero. No latest-rate-for-history fallback.
 
 ## 4. Transition persistence and application contract
 

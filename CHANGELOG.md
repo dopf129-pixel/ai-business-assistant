@@ -1,7 +1,7 @@
 # 2026-11-09 — FIFO FR10: exact return lineage for multi-rate allocations
 
-- Return restocks now restore exact historical FIFO bases from both legacy layers and rate-derived allocation lines. Full returns can span multiple rates; partial returns work when the origin sale has one unambiguous basis, while ambiguous partial mixed-basis returns fail closed before any write. Rate-derived restored units retain their lineage when sold again, and non-sale outflows remain separate from sales COGS.
-- FR10 remains blocked on the MR04 mixed-basis partial-return policy: the current source data identifies the originating sale and returned quantity, but not which cost basis applies to one returned unit from a sale allocated across multiple rates. No implicit basis-selection policy was introduced.
+- Return restocks restore exact historical FIFO bases from both legacy layers and rate-derived allocation lines. The owner-approved mixed-basis partial-return rule assigns units to the latest original FIFO allocation lines first, accounting for earlier returns; full returns preserve original allocation order. This is deterministic cost attribution, not physical-unit evidence. Restored rate-derived units retain lineage when sold again, and non-sale outflows remain separate from sales COGS.
+- FR10 MR04–MR06 and linked regressions pass; full-suite and exact-head CI remain scheduled for FR30.
 
 # 2026-11-08 — FIFO late-entry review corrections
 

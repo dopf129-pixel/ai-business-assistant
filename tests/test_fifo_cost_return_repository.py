@@ -278,7 +278,7 @@ def test_fc18_service_uses_exact_return_recovery_and_publishes_new_revision(tmp_
         reset_current_tenant_user_id(token)
 
 
-def test_fc18_partial_return_of_multilayer_sale_is_not_guessed_or_written(tmp_path):
+def test_fc18_partial_return_of_multilayer_sale_uses_latest_fifo_basis(tmp_path):
     repo, token, sale_event_id = _ready_repository(
         tmp_path, layers=[(3, "20.00"), (2, "25.00")], sale_quantity=5,
     )
@@ -286,17 +286,36 @@ def test_fc18_partial_return_of_multilayer_sale_is_not_guessed_or_written(tmp_pa
         result = _return_command(
             repo, sale_event_id, quantity=1, return_id="b" * 64,
         )
-        assert result["error"] is True
-        assert result["code"] == "FIFO_RETURN_SPLIT_AMBIGUOUS"
+        assert result["error"] is False, result
+        allocation, preview = _publish_current(repo)
+        assert allocation["error"] is False, allocation
+        assert preview["complete"] is True
+        assert preview["total_cogs_rub"] == "110.00"
+        assert preview["restored_units"] == 1
         connection = repo.get_connection()
         try:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM fifo_cost_events "
-                "WHERE event_kind='SALEABLE_RETURN_RESTOCK'"
-            ).fetchone()[0] == 0
-            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_return_basis").fetchone()[0] == 0
+            rows = connection.execute(
+                """SELECT b.layer_id, b.rate_change_id, b.quantity,
+                          b.unit_cost_rub, b.total_cost_rub,
+                          l.event_id AS basis_sale_event_id
+                   FROM fifo_cost_return_basis AS b
+                   JOIN fifo_cost_allocation_lines AS l
+                     ON l.allocation_id=b.allocation_id
+                    AND l.line_number=b.allocation_line_number
+                   WHERE b.return_event_id=(
+                     SELECT event_id FROM fifo_cost_events
+                     WHERE event_kind='SALEABLE_RETURN_RESTOCK'
+                   )""",
+            ).fetchall()
         finally:
             connection.close()
+        assert len(rows) == 1
+        assert rows[0]["layer_id"] is not None
+        assert rows[0]["rate_change_id"] is None
+        assert rows[0]["quantity"] == 1
+        assert rows[0]["unit_cost_rub"] == "25.00"
+        assert rows[0]["total_cost_rub"] == "25.00"
+        assert rows[0]["basis_sale_event_id"] == sale_event_id
     finally:
         reset_current_tenant_user_id(token)
 
