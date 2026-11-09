@@ -1,15 +1,17 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR23 выполнены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR24 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
 - FR23 DONE; implementation commit `9f42f143` (`Apply exact FIFO transition preview safely`). `read_preview` возвращает только exact scoped persisted seal, без пересчёта. `apply` закреплён за preview ID/fingerprint, READY revision N+1 и sealed evidence basis N; он пересобирает readiness, evidence, cutoff bridge, reconstruction, tax и impact, затем использует существующую атомарную repository операцию. Exact retry после APPLIED/restart возвращает тот же commit до проверки текущих источников, налоговой политики и TTL. При гонке same-key запрос повторно проверяет commit после изменения текущего состояния/ошибки пересборки; duplicate FIFO writes не создаются. Cache invalidation вызывается только после durable commit и отдельно отражает ошибку. Проверка: linked FR22–FR23 **34 passed in 5.80s**; конкурентный exact-retry test — **5 consecutive runs passed**; `py_compile`, `git diff --check`, `git diff --exit-code -- data` и FR00 hashes — PASS. Следующий этап FR24.
+- FR24 DONE; implementation commit `3927f270` (`Wire shared FIFO transition production workflow`). `create_fifo_cost_transition_workflow` — одна production composition root для scoped repository/history/transition, durable evidence, real review, apply, impact, period-summary collector, report/physical-sales import, supply refresh и Telegram runtime. `create_telegram_assistant` вызывает этот builder и экспортирует shared workflow/runtime/apply на runner; `create_fifo_cost_transition_service` сохраняет прежний контракт. Exact revision-aware invalidation подключена только к ApplyService, чтобы runtime не повторял широкое invalidation после apply.
+- FR24 verification: builder/factory compile PASS; production builder + apply/evidence/review linked profile **17 passed in 4.09s**; physical-sales public route test подтверждает реальные `start_selection`/`handle_document`/`handle_callback` методы. `git diff --check`, `git diff --exit-code -- data` и пять FR00 hashes PASS. Использованы только temporary synthetic SQLite/IO stubs, без owner DB, live API, Telegram/bot launch. Next FR25 exact READY preview ticket and explicit confirmation UI.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current implementation HEAD after FR19 code: `6d02a188` (`Add read-only FIFO transition reconstruction`); FR19 docs/checkpoint updates are recorded in this journal.
+- Current implementation HEAD after FR24 code: `3927f270` (`Wire shared FIFO transition production workflow`); FR24 documentation is being finalized in this checkpoint.
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
@@ -47,7 +49,7 @@
 | FR21 | DONE | Binding snapshots to exact reconstruction/tax policy, full-month validation, MR12–MR18; section below. |
 | FR22 | DONE | `FifoCostTransitionApplyService.prepare`; readiness/evidence/bridge/reconstruction/impact seal; candidate-only без writes; same-key retry/TTL/tax-change; linked profile **31 passed in 5.24s**, existing-stream regression **1 passed**; production factory remains FR24. |
 | FR23 | DONE | Commit `9f42f143`; exact scoped preview read; sealed-basis review/apply; idempotent retry after APPLIED/restart/TTL; same-key concurrent recovery; post-commit cache invalidation reporting; linked profile **34 passed in 5.80s**, concurrency **5 repeats passed**, compile/data/diff PASS. |
-| FR24 | NOT_STARTED | Production builder |
+| FR24 | DONE | Commit `3927f270`; one shared builder used by `create_telegram_assistant`; evidence/review/apply/runtime and physical-document route graph; apply-only cache invalidation; linked profile **17 passed in 4.09s**, compile/data/diff PASS. |
 | FR25 | NOT_STARTED | Exact confirm UI |
 | FR26 | NOT_STARTED | Consumers |
 | FR27 | NOT_STARTED | Production E2E |
@@ -258,6 +260,15 @@
 - `tests/test_fifo_cost_transition_apply_service.py` covers exact persisted read without recalculation/no writes, sealed evidence and review basis N from READY N+1, atomic apply, cache failure after durable write, restart retry after changing tax and passing TTL, different key on expired seal, changed fingerprint conflict, and same-key concurrency. Linked FR22–FR23 profile (atomic repository, apply, evidence, review and production readiness regression): **34 passed in 5.80s**. Same-key concurrency case: **5/5 repeat runs passed**. Changed modules `py_compile` PASS.
 - `git diff --check`, `git diff --exit-code -- data`, and five FR00 SHA-256 comparisons PASS. Only synthetic temporary SQLite and tenant fixtures; no owner files/DB, live Ozon/Telegram calls, bot launch, merge or deployment. Full suite/current-head CI remain FR30; `OWNER_CASE_VERIFIED=false`.
 - Next: FR24 shared production factory wiring.
+
+## FR24 — shared production workflow assembly — 2026-11-10
+
+- Implementation commit: `3927f270` (`Wire shared FIFO transition production workflow`). Added one `create_fifo_cost_transition_workflow` builder with explicit repository, history, transition, bounded source, tax, Period Profit, optional tax-configuration, cache and clock dependencies. It creates one shared evidence service, review service, apply service, period-summary collector, supply refresher, report importer, durable physical-sales importer and Telegram runtime. The runtime and factory return the same evidence/review/apply objects.
+- `create_telegram_assistant` now invokes that builder, stores it on the system and exposes workflow/runtime/apply on the runner. `create_fifo_cost_transition_service` remains unchanged and compatible. The builder uses the existing production IO classes; synthetic tests inject temporary repository/source/clock and do not define a second test factory.
+- Cache invalidation uses an adapter that requires committed exact identity/case/FIFO/allocation revisions before calling the existing owner-scoped cache invalidator. Telegram runtime is no longer given that callback, preventing duplicate broad invalidation after the durable apply.
+- Verification: `py_compile app/telegram_assistant_factory.py` PASS. `tests/test_fifo_cost_transition_production_workflow.py`, apply service, durable evidence and review linked profile: **17 passed in 4.09s**. It verifies component identity, source/tax/Period Profit dependencies, one invalidation adapter, and the actual public physical-sales importer methods (`start_selection`, `handle_document`, `handle_callback`). An earlier assertion expected a nonexistent method `create_selection_callback`; inspection confirmed the production API is `start_selection`, the regression was corrected, and the profile is green.
+- `git diff --check`, `git diff --exit-code -- data` and all five FR00 owner-data hashes PASS. `.fl12-deps/` remains untracked and unstaged. No owner DB/files, live Ozon/Telegram requests, actual bot launch, merge or deployment. Full suite/current-head CI remain FR30; `OWNER_CASE_VERIFIED=false`.
+- Next: FR25 exact persisted READY ticket, restart-safe preview UI and explicit owner confirmation.
 
 ## FR20 — 2026-11-10
 

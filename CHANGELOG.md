@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR24: shared production workflow assembly
+
+- Added `create_fifo_cost_transition_workflow` as the single composition root for durable evidence, review, apply, bounded supply refresh, report/physical-sales imports, period-summary collection, and Telegram runtime. `create_telegram_assistant` now uses the same builder and exposes the assembled workflow/runtime/apply services on its runner; the legacy `create_fifo_cost_transition_service` remains compatible.
+- ApplyService owns exact-revision cache invalidation after durable commit; the Telegram runtime no longer repeats broad invalidation. The builder passes explicit repository/history/source/tax/Period Profit dependencies and one shared evidence/review/apply instance graph.
+- Verification: FR24 builder plus FR22–FR23 and durable evidence/review profile **17 passed in 4.09s**; builder/factory `py_compile` PASS; diff check, `data/` diff, and five FR00 user-data hashes PASS. No owner DB, real Ozon/Telegram request, bot launch, merge, or deployment. Full suite/current-head CI remain FR30.
+
 # 2026-11-10 — FIFO FR23: exact preview apply and restart recovery
 
 - Added scoped read-only access to the persisted transition preview and an owner apply path bound to the exact preview ID/fingerprint, case revision, and idempotency key. Apply rebuilds the sealed basis, tax, bridge, reconstruction, and impact before the existing atomic repository commit; no HTTP is performed inside the write transaction.

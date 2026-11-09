@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR24 shared production workflow
+
+- Added `create_fifo_cost_transition_workflow` and switched `create_telegram_assistant` to use it. Production assembly shares one repository/history/transition, durable evidence, review, apply, impact and runtime graph; it also carries source, tax, Period Profit and report/document dependencies. The runner exposes the workflow, runtime and apply service. The compatibility transition-service factory remains unchanged.
+- Implementation commit `3927f270` (`Wire shared FIFO transition production workflow`). Cache invalidation is attached to ApplyService with committed identity/revision metadata; Telegram runtime no longer performs a second broad invalidation. FR24 linked verification: **17 passed in 4.09s**; factory compile and FR00 user-data manifest pass. FR25 exact preview ticket/confirmation UI is next. Owner case remains source-blocked; full pytest/current-head CI remain FR30. No live calls, bot launch, merge or deployment.
+
 # 2026-11-10 — FIFO FR23 apply and restart recovery
 
 - FR23 now reads the exact persisted READY seal without recalculation and applies only that preview ID/fingerprint at its expected case revision. It revalidates the sealed basis and current evidence/tax before the atomic repository write. An exact retry after APPLIED/restart returns the same durable commit; same-key concurrent requests recover the winner's result. Cache invalidation occurs after commit and cannot duplicate FIFO writes.

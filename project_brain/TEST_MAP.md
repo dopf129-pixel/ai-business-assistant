@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR24 production assembly tests
+
+- `tests/test_fifo_cost_transition_production_workflow.py::test_production_workflow_builder_wires_durable_evidence_review_apply_and_runtime` verifies one shared evidence/review/apply/runtime graph, exact repository/source/tax/Period Profit dependencies, period-summary impact service, and apply-only revision-aware cache invalidation.
+- `test_durable_physical_sale_document_is_available_to_production_workflow` verifies the builder exposes the real public physical-sales selection/document/callback route (`start_selection`, `handle_document`, `handle_callback`). `create_telegram_assistant` now calls the builder and exposes the resulting graph on its runner; no second test-only factory was added.
+- Linked builder/FR22–FR23/evidence/review profile: **17 passed in 4.09s**; `py_compile`, diff/data checks and five owner-data hashes PASS. Full suite/current-head CI remain FR30.
+
 # 2026-11-10 — FIFO FR23 apply/restart tests
 
 - `tests/test_fifo_cost_transition_apply_service.py` covers exact stored-preview reads without recalculation, full sealed-basis review at READY N+1, one atomic apply, recovery of the same commit after repository restart and preview expiry, rejection of a new key on an expired preview, fingerprint/idempotency conflicts, and cache invalidation failure after durable commit.
