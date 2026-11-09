@@ -1,15 +1,15 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR14 выполнены; далее FR15.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR15 выполнены; далее FR16.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR15 NOT_STARTED: FR14 завершён. Следующий шаг — подключить маршрутизацию owner physical-sales CSV для выбранного FIFO case, сохранив прежний маршрут legacy cost CSV без изменений.
+- Текущий этап FR16 NOT_STARTED: FR15 завершён. Следующий шаг — подключить ограниченный сбор и сохранение finance identity, period и movement snapshots к существующему source collection path; использовать штатные normalizers, полную пагинацию и общий budget.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current implementation HEAD after FR14: `bcd78201f800b6df93faeb14f2222ca59a1fe651` (`Persist confirmed FIFO physical sales evidence`).
+- Current implementation HEAD after FR15: `913fb0554d4c22c948597fdfcbabc12a7c84ec21` (`Route physical sales evidence through Telegram`); FR15 docs checkpoint follows this code commit.
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
@@ -38,7 +38,7 @@
 | FR12 | DONE | Typed bridge-evidence and confirmation APIs; **133 passed in 10.53s** on linked profile; exact data manifest preserved |
 | FR13 | DONE | `1dc8d95e9e0c2df6eecfdda27cfbaf1b82827193`; strict physical-sales CSV parser, template, guide and bounded worker; 74 linked tests passed |
 | FR14 | DONE | `bcd78201f800b6df93faeb14f2222ca59a1fe651`; encrypted restartable physical-sales evidence and separate bound confirmation; linked profile **157 passed in 13.95s**; five data hashes unchanged |
-| FR15 | NOT_STARTED | Telegram routing |
+| FR15 | DONE | `913fb055`; Telegram selection/preflight/preview/save/confirm route; linked profile **32 passed in 4.51s**; compileall/diff-check/data manifest PASS |
 | FR16 | NOT_STARTED | Source snapshots |
 | FR17 | NOT_STARTED | Cutoff/opening |
 | FR18 | NOT_STARTED | Assembler/bridge |
@@ -55,6 +55,13 @@
 | FR29 | NOT_STARTED | Documentation |
 | FR30 | NOT_STARTED | Full tests/current CI |
 | FR31 | NOT_STARTED | Review package |
+
+# FR15 — Telegram physical-sales document routing, 2026-11-09
+
+- Code commit: `913fb0554d4c22c948597fdfcbabc12a7c84ec21` (`Route physical sales evidence through Telegram`), based on FR14 `bcd78201f800b6df93faeb14f2222ca59a1fe651`. The FIFO documents prompt now offers a distinct physical-sales action; the runtime binds selection and upload to owner, tenant, store/SKU/case/revision. `SellerCostTelegramAdapter` and the production `ReturnInventoryTelegramAdapter` route selected CSV through bounded preview → save → separate confirm, while unselected legacy cost CSV keeps its existing path. Telegram preflight checks the selected file size/format before downloading; the exact physical-sales service was wired into the production factory through the existing runtime. Callbacks are opaque and below the Telegram limit. Switching cases clears only transient selections/previews; durable case evidence remains. The evidence still means owner-imported `PARTIAL`, not complete source coverage.
+- Changed: `app/services/telegram_fifo_cost_physical_sales_import_service.py`, FIFO transition runtime, seller-cost Telegram adapter, Telegram API/bot-service/runner upload preflight, production factory; runtime/adapter tests. No database schema or persisted owner-data changes.
+- Verification on current FR15 code: `PYTHONPATH=app;.fl12-deps;tests python -m compileall -q` over all touched production modules — PASS. `pytest -q tests/test_telegram_fifo_cost_transition_runtime_service.py tests/test_fifo_cost_physical_sales_evidence_service.py tests/test_fifo_cost_report_import_telegram_adapter.py tests/test_telegram_fifo_cost_report_import_service.py tests/test_telegram_runtime_dependencies.py` — **32 passed in 4.51s**. `git diff --check` PASS. `git diff --exit-code -- data` PASS; all five FR00 owner-data SHA-256 hashes match the baseline (full values recorded above). `.fl12-deps/` remains untracked and unstaged.
+- Static production wiring review confirmed `ReturnInventoryTelegramAdapter` inherits `SellerCostTelegramAdapter`, and `create_telegram_assistant` passes the same transition runtime containing `TelegramFifoCostPhysicalSalesImportService`. Synthetic local tenant/SQLite only. No real Telegram/Ozon request, owner file/database, bot launch, merge, or deployment. `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`. Next: FR16 bounded source snapshots.
 
 # FR14 — durable physical-sales confirmation, 2026-11-09
 

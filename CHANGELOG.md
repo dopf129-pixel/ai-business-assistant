@@ -4,6 +4,12 @@
 - Подтверждение строк и семантики `PHYSICAL_OUTFLOW` является отдельной append-only операцией с привязкой к отпечатку документа, полному отпечатку строк и ожидаемой ревизии дела. Такой CSV остаётся `PARTIAL`; он не подтверждает полноту покрытия и сам по себе не открывает cutoff bridge. Схема v16 и legacy v15 confirmation flow не менялись.
 - Связанный локальный профиль: **157 passed in 13.95s**; compileall, `git diff --check`, отсутствие изменений `data/` и пять исходных SHA-256 прошли. Telegram routing и live services не затронуты.
 
+# 2026-11-09 — FIFO FR15: маршрут физических продаж через Telegram
+
+- Добавлена явная кнопка подтверждения физических продаж в выбранном FIFO-деле и scoped-маршрут CSV: проверка размера до скачивания, preview, отдельное сохранение и отдельное подтверждение строк/смысла. Legacy CSV себестоимости по-прежнему идёт старым маршрутом без выбранного FIFO-действия.
+- Свидетельство остаётся owner-imported и частичным; размер, scope, tenant, revision и короткие opaque callbacks проверяются до применения.
+- Связанный профиль: **32 passed in 4.51s**; compileall, `git diff --check` и data-manifest проверки PASS. Бот и реальные сервисы не запускались.
+
 # 2026-11-09 — FIFO FR13: owner physical-sales CSV parser
 
 - Added a fixed, empty UTF-8/semicolon CSV template and guide for owner-entered physical outflow evidence. The parser validates exact headers, quoted fields, SKU scope, unique row references and posting identity, ISO dates, positive integer units, encoding, file size, 50,000-row and aggregate-unit limits. It does not infer dates or interpret arbitrary Ozon spreadsheets.

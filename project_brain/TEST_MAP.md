@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR15 Telegram physical-sales route
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers explicit case-bound selection, preview/save/separate confirm, exact callback replay and stale preview after switching cases while both durable cases survive.
+- `tests/test_fifo_cost_report_import_telegram_adapter.py` verifies selected physical CSV reaches the new flow, preflight rejects unsupported/oversized uploads before download, and an unselected legacy cost CSV still reaches its original handler.
+- Linked Telegram/FIFO profile: **32 passed in 4.51s**. Synthetic tenant context and local SQLite only; full suite/current-head CI remain FR30.
+
 # 2026-11-09 — FIFO FR14 durable physical-sales evidence
 
 - `tests/test_fifo_cost_physical_sales_evidence_service.py` covers exact uploaded-byte reparse, safe preview, encrypted tenant storage, restart reconstruction, separate exact confirmation, idempotent save retry, stale confirmation rejection, timezone/declared-period binding, wrong-key fail-closed behavior, and persisted `PARTIAL`/unverified-coverage semantics.
