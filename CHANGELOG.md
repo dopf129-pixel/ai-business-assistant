@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR23: exact preview apply and restart recovery
+
+- Added scoped read-only access to the persisted transition preview and an owner apply path bound to the exact preview ID/fingerprint, case revision, and idempotency key. Apply rebuilds the sealed basis, tax, bridge, reconstruction, and impact before the existing atomic repository commit; no HTTP is performed inside the write transaction.
+- Exact retries after APPLIED/restart return the original commit before mutable source/tax/TTL checks. Concurrent same-key requests recover that same result if another request commits first. Cache invalidation runs only after a durable commit and reports failure separately without replaying business writes.
+- Verification: linked FR22–FR23 profile **34 passed in 5.80s**; same-key concurrent apply regression passed **5 consecutive runs**; Python compile, diff check, and all five FR00 user-data hashes passed. Synthetic SQLite only; full pytest/current CI remain FR30.
+
 # 2026-11-10 — FIFO FR22: prepare and READY seal
 
 - Added an owner-evidence-driven prepare path that reconstructs the exact cutoff bridge, opening composition, tax policy, and complete financial-period impact before creating a READY preview. Candidate-only outcomes remain read-only; FIFO history, current cost, plans, and Period Profit are unchanged until a later explicit apply.

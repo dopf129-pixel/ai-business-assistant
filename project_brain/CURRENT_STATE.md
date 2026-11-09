@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR23 apply and restart recovery
+
+- FR23 now reads the exact persisted READY seal without recalculation and applies only that preview ID/fingerprint at its expected case revision. It revalidates the sealed basis and current evidence/tax before the atomic repository write. An exact retry after APPLIED/restart returns the same durable commit; same-key concurrent requests recover the winner's result. Cache invalidation occurs after commit and cannot duplicate FIFO writes.
+- Implementation commit `9f42f143` (`Apply exact FIFO transition preview safely`). Linked FR22–FR23 profile: **34 passed in 5.80s**; concurrent same-key regression passed five consecutive runs. Python compile and `git diff --check` passed; the FR00 five-file owner-data manifest is unchanged. FR24 production assembly is next; owner case remains unverified and source-blocked. Full suite/current-head CI remain FR30; no merge/deploy/live call/bot launch.
+
 # 2026-11-10 — FIFO FR22 prepare and READY seal
 
 - FR22 adds `FifoCostTransitionApplyService.prepare`: readiness is independently rebuilt from durable evidence; an exact complete impact is required before the repository seals READY at revision N+1. Candidate-only stays read-only and does not change FIFO history or Period Profit. Exact idempotent retry, expiry, changed tax/evidence, and existing-initialized-stream behavior are covered by targeted tests.

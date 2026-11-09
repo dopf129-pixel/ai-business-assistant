@@ -1,12 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR22 выполнены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR23 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- FR22 DONE. `FifoCostTransitionApplyService.prepare` теперь повторно оценивает durable readiness/evidence, строит cutoff bridge, считает read-only baseline/candidate и полный financial impact, а затем сохраняет READY preview ровно через repository prepare. Неполный baseline возвращает candidate-only без изменений кейса; FIFO history, allocations, current cost, plans и Period Profit не меняются до отдельного FR23 apply. Тот же idempotency key повторно читает тот же неистёкший preview, если case revision/state и налоговая политика совпадают. Связанный профиль: **31 passed in 5.24s**; дополнительная проверка существующего initialized stream: **1 passed in 0.70s**. Из двух production-factory тестов один readiness regression проходит; остальные два относятся к отсутствующей factory/physical-document wiring FR24 и остаются ожидающими этого этапа. `py_compile`, `git diff --check`, `git diff --exit-code -- data` прошли; пять owner-data SHA-256 совпали с FR00. Следующий этап: FR23 persisted preview read, apply и restart safety.
+- FR23 DONE; implementation commit `9f42f143` (`Apply exact FIFO transition preview safely`). `read_preview` возвращает только exact scoped persisted seal, без пересчёта. `apply` закреплён за preview ID/fingerprint, READY revision N+1 и sealed evidence basis N; он пересобирает readiness, evidence, cutoff bridge, reconstruction, tax и impact, затем использует существующую атомарную repository операцию. Exact retry после APPLIED/restart возвращает тот же commit до проверки текущих источников, налоговой политики и TTL. При гонке same-key запрос повторно проверяет commit после изменения текущего состояния/ошибки пересборки; duplicate FIFO writes не создаются. Cache invalidation вызывается только после durable commit и отдельно отражает ошибку. Проверка: linked FR22–FR23 **34 passed in 5.80s**; конкурентный exact-retry test — **5 consecutive runs passed**; `py_compile`, `git diff --check`, `git diff --exit-code -- data` и FR00 hashes — PASS. Следующий этап FR24.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current implementation HEAD after FR19 code: `6d02a188` (`Add read-only FIFO transition reconstruction`); FR19 docs/checkpoint updates are recorded in this journal.
@@ -46,7 +46,7 @@
 | FR20 | DONE | `FifoCostFinancialPeriodSummaryCollectionService`; frozen whole-store month with exact target-SKU before COGS and finance identity map; **88 passed in 3.96s**; synthetic only, no UI/factory yet |
 | FR21 | DONE | Binding snapshots to exact reconstruction/tax policy, full-month validation, MR12–MR18; section below. |
 | FR22 | DONE | `FifoCostTransitionApplyService.prepare`; readiness/evidence/bridge/reconstruction/impact seal; candidate-only без writes; same-key retry/TTL/tax-change; linked profile **31 passed in 5.24s**, existing-stream regression **1 passed**; production factory remains FR24. |
-| FR23 | NOT_STARTED | Apply/restart |
+| FR23 | DONE | Commit `9f42f143`; exact scoped preview read; sealed-basis review/apply; idempotent retry after APPLIED/restart/TTL; same-key concurrent recovery; post-commit cache invalidation reporting; linked profile **34 passed in 5.80s**, concurrency **5 repeats passed**, compile/data/diff PASS. |
 | FR24 | NOT_STARTED | Production builder |
 | FR25 | NOT_STARTED | Exact confirm UI |
 | FR26 | NOT_STARTED | Consumers |
@@ -249,6 +249,15 @@
 - The opening-103 scenario remains exact: confirmed 3 old + 100 new units are supplied once; for the fixture's five post-cutoff sales candidate COGS remains 92.30 ₽ (3×21 + 2×14.65), matching both the read-only reconstruction and later persisted allocation. No extra acceptance quantity is inferred or added.
 - Verification on the local project Python: `py_compile` for all changed services PASS; prepare/evidence/atomic/review linked profile **31 passed in 5.24s**; focused existing-initialized-stream review regression **1 passed in 0.70s**; `git diff --check` and `git diff --exit-code -- data` PASS; all five FR00 user-data hashes match. Two production factory/physical-document tests remain intentionally pending FR24; full pytest/current-head CI remains FR30. Synthetic SQLite only; no live Ozon/Telegram, bot, merge or deployment.
 - Next: FR23 persisted preview read, owner-authorized atomic apply, restart/idempotency and failure-recovery coverage.
+
+## FR23 — exact preview apply and restart recovery — 2026-11-10
+
+- Added a scoped service read for the persisted preview. It returns the stored preview, seal fingerprint, case/basis revisions, TTL and current-state metadata without recalculating financial impact or writing case/FIFO rows.
+- `apply` accepts only exact case identity, READY N+1 revision, preview ID/fingerprint and idempotency key. It rebuilds evidence against sealed basis N, review/readiness, cutoff bridge, repository reconstruction, current tax and impact, then commits through the existing single atomic repository operation. New-key/stale/expired/mismatched requests remain blocked. No HTTP occurs in the write transaction.
+- Exact retry reads the immutable commit before current evidence/tax/TTL checks and returns the same commit after APPLIED, service/repository restart, or expiry. Same-key concurrent requests recheck the durable commit if a competitor wins while the losing request is rebuilding state; the regression passed five consecutive runs. A post-commit cache invalidation error is reported separately and never rolls back or duplicates business writes; invalidation is skipped when no hook is configured and never called with incomplete revision metadata.
+- `tests/test_fifo_cost_transition_apply_service.py` covers exact persisted read without recalculation/no writes, sealed evidence and review basis N from READY N+1, atomic apply, cache failure after durable write, restart retry after changing tax and passing TTL, different key on expired seal, changed fingerprint conflict, and same-key concurrency. Linked FR22–FR23 profile (atomic repository, apply, evidence, review and production readiness regression): **34 passed in 5.80s**. Same-key concurrency case: **5/5 repeat runs passed**. Changed modules `py_compile` PASS.
+- `git diff --check`, `git diff --exit-code -- data`, and five FR00 SHA-256 comparisons PASS. Only synthetic temporary SQLite and tenant fixtures; no owner files/DB, live Ozon/Telegram calls, bot launch, merge or deployment. Full suite/current-head CI remain FR30; `OWNER_CASE_VERIFIED=false`.
+- Next: FR24 shared production factory wiring.
 
 ## FR20 — 2026-11-10
 

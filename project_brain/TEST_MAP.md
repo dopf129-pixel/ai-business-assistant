@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR23 apply/restart tests
+
+- `tests/test_fifo_cost_transition_apply_service.py` covers exact stored-preview reads without recalculation, full sealed-basis review at READY N+1, one atomic apply, recovery of the same commit after repository restart and preview expiry, rejection of a new key on an expired preview, fingerprint/idempotency conflicts, and cache invalidation failure after durable commit.
+- The concurrent same-key regression uses independent repositories and verifies both callers receive the one durable commit; it passed five consecutive runs. `tests/test_fifo_cost_transition_atomic_apply.py` remains linked for repository-level CAS, transaction, tenant isolation, and rollback controls.
+- Linked FR22–FR23 profile: **34 passed in 5.80s**; modified Python modules compile. Full pytest and exact-head CI remain FR30.
+
 # 2026-11-10 — FIFO FR22 prepare/seal tests
 
 - `tests/test_fifo_cost_transition_apply_service.py`: prepare requires a current complete durable evidence bundle, exact cutoff bridge, financial-period impact, and current tax fingerprint; candidate-only/missing evidence never creates a seal; exact idempotent retry is scoped to key/revision/fingerprint/TTL; existing initialized queues do not request another opening composition.
