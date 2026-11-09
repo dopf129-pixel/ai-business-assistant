@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR19 read-only reconstruction
+
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_read_only_reconstruction_matches_prepare_seal_without_business_writes` verifies an uninitialized opening is staged and rolled back, exact identity/revisions/lineage/coverage are returned, repeated reconstruction is stable, and baseline/candidate replay fingerprints and COGS match the persisted prepare seal. After explicit synthetic confirmation, committed allocation lines equal the read-only candidate lines.
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_read_only_reconstruction_rolls_back_staged_opening_after_exception` injects an unexpected replay exception and verifies FIFO rows, preview rows, case state and case revision remain unchanged.
+- Linked FR19 profile runs all matching transition, cutoff bridge, physical-sales, late-entry, allocation, repository multi-rate, report-import, supply reconciliation, stock import and source-snapshot tests except the production workflow suite reserved for FR24: **372 passed in 25.57s**. Full suite/current-head CI remain FR30.
+
 # 2026-11-09 — FIFO FR18 durable evidence assembly and cutoff bridge
 
 - `tests/test_fifo_cost_transition_evidence_service.py::test_finance_identity_batches_rehydrate_from_durable_snapshot_after_restart` validates rehydration of exact typed finance identities from tenant-encrypted storage. `test_incomplete_movement_snapshot_stays_a_concrete_blocker_after_restart` confirms partial pagination never becomes zero movement or a bridge. `test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart` stores owner cutoff/opening confirmation, finance, physical-sales CSV and complete movement coverage, then uses fresh services to rebuild an actual `READY` bridge; the case remains unapplied and no FIFO events are written.

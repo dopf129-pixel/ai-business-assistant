@@ -1,3 +1,9 @@
+# 2026-11-09 — FIFO FR19: public read-only transition reconstruction
+
+- Added a scoped repository reconstruction path that runs the exact baseline/candidate replay used by prepare without creating a READY seal. An uninitialized FIFO opening may be staged only inside the transaction and is rolled back before return; error and unexpected-exception paths also roll back.
+- The result carries exact SKU identity, case/FIFO/allocation revisions, baseline and candidate COGS, replay fingerprints, source/evidence/bridge/tax lineage, and complete-through allocation coverage. Candidate fingerprints are produced by the same replay helper as the persisted prepare preview.
+- Added regressions for no-write state, stable reconstruction fingerprint, equality with the sealed candidate, equality with committed allocation lines, and rollback after injected replay exception. Linked FR19 FIFO profile: **372 passed in 25.57s**; targeted atomic-apply suite: **18 passed in 2.78s**. Compile, diff check and tracked `data/` check passed. Synthetic SQLite only; full suite/current-head CI remain FR30.
+
 # 2026-11-09 — FIFO FR18: durable evidence assembler and cutoff bridge
 
 - Added `FifoCostTransitionEvidenceService` to restore exact finance identity batches, confirmed physical-sales CSV and confirmed movement coverage from tenant-encrypted snapshots after restart. Snapshot and inner payload fingerprints, exact periods, scope, source proofs, and bounded row/page counts are revalidated; partial movement coverage remains a concrete blocker.
