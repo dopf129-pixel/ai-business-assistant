@@ -1,3 +1,7 @@
+# 2026-11-10 — FIFO FR11: preserve the proven open-rate next cost
+
+- A complete replay with one active open rate and no finite rate-balance rows now preserves that rate as the next-unit cost with unknown remaining quantity. Missing balances for multiple or reconciled rates still fail closed. Production-assembly regressions are delivered with the dependent production workflow PR.
+
 # 2026-11-09 — FIFO FR11: multi-rate readers use replay balances
 
 - Current cost and history now use per-rate residuals from the same current, complete allocation revision as the FIFO layers. Historical rate-boundary quantities remain distinguishable from stock still on hand; proven zero balances stay visible without becoming a next-unit layer.

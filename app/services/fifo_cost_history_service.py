@@ -278,6 +278,24 @@ class FifoCostHistoryService:
             return {}
         current_effective_sequence = max(effective_rate_sequences)
         rows = allocation.get("replayed_rate_balances")
+        if rows is None or rows == []:
+            if (
+                effective_rate_sequences == [1]
+                and not snapshot.get("rate_reconciliations")
+            ):
+                # A first/open rate has no finite quantity to persist in the
+                # allocation balance table. Its quantity is unknown by design;
+                # the complete replay still proves the exact rate and all finite
+                # physical layers. Missing balances for later/multiple rates
+                # remain incomplete and must fail closed below.
+                return {
+                    1: {
+                        "sequence": 1,
+                        "remaining_units": None,
+                        "unit_cost_rub": rates_by_sequence[1]["unit_cost_rub"],
+                    },
+                }
+            return None
         if not isinstance(rows, list) or len(rows) > 256:
             return None
         balances = {}

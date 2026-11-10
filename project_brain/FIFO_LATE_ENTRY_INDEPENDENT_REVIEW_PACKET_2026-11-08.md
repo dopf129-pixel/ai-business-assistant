@@ -16,6 +16,13 @@ These are three dependent PRs. Review and merge them in order; do not merge a de
 | [#729](https://github.com/dopf129-pixel/ai-business-assistant/pull/729) | FL12–FL23: reports, reconciliation, replay, atomic apply | PR #728 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | `7abf5d79d608bf377f79df3b425b50d73de4d81c` | 44 | Ready for review; exact-head CI green |
 | [#730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35: Telegram, consumers, Period Profit, acceptance and this packet | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Previous published SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89`; local corrections are uncommitted | 48 + local follow-up | **Not ready**; production bridge/apply wiring and multiple-rate replay remain unresolved; current exact-head CI pending |
 
+### Current dependent correction PRs — 2026-11-10
+
+| PR | Scope | Base | Head | Hosted checks |
+|---|---|---|---|---|
+| [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | Pending FR11 CI correction commit | Initial Linux run 42789021904 found one FR11 open-rate fallback regression and three FR24 production tests staged ahead of their implementation; correction submitted, exact-head rerun pending. |
+| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 | `b7724261ac0b87dbfeddf5ac18c77753e0f03477` | Linux full verification passed in run 42789118312; Windows verification was running at packet update. |
+
 ## Follow-up review corrections — 2026-11-08
 
 | Finding | Status | Evidence / remaining work |

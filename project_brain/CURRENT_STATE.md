@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO review-blocker execution FR00–FR11
+# 2026-11-10 — FIFO review-blocker execution FR00–FR11
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR11 are complete. FR11 makes history/current/export/Period Profit readers use the same exact multi-rate replay revision; boundary quantities are not presented as new purchases, and a current open-rate quantity remains unknown. FR10 retains exact mixed-rate return basis and the owner-approved latest-allocation-first partial-return convention.
-- Linked FR11 profile: **79 passed in 4.66s**, including multi-rate repository restart, current cost, Period Profit, Telegram CSV and frozen saved-plan restart checks. Full suite/exact-head CI remain for FR30. Owner case remains `SOURCE_BLOCKED`; no owner data, live API or bot launch was used.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR11 are complete. A single proven open rate remains a next-unit cost when its quantity is unknown and no finite rate-balance row is expected; incomplete multi-rate projections still fail closed. History, exports and Period Profit use the same complete replay revision. FR10 retains exact mixed-rate return basis and the owner-approved latest-allocation-first partial-return convention.
+- The first hosted PR #731 run exposed this FR11 edge and three FR24 production-builder regressions staged too early. The open-rate behavior is fixed; production-builder regressions are kept with their implementation in dependent PR #732. Current-head hosted reruns are recorded in the progress journal. Owner case remains unvalidated; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

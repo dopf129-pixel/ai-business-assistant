@@ -1,14 +1,16 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026. Этапы FR00–FR11 выполнены; далее FR12.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; состояние PR обновлено 10.11.2026. FR00–FR11 выполнены; FR12–FR31 идут отдельным зависимым PR.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
 ## Resume
 
-- Текущий этап FR12 NOT_STARTED: FR11 завершён. Для смешанного basis частичный возврат использует owner-approved latest-allocation-first convention; подробности записаны ниже. Следующий шаг — typed transition evidence API.
+- PR A: #731, ветка `codex/fifo-review-rate-replay-20261108`, база — точная голова PR #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`; реализация FR02–FR11. Первая Linux CI-проверка выявила отсутствующий single-open-rate fallback и три FR24 теста, поставленные раньше production-кода; fallback исправлен, FR24 tests перенесены в PR B. Текущий SHA/повтор CI фиксировать после завершения проверки.
+- PR B: #732, ветка `codex/fifo-review-production-apply-20261108`, база — PR A; реализация FR12–FR31, включая production wiring и owner-confirmed `supplier_receiving`. Owner count остаётся отдельным evidence bucket, не фактом Ozon и не частью opening layers.
+- Следующий шаг после green CI обеих голов — внешний независимый review; слияние не выполнять.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
-- Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
+- Ветки: PR A `codex/fifo-review-rate-replay-20261108`; PR B `codex/fifo-review-production-apply-20261108` от головы A.
 - Current HEAD after FR10 checkpoint: `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.

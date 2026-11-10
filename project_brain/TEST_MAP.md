@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR11 open-rate current-cost regression
+
+- `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` now passes after a complete single-open-rate replay with no finite `replayed_rate_balances`; the current cost is preserved while its remaining quantity stays unknown. Missing balances for later/multiple rates continue to fail closed.
+- The production-workflow red regressions are scheduled with their implementation in dependent PR #732 instead of failing independently in PR #731.
+
 # 2026-11-09 — FIFO FR11: readers, exports, and frozen plans
 
 - `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` verifies that a fresh repository instance exposes one consistent replay revision through history, current cost, Telegram CSV and Period Profit; exact mixed-rate COGS is 1872.50 ₽, two closed rate balances are zero, and the 18 ₽ open-rate quantity stays unknown.
