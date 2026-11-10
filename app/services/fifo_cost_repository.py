@@ -1169,6 +1169,7 @@ class FifoCostRepository:
                     staged_initial_cutover = self._normalize_transition_initial_cutover(
                         connection, initial_opening_cutover, cutoff_bridge,
                         case, recorded_at=cutover_recorded_at,
+                        identity=identity,
                     )
                     if isinstance(staged_initial_cutover, str):
                         connection.rollback()
@@ -1910,6 +1911,7 @@ class FifoCostRepository:
                     normalized_cutover = self._normalize_transition_initial_cutover(
                         connection, persisted_cutover, cutoff_bridge,
                         case_payload, recorded_at=persisted_cutover.get("recorded_at"),
+                        identity=identity,
                     )
                     if (
                         isinstance(normalized_cutover, str)
@@ -2045,7 +2047,7 @@ class FifoCostRepository:
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
 
     def _normalize_transition_initial_cutover(
-        self, connection, cutover, bridge, case, *, recorded_at,
+        self, connection, cutover, bridge, case, *, recorded_at, identity=None,
     ):
         """Validate an explicit owner-reviewed opening queue against the bridge.
 
@@ -2108,8 +2110,18 @@ class FifoCostRepository:
         buckets = stock_fields.get("stock_buckets")
         if not isinstance(buckets, dict):
             return "FIFO_INITIAL_CUTOVER_STOCK_EVIDENCE_UNAVAILABLE"
+        buckets = dict(buckets)
         available = buckets.get("available")
         reserved = buckets.get("reserved")
+        if reserved is None:
+            owner_reserved = self._owner_confirmed_reserved_bucket_matches(
+                connection, bridge=bridge, identity=identity, case=case,
+                stock_report_fingerprint=cutover["stock_report_fingerprint"],
+                layers=cutover["layers"], available=available,
+            )
+            if owner_reserved is not None:
+                buckets["reserved"] = owner_reserved
+                reserved = owner_reserved
         if (
             type(available) is not int or available < 0
             or type(reserved) is not int or reserved < 0
@@ -2125,11 +2137,18 @@ class FifoCostRepository:
         if fbs_return_units != 0:
             return "FIFO_INITIAL_CUTOVER_RETURN_BASIS_UNAVAILABLE"
         confirmed_buckets = dict(bridge.confirmed_stock_buckets)
-        if not confirmed_buckets or any(
-            buckets.get(name) != quantity
-            for name, quantity in confirmed_buckets.items()
-        ):
+        if not confirmed_buckets:
             return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
+        for name, quantity in confirmed_buckets.items():
+            if name == "supplier_receiving" and buckets.get(name) is None:
+                if not self._owner_supplier_receiving_confirmation_matches(
+                    connection, bridge=bridge, identity=identity,
+                    stock_report_fingerprint=cutover["stock_report_fingerprint"],
+                    expected_units=quantity,
+                ):
+                    return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
+            elif buckets.get(name) != quantity:
+                return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
         if any(
             buckets.get(name) not in (0, None)
             for name in ("preparing", "checking")
@@ -2190,6 +2209,266 @@ class FifoCostRepository:
             return "FIFO_INITIAL_CUTOVER_FINGERPRINT_INVALID"
         normalized["cutover_fingerprint"] = fingerprint
         return normalized
+
+    def _owner_supplier_receiving_confirmation_matches(
+        self, connection, *, bridge, identity, stock_report_fingerprint,
+        expected_units,
+    ):
+        """Verify the exact durable owner confirmation for a missing report bucket."""
+        fingerprints = bridge.provenance_by_basis.get(
+            "owner_supplier_receiving_confirmation", (),
+        )
+        if (
+            identity is None
+            or len(fingerprints) != 1
+            or not self._valid_digest(fingerprints[0])
+            or type(expected_units) is not int
+            or expected_units < 0
+            or expected_units > 1_000_000
+        ):
+            return False
+        scope = self._tenant_scope(bridge.scope.store_id)
+        if scope.get("error"):
+            return False
+        try:
+            normalized_identity = self._normalize_identity(
+                bridge.scope.store_id,
+                bridge.scope.product_id,
+                bridge.scope.offer_id,
+                bridge.scope.sku,
+                1,
+            )
+            if normalized_identity != identity:
+                return False
+            result = FifoCostTransitionStore.read_bridge_evidence(
+                connection,
+                bridge.case_id,
+                scope,
+                normalized_identity,
+                evidence_kind="CUTOFF_SELECTION",
+                limit=100,
+            )
+            if result.get("error"):
+                return False
+            matches = [
+                row for row in result.get("items", ())
+                if row.get("payload_fingerprint") == fingerprints[0]
+            ]
+            if len(matches) != 1:
+                return False
+            verified = self._verify_transition_evidence_row(
+                matches[0], decrypt=False,
+                expected_scope=scope,
+                expected_identity=normalized_identity,
+            )
+            if verified.get("error"):
+                return False
+            item = verified.get("item")
+            payload = item.get("payload") if isinstance(item, dict) else None
+            if (
+                not isinstance(item, dict)
+                or item.get("evidence_kind") != "CUTOFF_SELECTION"
+                or item.get("case_id") != bridge.case_id
+                or not isinstance(payload, dict)
+                or payload.get("cutoff_date") != bridge.cutoff_date
+                or payload.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or payload.get("bridge_fingerprint") is None
+            ):
+                return False
+            confirmed = any(
+                confirmation.get("confirmation_kind") == "CUTOFF_SELECTION"
+                and confirmation.get("confirmed_fields") == {
+                    "cutoff_date": bridge.cutoff_date,
+                    "bridge_fingerprint": payload["bridge_fingerprint"],
+                    "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+                    "supplier_receiving_units": expected_units,
+                }
+                for confirmation in item.get("confirmations", ())
+            )
+            return confirmed
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return False
+
+    def _owner_confirmed_reserved_bucket_matches(
+        self, connection, *, bridge, identity, case,
+        stock_report_fingerprint, layers, available,
+    ):
+        """Resolve an absent reserved bucket only from the bound confirmed opening."""
+        if (
+            identity is None
+            or type(available) is not int or available < 0
+            or not isinstance(layers, list)
+        ):
+            return None
+        try:
+            from services.fifo_cost_transition_service import FifoCostTransitionService
+
+            normalized_identity = self._normalize_identity(
+                bridge.scope.store_id,
+                bridge.scope.product_id,
+                bridge.scope.offer_id,
+                bridge.scope.sku,
+                1,
+            )
+            if normalized_identity != identity:
+                return None
+            scope = self._tenant_scope(bridge.scope.store_id)
+            if scope.get("error"):
+                return None
+            result = FifoCostTransitionStore.read_bridge_evidence(
+                connection, bridge.case_id, scope, normalized_identity,
+                evidence_kind="OPENING_COMPOSITION", limit=100,
+            )
+            items = result.get("items") if not result.get("error") else None
+            if not isinstance(items, list) or not items or len(items) >= 100:
+                return None
+            row = max(items, key=lambda item: item.get("evidence_revision", 0))
+            verified = self._verify_transition_evidence_row(
+                row, decrypt=True, expected_scope=scope,
+                expected_identity=normalized_identity,
+            )
+            item = verified.get("item") if not verified.get("error") else None
+            if not isinstance(item, dict) or item.get("case_id") != bridge.case_id:
+                return None
+            safe = item.get("payload")
+            if not isinstance(safe, dict):
+                return None
+            try:
+                composition = json.loads(item.get("sensitive_payload", ""))
+            except (TypeError, ValueError):
+                return None
+            if not isinstance(composition, dict):
+                return None
+            typed_case = FifoCostTransitionService._case_from_payload(case)
+            case_basis = FifoCostTransitionService._transition_case_basis_fingerprint(
+                typed_case,
+            )
+            expected_confirmation = {
+                "composition_fingerprint": safe.get("composition_fingerprint"),
+                "opening_date": safe.get("opening_date"),
+                "total_units": safe.get("total_units"),
+            }
+            reserved = composition.get("owner_confirmed_reserved_units")
+            total_ozon = composition.get("owner_confirmed_total_ozon_units")
+            if (
+                not any(
+                    confirmation.get("confirmation_kind") == "OPENING_COMPOSITION"
+                    and confirmation.get("confirmed_fields") == expected_confirmation
+                    for confirmation in item.get("confirmations", ())
+                )
+                or composition.get("case_id") != bridge.case_id
+                or composition.get("case_basis_fingerprint") != case_basis
+                or composition.get("opening_date") != bridge.cutoff_date
+                or composition.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or composition.get("layers") != layers
+                or not self._valid_digest(safe.get("composition_fingerprint"))
+                or type(safe.get("total_units")) is not int
+                or not 0 <= safe.get("total_units") <= self.MAX_COMMAND_UNITS
+                or type(reserved) is not int
+                or not 0 <= reserved <= self.MAX_COMMAND_UNITS
+                or type(total_ozon) is not int
+                or not 0 <= total_ozon <= self.MAX_COMMAND_UNITS
+                or total_ozon != available + reserved
+                or bridge.confirmed_stock_buckets.get("reserved") != reserved
+                or composition.get("reserved_source")
+                != "OWNER_CONFIRMED_OPENING_COMPOSITION"
+                or safe.get("opening_date") != bridge.cutoff_date
+                or safe.get("total_units") != sum(
+                    layer.get("ozon_units", 0)
+                    + layer.get("transit_units", 0)
+                    + layer.get("home_units", 0)
+                    for layer in layers if isinstance(layer, dict)
+                )
+            ):
+                return None
+            cutoff_id = composition.get("cutoff_evidence_id")
+            cutoff_fingerprint = composition.get("cutoff_evidence_fingerprint")
+            latest_cutoffs = FifoCostTransitionStore.read_bridge_evidence(
+                connection, bridge.case_id, scope, normalized_identity,
+                evidence_kind="CUTOFF_SELECTION", limit=100,
+            )
+            latest_cutoff_items = (
+                latest_cutoffs.get("items")
+                if not latest_cutoffs.get("error") else None
+            )
+            if (
+                not isinstance(latest_cutoff_items, list)
+                or not latest_cutoff_items or len(latest_cutoff_items) >= 100
+                or max(
+                    latest_cutoff_items,
+                    key=lambda value: value.get("evidence_revision", 0),
+                ).get("evidence_id") != cutoff_id
+            ):
+                return None
+            cutoff_result = FifoCostTransitionStore.read_bridge_evidence(
+                connection, bridge.case_id, scope, normalized_identity,
+                evidence_kind="CUTOFF_SELECTION", evidence_id=cutoff_id,
+                limit=1,
+            )
+            cutoff_items = (
+                cutoff_result.get("items")
+                if not cutoff_result.get("error") else None
+            )
+            if not isinstance(cutoff_items, list) or len(cutoff_items) != 1:
+                return None
+            cutoff_verified = self._verify_transition_evidence_row(
+                cutoff_items[0], decrypt=True, expected_scope=scope,
+                expected_identity=normalized_identity,
+            )
+            cutoff_item = (
+                cutoff_verified.get("item")
+                if not cutoff_verified.get("error") else None
+            )
+            if (
+                not isinstance(cutoff_item, dict)
+                or cutoff_item.get("payload_fingerprint") != cutoff_fingerprint
+                or cutoff_item.get("case_id") != bridge.case_id
+            ):
+                return None
+            cutoff_safe = cutoff_item.get("payload")
+            cutoff_sensitive = json.loads(cutoff_item.get("sensitive_payload", ""))
+            descriptor = (
+                cutoff_sensitive.get("descriptor")
+                if isinstance(cutoff_sensitive, dict) else None
+            )
+            cutoff_confirmation = {
+                "cutoff_date": descriptor.get("cutoff_date") if isinstance(descriptor, dict) else None,
+                "bridge_fingerprint": cutoff_safe.get("bridge_fingerprint") if isinstance(cutoff_safe, dict) else None,
+                "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+            }
+            supplier_receiving = cutoff_sensitive.get(
+                "owner_confirmed_supplier_receiving_units",
+            ) if isinstance(cutoff_sensitive, dict) else None
+            if supplier_receiving is not None:
+                if (
+                    type(supplier_receiving) is not int
+                    or not 0 <= supplier_receiving <= self.MAX_COMMAND_UNITS
+                ):
+                    return None
+                cutoff_confirmation["supplier_receiving_units"] = supplier_receiving
+            if (
+                not isinstance(cutoff_safe, dict)
+                or cutoff_sensitive.get("case_basis_fingerprint") != case_basis
+                or cutoff_sensitive.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or cutoff_safe.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or cutoff_safe.get("cutoff_date") != bridge.cutoff_date
+                or descriptor is None
+                or descriptor.get("cutoff_date") != bridge.cutoff_date
+                or not self._valid_digest(cutoff_confirmation["bridge_fingerprint"])
+                or not any(
+                    confirmation.get("confirmation_kind") == "CUTOFF_SELECTION"
+                    and confirmation.get("confirmed_fields") == cutoff_confirmation
+                    for confirmation in cutoff_item.get("confirmations", ())
+                )
+            ):
+                return None
+            return reserved
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return None
 
     def _insert_transition_initial_cutover(
         self, connection, *, identity, bridge, cutover,

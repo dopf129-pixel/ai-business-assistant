@@ -1,6 +1,13 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR26 выполнены.
+## 2026-11-10 — explicit owner receiving confirmation
+
+- User business approval received: the owner may manually confirm the exact `supplier_receiving` quantity when the selected cutoff stock report omits it. Implemented an exact-report/date/SKU/case-bound Telegram flow; the count is encrypted and append-only, explicit zero is retained, and the value is labelled owner input. Current supply status or an act date is not backdated.
+- The bridge now carries the confirmation as a separate stock bucket. Initial cutover verifies durable cutoff confirmation and latest matching opening composition; missing `reserved` resolves only from the same owner-confirmed composition. Regression proves 148 receiving units stay outside the 103-unit opening FIFO queue and a tampered layer addition is rejected.
+- Verification after the feature: linked workflow/service/bridge/atomic/runtime profile **77 passed**; FR27 workflow + atomic-apply profile **21 passed**; isolated full pytest **5,264 passed in 87.28s**; compileall, tracked-data diff and five-file manifest pass. Hosted CI for this exact SHA remains pending until publication. No live Ozon/Telegram calls, owner data, bot launch, merge or deployment.
+- FR27 is now **PARTIAL**, not source-contract blocked; positive synthetic bridge/cutover validation passes, but the owner's exact count for their historical cutoff has not been entered, and full prepare/apply/restart on the exact evidence set is unverified. FR28–FR31 remain dependent/open.
+
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. FR00–FR26 выполнены; FR27 — PARTIAL после добавления owner confirmation, FR28–FR31 остаются открыты; полный suite и hosted CI текущей головы ещё не проверены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
@@ -13,6 +20,12 @@
 - FR25 verification: production workflow/apply/evidence/review/Telegram/runtime/atomic-apply linked profile **48 passed in 8.60s**; changed modules `py_compile` PASS; `git diff --check`, `git diff --exit-code -- data` and FR00 five-file SHA-256 manifest PASS. Only synthetic fixtures and temporary SQLite; no owner DB/files, live Ozon/Telegram request, bot launch, merge or deployment. Full suite/current-head CI remain FR30; `OWNER_CASE_VERIFIED=false`.
 - FR26 DONE; implementation commit `1c2e4480` (`Integrate FIFO revisions across current consumers`). Current history validates the latest cutoff mapping against the exact current physical-sale set and exposes stream/allocation/mapping revisions plus coverage date. History replays finite closed-rate residuals before the current open rate; the single initial open-rate/no-reconciliation case is valid even when its intentionally unknown rate balance is omitted, while missing multi-rate rows remain blocked. Current unit economics, Telegram history/CSV, Period Profit explanations, and analytics export carry consistent revision/coverage metadata; apply still uses the current next FIFO unit and saved plans remain untouched.
 - FR26 verification: linked profile **177 passed in 7.82s** (`tests/test_fifo_cost_history_service.py`, current adapter, multi-rate repository replay, Telegram history, Period Profit source/integration, analytics export, current-consumer tests, unit-economics query, late-entry impact MR18, and saved-plan flow). The multi-rate reader regression asserts exact stream/allocation/mapping revisions and `complete_through` in current basis text, history UI/CSV, Period Profit and export. `compileall`, `git diff --check`, `git diff --exit-code -- data`, and five FR00 SHA-256 values PASS. Only synthetic fixtures/temporary SQLite; no owner DB/files, live Ozon/Telegram, bot, merge, or deployment. `OWNER_CASE_VERIFIED=false`; full suite/current-head CI remain FR30.
+- FR27 pre-approval diagnostic checkpoint: the stock workbook had no `supplier_receiving` field and the bridge correctly stayed blocked. Current status/act date is not historical cutoff evidence; no zero or backdated value was inferred. That checkpoint was superseded by the owner's later approval for exact manual confirmation, documented above; `defective` and `seller_withdrawal` canonical mappings remain.
+- FR28 independent profile: backup/restore, schema v16, atomic apply/concurrency, multi-rate replay and apply-service tests **46 passed in 7.27s**. Fixed an outdated backup fixture to provide complete-month bounds plus exact reconstruction and tax-policy fingerprints. FR28 is not closed until its dependency FR27 is resolved.
+- Production factory follow-up: added the missing `TaxService` import; the shared workflow is now composed only when the optional Period Profit runtime is present, preserving the existing degraded factory configuration. Added/updated regressions for that path and strict late-entry fixture binding. Combined correction/backup/production profile: **67 passed**.
+- FR30 local verification: full pytest in disposable copy `fifo-fr30-e7cbf6c824fc49a0ae55700cfccc1b52`: **5,258 passed in 86.19s**. The copy excluded owner `data/`, credentials and databases; a synthetic tax configuration was supplied for tests requiring one. `compileall` PASS. No skip/deselect was used for the full suite. Hosted Windows/Linux/Docker CI for a published current head has not run, so FR30 remains PARTIAL.
+- Integrity: actual `data/history.json`, `profiles.json`, `tasks.json`, `tax_configuration.json`, and `users.json` SHA-256 values match the FR00 manifest; `git diff --check` and `git diff --exit-code -- data` PASS. `.fl12-deps/` remains untracked and unstaged.
+- FR29 documentation has been updated with the verified source blocker and accurate test state; the full function-by-function trace/current-SHA audit is not closed. FR31 review packet carries the current limitation but cannot be final until FR30/current-head CI and FR27 positive acceptance are resolved. No owner data was copied into the test copy; no live API, bot launch, merge, or deployment was used.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
 - Current implementation code commit: `1c2e4480` (`Integrate FIFO revisions across current consumers`); FR26 supporting documentation is being committed separately.
@@ -56,11 +69,11 @@
 | FR24 | DONE | Commit `3927f270`; one shared builder used by `create_telegram_assistant`; evidence/review/apply/runtime and physical-document route graph; apply-only cache invalidation; linked profile **17 passed in 4.09s**, compile/data/diff PASS. |
 | FR25 | DONE | Commit `b86d54d0`; prepare/candidate UI, restart-safe exact preview, opaque ticket bound to preview ID/fingerprint/revision/idempotency, stale seal rejection, APPLIED receipt restore; linked profile **48 passed in 8.60s**, compile/data/diff PASS. |
 | FR26 | DONE | Commit `1c2e4480`; current/history/Period Profit/export now bind exact stream/allocation/mapping revisions and `complete_through`; closed-rate residual precedence and strict single-open-rate exception; linked profile **177 passed in 7.82s**, compile/data checks PASS. |
-| FR27 | NOT_STARTED | Production E2E |
-| FR28 | NOT_STARTED | Backup/fault/concurrency |
-| FR29 | NOT_STARTED | Documentation |
-| FR30 | NOT_STARTED | Full tests/current CI |
-| FR31 | NOT_STARTED | Review package |
+| FR27 | PARTIAL | Manual count is supported as exact owner evidence; positive synthetic bridge and initial-cutover validation pass. Actual historical owner count and full prepare/apply/restart remain unverified. |
+| FR28 | PARTIAL | Independent profile 46 passed before this follow-up; rerun the linked backup/migration/apply profile against current SHA. |
+| FR29 | PARTIAL | Current owner-input rule and tests documented; function-by-function trace and source-dependent owner acceptance audit remain open. |
+| FR30 | PARTIAL | Isolated full pytest **5,264 passed in 87.28s**; compileall, data diff and manifest pass. Hosted CI for the published exact SHA is pending. |
+| FR31 | PARTIAL | Review packet records owner-approved scope and current limitations; not merge-ready until FR27–FR30 close. |
 
 ## FR26 — current/history/Period Profit/export consumers — 2026-11-10
 

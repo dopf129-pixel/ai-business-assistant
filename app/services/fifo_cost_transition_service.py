@@ -111,13 +111,14 @@ class FifoCostTransitionService:
     def record_cutoff_selection(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         cutoff_date, stock_report_fingerprint, expected_case_revision,
-        idempotency_key,
+        idempotency_key, supplier_receiving_units=None,
     ) -> dict:
-        """Persist a candidate store-local cutoff bound to one saved stock report.
+        """Persist a candidate cutoff and optional owner-confirmed receiving count.
 
         This records owner intent only. The derived bridge-input fingerprint is
         not a completed movement/finance bridge and remains PARTIAL until the
-        evidence assembler proves that bridge.
+        evidence assembler proves that bridge. The optional count is evidence
+        for this exact report/date and is never inferred from a missing field.
         """
         loaded = self._read_transition_owner_context(
             case_id=case_id, store_id=store_id, product_id=product_id,
@@ -128,6 +129,12 @@ class FifoCostTransitionService:
             return loaded
         case = loaded["case"]
         try:
+            if supplier_receiving_units is not None and (
+                type(supplier_receiving_units) is not int
+                or supplier_receiving_units < 0
+                or supplier_receiving_units > 1_000_000
+            ):
+                return self._error("FIFO_TRANSITION_OWNER_INPUT_INVALID")
             cutoff = self._normalize_transition_date(cutoff_date)
             if case.dispatch_date is not None and cutoff < case.dispatch_date:
                 return self._error("FIFO_CUTOFF_PRECEDES_DISPATCH_DATE")
@@ -149,7 +156,7 @@ class FifoCostTransitionService:
                 case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
             )
             identity_fingerprint = self._transition_identity_fingerprint(case.metadata.scope)
-            bridge_fingerprint = source_fingerprint({
+            bridge_material = {
                 "kind": "FIFO_CUTOFF_BRIDGE_INPUT_SELECTION_V1",
                 "case_id": case_id,
                 "case_revision": expected_case_revision,
@@ -162,7 +169,12 @@ class FifoCostTransitionService:
                 },
                 "stock_report_fingerprint": report.file_sha256,
                 "source_references": refs,
-            })
+            }
+            if supplier_receiving_units is not None:
+                bridge_material["owner_confirmed_supplier_receiving_units"] = (
+                    supplier_receiving_units
+                )
+            bridge_fingerprint = source_fingerprint(bridge_material)
             descriptor_metadata = TransitionMetadata(
                 scope=case.metadata.scope,
                 source_kind=EvidenceSourceKind.OWNER_INPUT,
@@ -204,6 +216,7 @@ class FifoCostTransitionService:
                     "bridge_fingerprint": bridge_fingerprint,
                     "selected_event_count": None,
                     "identity_fingerprint": identity_fingerprint,
+                    "stock_report_fingerprint": report.file_sha256,
                 },
                 sensitive_payload=self._canonical_transition_json({
                     "schema_version": 1,
@@ -213,6 +226,9 @@ class FifoCostTransitionService:
                     "descriptor": descriptor,
                     "stock_report_fingerprint": report.file_sha256,
                     "source_references": refs,
+                    **({
+                        "owner_confirmed_supplier_receiving_units": supplier_receiving_units,
+                    } if supplier_receiving_units is not None else {}),
                 }),
             )
         except (TypeError, ValueError, KeyError, OverflowError):
@@ -258,12 +274,24 @@ class FifoCostTransitionService:
             )
         ):
             return self._error("FIFO_CUTOFF_SELECTION_STALE")
+        supplier_receiving_units = payload.get(
+            "owner_confirmed_supplier_receiving_units",
+        )
+        if supplier_receiving_units is not None and (
+            type(supplier_receiving_units) is not int
+            or supplier_receiving_units < 0
+            or supplier_receiving_units > 1_000_000
+        ):
+            return self._error("FIFO_CUTOFF_SELECTION_INVALID")
         confirmation = TransitionEvidenceConfirmation(
             confirmation_kind=TransitionEvidenceConfirmationKind.CUTOFF_SELECTION,
             confirmed_fields={
                 "cutoff_date": descriptor["cutoff_date"],
                 "bridge_fingerprint": loaded["item"]["payload"]["bridge_fingerprint"],
                 "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+                **({
+                    "supplier_receiving_units": supplier_receiving_units,
+                } if supplier_receiving_units is not None else {}),
             },
         )
         return self.repository.confirm_transition_evidence(
@@ -320,10 +348,7 @@ class FifoCostTransitionService:
         available = buckets.get("available") if isinstance(buckets, Mapping) else None
         reserved = buckets.get("reserved") if isinstance(buckets, Mapping) else None
         fbs_return_units = fields.get("fbs_return_available_units")
-        if (
-            type(available) is not int or available < 0
-            or type(reserved) is not int or reserved < 0
-        ):
+        if type(available) is not int or available < 0:
             return self._error("FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN")
         if (
             type(fbs_return_units) is not int or fbs_return_units != 0
@@ -335,8 +360,21 @@ class FifoCostTransitionService:
             for name in ("preparing", "checking")
         ):
             return self._error("FIFO_INITIAL_CUTOVER_STOCK_BUCKET_UNRESOLVED")
+        # The source workbook has no independent reserved number.  When that
+        # field is unknown, the separately confirmed opening layers provide
+        # the exact owner-declared Ozon total; only that confirmation may
+        # resolve the remainder after the report's available count.
+        if reserved is None:
+            owner_reserved_units = quantities["ozon_units"] - available
+            reserved_source = "OWNER_CONFIRMED_OPENING_COMPOSITION"
+        elif type(reserved) is int and reserved >= 0:
+            owner_reserved_units = reserved
+            reserved_source = "OZON_STOCK_REPORT"
+        else:
+            return self._error("FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN")
         if (
-            quantities["ozon_units"] != available + reserved
+            owner_reserved_units < 0
+            or quantities["ozon_units"] != available + owner_reserved_units
             or quantities["home_units"] != case.owner_old_home_units
             or quantities["transit_units"] != case.owner_old_transit_units
             or sum(quantities.values()) <= 0
@@ -369,6 +407,9 @@ class FifoCostTransitionService:
             "stock_report_fingerprint": stock_report_fingerprint,
             "layers": normalized_layers,
             "zone_totals": quantities,
+            "owner_confirmed_total_ozon_units": quantities["ozon_units"],
+            "owner_confirmed_reserved_units": owner_reserved_units,
+            "reserved_source": reserved_source,
             "ozon_units_include_reserved_confirmed": True,
             "transit_not_in_ozon_confirmed": True,
             "accepted_supply_units_added_to_stock_snapshot": 0,
@@ -442,9 +483,9 @@ class FifoCostTransitionService:
         confirmation = TransitionEvidenceConfirmation(
             confirmation_kind=TransitionEvidenceConfirmationKind.OPENING_COMPOSITION,
             confirmed_fields={
-                "composition_fingerprint": safe["composition_fingerprint"],
-                "opening_date": safe["opening_date"],
-                "total_units": safe["total_units"],
+            "composition_fingerprint": safe["composition_fingerprint"],
+            "opening_date": safe["opening_date"],
+            "total_units": safe["total_units"],
             },
         )
         return self.repository.confirm_transition_evidence(
@@ -477,11 +518,22 @@ class FifoCostTransitionService:
                 return loaded
             return {
                 "error": False,
+                "case_id": case_id,
+                "scope": {
+                    "owner_id": case.metadata.scope.owner_id,
+                    "store_id": case.metadata.scope.store_id,
+                    "product_id": case.metadata.scope.product_id,
+                    "offer_id": case.metadata.scope.offer_id,
+                    "sku": case.metadata.scope.sku,
+                },
                 "case_revision": current["case_revision"],
                 "evidence_id": loaded["item"]["evidence_id"],
                 "evidence_fingerprint": loaded["item"]["payload_fingerprint"],
                 "descriptor": dict(loaded["descriptor"]),
                 "stock_report_fingerprint": loaded["sensitive_payload"]["stock_report_fingerprint"],
+                "owner_confirmed_supplier_receiving_units": loaded[
+                    "sensitive_payload"
+                ].get("owner_confirmed_supplier_receiving_units"),
                 "confirmed": True,
                 "preview_only": True,
             }
@@ -548,14 +600,63 @@ class FifoCostTransitionService:
                 return self._error("FIFO_TRANSITION_EVIDENCE_UNAVAILABLE")
             if composition.get("source_references") != current_refs:
                 return self._error("FIFO_OPENING_COMPOSITION_STALE")
+            stock_report = self._read_saved_transition_report(
+                case_id=case_id, identity=identity, scope=case.metadata.scope,
+                store_timezone=case.metadata.store_timezone,
+                file_sha256=composition.get("stock_report_fingerprint"),
+            )
+            if stock_report is None or not self._valid_cutoff_stock_report(
+                stock_report, composition.get("opening_date"),
+            ):
+                return self._error("FIFO_OPENING_COMPOSITION_STALE")
+            fields = stock_report.normalized_fields
+            buckets = fields.get("stock_buckets")
+            available = buckets.get("available") if isinstance(buckets, Mapping) else None
+            reported_reserved = buckets.get("reserved") if isinstance(buckets, Mapping) else None
+            ozon_units = composition.get("owner_confirmed_total_ozon_units")
+            owner_reserved = composition.get("owner_confirmed_reserved_units")
+            if "owner_confirmed_reserved_units" in composition:
+                if (
+                    type(available) is not int or available < 0
+                    or type(ozon_units) is not int or ozon_units < 0
+                    or type(owner_reserved) is not int or owner_reserved < 0
+                    or ozon_units != available + owner_reserved
+                    or (
+                        reported_reserved is not None
+                        and reported_reserved != owner_reserved
+                    )
+                    or composition.get("reserved_source") not in {
+                        "OWNER_CONFIRMED_OPENING_COMPOSITION", "OZON_STOCK_REPORT",
+                    }
+                ):
+                    return self._error("FIFO_OPENING_COMPOSITION_STALE")
+            elif reported_reserved is None:
+                return self._error("FIFO_OPENING_COMPOSITION_NOT_CONFIRMED")
             return {
                 "error": False,
+                "case_id": case_id,
+                "scope": {
+                    "owner_id": case.metadata.scope.owner_id,
+                    "store_id": case.metadata.scope.store_id,
+                    "product_id": case.metadata.scope.product_id,
+                    "offer_id": case.metadata.scope.offer_id,
+                    "sku": case.metadata.scope.sku,
+                },
                 "case_revision": current["case_revision"],
                 "evidence_id": item["evidence_id"],
                 "evidence_fingerprint": item["payload_fingerprint"],
                 "composition_fingerprint": safe["composition_fingerprint"],
                 "opening_date": safe["opening_date"],
                 "total_units": safe["total_units"],
+                "owner_confirmed_total_ozon_units": (
+                    ozon_units if "owner_confirmed_reserved_units" in composition
+                    else None
+                ),
+                "owner_confirmed_reserved_units": (
+                    owner_reserved if "owner_confirmed_reserved_units" in composition
+                    else None
+                ),
+                "reserved_source": composition.get("reserved_source"),
                 "layers": composition["layers"],
                 "stock_report_fingerprint": composition["stock_report_fingerprint"],
                 "cutoff_evidence_id": composition["cutoff_evidence_id"],
@@ -757,6 +858,17 @@ class FifoCostTransitionService:
             "bridge_fingerprint": safe.get("bridge_fingerprint"),
             "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
         }
+        supplier_receiving_units = payload.get(
+            "owner_confirmed_supplier_receiving_units",
+        )
+        if supplier_receiving_units is not None:
+            if (
+                type(supplier_receiving_units) is not int
+                or supplier_receiving_units < 0
+                or supplier_receiving_units > 1_000_000
+            ):
+                return self._error("FIFO_CUTOFF_SELECTION_INVALID")
+            expected_fields["supplier_receiving_units"] = supplier_receiving_units
         if not any(
             confirmation.get("confirmation_kind")
             == TransitionEvidenceConfirmationKind.CUTOFF_SELECTION.value
@@ -776,6 +888,9 @@ class FifoCostTransitionService:
             or descriptor.get("precision") != "STORE_LOCAL_DATE"
             or descriptor.get("boundary") != "END_OF_LOCAL_DATE"
             or safe.get("cutoff_date") != descriptor.get("cutoff_date")
+            or safe.get("stock_report_fingerprint") not in (
+                None, payload.get("stock_report_fingerprint"),
+            )
             or payload.get("case_id") != case_id
             or payload.get("case_basis_fingerprint")
             != self._transition_case_basis_fingerprint(current_case)

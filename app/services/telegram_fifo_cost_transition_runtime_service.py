@@ -34,6 +34,7 @@ class TelegramFifoCostTransitionRuntimeService:
     MAX_SESSIONS = 256
     MAX_TICKETS = 1024
     SUPPLY_REFRESH_PAGE_SIZE = 8
+    RECEIVING_REPORT_PAGE_SIZE = 8
     _EDITABLE_STATES = frozenset({"DRAFT", "AWAITING_EVIDENCE"})
     _READY_READ_ACTIONS = frozenset({
         "finish", "check_readiness", "view_recalculation",
@@ -232,10 +233,16 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Активный магазин изменился. Текст не записан; откройте нужный черновик заново."
             )
         if session.get("candidate_pending"):
+            if session.get("supplier_receiving_token"):
+                return self._result(
+                    "Проверьте число на приёмке и используйте кнопки подтверждения или отмены в предыдущем сообщении."
+                )
             return self._result(
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
                 keyboard=self._field_confirmation_keyboard(session["candidate_token"]),
             )
+        if session.get("step") == "supplier_receiving_units":
+            return self._handle_supplier_receiving_text(owner, session, text)
         if session.get("step") == "refresh_reference":
             return self._handle_refresh_reference(owner, session, text)
         if session.get("step") in {"supply_reference_kind", "supply_reference", "supply_quantity"}:
@@ -279,7 +286,7 @@ class TelegramFifoCostTransitionRuntimeService:
         if case.get("case_revision") != session["case_revision"]:
             if action not in {
                 "finish", "supply", "skip_supplies", "report_turnover",
-                "report_stock", "reports",
+                "report_stock", "reports", "supplier_receiving",
             }:
                 return self._stale()
             self._refresh_session(session, case)
@@ -333,6 +340,23 @@ class TelegramFifoCostTransitionRuntimeService:
             )
         if action == "reports":
             return self._documents_prompt(owner)
+        if action == "supplier_receiving":
+            return self._supplier_receiving_report_prompt(owner, page=0)
+        if action == "supplier_receiving_page":
+            page = ticket.get("page")
+            if type(page) is not int or page < 0:
+                return self._stale()
+            return self._supplier_receiving_report_prompt(owner, page=page)
+        if action == "supplier_receiving_report":
+            return self._select_supplier_receiving_report(owner, session, ticket)
+        if action == "confirm_supplier_receiving":
+            result = self._confirm_supplier_receiving(owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
+        if action == "cancel_supplier_receiving":
+            self._clear_supplier_receiving_pending(session)
+            return self._show_summary(owner)
         if action == "finish":
             return self._show_summary(owner)
         if action == "check_readiness":
@@ -520,6 +544,238 @@ class TelegramFifoCostTransitionRuntimeService:
         except (InvalidOperation, TypeError, ValueError):
             return self._input_error(step)
         return self._stage_field_confirmation(owner, session, updates, label, shown)
+
+    def _supplier_receiving_report_prompt(self, owner, *, page):
+        session = self._sessions.get(owner)
+        if not isinstance(session, dict):
+            return self._stale()
+        reports = self._eligible_supplier_receiving_reports(session)
+        if reports is None:
+            return self._failure(
+                "Не удалось прочитать сохранённые отчёты. Данные дела не изменены."
+            )
+        if not reports:
+            return self._result(
+                "Для ручного подтверждения нужен сохранённый полный отчёт по остаткам "
+                "за один день с подтверждённым периодом. Сначала добавьте такой отчёт; "
+                "значение приёмки из отсутствующего поля не будет считаться нулём.",
+                keyboard=self._keyboard([{
+                    "text": "📄 Добавить отчёт",
+                    "callback": self._issue_ticket(owner, session, "reports"),
+                }]),
+            )
+        page_count = max(
+            1, (len(reports) + self.RECEIVING_REPORT_PAGE_SIZE - 1)
+            // self.RECEIVING_REPORT_PAGE_SIZE,
+        )
+        if page >= page_count:
+            return self._stale()
+        start = page * self.RECEIVING_REPORT_PAGE_SIZE
+        page_reports = reports[start:start + self.RECEIVING_REPORT_PAGE_SIZE]
+        buttons = []
+        for index, report in enumerate(page_reports, start=start + 1):
+            buttons.append({
+                "text": f"📅 {report['date']} · отчёт {index}",
+                "callback": self._issue_ticket(
+                    owner, session, "supplier_receiving_report",
+                    cutoff_date=report["date"],
+                    stock_report_fingerprint=report["fingerprint"],
+                ),
+            })
+        if page > 0:
+            buttons.append({
+                "text": "⬅️ Назад",
+                "callback": self._issue_ticket(
+                    owner, session, "supplier_receiving_page", page=page - 1,
+                ),
+            })
+        if page + 1 < page_count:
+            buttons.append({
+                "text": "➡️ Далее",
+                "callback": self._issue_ticket(
+                    owner, session, "supplier_receiving_page", page=page + 1,
+                ),
+            })
+        buttons.append({
+            "text": "↩️ К делу",
+            "callback": self._issue_ticket(owner, session, "finish"),
+        })
+        return self._result(
+            "Выберите точный дневной отчёт: его дата станет cutoff FIFO. "
+            "Показываются только полные отчёты с подтверждённым периодом, "
+            "где Ozon не указал supplier_receiving.",
+            keyboard=self._keyboard(buttons),
+        )
+
+    def _eligible_supplier_receiving_reports(self, session):
+        result = self.transition_service.repository.read_transition_evidence(
+            case_id=session["case_id"], **session["identity"],
+            kind="REPORT_EVIDENCE", limit=101,
+        )
+        if (
+            not isinstance(result, dict) or result.get("error") is not False
+            or not isinstance(result.get("items"), list)
+            or len(result["items"]) > 100
+        ):
+            return None
+        reports = []
+        for item in result["items"]:
+            payload = item.get("payload")
+            fields = payload.get("normalized_fields") if isinstance(payload, dict) else None
+            buckets = fields.get("stock_buckets") if isinstance(fields, dict) else None
+            fingerprint = item.get("file_sha256")
+            period_from = item.get("period_from")
+            if (
+                item.get("report_type") != ReportType.STOCK_MANAGEMENT.value
+                or item.get("source_kind") != EvidenceSourceKind.OWNER_IMPORTED.value
+                or item.get("completeness") != EvidenceCompleteness.COMPLETE.value
+                or item.get("period_provenance") != "OWNER_CONFIRMED"
+                or not isinstance(period_from, str)
+                or item.get("period_to") != period_from
+                or not isinstance(buckets, dict)
+                or buckets.get("supplier_receiving") is not None
+                or not isinstance(fingerprint, str)
+                or len(fingerprint) != 64
+                or any(char not in "0123456789abcdef" for char in fingerprint.lower())
+            ):
+                continue
+            reports.append({"date": period_from, "fingerprint": fingerprint})
+        reports.sort(key=lambda value: (value["date"], value["fingerprint"]))
+        return reports
+
+    def _select_supplier_receiving_report(self, owner, session, ticket):
+        cutoff_date = ticket.get("cutoff_date")
+        fingerprint = ticket.get("stock_report_fingerprint")
+        reports = self._eligible_supplier_receiving_reports(session)
+        if reports is None or not any(
+            report["date"] == cutoff_date and report["fingerprint"] == fingerprint
+            for report in reports
+        ):
+            return self._stale()
+        session["supplier_receiving_report"] = {
+            "cutoff_date": cutoff_date,
+            "stock_report_fingerprint": fingerprint,
+        }
+        session["step"] = "supplier_receiving_units"
+        return self._result(
+            f"Введите точное число упаковок SKU {session['identity']['sku']}, "
+            f"которые на конец {cutoff_date} находились в статусе «приёмка на складе». "
+            "Это ручное подтверждение владельца. Если точно знаете, что их не было, "
+            "введите 0; неизвестное количество не вводите наугад. Значение останется "
+            "отдельным складским bucket и не добавится к FIFO-слоям принятого товара."
+        )
+
+    def _handle_supplier_receiving_text(self, owner, session, text):
+        report = session.get("supplier_receiving_report")
+        if not isinstance(report, dict):
+            self._clear_supplier_receiving_pending(session)
+            return self._stale()
+        try:
+            quantity = self._quantity(text, allow_zero=True)
+        except (TypeError, ValueError):
+            return self._result(
+                "Введите точное целое число упаковок от 0 до 1 000 000. "
+                "Если количество неизвестно, отмените ввод."
+            )
+        callback = self._issue_ticket(owner, session, "confirm_supplier_receiving")
+        token = callback.rsplit(":", 1)[-1]
+        ticket = self._ticket(owner, token)
+        ticket.update({
+            "cutoff_date": report["cutoff_date"],
+            "stock_report_fingerprint": report["stock_report_fingerprint"],
+            "supplier_receiving_units": quantity,
+        })
+        session["candidate_pending"] = True
+        session["supplier_receiving_token"] = token
+        return self._result(
+            f"Проверьте ввод: {quantity} упаковок этого SKU находились на приёмке "
+            f"на конец {report['cutoff_date']} согласно вашему подтверждению. "
+            "Это не значение, полученное от Ozon. Оно не войдёт в принятое FIFO-наличие. "
+            "Подтверждение заменит выбранный cutoff текущего дела.",
+            keyboard=self._keyboard([
+                {"text": "✅ Подтвердить количество", "callback": callback},
+                {
+                    "text": "↩️ Отмена",
+                    "callback": self._issue_ticket(
+                        owner, session, "cancel_supplier_receiving",
+                    ),
+                },
+            ]),
+        )
+
+    def _confirm_supplier_receiving(self, owner, session, ticket):
+        if session.get("supplier_receiving_token") != ticket.get("token"):
+            return self._stale()
+        cutoff_date = ticket.get("cutoff_date")
+        report_fingerprint = ticket.get("stock_report_fingerprint")
+        units = ticket.get("supplier_receiving_units")
+        reports = self._eligible_supplier_receiving_reports(session)
+        if (
+            reports is None
+            or not any(
+                item["date"] == cutoff_date
+                and item["fingerprint"] == report_fingerprint
+                for item in reports
+            )
+            or type(units) is not int or not 0 <= units <= 1_000_000
+        ):
+            return self._stale()
+        saved = self.transition_service.record_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+            cutoff_date=cutoff_date,
+            stock_report_fingerprint=report_fingerprint,
+            supplier_receiving_units=units,
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "sr-record", session,
+                report_fingerprint, cutoff_date, units,
+            ),
+        )
+        if not isinstance(saved, dict) or saved.get("error") is not False:
+            return self._failure(
+                "Количество не сохранено: дело или отчёт изменились. "
+                "Откройте карточку FIFO заново; предыдущая FIFO не менялась."
+            )
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure(
+                "Черновик cutoff сохранён, но состояние не удалось перечитать. "
+                "Откройте дело заново и проверьте подтверждение."
+            )
+        self._refresh_session(session, case)
+        confirmed = self.transition_service.confirm_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+            evidence_id=saved.get("evidence_id"),
+            expected_evidence_fingerprint=saved.get("payload_fingerprint"),
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "sr-confirm", session,
+                saved.get("payload_fingerprint"), units,
+            ),
+        )
+        if not isinstance(confirmed, dict) or confirmed.get("error") is not False:
+            self._clear_supplier_receiving_pending(session)
+            return self._failure(
+                "Количество сохранено как неподтверждённый cutoff, но не прошло финальную "
+                "проверку. Оно не будет использовано в расчёте; откройте дело и повторите "
+                "подтверждение после проверки источников."
+            )
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure(
+                "Подтверждение записано, но карточку не удалось обновить. "
+                "Откройте дело повторно."
+            )
+        self._refresh_session(session, case)
+        self._clear_supplier_receiving_pending(session)
+        return self._show_summary(owner)
+
+    @staticmethod
+    def _clear_supplier_receiving_pending(session):
+        session.pop("step", None)
+        session.pop("supplier_receiving_report", None)
+        session.pop("supplier_receiving_token", None)
+        session.pop("candidate_pending", None)
 
     def _handle_component_text(self, owner, session, text):
         component_fields = (
@@ -837,6 +1093,7 @@ class TelegramFifoCostTransitionRuntimeService:
         buttons = [
             {"text": "📄 Добавить оборотную ведомость", "callback": self._issue_ticket(owner, session, "report_turnover")},
             {"text": "📦 Добавить отчёт по остаткам", "callback": self._issue_ticket(owner, session, "report_stock")},
+            {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
             {"text": "🧾 Добавить подтверждение физических продаж", "callback": self._issue_ticket(owner, session, "physical_sales")},
             {"text": "Продолжить без отчётов", "callback": self._issue_ticket(owner, session, "finish")},
         ]
@@ -876,6 +1133,28 @@ class TelegramFifoCostTransitionRuntimeService:
             if isinstance(evidence, dict) and evidence.get("error") is False
             and len(evidence.get("items", ())) <= 100 else None
         )
+        cutoff = self.transition_service.read_confirmed_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+        )
+        receiving_units = (
+            cutoff.get("owner_confirmed_supplier_receiving_units")
+            if isinstance(cutoff, dict) and cutoff.get("error") is False
+            else None
+        )
+        if isinstance(cutoff, dict) and cutoff.get("error") is False:
+            if receiving_units is None:
+                cutoff_summary = (
+                    f"Cutoff: {cutoff['descriptor']['cutoff_date']}; "
+                    "количество на приёмке в отчёте отсутствует"
+                )
+            else:
+                cutoff_summary = (
+                    f"Приёмка на cutoff {cutoff['descriptor']['cutoff_date']}: "
+                    f"{receiving_units} шт. (ручное подтверждение владельца; "
+                    "отдельно от FIFO-слоёв)"
+                )
+        else:
+            cutoff_summary = "Cutoff и ручное количество на приёмке не подтверждены"
         text = (
             f"🧾 Черновик поздней партии · {session['display_name']} · SKU {session['identity']['sku']}\n"
             f"Состояние: {case['state']} · редакция {case['case_revision']}\n"
@@ -887,7 +1166,8 @@ class TelegramFifoCostTransitionRuntimeService:
             f"количество новой партии дома: неизвестно\n"
             f"Поставки: {manifest.get('known_assigned_units') if isinstance(manifest, dict) else 'нет данных'} из "
             f"{manifest.get('owner_declared_total') if isinstance(manifest, dict) else 'нет данных'} шт.; "
-            f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n\n"
+            f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n"
+            f"{cutoff_summary}\n\n"
             "Это сохранённые сведения для сверки. История FIFO, текущая себестоимость и прибыль не применялись."
         )
         if case.get("state") == "READY_TO_CONFIRM":
@@ -898,6 +1178,7 @@ class TelegramFifoCostTransitionRuntimeService:
                 {"text": "📦 Поставки", "callback": self._issue_ticket(owner, session, "supply")},
                 {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
                 {"text": "📄 Добавить отчёт", "callback": self._issue_ticket(owner, session, "reports")},
+                {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
             ])
         buttons.extend([
             {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},

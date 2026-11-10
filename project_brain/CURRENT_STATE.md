@@ -1,3 +1,17 @@
+# 2026-11-10 — FIFO owner-confirmed cutoff receiving quantity
+
+- The user approved a manual owner confirmation for `supplier_receiving` when the saved cutoff stock report does not expose that bucket. The Telegram flow selects an exact one-day report, accepts an explicit whole-number quantity (including explicit zero), previews the report/SKU/cutoff binding, and stores the confirmation append-only. It is labelled owner input, not Ozon fact.
+- The cutoff bridge includes the owner-confirmed quantity as a separate bucket. Initial cutover rechecks the durable cutoff confirmation and confirmed opening composition; the receiving quantity cannot be folded into accepted opening FIFO layers. A missing reserved count can be resolved only through that matching opening composition.
+- Focused workflow/service/bridge/atomic/runtime verification: **77 passed**; targeted positive/negative FR27 flow plus atomic apply: **21 passed**. Isolated full pytest: **5,264 passed in 89.34s**. `compileall`, `git diff --check`, tracked-data diff and the five-file FR00 SHA-256 manifest pass. Hosted current-SHA CI is still pending until the changes are published. No live API/bot, owner database, merge or deployment was used. The owner's actual historical cutoff count remains unconfirmed.
+
+# 2026-11-10 — FIFO FR27/FR30 integration checkpoint
+
+- The production workflow now has a regression showing that an imported Ozon stock-management report does not prove `supplier_receiving`: the bridge stays `SOURCE_BLOCKED` and does not issue a READY/apply state. The report importer now projects source sub-buckets into canonical `defective` and `seller_withdrawal` totals; missing receiving stays `None`, never zero.
+- FR27 positive prepare/apply/restart E2E remains blocked by the fixed cutoff contract: stock XLSX omits a receiving bucket and current supply status/act observations do not provide a historical bucket at the confirmed cutoff. No historical receipt or cutoff was inferred.
+- Fixed the production factory's missing `TaxService` import while retaining optional degraded factory construction. Updated stale late-entry/backup fixtures to provide exact full-month, reconstruction and tax-policy fingerprints.
+- Linked FR27/FR28 correction profile: **67 passed**. Full pytest in an isolated disposable copy: **5,258 passed in 86.19s** with a synthetic tax configuration; `compileall`, `git diff --check`, five owner-data SHA-256 values and empty `git diff -- data` passed. No owner database, credentials, live API, bot launch, merge, or deployment was used.
+- Current-head hosted CI remains unavailable because these changes are local and not committed/published. Owner case remains unverified; positive FR27 production apply and dependent FR28–FR31 closure are not claimed.
+
 # 2026-11-10 — FIFO FR26 downstream consumer integration
 
 - Commit `1c2e4480` carries the current FIFO stream/allocation/cutoff-mapping revisions and `complete_through` through current unit cost, history, Period Profit explanations, and exports. Mapping metadata is read only after validating the saved cutoff bridge against current physical-sale identities.

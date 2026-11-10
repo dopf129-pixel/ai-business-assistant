@@ -1180,7 +1180,15 @@ def _freeze_json(value: object) -> object:
 def _validate_transition_bridge_payload(
     kind: TransitionBridgeEvidenceKind, value: Mapping[str, object],
 ) -> dict[str, object]:
-    if not isinstance(value, Mapping) or set(value) != _BRIDGE_PAYLOAD_KEYS[kind]:
+    if not isinstance(value, Mapping):
+        _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_MISSING)
+    key_set = set(value)
+    allowed_key_sets = {_BRIDGE_PAYLOAD_KEYS[kind]}
+    if kind is TransitionBridgeEvidenceKind.CUTOFF_SELECTION:
+        allowed_key_sets.add(_BRIDGE_PAYLOAD_KEYS[kind] | {
+            "stock_report_fingerprint",
+        })
+    if key_set not in allowed_key_sets:
         _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_MISSING)
     result = dict(value)
     digest_fields = {
@@ -1188,6 +1196,7 @@ def _validate_transition_bridge_payload(
         "bridge_fingerprint", "composition_fingerprint", "rate_fingerprint",
         "predecessor_fingerprint", "reconciliation_fingerprint",
         "replay_fingerprint", "summary_fingerprint", "tax_policy_fingerprint",
+        "stock_report_fingerprint",
     }
     date_fields = {
         "period_from", "period_to", "complete_through", "cutoff_date",
@@ -1342,7 +1351,15 @@ def _validate_bridge_source(
 def _validate_transition_confirmation_fields(
     kind: TransitionEvidenceConfirmationKind, value: Mapping[str, object],
 ) -> dict[str, object]:
-    if not isinstance(value, Mapping) or set(value) != _CONFIRMATION_PAYLOAD_KEYS[kind]:
+    if not isinstance(value, Mapping):
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
+    key_set = set(value)
+    allowed_key_sets = {_CONFIRMATION_PAYLOAD_KEYS[kind]}
+    if kind is TransitionEvidenceConfirmationKind.CUTOFF_SELECTION:
+        allowed_key_sets.add(_CONFIRMATION_PAYLOAD_KEYS[kind] | {
+            "supplier_receiving_units",
+        })
+    if key_set not in allowed_key_sets:
         _fail(TransitionReasonCode.CONTRACT_INVALID)
     result = dict(value)
     digest_fields = {
@@ -1357,7 +1374,7 @@ def _validate_transition_confirmation_fields(
                 "opening_date", "effective_date", "effective_from"):
         if key in result:
             result[key] = normalize_date_only(result[key])
-    for key in ("row_count", "event_count", "total_units"):
+    for key in ("row_count", "event_count", "total_units", "supplier_receiving_units"):
         if key in result:
             if type(result[key]) is not int or not 0 <= result[key] <= MAX_TRANSITION_QUANTITY:
                 _fail(TransitionReasonCode.QUANTITY_INVALID)
@@ -1374,6 +1391,8 @@ def _validate_transition_confirmation_fields(
         if result["period_to"] < result["period_from"]:
             _fail(TransitionReasonCode.DATE_INVALID)
     if "semantics" in result and result["semantics"] != "PHYSICAL_OUTFLOW":
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
+    if "stock_semantics" in result and result["stock_semantics"] != "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED":
         _fail(TransitionReasonCode.CONTRACT_INVALID)
     if "review_outcome" in result and result["review_outcome"] not in {
         "CONFIRMED", "REJECTED",

@@ -551,6 +551,39 @@ class FifoCutoffDescriptor:
 
 
 @dataclass(frozen=True, slots=True)
+class FifoOwnerSupplierReceivingConfirmation:
+    """Owner-confirmed receiving bucket bound to one exact cutoff report."""
+
+    scope: ScopeIdentity
+    case_id: str
+    case_revision: int
+    cutoff_date: str
+    stock_report_fingerprint: str
+    supplier_receiving_units: int
+    evidence_fingerprint: str
+
+    def __post_init__(self):
+        if (
+            not isinstance(self.scope, ScopeIdentity)
+            or not isinstance(self.case_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{8,96}", self.case_id)
+            or type(self.case_revision) is not int
+            or self.case_revision < 1
+            or type(self.supplier_receiving_units) is not int
+            or self.supplier_receiving_units < 0
+            or self.supplier_receiving_units > 1_000_000
+        ):
+            raise ValueError("FIFO_OWNER_SUPPLIER_RECEIVING_CONFIRMATION_INVALID")
+        object.__setattr__(self, "cutoff_date", normalize_date_only(self.cutoff_date))
+        object.__setattr__(
+            self, "stock_report_fingerprint", normalize_digest(self.stock_report_fingerprint),
+        )
+        object.__setattr__(
+            self, "evidence_fingerprint", normalize_digest(self.evidence_fingerprint),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class FifoCutoffBridgeResult:
     status: str
     scope: ScopeIdentity
@@ -631,6 +664,7 @@ class FifoCostCutoffBridgeService:
         owner_confirmation: FifoPhysicalSaleDocumentConfirmation,
         movement_coverage: FifoCutoffMovementCoverage,
         requested_complete_through: str,
+        owner_supplier_receiving_confirmation: FifoOwnerSupplierReceivingConfirmation | None = None,
     ) -> FifoCutoffBridgeResult:
         if not isinstance(case, TransitionCase) or case.state not in {
             TransitionState.DRAFT, TransitionState.AWAITING_EVIDENCE,
@@ -644,6 +678,13 @@ class FifoCostCutoffBridgeService:
             or not isinstance(owner_confirmation, FifoPhysicalSaleDocumentConfirmation)
             or not isinstance(movement_coverage, FifoCutoffMovementCoverage)
             or not isinstance(proposal, FifoCostTransitionOpeningProposal)
+            or (
+                owner_supplier_receiving_confirmation is not None
+                and not isinstance(
+                    owner_supplier_receiving_confirmation,
+                    FifoOwnerSupplierReceivingConfirmation,
+                )
+            )
         ):
             raise ValueError("FIFO_CUTOFF_BRIDGE_INPUT_INVALID")
         if case.dispatch_date is None:
@@ -689,6 +730,10 @@ class FifoCostCutoffBridgeService:
         stock_buckets = self._validate_stock_evidence(
             stock_evidence=stock_evidence, scope=scope, cutoff=cutoff,
             proposal=proposal, issues=issues,
+            case_id=case.case_id, case_revision=case.case_revision,
+            owner_supplier_receiving_confirmation=(
+                owner_supplier_receiving_confirmation
+            ),
         )
         self._validate_finance_batch(
             batch=finance_batch, scope=scope, case=case,
@@ -874,6 +919,12 @@ class FifoCostCutoffBridgeService:
             "cutoff": cutoff,
             "timezone": timezone_name,
             "stock": stock_evidence.file_sha256 if isinstance(stock_evidence, ReportEvidence) else None,
+            "owner_supplier_receiving_confirmation": (
+                None if owner_supplier_receiving_confirmation is None else {
+                    "units": owner_supplier_receiving_confirmation.supplier_receiving_units,
+                    "evidence_fingerprint": owner_supplier_receiving_confirmation.evidence_fingerprint,
+                }
+            ),
             "finance": finance_batch.source_fingerprint,
             "document": physical_sale_document.document_fingerprint,
             "confirmation_at": owner_confirmation.confirmed_at,
@@ -899,6 +950,13 @@ class FifoCostCutoffBridgeService:
             provenance_by_basis=MappingProxyType({
                 "cutoff": ("OWNER_CONFIRMED_CASE_PROPOSAL",),
                 "stock_scope": (stock_evidence.file_sha256,) if isinstance(stock_evidence, ReportEvidence) else (),
+                "owner_supplier_receiving_confirmation": (
+                    (owner_supplier_receiving_confirmation.evidence_fingerprint,)
+                    if owner_supplier_receiving_confirmation is not None
+                    and stock_buckets.get(StockBucket.SUPPLIER_RECEIVING.value)
+                    == owner_supplier_receiving_confirmation.supplier_receiving_units
+                    else ()
+                ),
                 "finance_sale_identities": (finance_batch.source_fingerprint,),
                 "physical_sale_date_and_quantity": (physical_sale_document.document_fingerprint,),
                 "owner_confirmation": (owner_confirmation.document_fingerprint,),
@@ -908,7 +966,10 @@ class FifoCostCutoffBridgeService:
         )
 
     @staticmethod
-    def _validate_stock_evidence(*, stock_evidence, scope, cutoff, proposal, issues):
+    def _validate_stock_evidence(
+        *, stock_evidence, scope, cutoff, proposal, issues, case_id,
+        case_revision, owner_supplier_receiving_confirmation=None,
+    ):
         if (
             not isinstance(stock_evidence, ReportEvidence)
             or stock_evidence.report_type is not ReportType.STOCK_MANAGEMENT
@@ -925,6 +986,10 @@ class FifoCostCutoffBridgeService:
             for snapshot in proposal.stock_snapshots
         ):
             issues.add("STOCK_NOT_BOUND_TO_OPENING_PROPOSAL")
+        snapshot = next((
+            value for value in getattr(proposal, "stock_snapshots", ())
+            if value.report_fingerprint == stock_evidence.file_sha256
+        ), None)
         if stock_evidence.metadata.completeness is not EvidenceCompleteness.COMPLETE:
             issues.add("STOCK_REPORT_PARTIAL")
         buckets = stock_evidence.normalized_fields.get("stock_buckets")
@@ -935,14 +1000,65 @@ class FifoCostCutoffBridgeService:
         if set(buckets) - _STOCK_SOURCE_BUCKET_KEYS:
             issues.add("STOCK_BUCKETS_INCOMPLETE")
         safe_buckets = {}
+        receiving_confirmation_matches = (
+            isinstance(
+                owner_supplier_receiving_confirmation,
+                FifoOwnerSupplierReceivingConfirmation,
+            )
+            and owner_supplier_receiving_confirmation.scope == scope
+            and owner_supplier_receiving_confirmation.case_id == case_id
+            and owner_supplier_receiving_confirmation.case_revision == case_revision
+            and owner_supplier_receiving_confirmation.cutoff_date == cutoff
+            and owner_supplier_receiving_confirmation.stock_report_fingerprint
+            == stock_evidence.file_sha256
+        )
         for name in sorted(expected):
             value = buckets.get(name)
             if value is None:
-                issues.add("STOCK_BUCKET_UNKNOWN")
-                safe_buckets[name] = None
+                if (
+                    name == StockBucket.SUPPLIER_RECEIVING.value
+                    and receiving_confirmation_matches
+                ):
+                    safe_buckets[name] = normalize_quantity(
+                        owner_supplier_receiving_confirmation.supplier_receiving_units,
+                    )
+                    continue
+                owner_reserved = getattr(snapshot, "owner_confirmed_reserved_units", None)
+                owner_ozon_total = getattr(snapshot, "owner_confirmed_total_ozon_units", None)
+                composition_fingerprint = getattr(
+                    snapshot, "opening_composition_fingerprint", None,
+                )
+                composition_is_bound = (
+                    name == StockBucket.RESERVED.value
+                    and snapshot is not None
+                    and snapshot.eligible_as_cutoff_snapshot is True
+                    and snapshot.opening_composition_report_fingerprint
+                    == stock_evidence.file_sha256
+                    and snapshot.opening_composition_date == cutoff
+                    and isinstance(composition_fingerprint, str)
+                    and len(composition_fingerprint) == 64
+                    and all(char in "0123456789abcdef" for char in composition_fingerprint.lower())
+                    and type(owner_reserved) is int and owner_reserved >= 0
+                    and type(owner_ozon_total) is int and owner_ozon_total >= 0
+                    and type(buckets.get("available")) is int
+                    and owner_ozon_total == buckets["available"] + owner_reserved
+                    and snapshot.stock_buckets.get("reserved") == owner_reserved
+                )
+                if composition_is_bound:
+                    safe_buckets[name] = normalize_quantity(owner_reserved)
+                else:
+                    issues.add("STOCK_BUCKET_UNKNOWN")
+                    safe_buckets[name] = None
             else:
                 try:
                     safe_buckets[name] = normalize_quantity(value)
+                    if (
+                        name == StockBucket.SUPPLIER_RECEIVING.value
+                        and receiving_confirmation_matches
+                        and safe_buckets[name]
+                        != owner_supplier_receiving_confirmation.supplier_receiving_units
+                    ):
+                        issues.add("STOCK_BUCKET_OWNER_CONFIRMATION_CONFLICT")
                 except ValueError:
                     issues.add("STOCK_BUCKET_INVALID")
         return MappingProxyType(safe_buckets)

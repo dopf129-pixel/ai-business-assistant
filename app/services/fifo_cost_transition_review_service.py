@@ -195,6 +195,16 @@ class FifoCostTransitionReviewService:
                 report for report in reports
                 if report.report_type is ReportType.TURNOVER
             )
+            opening_composition = None
+            opening_composition_result = None
+            if not (for_transition_prepare and fifo_initialized):
+                opening_composition_result = (
+                    self.transition_service.read_confirmed_opening_composition(
+                        case_id=case_id, **identity,
+                    )
+                )
+                if opening_composition_result.get("error") is False:
+                    opening_composition = opening_composition_result
             reconciliation = self.supply_reconciliation_service.reconcile(
                 scope=scope, case_id=case.case_id,
                 owner_declared_total=case.declared_shipped_units,
@@ -207,6 +217,7 @@ class FifoCostTransitionReviewService:
                 case=case,
                 fifo_initialized=(fifo_initialized and not for_transition_prepare),
                 owner_confirmed_cutoff_date=confirmed_cutoff_date,
+                confirmed_opening_composition=opening_composition,
                 stock_reports=stock_reports,
                 turnover_reports=turnover_reports,
                 supply_reconciliation=reconciliation,
@@ -250,9 +261,8 @@ class FifoCostTransitionReviewService:
             "reports_read": len(reports),
             "cutoff_selection_confirmed": cutoff_selection.get("error") is False,
             "opening_composition_confirmed": (
-                self.transition_service.read_confirmed_opening_composition(
-                    case_id=case_id, **identity,
-                ).get("error") is False
+                opening_composition_result is not None
+                and opening_composition_result.get("error") is False
             ) if not (for_transition_prepare and fifo_initialized) else None,
             "opening_composition_required": not (
                 for_transition_prepare and fifo_initialized

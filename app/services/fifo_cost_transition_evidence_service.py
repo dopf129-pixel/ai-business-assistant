@@ -8,6 +8,7 @@ after process restart. Missing physical-movement coverage remains explicit.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 from datetime import date, timedelta
 import json
 
@@ -18,6 +19,7 @@ from services.fifo_cost_cutoff_bridge_service import (
     FifoDocumentedPhysicalSaleRow,
     FifoFinanceSaleIdentity,
     FifoFinanceSaleIdentityBatch,
+    FifoOwnerSupplierReceivingConfirmation,
     FifoPhysicalSaleDocumentConfirmation,
 )
 from services.fifo_cost_physical_sales_evidence_service import (
@@ -51,6 +53,7 @@ class FifoCostTransitionEvidenceBundle:
     owner_confirmation: FifoPhysicalSaleDocumentConfirmation | None = None
     movement_coverage: FifoCutoffMovementCoverage | None = None
     cutoff_evidence_id: str | None = None
+    owner_supplier_receiving_confirmation: FifoOwnerSupplierReceivingConfirmation | None = None
     opening_composition_fingerprint: str | None = None
     source_fingerprints: tuple[str, ...] = ()
     missing_requirements: tuple[str, ...] = ()
@@ -440,6 +443,7 @@ class FifoCostTransitionEvidenceService:
         )
         stock_evidence = None
         cutoff_evidence_id = None
+        owner_supplier_receiving_confirmation = None
         if cutoff.get("error"):
             if cutoff.get("code") == "FIFO_CUTOFF_SELECTION_NOT_CONFIRMED":
                 missing.append("OWNER_CUTOFF_CONFIRMATION_REQUIRED")
@@ -459,6 +463,40 @@ class FifoCostTransitionEvidenceService:
                 missing.append("CUTOFF_STOCK_REPORT_MISSING")
             else:
                 fingerprints.append(stock_evidence.file_sha256)
+                buckets = stock_evidence.normalized_fields.get("stock_buckets")
+                reported_receiving = (
+                    buckets.get("supplier_receiving")
+                    if isinstance(buckets, Mapping) else None
+                )
+                owner_receiving = cutoff.get(
+                    "owner_confirmed_supplier_receiving_units",
+                )
+                if reported_receiving is None:
+                    if owner_receiving is None:
+                        missing.append(
+                            "OWNER_SUPPLIER_RECEIVING_CONFIRMATION_REQUIRED",
+                        )
+                    else:
+                        try:
+                            owner_supplier_receiving_confirmation = (
+                                FifoOwnerSupplierReceivingConfirmation(
+                                    scope=scope,
+                                    case_id=case_id,
+                                    case_revision=case.case_revision,
+                                    cutoff_date=cutoff["descriptor"]["cutoff_date"],
+                                    stock_report_fingerprint=(
+                                        cutoff["stock_report_fingerprint"]
+                                    ),
+                                    supplier_receiving_units=owner_receiving,
+                                    evidence_fingerprint=(
+                                        cutoff["evidence_fingerprint"]
+                                    ),
+                                )
+                            )
+                        except (TypeError, ValueError, KeyError):
+                            return self._error(
+                                "FIFO_CUTOFF_SELECTION_INVALID",
+                            )
 
         opening = None
         if require_opening_composition:
@@ -606,6 +644,9 @@ class FifoCostTransitionEvidenceService:
             owner_confirmation=physical.get("confirmation") if physical.get("error") is False else None,
             movement_coverage=movement.get("coverage") if movement.get("error") is False else None,
             cutoff_evidence_id=cutoff_evidence_id,
+            owner_supplier_receiving_confirmation=(
+                owner_supplier_receiving_confirmation
+            ),
             opening_composition_fingerprint=(
                 opening.get("composition_fingerprint")
                 if isinstance(opening, dict) and opening.get("error") is False
@@ -632,6 +673,7 @@ class FifoCostTransitionEvidenceService:
         bridge_missing = tuple(
             code for code in bundle.missing_requirements
             if not code.startswith("FINANCIAL_PERIOD_SUMMARY_")
+            and code != "OWNER_SUPPLIER_RECEIVING_CONFIRMATION_REQUIRED"
         )
         if bridge_missing:
             return {
@@ -659,6 +701,9 @@ class FifoCostTransitionEvidenceService:
             physical_sale_document=bundle.physical_sale_document,
             owner_confirmation=bundle.owner_confirmation,
             movement_coverage=bundle.movement_coverage,
+            owner_supplier_receiving_confirmation=(
+                bundle.owner_supplier_receiving_confirmation
+            ),
             requested_complete_through=requested_end,
         )
         if not isinstance(result, dict) or result.get("error") is not False:

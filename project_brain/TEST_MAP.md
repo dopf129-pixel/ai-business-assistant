@@ -1,3 +1,17 @@
+# 2026-11-10 — FIFO owner-confirmed receiving bucket regressions
+
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` covers both missing confirmation (blocked) and explicit owner count (READY bridge), then verifies the durable cutoff proof and initial cutover. The opening queue remains 103 units while the separate receiving bucket is 148; a tampered opening that adds those 148 units is rejected.
+- `tests/test_fifo_cost_transition_service.py` covers durable explicit counts including zero; `tests/test_fifo_cost_cutoff_bridge_service.py` covers exact case/SKU/report/cutoff binding and conflicts; `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers report selection, invalid input without revision mutation, confirmation, restart-safe evidence and no implicit FIFO layer initialization.
+- Linked production workflow/service/bridge/atomic-apply/runtime profile: **77 passed**; direct FR27 workflow + atomic-apply profile: **21 passed**; isolated full pytest: **5,264 passed in 89.34s**. `compileall`, data manifest and diff checks passed. Hosted current-SHA CI remains pending; owner data is not part of these tests.
+
+# 2026-11-10 — FIFO FR27 source-gate, correction, and full-suite coverage
+
+- `tests/test_fifo_cost_stock_management_import_service.py` verifies the parser preserves Ozon sub-buckets and emits canonical aggregates (`defective`, `seller_withdrawal`); the unsupported `supplier_receiving` remains `None`.
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_fails_closed_without_cutoff_receiving_bucket` drives synthetic supply/API payloads and real stock/turnover/physical-document import through the shared production workflow. It asserts the actual bridge remains source-blocked, READY is false, and the case remains `AWAITING_EVIDENCE` when the stock report omits the receiving bucket.
+- `tests/test_fifo_cost_late_entry_correction_service.py` and `tests/test_fifo_cost_backup_restore.py` now bind monthly finance rows to the exact reconstruction and normalized tax-policy fingerprints. `tests/test_seller_attention_summary_service.py` covers the production factory's intentionally degraded configuration with no Period Profit runtime; the factory also imports its required `TaxService` in the full configuration.
+- Linked correction/backup/production workflow profile: **67 passed**. Full pytest from a disposable copy: **5,258 passed in 86.19s** using only a synthetic tax configuration. `compileall`, data manifest, and diff checks passed.
+- Positive FR27 apply is not verified because no authoritative receiving-at-cutoff value is available. Hosted CI for the current worktree SHA has not run.
+
 # 2026-11-10 — FIFO FR26 current and historical consumer regressions
 
 - `tests/test_fifo_cost_history_service.py` verifies that a replayed finite closed-rate residual is the next unit before a later open rate; an omitted balance on a multi-rate snapshot remains incomplete. `tests/test_fifo_late_entry_current_consumers.py` covers legacy cost before apply, FIFO cost after apply, revision-based cache refresh, and runtime forwarding of the exact seal without a second invalidation.

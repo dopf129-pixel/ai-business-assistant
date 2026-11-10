@@ -1,3 +1,22 @@
+# 2026-11-10 — FIFO explicit owner confirmation for cutoff stock
+
+- Added a Telegram flow to select an exact saved one-day stock report, enter the missing `supplier_receiving` count, review the cutoff/SKU binding, and confirm it durably. Zero is accepted only as an explicit owner input; Ozon data and other stock buckets are not inferred.
+- Cutoff bridge now treats this as owner-provided evidence, keeps receiving separate from accepted FIFO opening layers, and binds it into the bridge fingerprint. Initial cutover revalidates the saved receiving confirmation and opening composition; an absent reserved bucket is resolved only by that exact confirmed opening composition.
+- Verification: linked production-workflow, transition, cutoff-bridge, atomic-apply and Telegram runtime profile **77 passed**; targeted workflow + atomic-apply profile **21 passed**; isolated full pytest **5,264 passed in 87.28s**; compileall, data manifest and diff checks passed. Hosted CI for this local SHA remains pending; owner data and live APIs were not used.
+
+# 2026-11-10 — FIFO production composition and full-suite checkpoint
+
+- Fixed the production Telegram factory's missing `TaxService` import and retained degraded factory construction when Period Profit runtime is intentionally unavailable. Updated late-entry and backup/restore fixtures to satisfy the exact reconstruction/date/tax fingerprints enforced by the current contract.
+- Stock report normalization preserves original Ozon sub-buckets and exposes canonical `defective` and `seller_withdrawal` totals. `supplier_receiving` remains unknown if the source workbook omits it; the cutoff gate does not substitute zero.
+- Verification: linked correction/backup/production workflow profile **67 passed**; complete pytest in an isolated disposable copy **5,258 passed in 86.19s**; compileall, diff check, five-file data manifest and empty `git diff -- data` passed. The full-suite copy used a synthetic tax configuration and contained no owner credentials or databases.
+- FR27 positive apply remains blocked because the official stock-management workbook and current supply/act observations do not prove the historical `supplier_receiving` quantity at the confirmed cutoff. No READY/apply path is enabled without that evidence.
+
+# 2026-11-10 — FIFO source bucket mapping and backup fixture
+
+- Stock report normalization now exposes canonical `defective` and `seller_withdrawal` totals while preserving the original Ozon sub-buckets. `supplier_receiving` remains explicitly unknown when the XLSX has no such field; the cutoff gate does not substitute zero.
+- Updated the backup/restore regression fixture to bind its monthly financial summary to the exact reconstruction and normalized tax policy required by the current contract.
+- Verification: FIFO workflow/import/bridge profile **57 passed**; FR28 backup/migration/atomic/replay/apply profile **46 passed**. FR27 positive apply remains blocked until the cutoff receiving quantity has an authoritative source.
+
 # 2026-11-10 — FIFO FR26: current history, Period Profit, and export revisions
 
 - Current cost/history now carry the validated FIFO stream, allocation, and cutoff-mapping revisions, with the bridge's `complete_through` date. The history repository validates the saved mapping horizon against the current physical-sale identities before publishing that metadata.

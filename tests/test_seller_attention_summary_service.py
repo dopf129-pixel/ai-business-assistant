@@ -388,6 +388,7 @@ def test_production_telegram_factory_wires_attention_summary_to_main_handler(mon
 
     runner = factory.create_telegram_assistant()
 
+    assert runner.fifo_cost_transition_workflow is None
     assert isinstance(runner.seller_attention_summary_service, SellerAttentionSummaryService)
     assert runner.seller_attention_summary_service.product_decision_query is query
     assert runner.product_overview_service.decision_query is query

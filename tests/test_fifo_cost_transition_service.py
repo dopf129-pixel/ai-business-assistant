@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from threading import Barrier
 
 from cryptography.fernet import Fernet
+import pytest
 
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_repository import FifoCostRepository
@@ -234,8 +235,13 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path, monkeypa
         reset_current_tenant_user_id(tenant)
 
 
+@pytest.mark.parametrize("reported_reserved", [0, None], ids=["reported", "owner-confirmed"])
+@pytest.mark.parametrize(
+    "supplier_receiving_units", [None, 0, 148],
+    ids=["unreported", "owner-confirmed-zero", "owner-confirmed-148"],
+)
 def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
-    tmp_path, monkeypatch,
+    tmp_path, monkeypatch, reported_reserved, supplier_receiving_units,
 ):
     monkeypatch.setenv(
         "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
@@ -264,7 +270,7 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             cell_references=("A1",),
             normalized_fields={
                 "stock_buckets": {
-                    "available": 100, "reserved": 0,
+                        "available": 100, "reserved": reported_reserved,
                     "preparing": 0, "checking": 0,
                 },
                 "fbs_return_available_units": 0,
@@ -281,6 +287,7 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             case_id=case.case_id, **IDENTITY,
             cutoff_date="2026-11-06",
             stock_report_fingerprint=stock_report.file_sha256,
+            supplier_receiving_units=supplier_receiving_units,
             expected_case_revision=saved_report["case_revision"],
             idempotency_key="fr17-cutoff-0001",
         )
@@ -310,6 +317,9 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             "precision": "STORE_LOCAL_DATE",
             "boundary": "END_OF_LOCAL_DATE",
         }
+        assert durable_cutoff["owner_confirmed_supplier_receiving_units"] == (
+            supplier_receiving_units
+        )
 
         layers = [
             {
@@ -331,16 +341,17 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             idempotency_key="fr17-opening-0001",
         )
         assert composition["error"] is False, composition
-        rejected_double_count = service.record_opening_composition(
+        invalid_ozon_units = 200 if reported_reserved == 0 else 99
+        rejected_mismatch = service.record_opening_composition(
             case_id=case.case_id, **IDENTITY,
             cutoff_evidence_id=cutoff["evidence_id"],
             cutoff_evidence_fingerprint=cutoff["payload_fingerprint"],
             stock_report_fingerprint=stock_report.file_sha256,
-            layers=[{**layers[0], "ozon_units": 100}, layers[1]],
+            layers=[layers[0], {**layers[1], "ozon_units": invalid_ozon_units}],
             expected_case_revision=composition["case_revision"],
-            idempotency_key="fr17-opening-double-0001",
+            idempotency_key="fr17-opening-mismatch-0001",
         )
-        assert rejected_double_count["code"] == "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
+        assert rejected_mismatch["code"] == "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
         assert repository.read_transition_case(case_id=case.case_id, **IDENTITY)[
             "case_revision"
         ] == composition["case_revision"]
@@ -368,8 +379,15 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
         assert durable_composition["error"] is False, durable_composition
         assert durable_composition["layers"] == layers
         assert durable_composition["total_units"] == 103
+        assert durable_composition["owner_confirmed_total_ozon_units"] == 100
+        assert durable_composition["owner_confirmed_reserved_units"] == 0
+        assert durable_composition["reserved_source"] == (
+            "OWNER_CONFIRMED_OPENING_COMPOSITION"
+            if reported_reserved is None else "OZON_STOCK_REPORT"
+        )
         assert durable_composition["opening_date"] == "2026-11-06"
         assert durable_composition["preview_only"] is True
+        assert stock_report.normalized_fields["stock_buckets"]["reserved"] == reported_reserved
 
         revised = restarted.update_owner_inputs(
             case_id=case.case_id, **IDENTITY,

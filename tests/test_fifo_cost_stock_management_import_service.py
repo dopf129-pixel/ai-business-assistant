@@ -254,6 +254,9 @@ def test_stock_import_preserves_fbs_return_and_independent_status_buckets():
     assert fields["stock_buckets"]["buyer_delivery"] == 1689
     assert fields["stock_buckets"]["buyer_return_transit"] == 43
     assert fields["stock_buckets"]["removed_from_sale"] == 41
+    assert fields["stock_buckets"]["defective"] == 0
+    assert fields["stock_buckets"]["seller_withdrawal"] == 1
+    assert fields["stock_buckets"]["supplier_receiving"] is None
     assert fields["total_goods_units"] == 7532
     assert fields["total_goods_units_is_diagnostic"] is True
     assert fields["reserved_units"] is None

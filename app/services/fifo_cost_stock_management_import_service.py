@@ -269,6 +269,18 @@ class FifoCostStockManagementImportService(FifoCostReportImportService):
             stock_buckets.pop("total_goods", None)
             stock_buckets["removed_from_sale"] = removed_total
             stock_buckets["reserved"] = None
+            stock_buckets["supplier_receiving"] = stock_buckets.get(
+                "supplier_receiving",
+            )
+            stock_buckets["defective"] = self._sum_known_buckets(
+                stock_buckets, ("defective_supply", "defective_stock"),
+            )
+            stock_buckets["seller_withdrawal"] = self._sum_known_buckets(
+                stock_buckets, (
+                    "seller_withdrawal_preparing", "seller_withdrawal_ready",
+                    "seller_return_transit",
+                ),
+            )
             cell_references, source_rows = self._source_provenance(parsed)
             if len(cell_references) > 100_000:
                 return self._error(
@@ -528,6 +540,13 @@ class FifoCostStockManagementImportService(FifoCostReportImportService):
             {"warehouse_reference": key, **groups_by_warehouse[key]}
             for key in sorted(groups_by_warehouse)
         ]
+
+    @staticmethod
+    def _sum_known_buckets(buckets, names):
+        values = tuple(buckets.get(name) for name in names)
+        if any(type(value) is not int or value < 0 for value in values):
+            return None
+        return sum(values)
 
     def _aggregate_removed_rows(self, rows, scope):
         seen_keys = set()

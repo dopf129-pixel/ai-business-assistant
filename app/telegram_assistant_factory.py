@@ -66,6 +66,7 @@ from services.assistant_history_service import (
 
 
 from services.product_service import ProductService
+from services.tax_service import TaxService
 from services.period_profit_effective_cost_service import (
     PeriodProfitEffectiveCostService,
 )
@@ -771,37 +772,45 @@ def create_telegram_assistant():
         fifo_cost_history_service,
         FifoCostAnchorService(fifo_cost_repository),
     )
-    fifo_cost_transition_workflow = create_fifo_cost_transition_workflow(
-        repository=fifo_cost_repository,
-        history_service=fifo_cost_history_service,
-        transition_service=fifo_cost_transition_service,
-        source_collection_service=fifo_cost_source_collection_service,
-        tax_service=TaxService(),
-        tax_configuration_service=(
-            system.get("tax_configuration") or TaxConfigurationService()
-        ),
-        period_profit_service=period_profit_runtime_service,
-        cache_invalidator=button_handler.invalidate_fifo_transition_snapshots,
-    )
-    system["fifo_cost_transition_workflow"] = fifo_cost_transition_workflow
-    telegram_fifo_cost_report_import_service = fifo_cost_transition_workflow[
-        "report_import_service"
-    ]
-    telegram_fifo_cost_physical_sales_import_service = fifo_cost_transition_workflow[
-        "physical_sales_import_service"
-    ]
-    fifo_cost_transition_supply_refresh_service = fifo_cost_transition_workflow[
-        "supply_refresh_service"
-    ]
-    fifo_cost_transition_review_service = fifo_cost_transition_workflow[
-        "review_service"
-    ]
-    fifo_cost_transition_apply_service = fifo_cost_transition_workflow[
-        "apply_service"
-    ]
-    telegram_fifo_cost_transition_runtime_service = fifo_cost_transition_workflow[
-        "runtime_service"
-    ]
+    fifo_cost_transition_workflow = None
+    telegram_fifo_cost_report_import_service = None
+    telegram_fifo_cost_physical_sales_import_service = None
+    fifo_cost_transition_supply_refresh_service = None
+    fifo_cost_transition_review_service = None
+    fifo_cost_transition_apply_service = None
+    telegram_fifo_cost_transition_runtime_service = None
+    if period_profit_runtime_service is not None:
+        fifo_cost_transition_workflow = create_fifo_cost_transition_workflow(
+            repository=fifo_cost_repository,
+            history_service=fifo_cost_history_service,
+            transition_service=fifo_cost_transition_service,
+            source_collection_service=fifo_cost_source_collection_service,
+            tax_service=TaxService(),
+            tax_configuration_service=(
+                system.get("tax_configuration") or TaxConfigurationService()
+            ),
+            period_profit_service=period_profit_runtime_service,
+            cache_invalidator=button_handler.invalidate_fifo_transition_snapshots,
+        )
+        system["fifo_cost_transition_workflow"] = fifo_cost_transition_workflow
+        telegram_fifo_cost_report_import_service = fifo_cost_transition_workflow[
+            "report_import_service"
+        ]
+        telegram_fifo_cost_physical_sales_import_service = fifo_cost_transition_workflow[
+            "physical_sales_import_service"
+        ]
+        fifo_cost_transition_supply_refresh_service = fifo_cost_transition_workflow[
+            "supply_refresh_service"
+        ]
+        fifo_cost_transition_review_service = fifo_cost_transition_workflow[
+            "review_service"
+        ]
+        fifo_cost_transition_apply_service = fifo_cost_transition_workflow[
+            "apply_service"
+        ]
+        telegram_fifo_cost_transition_runtime_service = fifo_cost_transition_workflow[
+            "runtime_service"
+        ]
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
         cost_service=period_profit_cost_service,

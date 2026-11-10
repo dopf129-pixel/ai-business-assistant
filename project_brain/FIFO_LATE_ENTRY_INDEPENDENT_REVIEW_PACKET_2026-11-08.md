@@ -1,5 +1,18 @@
 # FIFO late-entry completion — independent review packet
 
+## Owner-confirmed cutoff receiving follow-up — 2026-11-10
+
+- The owner approved manual entry only for the missing `supplier_receiving` bucket. The Telegram path binds the nonnegative whole-number entry to one tenant/store/SKU case, the exact saved one-day stock report and cutoff; explicit zero is preserved. It is not represented as Ozon data, and no current act/status date is backdated.
+- The typed cutoff bridge carries the owner input separately from accepted FIFO stock. Atomic initial-cutover validation rereads the encrypted, confirmed cutoff evidence and the latest matching opening composition; an unknown report `reserved` bucket is resolved only from that owner-confirmed composition. A regression proves receiving units cannot be added to FIFO opening layers.
+- Local linked verification after this follow-up: 77 focused tests passed; positive/negative workflow plus atomic-apply profile: 21 passed; isolated full pytest: **5,264 passed in 87.28s**; compile/data/diff checks passed. Current-SHA hosted CI remains pending until publication. No owner data, live seller calls, Telegram or bot process was used. The actual owner cutoff quantity and real-case apply remain unverified; not merge-ready until CI/review closes.
+
+## Follow-up FR27/FR30 checkpoint — 2026-11-10
+
+- The current local follow-up fixes the missing `TaxService` import in the production assistant factory and retains a supported degraded composition when Period Profit runtime is absent. Late-entry/backup test fixtures now supply the full-month bounds and exact reconstruction/tax-policy fingerprints required by the strict preview contract.
+- The stock-management importer maps known Ozon sub-buckets into canonical defective/seller-withdrawal totals and preserves the original source values. It leaves `supplier_receiving` unknown when the workbook omits it. A production-path regression verifies `SOURCE_BLOCKED`, `ready_to_apply=False`, and `AWAITING_EVIDENCE`; it does not fabricate readiness.
+- Linked correction/backup/production profile: **67 passed**. Isolated disposable-copy full pytest: **5,258 passed in 86.19s** with a synthetic tax configuration; compileall and preserved-data checks passed.
+- The positive FR27 prepare/apply/restart path remains blocked by the absence of authoritative historical `supplier_receiving` at cutoff. The worktree changes are not committed or published and have no current-head hosted CI result. PR #730 and the follow-up are **not ready to merge**; FR28–FR31 remain open by dependency. `OWNER_CASE_VERIFIED=false`.
+
 Date: 2026-11-08  
 Specification: [LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md](LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md), PR #727  
 Architecture contract: [DECISIONS_066.md](DECISIONS_066.md)  

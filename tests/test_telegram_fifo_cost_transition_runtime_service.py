@@ -16,7 +16,9 @@ from services.fifo_cost_transition_contracts import (
     ReportEvidence,
     ReportType,
     ScopeIdentity,
+    StockBucket,
     TransitionMetadata,
+    source_fingerprint,
 )
 from services.fifo_cost_physical_sales_evidence_service import (
     FifoCostPhysicalSalesEvidenceService,
@@ -176,6 +178,97 @@ def test_components_mode_saves_exact_total_without_inventing_components(tmp_path
             "packaging_cost_rub": "1.65",
         }
         assert case["case_revision"] == 3
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_owner_can_confirm_cutoff_receiving_quantity_without_adding_fifo_units(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history, transitions, _report_import, runtime = _services(tmp_path)
+        started = runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        assert "старую итоговую себестоимость" in started["message"].lower()
+        _complete_owner_inputs(runtime)
+        listed = transitions.list_cases(store_id="store-a", sku=IDENTITY["sku"])
+        case_item = listed["cases"][0]
+        case = transitions._case_from_payload(case_item["case"])
+        stock_buckets = {bucket.value: 0 for bucket in StockBucket}
+        stock_buckets.update({
+            "available": 100,
+            "reserved": 0,
+            "supplier_receiving": None,
+        })
+        stock_report = ReportEvidence(
+            metadata=TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_IMPORTED,
+                completeness=EvidenceCompleteness.COMPLETE,
+                source_fingerprint=source_fingerprint("runtime-owner-stock"),
+                store_timezone="Europe/Moscow",
+            ),
+            report_type=ReportType.STOCK_MANAGEMENT,
+            period_from="2026-11-06",
+            period_to="2026-11-06",
+            period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+            captured_at="2026-11-07T18:00:00Z",
+            file_sha256=source_fingerprint("runtime-owner-stock-file"),
+            parser_version="stock-test-v1",
+            cell_references=("A1",),
+            normalized_fields={
+                "stock_buckets": stock_buckets,
+                "fbs_return_available_units": 0,
+                "fbs_return_is_subset_of_available": True,
+            },
+        )
+        saved_report = repository.append_report_evidence(
+            case_id=case.case_id, report=stock_report,
+            expected_case_revision=case_item["case_revision"],
+            idempotency_key="runtime-owner-stock-report-1",
+        )
+        assert saved_report.get("error") is False, saved_report
+
+        summary = runtime._show_summary("101")
+        receiving_button = next(
+            item["callback"] for item in summary["keyboard"]["buttons"]
+            if item["text"] == "📦 Указать число на приёмке"
+        )
+        report_choices = runtime.handle_callback(101, receiving_button)
+        report_choice = next(
+            item["callback"] for item in report_choices["keyboard"]["buttons"]
+            if item["text"].startswith("📅 2026-11-06")
+        )
+        quantity_prompt = runtime.handle_callback(101, report_choice)
+        assert "ручное подтверждение владельца" in quantity_prompt["message"].lower()
+        assert "не добавится к fifo-слоям" in quantity_prompt["message"].lower()
+
+        invalid = runtime.handle_text(101, "не знаю")
+        assert "введите точное целое число" in invalid["message"].lower()
+        assert transitions.get_case(case_id=case.case_id, **IDENTITY)["case_revision"] == (
+            saved_report["case_revision"]
+        )
+        preview = runtime.handle_text(101, "148")
+        assert "не значение, полученное от ozon" in preview["message"].lower()
+        assert "не войдёт в принятое fifo-наличие" in preview["message"].lower()
+        confirmed = runtime.handle_callback(
+            101, preview["keyboard"]["buttons"][0]["callback"],
+        )
+        assert confirmed.get("error") is False, confirmed
+        assert "ручное подтверждение владельца" in confirmed["message"].lower()
+        assert "148 шт." in confirmed["message"]
+
+        cutoff = transitions.read_confirmed_cutoff_selection(
+            case_id=case.case_id, **IDENTITY,
+        )
+        assert cutoff.get("error") is False, cutoff
+        assert cutoff["descriptor"]["cutoff_date"] == "2026-11-06"
+        assert cutoff["stock_report_fingerprint"] == stock_report.file_sha256
+        assert cutoff["owner_confirmed_supplier_receiving_units"] == 148
+        assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
     finally:
         reset_current_tenant_user_id(tenant)
 

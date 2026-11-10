@@ -55,3 +55,16 @@ Accepted for implementation within the user-approved FC00–FC35 task; independe
 - The late-entry implementation through FL32 has synthetic coverage for acceptance evidence across restart, double-confirm concurrency, schema/backup round-trip and idempotent replay. The production code is in the review branch; these checks do not mean it is merged, deployed, or accepted against the owner's live store.
 - The case reported by the owner remains `USER_VALIDATION_PENDING` and factual FIFO COGS remains `SOURCE_BLOCKED`. The known `1,191` vs `1,192` inventory discrepancy, missing complete post-05.11 movements, per-supply identities/acts, and exact physical cutoff must be resolved with their own source provenance before applying any history.
 - No change to the decision boundary: no inferred receipt, no date-from-status shortcut, and no synthetic acceptance may unlock factual Period Profit.
+
+## Addendum — 2026-11-10: production cutoff-source verification
+
+- The production import regression confirms that the downloaded Ozon stock-management workbook exposes source sub-buckets for defects and seller withdrawal, but not an independent historical `supplier_receiving` bucket. The importer preserves that value as unknown; it does not turn the missing field into zero.
+- Current supply status and acceptance-act quantities are observations at request time or act creation/processing time. They do not establish the exact inventory bucket at an earlier owner-confirmed cutoff. The production bridge therefore remains `SOURCE_BLOCKED` with READY disabled until an authoritative cutoff source or an explicitly approved evidence-contract change is available.
+- This verification does not alter the FIFO accounting rule or authorize factual COGS. Synthetic fail-closed coverage passes; the owner's case remains unverified.
+
+## Addendum — 2026-11-10: owner-confirmed cutoff receiving quantity
+
+- The owner approved an explicit manual confirmation path for `supplier_receiving` when the exact cutoff stock report omits that bucket. The value is an owner declaration, never labelled as an Ozon/API fact; unknown remains unknown until the owner explicitly confirms a whole-number quantity, including an intentional zero.
+- The confirmation is append-only and bound to the tenant/store/SKU case, exact one-day stock-report fingerprint, and cutoff date. It does not use present supply status, act creation date, or later acceptance to backdate inventory.
+- The receiving quantity remains a separate bridge bucket. It is not added to the opening FIFO accepted-stock layers. Repository cutover revalidates both the exact cutoff confirmation and the separately confirmed opening composition. If `reserved` is absent from the workbook, only the matching, durable owner-confirmed opening composition may resolve it; missing data is never silently changed to zero.
+- This narrows the source gate only for this specifically owner-confirmed bucket. It does not verify the owner's actual historical count or authorize a real FIFO apply until the required evidence and all other cutoff checks pass.

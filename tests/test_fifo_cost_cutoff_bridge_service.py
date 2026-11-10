@@ -102,13 +102,14 @@ def _stock_report(*, cutoff=CUTOFF, scope=SCOPE):
     )
 
 
-def _proposal(*, case=None, stock=None, cutoff=CUTOFF):
+def _proposal(*, case=None, stock=None, cutoff=CUTOFF, composition=None):
     case = case or _case()
     stock = stock or _stock_report(cutoff=cutoff)
     return FifoCostTransitionOpeningProposalService().propose(
         case=case,
         fifo_initialized=False,
         owner_confirmed_cutoff_date=cutoff,
+        confirmed_opening_composition=composition,
         stock_reports=(stock,),
         turnover_reports=(),
         supply_reconciliation=None,
@@ -371,6 +372,43 @@ def test_fl18_stock_buckets_must_be_complete_known_and_bound_to_cutoff_proposal(
     wrong_proposal = replace(_proposal(), case_revision=99)
     result = _build(proposal=wrong_proposal)
     assert "OWNER_CONFIRMED_CUTOFF_OR_CASE_PROPOSAL_MISSING" in result.unresolved_issues
+
+
+def test_fr27_owner_confirmed_composition_resolves_reserved_in_actual_cutoff_bridge():
+    stock = _stock_report()
+    fields = dict(stock.normalized_fields)
+    buckets = dict(fields["stock_buckets"])
+    buckets[StockBucket.RESERVED.value] = None
+    fields["stock_buckets"] = buckets
+    stock_unknown = replace(stock, normalized_fields=fields)
+    composition = {
+        "confirmed": True,
+        "case_id": CASE_ID,
+        "scope": {
+            "owner_id": SCOPE.owner_id,
+            "store_id": SCOPE.store_id,
+            "product_id": SCOPE.product_id,
+            "offer_id": SCOPE.offer_id,
+            "sku": SCOPE.sku,
+        },
+        "opening_date": CUTOFF,
+        "stock_report_fingerprint": stock_unknown.file_sha256,
+        "composition_fingerprint": "c" * 64,
+        "owner_confirmed_total_ozon_units": 1200,
+        "owner_confirmed_reserved_units": 9,
+        "layers": ({"ozon_units": 1200},),
+    }
+    proposal = _proposal(
+        stock=stock_unknown, composition=composition,
+    )
+
+    result = _build(stock_evidence=stock_unknown, proposal=proposal)
+
+    assert result.status == "READY"
+    assert result.confirmed_stock_buckets["available"] == 1191
+    assert result.confirmed_stock_buckets["reserved"] == 9
+    assert "STOCK_BUCKET_UNKNOWN" not in result.unresolved_issues
+    assert stock_unknown.normalized_fields["stock_buckets"]["reserved"] is None
 
 
 def test_fl18_existing_stock_parser_partial_buckets_are_preserved_as_specific_unknowns():
