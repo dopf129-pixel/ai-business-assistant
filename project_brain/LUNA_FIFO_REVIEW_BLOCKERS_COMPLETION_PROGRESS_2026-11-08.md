@@ -6,12 +6,12 @@
 
 ## Resume
 
-- PR A: #731, ветка `codex/fifo-review-rate-replay-20261108`, база — точная голова PR #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`; реализация FR02–FR11. Первая Linux CI-проверка выявила отсутствующий single-open-rate fallback и три FR24 теста, поставленные раньше production-кода; fallback исправлен, FR24 tests перенесены в PR B. Текущий SHA/повтор CI фиксировать после завершения проверки.
+- PR A: #731, ветка `codex/fifo-review-rate-replay-20261108`, база — точная голова PR #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`; реализация FR02–FR11. Исправляющий SHA `66c1f0ebf955b57565c1924c3636c868bdbf3213`: single-open-rate fallback добавлен, три FR24 production-workflow теста перенесены в PR B вместе с реализацией. Связанный профиль **49 passed in 2.88s**; полный изолированный pytest **5,170 passed in 78.35s**. Hosted CI для этого SHA ожидает публикации.
 - PR B: #732, ветка `codex/fifo-review-production-apply-20261108`, база — PR A; реализация FR12–FR31, включая production wiring и owner-confirmed `supplier_receiving`. Owner count остаётся отдельным evidence bucket, не фактом Ozon и не частью opening layers.
 - Следующий шаг после green CI обеих голов — внешний независимый review; слияние не выполнять.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветки: PR A `codex/fifo-review-rate-replay-20261108`; PR B `codex/fifo-review-production-apply-20261108` от головы A.
-- Current HEAD after FR10 checkpoint: `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`).
+- FR10 checkpoint: `5534917c0f14dbed6610e084dd7d3d839862b13d` (`Apply latest FIFO basis to partial returns`); current PR A correction head: `66c1f0ebf955b57565c1924c3636c868bdbf3213` (`Fix FIFO FR11 open-rate cost fallback`).
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - Существуют 17 modified tracked-файлов review corrections без commit. Сохранить весь исходный diff. Staged state на входе FR00 был пуст.

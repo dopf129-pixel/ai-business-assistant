@@ -20,8 +20,8 @@ These are three dependent PRs. Review and merge them in order; do not merge a de
 
 | PR | Scope | Base | Head | Hosted checks |
 |---|---|---|---|---|
-| [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | Pending FR11 CI correction commit | Initial Linux run 42789021904 found one FR11 open-rate fallback regression and three FR24 production tests staged ahead of their implementation; correction submitted, exact-head rerun pending. |
-| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 | `b7724261ac0b87dbfeddf5ac18c77753e0f03477` | Linux full verification passed in run 42789118312; Windows verification was running at packet update. |
+| [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | `66c1f0ebf955b57565c1924c3636c868bdbf3213` | Initial Linux run 42789021904 exposed a missing open-rate fallback and FR24 tests staged before implementation. The fallback is fixed; FR24 regressions move with production wiring to #732. Exact-head verification awaits publication of 66c1f0e. |
+| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 | `b7724261ac0b87dbfeddf5ac18c77753e0f03477` | Both Linux full verification and Windows full verification passed in run 42789118312; production Docker build and runtime smoke also passed. PR B must be updated to the new #731 base before its final CI run. |
 
 ## Follow-up review corrections — 2026-11-08
 
