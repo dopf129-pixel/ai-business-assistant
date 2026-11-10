@@ -1,7 +1,7 @@
 # 2026-11-10 — FIFO dependent PR delivery
 
 - PR #731 delivers FR02–FR11 on PR #730. It fixes the single-open-rate reader edge; the isolated full suite passed **5,170 tests**. Verify run `42790983173` on head `af7d93324eea9952d60fc26553d8ed673bd8834f` passed Windows/Linux and production Docker build/runtime smoke.
-- PR #732 delivers FR12–FR31 atop #731. Its prior head `b7724261ac0b87dbfeddf5ac18c77753e0f03477` passed hosted Windows/Linux and Docker checks in run `42789118312`; the branch is being advanced to the updated #731 base and requires fresh exact-head CI.
+- PR #732 delivers FR12–FR31 atop #731. Merge commit `0ae37298b832775c1f6431a97924420b311ec358` passed exact-head Verify run `42793814822` on Windows/Linux full suites and Docker build/runtime smoke. This status-sync is documentation-only; its exact-head Verify is linked from PR #732 Checks.
 - The historical cutoff count for the owner's case remains unentered. Manual owner input is explicit, separately labelled, and never merged into accepted FIFO opening stock. No real case is claimed verified.
 
 # 2026-11-10 — FIFO owner-confirmed cutoff receiving quantity

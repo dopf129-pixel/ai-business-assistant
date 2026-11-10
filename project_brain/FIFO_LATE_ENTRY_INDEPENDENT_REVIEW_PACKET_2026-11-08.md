@@ -34,7 +34,7 @@ These are three dependent PRs. Review and merge them in order; do not merge a de
 | PR | Scope | Base | Head | Hosted checks |
 |---|---|---|---|---|
 | [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | `af7d93324eea9952d60fc26553d8ed673bd8834f` | Full isolated suite: 5,170 passed. Verify run [42790983173](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42790983173) passed Windows/Linux and production Docker build/runtime smoke. No B-scope production regressions remain in this PR. |
-| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 | Updated stacked head pending merge commit publication | Previous head `b7724261ac0b87dbfeddf5ac18c77753e0f03477` passed Verify run [42789118312](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42789118312) on Windows/Linux and Docker build/runtime. The new head requires fresh exact-head CI. |
+| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 head `af7d93324eea9952d60fc26553d8ed673bd8834f` | Implementation integration checkpoint `0ae37298b832775c1f6431a97924420b311ec358` | Verify run [42793814822](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42793814822) passed Windows/Linux full suites, compile, Docker build/runtime smoke, and SHA-bound report. A documentation-only status-sync commit follows; use PR #732 Checks for the exact latest head. Owner cutoff and real-case apply remain unverified. |
 
 ## R-A / R-B remediation map
 
@@ -45,7 +45,7 @@ These are three dependent PRs. Review and merge them in order; do not merge a de
 
 ## MR01–MR22 numerical acceptance trace
 
-All rows are synthetic; no owner business values are used to construct a passing fixture. The final result SHA is the exact current PR #732 head checked by Windows/Linux/Docker Verify; MR01–MR11 are also covered by PR #731's exact-head Verify. Owner-case verification remains false.
+All rows are synthetic; no owner business values are used to construct a passing fixture. Implementation integration SHA `0ae37298b832775c1f6431a97924420b311ec358` passed Windows/Linux/Docker Verify; this packet is then updated by a documentation-only status sync, whose current-head result is linked from PR #732 Checks. MR01–MR11 are also covered by PR #731's exact-head Verify. Owner-case verification remains false.
 
 | Matrix | Test evidence | Result basis |
 |---|---|---|

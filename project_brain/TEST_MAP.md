@@ -1,7 +1,7 @@
 # 2026-11-10 — FIFO FR11 fix and exact-head CI stack
 
 - `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` and the multi-rate history/replay profile pass: **49 passed in 2.88s**. The open-rate cost is retained only for one complete, unreconciled initial rate with unknown quantity; other missing balances remain fail-closed.
-- Full isolated PR A suite: **5,170 passed in 78.35s**. PR #731 current head is `af7d93324eea9952d60fc26553d8ed673bd8834f`; Verify run `42790983173` passed Windows/Linux and production Docker build/runtime smoke. PR #732 requires a fresh run after its base is advanced to #731.
+- Full isolated PR A suite: **5,170 passed in 78.35s**. PR #731 current head is `af7d93324eea9952d60fc26553d8ed673bd8834f`; Verify run `42790983173` passed Windows/Linux and production Docker build/runtime smoke. PR #732 merge SHA `0ae37298b832775c1f6431a97924420b311ec358` passed Verify run `42793814822` on Windows/Linux full suites and Docker. The documentation-only status-sync head is covered by the latest PR Checks.
 
 # 2026-11-10 — FIFO owner-confirmed receiving bucket regressions
 

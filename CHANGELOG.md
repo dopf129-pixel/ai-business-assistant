@@ -7,6 +7,7 @@
 # 2026-11-10 — FIFO dependent review PRs
 
 - Split the late-entry review correction into stacked PR #731 (FR02–FR11) and PR #732 (FR12–FR31). PR #731 fixes the proven single-open-rate/unknown-quantity reader edge without loosening multi-rate fail-closed behavior. The production-workflow regressions stay with their implementation in PR #732. PR #731's isolated suite passed **5,170 tests**; exact-head checks are tracked on both PRs.
+- Advanced PR #732 to its verified PR #731 base. Implementation merge SHA `0ae37298b832775c1f6431a97924420b311ec358` passed Verify run `42793814822` (Windows/Linux full suites, compile, Docker build/runtime smoke, SHA-bound report); exact checks for the following documentation-only head are linked on the PR.
 
 # 2026-11-10 — FIFO production composition and full-suite checkpoint
 

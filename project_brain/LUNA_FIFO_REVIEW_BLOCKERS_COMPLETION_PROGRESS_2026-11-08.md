@@ -3,7 +3,7 @@
 ## Current dependent PR/CI snapshot — 2026-11-10
 
 - PR #731 (`codex/fifo-review-rate-replay-20261108`) is based on PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`, current head `af7d93324eea9952d60fc26553d8ed673bd8834f`. It contains FR02–FR11. Full isolated suite: **5,170 passed in 78.35s**. Verify run `42790983173`: Linux, Windows and production Docker build/runtime smoke all passed.
-- PR #732 (`codex/fifo-review-production-apply-20261108`) is stacked on #731. Its previous head `b7724261ac0b87dbfeddf5ac18c77753e0f03477` passed Windows/Linux and production Docker verification in run `42789118312`. New base commit from #731 is merged locally; current PR B head needs fresh exact-head verification after publication.
+- PR #732 (`codex/fifo-review-production-apply-20261108`) is stacked on #731. Merge commit `0ae37298b832775c1f6431a97924420b311ec358` passed exact-head Verify run `42793814822`: Windows/Linux full suites, compile, Docker build/runtime smoke, and SHA-bound report. This progress/packet update is documentation-only; its exact-head run is linked from PR #732 Checks.
 - The FR11 CI regression was fixed by preserving one proven open rate when its quantity is intentionally unknown and no finite rate-balance row exists. The three production workflow tests are delivered with FR24 implementation in #732. No tests are skipped or deselected to obtain a green run.
 - Data preservation: tracked `data/` diff is empty; all five FR00 SHA-256 values still match. `.fl12-deps/` remains untracked and unstaged. The owner's real cutoff count remains unentered; `OWNER_CASE_VERIFIED=false`.
 
@@ -14,7 +14,7 @@
 - Verification after the feature: linked workflow/service/bridge/atomic/runtime profile **77 passed**; FR27 workflow + atomic-apply profile **21 passed**; isolated full pytest **5,264 passed in 87.28s**; compileall, tracked-data diff and five-file manifest pass. Hosted CI for this exact SHA remains pending until publication. No live Ozon/Telegram calls, owner data, bot launch, merge or deployment.
 - FR27 is now **PARTIAL**, not source-contract blocked; positive synthetic bridge/cutover validation passes, but the owner's exact count for their historical cutoff has not been entered, and full prepare/apply/restart on the exact evidence set is unverified. FR28–FR31 remain dependent/open.
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. FR00–FR26 выполнены; FR27 — PARTIAL только по проверке реального owner case. FR28–FR29 закрыты синтетическими backup/fault/concurrency проверками и audit-map; FR30–FR31 ждут exact-head Verify обновлённой головы PR #732.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. FR00–FR26 выполнены; FR27 — PARTIAL только по проверке реального owner case. FR28–FR29 закрыты синтетическими backup/fault/concurrency проверками и audit-map. FR30 exact-head Verify `42793814822` passed on implementation merge SHA `0ae37298b832775c1f6431a97924420b311ec358`; a docs-only follow-up is checked at the current head linked from PR #732. FR31 пакет подготовлен; `OWNER_CASE_VERIFIED=false`.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
@@ -79,8 +79,8 @@
 | FR27 | PARTIAL | Manual count is supported as exact owner evidence; positive synthetic bridge and initial-cutover validation pass. Actual historical owner count and full prepare/apply/restart remain unverified. |
 | FR28 | DONE | Backup/restore, tenant boundary, wrong-key, write-fault rollback, exact retry and concurrent apply regressions are in the full suite; linked post-stack profile **72 passed in 11.90s**. |
 | FR29 | DONE | CHANGELOG/current state/test map/Decision 066/owner guide/progress/review packet updated; MR01–MR22 and R-A/R-B trace is in the packet. Historical incomplete notes remain explicitly dated. `OWNER_CASE_VERIFIED=false`. |
-| FR30 | PARTIAL | PR A isolated suite **5,170 passed in 78.35s** and exact Verify run `42790983173` passed Windows/Linux/Docker. PR B prior head full suite **5,264 passed** and run `42789118312` passed all checks; updated stacked PR B SHA still awaits full isolated/current-head Verify. |
-| FR31 | PARTIAL | Review packet has exact PR/base/head/change/test limitations; final PR B head/run URL and readiness snapshot are pending its new exact-head CI. `OWNER_CASE_VERIFIED=false`; no merge/deploy/bot run. |
+| FR30 | DONE for implementation integration SHA; docs-only head check linked on PR | PR #731 Verify `42790983173` passed Windows/Linux/Docker. PR #732 implementation integration SHA `0ae37298b832775c1f6431a97924420b311ec358` passed Verify run `42793814822` on Windows/Linux full suites and Docker build/runtime. Current docs-only head is verified by the PR's latest Checks. |
+| FR31 | DONE for independent review package | Packet records stacked PR/base/head, R-A/R-B function map, MR01–MR22 numeric trace, test evidence and owner-case boundary. See PR #732 Checks for the exact current-head Verify. `OWNER_CASE_VERIFIED=false`; no merge/deploy/bot run. |
 
 ## FR26 — current/history/Period Profit/export consumers — 2026-11-10
 
