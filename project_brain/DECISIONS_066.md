@@ -61,6 +61,7 @@ Accepted for implementation within the user-approved FC00–FC35 task; independe
 - The production import regression confirms that the downloaded Ozon stock-management workbook exposes source sub-buckets for defects and seller withdrawal, but not an independent historical `supplier_receiving` bucket. The importer preserves that value as unknown; it does not turn the missing field into zero.
 - Current supply status and acceptance-act quantities are observations at request time or act creation/processing time. They do not establish the exact inventory bucket at an earlier owner-confirmed cutoff. The production bridge therefore remains `SOURCE_BLOCKED` with READY disabled until an authoritative cutoff source or an explicitly approved evidence-contract change is available.
 - This verification does not alter the FIFO accounting rule or authorize factual COGS. Synthetic fail-closed coverage passes; the owner's case remains unverified.
+- Historical checkpoint: the source-gate wording above predates the explicit owner approval recorded in the following addendum. The approved manual confirmation narrows this blocker only for `supplier_receiving`; all other cutoff, stock, movement, and financial-period checks remain required.
 
 ## Addendum — 2026-11-10: owner-confirmed cutoff receiving quantity
 

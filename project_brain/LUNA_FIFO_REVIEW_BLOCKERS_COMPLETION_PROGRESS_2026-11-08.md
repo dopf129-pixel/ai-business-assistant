@@ -1,5 +1,12 @@
 # FIFO review blockers — журнал FR00–FR31
 
+## Current dependent PR/CI snapshot — 2026-11-10
+
+- PR #731 (`codex/fifo-review-rate-replay-20261108`) is based on PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`, current head `af7d93324eea9952d60fc26553d8ed673bd8834f`. It contains FR02–FR11. Full isolated suite: **5,170 passed in 78.35s**. Verify run `42790983173`: Linux, Windows and production Docker build/runtime smoke all passed.
+- PR #732 (`codex/fifo-review-production-apply-20261108`) is stacked on #731. Its previous head `b7724261ac0b87dbfeddf5ac18c77753e0f03477` passed Windows/Linux and production Docker verification in run `42789118312`. New base commit from #731 is merged locally; current PR B head needs fresh exact-head verification after publication.
+- The FR11 CI regression was fixed by preserving one proven open rate when its quantity is intentionally unknown and no finite rate-balance row exists. The three production workflow tests are delivered with FR24 implementation in #732. No tests are skipped or deselected to obtain a green run.
+- Data preservation: tracked `data/` diff is empty; all five FR00 SHA-256 values still match. `.fl12-deps/` remains untracked and unstaged. The owner's real cutoff count remains unentered; `OWNER_CASE_VERIFIED=false`.
+
 ## 2026-11-10 — explicit owner receiving confirmation
 
 - User business approval received: the owner may manually confirm the exact `supplier_receiving` quantity when the selected cutoff stock report omits it. Implemented an exact-report/date/SKU/case-bound Telegram flow; the count is encrypted and append-only, explicit zero is retained, and the value is labelled owner input. Current supply status or an act date is not backdated.
@@ -7,7 +14,7 @@
 - Verification after the feature: linked workflow/service/bridge/atomic/runtime profile **77 passed**; FR27 workflow + atomic-apply profile **21 passed**; isolated full pytest **5,264 passed in 87.28s**; compileall, tracked-data diff and five-file manifest pass. Hosted CI for this exact SHA remains pending until publication. No live Ozon/Telegram calls, owner data, bot launch, merge or deployment.
 - FR27 is now **PARTIAL**, not source-contract blocked; positive synthetic bridge/cutover validation passes, but the owner's exact count for their historical cutoff has not been entered, and full prepare/apply/restart on the exact evidence set is unverified. FR28–FR31 remain dependent/open.
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. FR00–FR26 выполнены; FR27 — PARTIAL после добавления owner confirmation, FR28–FR31 остаются открыты; полный suite и hosted CI текущей головы ещё не проверены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. FR00–FR26 выполнены; FR27 — PARTIAL только по проверке реального owner case. FR28–FR29 закрыты синтетическими backup/fault/concurrency проверками и audit-map; FR30–FR31 ждут exact-head Verify обновлённой головы PR #732.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
@@ -70,10 +77,10 @@
 | FR25 | DONE | Commit `b86d54d0`; prepare/candidate UI, restart-safe exact preview, opaque ticket bound to preview ID/fingerprint/revision/idempotency, stale seal rejection, APPLIED receipt restore; linked profile **48 passed in 8.60s**, compile/data/diff PASS. |
 | FR26 | DONE | Commit `1c2e4480`; current/history/Period Profit/export now bind exact stream/allocation/mapping revisions and `complete_through`; closed-rate residual precedence and strict single-open-rate exception; linked profile **177 passed in 7.82s**, compile/data checks PASS. |
 | FR27 | PARTIAL | Manual count is supported as exact owner evidence; positive synthetic bridge and initial-cutover validation pass. Actual historical owner count and full prepare/apply/restart remain unverified. |
-| FR28 | PARTIAL | Independent profile 46 passed before this follow-up; rerun the linked backup/migration/apply profile against current SHA. |
-| FR29 | PARTIAL | Current owner-input rule and tests documented; function-by-function trace and source-dependent owner acceptance audit remain open. |
-| FR30 | PARTIAL | Isolated full pytest **5,264 passed in 87.28s**; compileall, data diff and manifest pass. Hosted CI for the published exact SHA is pending. |
-| FR31 | PARTIAL | Review packet records owner-approved scope and current limitations; not merge-ready until FR27–FR30 close. |
+| FR28 | DONE | Backup/restore, tenant boundary, wrong-key, write-fault rollback, exact retry and concurrent apply regressions are in the full suite; linked post-stack profile **72 passed in 11.90s**. |
+| FR29 | DONE | CHANGELOG/current state/test map/Decision 066/owner guide/progress/review packet updated; MR01–MR22 and R-A/R-B trace is in the packet. Historical incomplete notes remain explicitly dated. `OWNER_CASE_VERIFIED=false`. |
+| FR30 | PARTIAL | PR A isolated suite **5,170 passed in 78.35s** and exact Verify run `42790983173` passed Windows/Linux/Docker. PR B prior head full suite **5,264 passed** and run `42789118312` passed all checks; updated stacked PR B SHA still awaits full isolated/current-head Verify. |
+| FR31 | PARTIAL | Review packet has exact PR/base/head/change/test limitations; final PR B head/run URL and readiness snapshot are pending its new exact-head CI. `OWNER_CASE_VERIFIED=false`; no merge/deploy/bot run. |
 
 ## FR26 — current/history/Period Profit/export consumers — 2026-11-10
 

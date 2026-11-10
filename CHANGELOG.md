@@ -4,6 +4,10 @@
 - Cutoff bridge now treats this as owner-provided evidence, keeps receiving separate from accepted FIFO opening layers, and binds it into the bridge fingerprint. Initial cutover revalidates the saved receiving confirmation and opening composition; an absent reserved bucket is resolved only by that exact confirmed opening composition.
 - Verification: linked production-workflow, transition, cutoff-bridge, atomic-apply and Telegram runtime profile **77 passed**; targeted workflow + atomic-apply profile **21 passed**; isolated full pytest **5,264 passed in 87.28s**; compileall, data manifest and diff checks passed. Hosted CI for this local SHA remains pending; owner data and live APIs were not used.
 
+# 2026-11-10 — FIFO dependent review PRs
+
+- Split the late-entry review correction into stacked PR #731 (FR02–FR11) and PR #732 (FR12–FR31). PR #731 fixes the proven single-open-rate/unknown-quantity reader edge without loosening multi-rate fail-closed behavior. The production-workflow regressions stay with their implementation in PR #732. PR #731's isolated suite passed **5,170 tests**; exact-head checks are tracked on both PRs.
+
 # 2026-11-10 — FIFO production composition and full-suite checkpoint
 
 - Fixed the production Telegram factory's missing `TaxService` import and retained degraded factory construction when Period Profit runtime is intentionally unavailable. Updated late-entry and backup/restore fixtures to satisfy the exact reconstruction/date/tax fingerprints enforced by the current contract.

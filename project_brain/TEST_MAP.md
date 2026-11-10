@@ -1,3 +1,8 @@
+# 2026-11-10 — FIFO FR11 fix and exact-head CI stack
+
+- `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` and the multi-rate history/replay profile pass: **49 passed in 2.88s**. The open-rate cost is retained only for one complete, unreconciled initial rate with unknown quantity; other missing balances remain fail-closed.
+- Full isolated PR A suite: **5,170 passed in 78.35s**. PR #731 current head is `af7d93324eea9952d60fc26553d8ed673bd8834f`; Verify run `42790983173` passed Windows/Linux and production Docker build/runtime smoke. PR #732 requires a fresh run after its base is advanced to #731.
+
 # 2026-11-10 — FIFO owner-confirmed receiving bucket regressions
 
 - `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` covers both missing confirmation (blocked) and explicit owner count (READY bridge), then verifies the durable cutoff proof and initial cutover. The opening queue remains 103 units while the separate receiving bucket is 148; a tampered opening that adds those 148 units is rejected.

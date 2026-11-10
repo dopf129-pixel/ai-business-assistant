@@ -29,6 +29,45 @@ These are three dependent PRs. Review and merge them in order; do not merge a de
 | [#729](https://github.com/dopf129-pixel/ai-business-assistant/pull/729) | FL12–FL23: reports, reconciliation, replay, atomic apply | PR #728 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` | `7abf5d79d608bf377f79df3b425b50d73de4d81c` | 44 | Ready for review; exact-head CI green |
 | [#730](https://github.com/dopf129-pixel/ai-business-assistant/pull/730) | FL24–FL35: Telegram, consumers, Period Profit, acceptance and this packet | PR #729 head `7abf5d79d608bf377f79df3b425b50d73de4d81c` | Previous published SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89`; local corrections are uncommitted | 48 + local follow-up | **Not ready**; production bridge/apply wiring and multiple-rate replay remain unresolved; current exact-head CI pending |
 
+### Current dependent correction PRs — 2026-11-10
+
+| PR | Scope | Base | Head | Hosted checks |
+|---|---|---|---|---|
+| [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | `af7d93324eea9952d60fc26553d8ed673bd8834f` | Full isolated suite: 5,170 passed. Verify run [42790983173](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42790983173) passed Windows/Linux and production Docker build/runtime smoke. No B-scope production regressions remain in this PR. |
+| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 | Updated stacked head pending merge commit publication | Previous head `b7724261ac0b87dbfeddf5ac18c77753e0f03477` passed Verify run [42789118312](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42789118312) on Windows/Linux and Docker build/runtime. The new head requires fresh exact-head CI. |
+
+## R-A / R-B remediation map
+
+| Finding | Changed functions and scope | Regression evidence |
+|---|---|---|
+| R-A — no production path to READY/APPLIED | PR #732: `create_fifo_cost_transition_workflow` / `create_telegram_assistant`; `FifoCostTransitionEvidenceService.load/build_cutoff_bridge`; `FifoCostTransitionReviewService.assess`; `FifoCostTransitionApplyService.prepare/read_preview/apply`; repository preview/commit transaction; Telegram evidence and exact-preview callbacks. | `test_production_workflow_builder_wires_durable_evidence_review_apply_and_runtime`; `test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart`; `test_prepare_seals_real_impact_without_changing_fifo_until_apply`; `test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl`; `test_ready_preview_ticket_binds_exact_persisted_seal_and_replays_commit`. Synthetic sources and temporary SQLite only. |
+| R-B — replay does not support multiple rates | PR #731: temporal replay kernel and `FifoCostReplayService.preview`; repository prefix replay and rate-change preview/commit; `FifoCostHistoryService` per-rate balance reader; return/outflow lineage; current unit-cost adapter. The single-open-rate exception is explicit and quantity remains unknown; missing multi-rate rows remain blocked. | `test_mr01_mr02_mr03_pure_kernel_replays_three_rates_without_inventing_receipts`; `test_fr09_replays_three_rates_from_prefix_and_publishes_atomically`; MR04–MR07 replay/return tests; `test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates`; current-consumer regression. |
+
+## MR01–MR22 numerical acceptance trace
+
+All rows are synthetic; no owner business values are used to construct a passing fixture. The final result SHA is the exact current PR #732 head checked by Windows/Linux/Docker Verify; MR01–MR11 are also covered by PR #731's exact-head Verify. Owner-case verification remains false.
+
+| Matrix | Test evidence | Result basis |
+|---|---|---|
+| MR01–MR03 | `test_mr01_mr02_mr03_pure_kernel_replays_three_rates_without_inventing_receipts`; `test_fr09_replays_three_rates_from_prefix_and_publishes_atomically` | Exact COGS 92.30 / 1614.20 / 166.00 ₽, aggregate 1,872.50 ₽, 10-unit predecessor residual, 7-unit residual, atomic publication. |
+| MR04–MR05 | `test_mr04_mr05_return_from_closed_rate_restores_cost_and_origin_before_current_rate`; `test_fr10_partial_return_restores_last_fifo_basis_for_mr04_mr05` | Return restores 16 ₽ lineage at return position; resale adds 16 ₽, aggregate 1,888.50 ₽, previous sale COGS unchanged. |
+| MR06 | `test_mr06_outflow_consumes_only_finite_fifo_layers_before_rate_sale` | Outflow 21 ₽ is separate; sales COGS 85.95 ₽. |
+| MR07 | `test_mr07_open_rate_values_sales_but_never_claims_known_quantity_or_values_outflow` | Sale COGS 58.60 ₽; known quantity stays unknown; unsupported outflow blocks. |
+| MR08 | `test_fr06_end_of_local_date_boundary_follows_same_day_sale`; `test_fr06_exact_timestamps_compare_in_store_timezone_not_utc_date` | Store-local end-of-day and UTC/local date crossing. |
+| MR09 | `test_fr06_exact_same_instant_boundary_and_sale_block_when_order_changes_basis`; `test_fr08_repository_blocks_missing_rate_reconciliation_and_keeps_no_write` | Ambiguous or unreconciled order blocks with no business write. |
+| MR10 | `test_fr06_duplicate_boundary_and_permuted_source_rows_keep_one_stable_fingerprint`; `test_fr06_exact_duplicate_sale_page_collapses_to_one_sale_but_conflicting_duplicate_blocks`; `test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl` | Duplicate/permuted inputs normalize deterministically; exact retry keeps one commit. |
+| MR11 | `test_late_entry_requires_complete_financial_sale_identity_mapping` | Missing/foreign historical alias mapping stays an explicit identity blocker. |
+| MR12–MR15 | `test_late_entry_matches_mr12_to_mr15_canonical_tax_and_profit_matrix` | Existing canonical TaxService; expected tax/profit deltas 12.70 / 12.70 / 10.79 / 12.70 ₽. |
+| MR16 | `test_missing_financial_baseline_returns_candidate_only_without_ready_seal`; `test_late_entry_without_before_baseline_returns_candidate_cost_only_by_financial_period` | Candidate-only; comparison/tax/profit delta is unknown; no READY/APPLIED. |
+| MR17 | `test_late_entry_never_treats_physical_date_as_financial_period`; `test_late_entry_impact_covers_every_financial_period_in_dependent_sale_horizon` | Physical sale date controls FIFO; each complete finance period controls profit/tax; complete horizon required. |
+| MR18 | `test_late_entry_impact_keeps_non_sale_outflow_out_of_sales_units_and_cogs`; `test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` | Outflow is separate from sales COGS; opening units are not consumed twice. |
+| MR19 | `test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without_fifo_writes`; `test_changed_tax_stock_bridge_and_return_coverage_never_partially_apply` | Changed evidence/tax/coverage makes seal stale; no partial apply. |
+| MR20 | `test_two_concurrent_confirms_apply_one_fifo_transition`; `test_apply_same_key_concurrent_services_commit_one_transition` | One durable transition; other caller receives exact idempotent result or CAS conflict. |
+| MR21 | `test_unconfirmed_value_and_cross_store_callback_never_write_transition_case`; `test_switching_fifo_case_invalidates_old_physical_preview_without_closing_either_case`; `test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply` | Wrong scope, stale callback or wrong key does not apply, leak, or erase saved evidence. |
+| MR22 | `test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket`; owner acceptance guide | Missing value blocks; explicit owner input remains separate from Ozon and opening FIFO stock. No actual historical count was provided or asserted; `OWNER_CASE_VERIFIED=false`. |
+
+Exact test commits and Verify run URLs are listed in the current PR table above and the PR checks. Do not use the owner-specific 1,191/1,192/148 quantities as synthetic expected output.
+
 ## Follow-up review corrections — 2026-11-08
 
 | Finding | Status | Evidence / remaining work |
