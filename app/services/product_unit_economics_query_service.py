@@ -1187,6 +1187,22 @@ class ProductUnitEconomicsQueryService:
             lines.append("Срез себестоимости на " + as_of + ".")
         if cutoff:
             lines.append("Точка фактической отсечки FIFO: " + cutoff + ".")
+        revisions = []
+        for key, label in (
+            ("stream_revision", "поток"),
+            ("allocation_revision", "распределение"),
+            ("cutoff_mapping_revision", "мост отсечки"),
+        ):
+            value = basis.get(key)
+            if type(value) is int and value >= 0:
+                revisions.append(label + " " + str(value))
+        if revisions:
+            lines.append("Ревизии FIFO: " + "; ".join(revisions) + ".")
+        complete_through = str(basis.get("complete_through") or "")
+        if complete_through:
+            lines.append("Мост отсечки сверяет продажи по " + complete_through + ".")
+        elif basis.get("cutoff_mapping_status") == "UNAVAILABLE":
+            lines.append("Граница полного покрытия моста отсечки не подтверждена.")
         remaining = basis.get("next_layer_remaining_units")
         if type(remaining) is int and remaining >= 0:
             lines.append(f"Остаток текущего слоя: {remaining} шт.")

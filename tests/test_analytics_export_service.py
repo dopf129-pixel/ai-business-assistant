@@ -70,11 +70,14 @@ def test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_v
         "confirmed_fifo_sku_count": 1,
         "mixed_cutoff_sku_count": 0,
         "cutoff_dates": ["2026-07-31"],
+        "cutoff_mapping_complete_through_dates": [],
         "products": [{
             "sku": "SKU-1", "cost_mode": "FIFO", "status": "CONFIRMED",
             "reason_code": None, "units_sold": 2,
             "product_cost_rub": "20.00", "cutoff_date": "2026-07-31",
             "stream_revision": 8, "allocation_revision": 3,
+            "cutoff_mapping_revision": None,
+            "cutoff_mapping_complete_through": None,
             "layers": [{
                 "basis_ref": "fifo-basis-00000000000000000001",
                 "basis_kind": "FIFO_LAYER", "sequence": 1,

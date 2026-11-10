@@ -6,6 +6,7 @@ import hashlib
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
+from services.product_unit_economics_query_service import ProductUnitEconomicsQueryService
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.fifo_cost_non_sale_movement_service import (
     FifoCostNonSaleMovementService,
@@ -408,6 +409,9 @@ def test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates(t
         assert history["error"] is False, history
         assert history["remaining_status"] == "AFTER_CONFIRMED_REPLAY"
         assert history["latest_allocation"]["revision"] == committed["allocation_revision"]
+        assert history["allocation_revision"] == committed["allocation_revision"]
+        assert history["cutoff_mapping_revision"] == 1
+        assert history["complete_through"] == "2026-11-15"
         assert [row["remaining_units"] for row in history["reconciled_rate_layers"]] == [0, 0]
         assert history["next_unit_cost_rub"] == "18.00"
         assert history["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
@@ -434,6 +438,15 @@ def test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates(t
         )
         assert current["cost_per_unit_rub"] == "18.00"
         assert current["cost_basis"]["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
+        assert current["cost_basis"]["stream_revision"] == history["revision"]
+        assert current["cost_basis"]["allocation_revision"] == committed["allocation_revision"]
+        assert current["cost_basis"]["cutoff_mapping_revision"] == 1
+        assert current["cost_basis"]["complete_through"] == "2026-11-15"
+        current_basis_lines = ProductUnitEconomicsQueryService._format_current_cost_basis(
+            current["cost_basis"],
+        )
+        assert any("мост отсечки 1" in line for line in current_basis_lines)
+        assert any("по 2026-11-15" in line for line in current_basis_lines)
 
         ui = TelegramFifoCostHistoryService(FifoCostHistoryService(reopened))
         rendered = ui._render_history({
@@ -442,6 +455,8 @@ def test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates(t
         })
         assert "границе следующей ставки" in rendered["message"]
         assert "не новая поставка" in rendered["message"]
+        assert "2026-11-15" in rendered["message"]
+        assert "ревизия mapping 1" in rendered["message"]
         exported = ui._export_history({
             "snapshot": history, "sku": IDENTITY["sku"], "identity": IDENTITY,
         })
@@ -454,6 +469,8 @@ def test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates(t
         assert all(row["Количество / остаток на границе"] != "" for row in rate_boundaries)
         assert all(row["Остаток после полного replay"] == "0" for row in rate_boundaries)
         assert all(row["Ревизия распределения"] == str(committed["allocation_revision"]) for row in records)
+        assert all(row["Ревизия mapping cutoff"] == "1" for row in records)
+        assert all(row["Покрытие mapping до"] == "2026-11-15" for row in records)
 
         period = reopened.read_period_allocation_summary(
             **IDENTITY, date_from="2026-11-08", date_to="2026-11-12",

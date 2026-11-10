@@ -2888,6 +2888,7 @@ class FifoCostRepository:
                     "movement_count": 0,
                     "latest_allocation": None,
                     "cutoff_date": None,
+                    "cutoff_mapping": None,
                 }
 
             projection_row = connection.execute(
@@ -3065,6 +3066,10 @@ class FifoCostRepository:
             cutoff_date = cutoff_date or (
                 projection["inventory_cutoff"] if projection else None
             )
+            cutoff_mapping = self._read_history_cutoff_mapping(
+                connection, stream_id=stream_id, cutoff_date=cutoff_date,
+                projection=projection,
+            )
             return {
                 "error": False,
                 "code": "FIFO_HISTORY_READY",
@@ -3079,6 +3084,7 @@ class FifoCostRepository:
                 "movement_count": movement_count,
                 "latest_allocation": latest_allocation,
                 "cutoff_date": cutoff_date,
+                "cutoff_mapping": cutoff_mapping,
             }
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
             code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_IDENTITY_INVALID"
@@ -3088,6 +3094,91 @@ class FifoCostRepository:
         finally:
             if connection is not None:
                 connection.close()
+
+    @classmethod
+    def _read_history_cutoff_mapping(
+        cls, connection, *, stream_id, cutoff_date, projection,
+    ):
+        """Return only a mapping boundary that still covers current FIFO sales."""
+        if not isinstance(projection, dict) or projection.get("cutoff_status") != "RECONCILED":
+            return None
+        cutoff = cls._normalize_date(cutoff_date)
+        mapping = connection.execute(
+            """SELECT mapping_set_id, mapping_revision, cutoff_date,
+                      complete_through, bridge_fingerprint, mapping_count
+               FROM fifo_cost_cutoff_sale_mapping_sets
+               WHERE stream_id=? ORDER BY mapping_revision DESC LIMIT 1""",
+            (stream_id,),
+        ).fetchone()
+        if mapping is None:
+            return None
+        through = cls._normalize_date(mapping["complete_through"])
+        stored_cutoff = cls._normalize_date(mapping["cutoff_date"])
+        if (
+            cutoff is None or stored_cutoff != cutoff or through is None
+            or through < cutoff
+            or projection.get("inventory_cutoff") != cutoff
+            or type(mapping["mapping_revision"]) is not int
+            or mapping["mapping_revision"] < 1
+            or type(mapping["mapping_count"]) is not int
+            or not 0 <= mapping["mapping_count"] <= 100_000
+            or not cls._valid_digest(mapping["bridge_fingerprint"])
+        ):
+            return None
+        rows = connection.execute(
+            """SELECT source_identity_digest, quantity,
+                      physical_effective_date, partition
+               FROM fifo_cost_cutoff_sale_mappings
+               WHERE mapping_set_id=? ORDER BY source_identity_digest LIMIT 100001""",
+            (mapping["mapping_set_id"],),
+        ).fetchall()
+        if len(rows) != mapping["mapping_count"] or len(rows) > 100_000:
+            return None
+        post_cutoff = {}
+        seen = set()
+        for row in rows:
+            digest = row["source_identity_digest"]
+            event_date = cls._normalize_date(row["physical_effective_date"])
+            partition = row["partition"]
+            if (
+                not cls._valid_digest(digest) or digest in seen
+                or type(row["quantity"]) is not int or row["quantity"] < 1
+                or event_date is None or event_date > through
+                or partition not in {"PRE_CUTOFF", "POST_CUTOFF"}
+                or (partition == "PRE_CUTOFF" and event_date > cutoff)
+                or (partition == "POST_CUTOFF" and event_date <= cutoff)
+            ):
+                return None
+            seen.add(digest)
+            if partition == "POST_CUTOFF":
+                post_cutoff[digest] = (row["quantity"], event_date)
+        sales = connection.execute(
+            """SELECT source_identity_digest, quantity, effective_date
+               FROM fifo_cost_events WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(sales) > 100_000:
+            return None
+        current_sales = {}
+        for row in sales:
+            digest = row["source_identity_digest"]
+            event_date = cls._normalize_date(row["effective_date"])
+            if (
+                not cls._valid_digest(digest) or digest in current_sales
+                or type(row["quantity"]) is not int or row["quantity"] < 1
+                or event_date is None
+            ):
+                return None
+            current_sales[digest] = (row["quantity"], event_date)
+        if current_sales != post_cutoff:
+            return None
+        return {
+            "mapping_revision": mapping["mapping_revision"],
+            "cutoff_date": cutoff,
+            "complete_through": through,
+            "bridge_fingerprint": mapping["bridge_fingerprint"],
+        }
 
     @staticmethod
     def _replayed_remaining_layers(connection, stream_id, allocation_revision):

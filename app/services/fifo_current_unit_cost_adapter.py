@@ -169,6 +169,9 @@ class FifoCurrentUnitCostAdapter:
             }
         else:
             next_planned = None
+        cutoff_mapping = history.get("cutoff_mapping")
+        if not isinstance(cutoff_mapping, dict):
+            cutoff_mapping = None
 
         material = {
             "mode": "FIFO",
@@ -176,6 +179,13 @@ class FifoCurrentUnitCostAdapter:
             **identity,
             "as_of_date": current_date,
             "stream_revision": history.get("revision"),
+            "allocation_revision": history.get("allocation_revision"),
+            "cutoff_mapping_revision": (
+                cutoff_mapping.get("mapping_revision") if cutoff_mapping else None
+            ),
+            "cutoff_mapping_complete_through": (
+                cutoff_mapping.get("complete_through") if cutoff_mapping else None
+            ),
             "stream_state": history.get("stream_state"),
             "cutoff_date": history.get("cutoff_date"),
             "projection": history.get("projection"),
@@ -197,6 +207,7 @@ class FifoCurrentUnitCostAdapter:
                 "rate_reconciliations": history.get("rate_reconciliations", ()),
                 "rate_cancellations": history.get("rate_cancellations", ()),
                 "latest_allocation": history.get("latest_allocation"),
+                "cutoff_mapping": cutoff_mapping,
             },
         }
         revision = self._fingerprint(material)
@@ -222,6 +233,13 @@ class FifoCurrentUnitCostAdapter:
                 "as_of_date": current_date,
                 "cutoff_date": history.get("cutoff_date"),
                 "stream_revision": history.get("revision"),
+                "allocation_revision": history.get("allocation_revision"),
+                "cutoff_mapping_revision": (
+                    cutoff_mapping.get("mapping_revision") if cutoff_mapping else None
+                ),
+                "complete_through": (
+                    cutoff_mapping.get("complete_through") if cutoff_mapping else None
+                ),
                 "next_unit_cost_rub": cost,
                 "next_unit_cost_basis": next_basis if cost is not None else None,
                 "next_layer_remaining_units": remaining_units,

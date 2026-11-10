@@ -89,6 +89,8 @@ def test_fifo_period_source_matches_exact_sale_identity_and_allocation_revision(
         "error": False, "active": True, "complete": True,
         "source": "FIFO_ALLOCATION_REVISION", "stream_revision": 4,
         "allocation_revision": 2, "cutoff_date": "2026-11-01",
+        "cutoff_mapping_revision": None,
+        "cutoff_mapping_complete_through": None,
         "units_sold": 2, "product_cost": "20.00",
     }
 

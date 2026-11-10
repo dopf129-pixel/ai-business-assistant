@@ -86,6 +86,14 @@ class FifoCostHistoryService:
             and replayed_layers is not None
             and replayed_rate_balances is not None
         )
+        latest_allocation = snapshot.get("latest_allocation")
+        allocation_revision = (
+            latest_allocation.get("revision")
+            if replay_complete and isinstance(latest_allocation, dict) else None
+        )
+        cutoff_mapping = snapshot.get("cutoff_mapping")
+        if not isinstance(cutoff_mapping, dict):
+            cutoff_mapping = None
         movements_need_replay = snapshot["movement_count"] > 0 and not replay_complete
         layers = []
         for row in snapshot["layers"]:
@@ -191,15 +199,32 @@ class FifoCostHistoryService:
         elif replay_complete:
             first_finite_layer = next(
                 (item for item in layers if item["remaining_units"] > 0), None,
+            ) or next(
+                (item for item in reconciled_rate_layers
+                 if item["remaining_units"] > 0), None,
             )
             if first_finite_layer is not None:
                 next_unit_cost = first_finite_layer["unit_cost_rub"]
-                next_unit_cost_basis = "FINITE_FIFO_LAYER"
+                next_unit_cost_basis = (
+                    "RECONCILED_RATE_LAYER"
+                    if first_finite_layer.get("kind") == "RECONCILED_RATE"
+                    else "FINITE_FIFO_LAYER"
+                )
 
         return {
             "error": False,
             "code": snapshot["code"],
             "revision": snapshot["revision"],
+            "allocation_revision": allocation_revision,
+            "cutoff_mapping_revision": (
+                cutoff_mapping.get("mapping_revision") if cutoff_mapping else None
+            ),
+            "complete_through": (
+                cutoff_mapping.get("complete_through") if cutoff_mapping else None
+            ),
+            "cutoff_mapping_status": (
+                "CONFIRMED" if cutoff_mapping else "UNAVAILABLE"
+            ),
             "as_of_date": as_of.isoformat(),
             "queue_initialized": snapshot["code"] == "FIFO_HISTORY_READY",
             "stream_state": snapshot["stream_state"],
@@ -221,6 +246,7 @@ class FifoCostHistoryService:
                 "AT_CONFIRMED_SNAPSHOT"
             ),
             "latest_allocation": snapshot["latest_allocation"],
+            "cutoff_mapping": cutoff_mapping,
         }
 
     @staticmethod
@@ -230,6 +256,8 @@ class FifoCostHistoryService:
         allocation = snapshot.get("latest_allocation")
         if (
             not isinstance(allocation, dict)
+            or type(allocation.get("revision")) is not int
+            or allocation.get("revision") < 1
             or allocation.get("status") != "COMPLETE"
             or allocation.get("cutoff_status") != "RECONCILED"
             or allocation.get("stale") is not False
@@ -255,6 +283,8 @@ class FifoCostHistoryService:
         allocation = snapshot.get("latest_allocation")
         if (
             not isinstance(allocation, dict)
+            or type(allocation.get("revision")) is not int
+            or allocation.get("revision") < 1
             or allocation.get("status") != "COMPLETE"
             or allocation.get("cutoff_status") != "RECONCILED"
             or allocation.get("stale") is not False
@@ -278,6 +308,24 @@ class FifoCostHistoryService:
             return {}
         current_effective_sequence = max(effective_rate_sequences)
         rows = allocation.get("replayed_rate_balances")
+        if rows is None or rows == []:
+            if (
+                effective_rate_sequences == [1]
+                and not snapshot.get("rate_reconciliations")
+            ):
+                # A first/open rate has no finite quantity to persist in the
+                # allocation balance table. Its quantity is unknown by design;
+                # the complete replay still proves the exact rate and all finite
+                # physical layers. Missing balances for any later/multiple rate
+                # remain incomplete and must fail closed below.
+                return {
+                    1: {
+                        "sequence": 1,
+                        "remaining_units": None,
+                        "unit_cost_rub": rates_by_sequence[1]["unit_cost_rub"],
+                    },
+                }
+            return None
         if not isinstance(rows, list) or len(rows) > 256:
             return None
         balances = {}

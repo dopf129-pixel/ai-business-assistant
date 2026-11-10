@@ -698,7 +698,13 @@ class TelegramFifoCostHistoryService:
             "mode": "FIFO",
             "sku": ticket.get("sku"),
             "stream_revision": snapshot.get("revision"),
-            "allocation_revision": allocation_revision,
+            "allocation_revision": (
+                snapshot.get("allocation_revision")
+                if snapshot.get("remaining_status") == "AFTER_CONFIRMED_REPLAY"
+                else allocation_revision
+            ),
+            "cutoff_mapping_revision": snapshot.get("cutoff_mapping_revision"),
+            "complete_through": snapshot.get("complete_through") or "",
             "cutoff_date": snapshot.get("cutoff_date") or "",
         }
         transition_rows = []
@@ -778,6 +784,7 @@ class TelegramFifoCostHistoryService:
             "Режим разбивки", "Закупка, ₽", "Доставка, ₽", "Упаковка, ₽", "Статус",
             "Подтверждение", "Состояние источника", "Полнота источника",
             "Ревизия FIFO", "Ревизия распределения", "Дата cutoff",
+            "Ревизия mapping cutoff", "Покрытие mapping до",
             "Ссылка строки", "Редакция перехода", "Обновлено перехода",
         ))
         rows = []
@@ -838,7 +845,8 @@ class TelegramFifoCostHistoryService:
                 key: row.get(key) for key in (
                     "mode", "sku", "kind", "sequence", "effective_date",
                     "quantity", "remaining_after_replay", "unit_cost", "stream_revision",
-                    "allocation_revision", "cutoff_date", "provenance",
+                    "allocation_revision", "cutoff_date", "cutoff_mapping_revision",
+                    "complete_through", "provenance",
                     "cost_input_mode", "case_revision", "case_updated_at",
                     "case_ordinal",
                 )
@@ -860,7 +868,9 @@ class TelegramFifoCostHistoryService:
                 self._spreadsheet_safe(row["source_status"]),
                 self._spreadsheet_safe(row["coverage"]), row["stream_revision"],
                 "" if row["allocation_revision"] is None else row["allocation_revision"],
-                row["cutoff_date"], reference,
+                row["cutoff_date"],
+                "" if row["cutoff_mapping_revision"] is None else row["cutoff_mapping_revision"],
+                row["complete_through"], reference,
                 row.get("case_revision", ""),
                 self._spreadsheet_safe(row.get("case_updated_at", "")),
             ))
@@ -869,7 +879,9 @@ class TelegramFifoCostHistoryService:
                 "FIFO", self._spreadsheet_safe(ticket.get("sku")), "EMPTY", "", "",
                 "", "", "", "", "", "", "", "", snapshot.get("stream_state") or "UNKNOWN",
                 "UNKNOWN", "UNKNOWN", "UNKNOWN", snapshot.get("revision"), "",
-                snapshot.get("cutoff_date") or "", "", "", "",
+                snapshot.get("cutoff_date") or "",
+                "" if snapshot.get("cutoff_mapping_revision") is None else snapshot.get("cutoff_mapping_revision"),
+                snapshot.get("complete_through") or "", "", "", "",
             ))
         content = "\ufeff" + stream.getvalue()
         if len(content.encode("utf-8")) > 1_000_000:
@@ -1038,6 +1050,14 @@ class TelegramFifoCostHistoryService:
                 f"Подтверждено конечных единиц на срезе: {total} шт. "
                 "Это количество на дату среза, не текущий остаток на сегодня."
             )
+        if snapshot.get("cutoff_mapping_status") == "CONFIRMED":
+            lines.append(
+                "Мост физической отсечки сверяет продажи по "
+                f"{snapshot.get('complete_through')} "
+                f"(ревизия mapping {snapshot.get('cutoff_mapping_revision')})."
+            )
+        else:
+            lines.append("Граница полного покрытия моста отсечки не подтверждена.")
         if snapshot["active_rate"] is not None:
             rate = snapshot["active_rate"]
             lines.append(

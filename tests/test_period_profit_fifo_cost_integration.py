@@ -397,6 +397,7 @@ def test_period_profit_combines_physical_pre_cutoff_legacy_and_post_cutoff_fifo_
                 "stream_revision": 4, "allocation_revision": 2,
                 "cutoff_date": "2026-11-05",
                 "cutoff_mapping_revision": 3,
+                "cutoff_mapping_complete_through": "2026-11-06",
                 "cutoff_bridge_fingerprint": "b" * 64,
                 "units_sold": 5, "product_cost": "43.95",
                 "fifo_units_sold": 3, "fifo_product_cost": "43.95",
@@ -410,6 +411,8 @@ def test_period_profit_combines_physical_pre_cutoff_legacy_and_post_cutoff_fifo_
                     "cost_mode": "FIFO", "status": "CONFIRMED",
                     "reason_code": None, "cutoff_date": "2026-11-05",
                     "stream_revision": 4, "allocation_revision": 2,
+                    "cutoff_mapping_revision": 3,
+                    "cutoff_mapping_complete_through": "2026-11-06",
                     "layers": [{
                         "basis_ref": "fifo-basis-00000000000000000001",
                         "basis_kind": "FIFO_LAYER", "sequence": 1,
@@ -473,6 +476,7 @@ def test_period_profit_combines_physical_pre_cutoff_legacy_and_post_cutoff_fifo_
     assert product["fifo_stream_revision"] == 4
     assert product["fifo_allocation_revision"] == 2
     assert product["fifo_cutoff_mapping_revision"] == 3
+    assert product["fifo_cutoff_mapping_complete_through"] == "2026-11-06"
 
     explanation = result["fifo_cost_explanation"]
     assert explanation["cost_mode"] == "MIXED_CUTOFF"
@@ -493,3 +497,4 @@ def test_period_profit_combines_physical_pre_cutoff_legacy_and_post_cutoff_fifo_
     assert export_projection["legacy_cogs_rub"] == explanation["legacy_cogs_rub"]
     assert export_projection["products"][0]["allocation_revision"] == 2
     assert export_projection["products"][0]["cutoff_mapping_revision"] == 3
+    assert export_projection["products"][0]["cutoff_mapping_complete_through"] == "2026-11-06"

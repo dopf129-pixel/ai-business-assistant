@@ -239,6 +239,7 @@ def test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit(
     invalid_allocations = [
         {**latest, "stream_revision": 2},
         {**latest, "stale": True},
+        {**latest, "replayed_rate_balances": []},
         {**latest, "replayed_rate_balances": latest["replayed_rate_balances"][:1]},
         {
             **latest,
@@ -265,6 +266,70 @@ def test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit(
         assert invalid["remaining_status"] == "REPLAY_REQUIRED"
         assert invalid["next_unit_cost_rub"] is None
         assert all(row["remaining_units"] is None for row in invalid["layers"])
+
+
+def test_history_uses_replayed_finite_closed_rate_before_current_open_rate():
+    snapshot = {
+        "error": False,
+        "code": "FIFO_HISTORY_READY",
+        "revision": 4,
+        "stream_state": "FIFO_READY",
+        "cutoff_date": "2026-11-05",
+        "projection": {"queue_complete": True},
+        "layers": [{
+            "sequence": 1, "recorded_quantity": 1,
+            "unit_cost_rub": "5.00", "effective_date": "2026-11-05",
+            "location": "OZON", "provenance": "OWNER_CONFIRMED",
+        }],
+        "rates": [
+            {
+                "sequence": 1, "effective_date": "2026-11-06",
+                "unit_cost_rub": "14.65", "provenance": "OWNER_CONFIRMED",
+                "cancelled": False,
+            },
+            {
+                "sequence": 2, "effective_date": "2026-11-09",
+                "unit_cost_rub": "18.00", "provenance": "OWNER_CONFIRMED",
+                "cancelled": False,
+            },
+        ],
+        "rate_reconciliations": [{
+            "reconciled_rate_sequence": 1,
+            "transition_rate_sequence": 2,
+            "prior_rate_units": 1,
+            "reconciled_total_units": 1,
+        }],
+        "rate_cancellations": [],
+        "movement_count": 1,
+        "latest_allocation": {
+            "revision": 7,
+            "stream_revision": 4,
+            "status": "COMPLETE",
+            "cutoff_status": "RECONCILED",
+            "stale": False,
+            "replayed_remaining_layers": [{
+                "sequence": 1, "remaining_units": 0,
+            }],
+            "replayed_rate_balances": [
+                {"sequence": 1, "remaining_units": 1, "unit_cost_rub": "14.65"},
+                {"sequence": 2, "remaining_units": None, "unit_cost_rub": "18.00"},
+            ],
+        },
+    }
+
+    class _SnapshotRepository:
+        @staticmethod
+        def read_cost_history_snapshot(**_kwargs):
+            return snapshot
+
+    result = FifoCostHistoryService(_SnapshotRepository()).get_sku_history(
+        **IDENTITY, as_of_date="2026-11-10",
+    )
+
+    assert result["remaining_status"] == "AFTER_CONFIRMED_REPLAY"
+    assert result["next_unit_cost_rub"] == "14.65"
+    assert result["next_unit_cost_basis"] == "RECONCILED_RATE_LAYER"
+    assert result["reconciled_rate_layers"][0]["remaining_units"] == 1
 
 
 def test_late_delivery_transfer_does_not_create_a_second_cost_layer(tmp_path):

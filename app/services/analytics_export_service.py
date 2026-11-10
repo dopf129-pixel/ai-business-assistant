@@ -146,6 +146,8 @@ class AnalyticsExportService:
                     "cutoff_date": product.get("cutoff_date"),
                     "stream_revision": product.get("stream_revision"),
                     "allocation_revision": product.get("allocation_revision"),
+                    "cutoff_mapping_revision": product.get("cutoff_mapping_revision"),
+                    "complete_through": product.get("cutoff_mapping_complete_through"),
                 }
                 rows.append(self._period_row(
                     "fifo_cost_product", "product_cogs_rub",
@@ -1501,6 +1503,8 @@ class AnalyticsExportService:
             AnalyticsExportService._column("source_method", "Метод источника", "status"),
             AnalyticsExportService._column("stream_revision", "Ревизия FIFO", "integer"),
             AnalyticsExportService._column("allocation_revision", "Ревизия распределения", "integer"),
+            AnalyticsExportService._column("cutoff_mapping_revision", "Ревизия mapping отсечки", "integer"),
+            AnalyticsExportService._column("complete_through", "Покрытие mapping до", "text"),
             AnalyticsExportService._column("correction_revision", "Ревизия корректировки", "integer"),
             AnalyticsExportService._column("previous_allocation_revision", "Предыдущая ревизия распределения", "integer"),
         ]
@@ -1513,6 +1517,7 @@ class AnalyticsExportService:
             "status", "unit", "semantic", "reference", "effective_date",
             "cutoff_date", "cost_mode", "source_confirmation", "source_method",
             "stream_revision", "allocation_revision", "correction_revision",
+            "cutoff_mapping_revision", "complete_through",
             "previous_allocation_revision",
         )}
         row.update(section=section, name=name, **values)
