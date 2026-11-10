@@ -1,6 +1,6 @@
 # FIFO review blockers — журнал FR00–FR31
 
-Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR25 выполнены.
+Подготовлено 08.11.2026, редакционная проверка 09.11.2026; ход исполнения актуализирован 10.11.2026. Этапы FR00–FR26 выполнены.
 
 ТЗ: [LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md).
 
@@ -11,9 +11,11 @@
 - FR24 verification: builder/factory compile PASS; production builder + apply/evidence/review linked profile **17 passed in 4.09s**; physical-sales public route test подтверждает реальные `start_selection`/`handle_document`/`handle_callback` методы. `git diff --check`, `git diff --exit-code -- data` и пять FR00 hashes PASS. Использованы только temporary synthetic SQLite/IO stubs, без owner DB, live API, Telegram/bot launch. Затем выполнен FR25.
 - FR25 DONE; implementation commit `b86d54d0` (`Bind FIFO confirmation to exact preview`). «Проверить готовность» остаётся read-only; «Посмотреть пересчёт» выполняет `prepare` и показывает exact persisted READY seal либо candidate/missing result без применения. На READY после перезапуска выводится тот же seal. Подтверждающий opaque ticket связан с preview ID/fingerprint, case revision и стабильным apply idempotency key; применение передаёт все поля сервису и повторно валидирует их. Подмена seal отклоняется, повторный callback возвращает тот же результат. Просроченный seal виден для сверки без кнопки применения. APPLIED квитанция после перезапуска восстанавливает commit и complete-through по durable записи.
 - FR25 verification: production workflow/apply/evidence/review/Telegram/runtime/atomic-apply linked profile **48 passed in 8.60s**; changed modules `py_compile` PASS; `git diff --check`, `git diff --exit-code -- data` and FR00 five-file SHA-256 manifest PASS. Only synthetic fixtures and temporary SQLite; no owner DB/files, live Ozon/Telegram request, bot launch, merge or deployment. Full suite/current-head CI remain FR30; `OWNER_CASE_VERIFIED=false`.
+- FR26 DONE; implementation commit `1c2e4480` (`Integrate FIFO revisions across current consumers`). Current history validates the latest cutoff mapping against the exact current physical-sale set and exposes stream/allocation/mapping revisions plus coverage date. History replays finite closed-rate residuals before the current open rate; the single initial open-rate/no-reconciliation case is valid even when its intentionally unknown rate balance is omitted, while missing multi-rate rows remain blocked. Current unit economics, Telegram history/CSV, Period Profit explanations, and analytics export carry consistent revision/coverage metadata; apply still uses the current next FIFO unit and saved plans remain untouched.
+- FR26 verification: linked profile **177 passed in 7.82s** (`tests/test_fifo_cost_history_service.py`, current adapter, multi-rate repository replay, Telegram history, Period Profit source/integration, analytics export, current-consumer tests, unit-economics query, late-entry impact MR18, and saved-plan flow). The multi-rate reader regression asserts exact stream/allocation/mapping revisions and `complete_through` in current basis text, history UI/CSV, Period Profit and export. `compileall`, `git diff --check`, `git diff --exit-code -- data`, and five FR00 SHA-256 values PASS. Only synthetic fixtures/temporary SQLite; no owner DB/files, live Ozon/Telegram, bot, merge, or deployment. `OWNER_CASE_VERIFIED=false`; full suite/current-head CI remain FR30.
 - Worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundation\Ai ассистент.
 - Ветка: codex/fifo-review-rate-replay-20261108 (создана от опубликованной головы #730 `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`).
-- Current implementation HEAD after FR25 code: `b86d54d0` (`Bind FIFO confirmation to exact preview`); FR25 documentation is being finalized in this checkpoint.
+- Current implementation code commit: `1c2e4480` (`Integrate FIFO revisions across current consumers`); FR26 supporting documentation is being committed separately.
 - Базовый HEAD FR00: 0de5522d162b70c569d9272b8e217f524bd4ff67. Corrections checkpoint FR01: `49442244cbad9f679455562196c7b47b74790b6b`; отдельный task/progress documentation commit: `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4`. FR02 red-test checkpoint: `461d8056b803f80244e757453163f9865757dd76`.
 - PR #728 открыт: head 5b4f85881301b8d5b4a7977d67fa59e13d2647db, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c; PR #729 открыт: head 7abf5d79d608bf377f79df3b425b50d73de4d81c, base #728; PR #730 открыт: head 0de5522d162b70c569d9272b8e217f524bd4ff67, base #729. Проверено через GitHub metadata 2026-11-09.
 - На FR00 baseline 17 tracked review-correction files были сохранены и зафиксированы отдельным FR01 checkpoint; первоначальный staged state был пуст. Реализация FR02–FR12 находится в отдельных проверенных commits. Существующий `.fl12-deps/` сохраняется вне Git.
@@ -53,12 +55,21 @@
 | FR23 | DONE | Commit `9f42f143`; exact scoped preview read; sealed-basis review/apply; idempotent retry after APPLIED/restart/TTL; same-key concurrent recovery; post-commit cache invalidation reporting; linked profile **34 passed in 5.80s**, concurrency **5 repeats passed**, compile/data/diff PASS. |
 | FR24 | DONE | Commit `3927f270`; one shared builder used by `create_telegram_assistant`; evidence/review/apply/runtime and physical-document route graph; apply-only cache invalidation; linked profile **17 passed in 4.09s**, compile/data/diff PASS. |
 | FR25 | DONE | Commit `b86d54d0`; prepare/candidate UI, restart-safe exact preview, opaque ticket bound to preview ID/fingerprint/revision/idempotency, stale seal rejection, APPLIED receipt restore; linked profile **48 passed in 8.60s**, compile/data/diff PASS. |
-| FR26 | NOT_STARTED | Consumers |
+| FR26 | DONE | Commit `1c2e4480`; current/history/Period Profit/export now bind exact stream/allocation/mapping revisions and `complete_through`; closed-rate residual precedence and strict single-open-rate exception; linked profile **177 passed in 7.82s**, compile/data checks PASS. |
 | FR27 | NOT_STARTED | Production E2E |
 | FR28 | NOT_STARTED | Backup/fault/concurrency |
 | FR29 | NOT_STARTED | Documentation |
 | FR30 | NOT_STARTED | Full tests/current CI |
 | FR31 | NOT_STARTED | Review package |
+
+## FR26 — current/history/Period Profit/export consumers — 2026-11-10
+
+- `FifoCostRepository.read_cost_history_snapshot` reads a cutoff mapping only when the mapping set matches the reconciled inventory cutoff, has a valid bounded manifest, and its `POST_CUTOFF` entries exactly match current `PHYSICAL_SALE` event digests, quantities, and effective dates. Stale, malformed, or incomplete mapping stays unavailable.
+- `FifoCostHistoryService` exposes current allocation and cutoff mapping revisions and `complete_through`; both finite layers and replayed finite closed-rate residuals participate in FIFO next-unit order. Missing replay rate balances are tolerated only for one effective initial rate sequence 1 with no rate reconciliations, representing its unknown quantity; multi-rate omissions, wrong revisions, stale allocations, and mismatched costs remain `REPLAY_REQUIRED`.
+- Current unit-economics cache fingerprints include allocation/mapping revisions and mapping state. Current cost text shows the same revisions and coverage date. Telegram history and CSV carry matching revisions, and Period Profit rows, user explanation and sanitized analytics exports expose the same cutoff metadata. Existing saved-plan lifecycle is unchanged.
+- Regression addition verifies a reopened three-rate repository gives the same exact allocation/mapping revisions and `complete_through=2026-11-15` in history, current basis/UI, Telegram CSV, and Period Profit. Mixed-cutoff Period Profit additionally verifies the 2026-11-06 coverage date. MR18 remains isolated: 2×21 ₽ pre-cutoff outflow does not consume opening a second time.
+- Linked profile: **177 passed in 7.82s**. Changed services compile. `git diff --check`, tracked `data/` diff, and five FR00 data hashes pass. Scratch synthetic SQLite used only by a one-off diagnostic was removed after verifying its exact path and sole file. `.fl12-deps/` remains pre-existing, untracked and unstaged.
+- No owner data/DB, Ozon/Telegram request, bot launch, merge, or deployment. Architecture classification: **Architecture Review Required** (repository snapshot contract and multiple existing consumers changed). Full suite/exact-head CI remains FR30; `OWNER_CASE_VERIFIED=false`. Next: FR27 positive E2E through the production workflow builder.
 
 # FR17 — durable cutoff and opening owner declarations, 2026-11-09
 

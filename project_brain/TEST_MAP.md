@@ -1,3 +1,10 @@
+# 2026-11-10 — FIFO FR26 current and historical consumer regressions
+
+- `tests/test_fifo_cost_history_service.py` verifies that a replayed finite closed-rate residual is the next unit before a later open rate; an omitted balance on a multi-rate snapshot remains incomplete. `tests/test_fifo_late_entry_current_consumers.py` covers legacy cost before apply, FIFO cost after apply, revision-based cache refresh, and runtime forwarding of the exact seal without a second invalidation.
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` checks that reopened history, current unit-economics metadata/text, Telegram history/CSV, and allocation rows share the exact stream/allocation/mapping revisions and `complete_through` date.
+- `tests/test_period_profit_fifo_cost_integration.py` checks cutoff mapping metadata in Period Profit rows, explanations, and sanitized export; analytics export fixtures cover the new mapping columns. The linked FR26 profile also runs `tests/test_fifo_cost_late_entry_impact_service.py` (MR18 keeps non-sale outflow outside sales COGS) and `tests/test_saved_planning_plan_telegram_flow.py` (saved-plan lifecycle remains immutable).
+- Result: **177 passed in 7.82s**; compile, diff check, and five-file FR00 user-data manifest passed. Full-suite/current-head CI remain FR30.
+
 # 2026-11-10 — FIFO FR25 exact preview/confirmation tests
 
 - `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers read-only readiness bound to the saved preview, stable prepare retry keys, candidate/missing result without READY, restart recovery of the exact READY seal, expired seal display without an apply action, opaque exact-binding confirmation, changed-fingerprint rejection, idempotent callback replay, and APPLIED receipt display after restart.

@@ -1,3 +1,10 @@
+# 2026-11-10 — FIFO FR26: current history, Period Profit, and export revisions
+
+- Current cost/history now carry the validated FIFO stream, allocation, and cutoff-mapping revisions, with the bridge's `complete_through` date. The history repository validates the saved mapping horizon against the current physical-sale identities before publishing that metadata.
+- Replayed closed-rate residuals are eligible as the next finite FIFO layer. A single first/open rate whose unknown quantity is intentionally not stored as a finite rate balance remains valid only with a current complete replay and no rate reconciliation; missing balances in multi-rate history still fail closed.
+- Unit-economics explanations, Telegram history/CSV, Period Profit screen explanations, and analytics exports display the same mapping revision/coverage date. Apply still takes the exact current next-unit basis; saved plans stay immutable.
+- Verification on implementation commit `1c2e4480`: linked current/history/Period Profit/export/MR18/saved-plan profile **177 passed in 7.82s**; touched modules compile; `git diff --check`, tracked `data/` diff, and all five FR00 data hashes PASS. Full suite and exact-head CI remain FR30; owner case remains unverified. No live calls, bot launch, merge, or deployment.
+
 # 2026-11-10 — FIFO FR25: exact preview confirmation in Telegram
 
 - «Проверить готовность» remains read-only. «Посмотреть пересчёт» now prepares an immutable READY seal or displays candidate/missing requirements; it does not change FIFO, current cost, history, caches, or saved plans.

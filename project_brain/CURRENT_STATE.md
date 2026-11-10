@@ -1,3 +1,9 @@
+# 2026-11-10 — FIFO FR26 downstream consumer integration
+
+- Commit `1c2e4480` carries the current FIFO stream/allocation/cutoff-mapping revisions and `complete_through` through current unit cost, history, Period Profit explanations, and exports. Mapping metadata is read only after validating the saved cutoff bridge against current physical-sale identities.
+- Replayed finite residuals from closed rates now precede the current open rate. A missing persisted rate-balance row is accepted only for the first sole open rate (`sequence=1`) with no reconciliations; otherwise incomplete replay still hides current FIFO quantity/cost.
+- Linked FR26 profile: **177 passed in 7.82s**, including MR18 outflow separation and saved-plan restart/copy/new-revision/export coverage; compile and preserved-data checks pass. Full suite and exact-head CI remain FR30; owner case is still unverified. No live Ozon/Telegram calls or bot launch.
+
 # 2026-11-10 — FIFO FR25 exact preview confirmation
 
 - Implementation commit `b86d54d0` (`Bind FIFO confirmation to exact preview`). «Проверить готовность» only reads; «Посмотреть пересчёт» now calls prepare and either shows the exact persisted READY seal or candidate/missing requirements. READY after restart reloads the saved seal; the final opaque ticket binds preview ID/fingerprint, case revision and stable idempotency key. Apply revalidates this exact binding. Expired seals remain inspectable but cannot be applied. APPLIED receipt restores commit ID and complete-through after restart.
