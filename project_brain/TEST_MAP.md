@@ -4,6 +4,7 @@
 - `tests/test_fifo_cost_financial_period_summary_service.py` and `tests/test_fifo_cost_late_entry_impact_service.py` cover full-month SKU COGS with a smaller affected sale subset, preserving earlier same-SKU costs and non-target COGS.
 - The cutoff-bridge fixture now includes the complete normalized layer fields required by the confirmed-composition contract. Subprocess report workers use the isolated copy's `.fl12-deps` directory.
 - Results: linked profile **107 passed**; cutoff/report-worker profile **38 passed**; full isolated pytest **5,285 passed in 92.11s**; `compileall`, diff check and unchanged `data/` passed.
+- Exact-head Verify run **43009830700** on code SHA `2ed94ed124cf4d09b604cad9d9e1200f22908ff9` passed Linux/Windows full verification and production Docker build/runtime smoke; the run uploaded its SHA-bound test report.
 
 # 2026-11-11 — FIFO review regression fixes R2–R5
 

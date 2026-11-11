@@ -4,6 +4,7 @@
 - Period Profit snapshots retain the full-month COGS for the SKU. A late-entry impact replaces only the reconstructed sale-identity subset and preserves earlier same-SKU sales and all other product costs.
 - An expired READY preview can be reopened only by CAS against the exact current expired seal. Reopening appends an editable case revision without FIFO writes; the next preview is rebuilt from current saved evidence and still requires a separate owner confirmation to apply.
 - Verification: linked profile **107 passed**, cutoff/report-worker profile **38 passed**, full isolated pytest **5,285 passed in 92.11s**, compileall and diff checks passed. User `data/` was excluded from the full-suite copy and is unchanged. R1 movement-source blocker remains open.
+- Exact-head Verify run **43009830700** passed for code SHA `2ed94ed124cf4d09b604cad9d9e1200f22908ff9`: Windows/Linux full verification, Docker build/runtime smoke, and SHA-bound report.
 
 # 2026-11-11 — FIFO review regressions R2–R5
 
