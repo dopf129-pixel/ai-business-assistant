@@ -79,9 +79,13 @@ class FifoCostFinancialPeriodSummaryService:
             summarized_sku_cost = self._money(
                 period_profit_summary.get("current_sku_product_cost"),
             )
-            if sku_cost is None or summarized_sku_cost != sku_cost:
+            if sku_cost is None or summarized_sku_cost is None:
                 return self._error("FIFO_PERIOD_COGS_BASELINE_MISMATCH")
-            if total_cost is None or sku_cost is None or sku_cost > total_cost:
+            # Period Profit reports all sales of this SKU in the month; the
+            # FIFO reconstruction may bind only a subset of their identities.
+            if summarized_sku_cost < sku_cost:
+                return self._error("FIFO_PERIOD_COGS_BASELINE_MISMATCH")
+            if total_cost is None or summarized_sku_cost > total_cost:
                 return self._error("FIFO_PERIOD_COST_RECONCILIATION_CONFLICT")
             amounts = {
                 "revenue": self._money(period_profit_summary.get("revenue")),
@@ -110,7 +114,7 @@ class FifoCostFinancialPeriodSummaryService:
                 "discount_points": format(amounts["discount_points"], ".2f"),
                 "net_accrual": format(amounts["net_accrual"], ".2f"),
                 "current_total_product_cost": format(total_cost, ".2f"),
-                "current_sku_product_cost": format(sku_cost, ".2f"),
+                "current_sku_product_cost": format(summarized_sku_cost, ".2f"),
             }
             snapshot_fingerprint = source_fingerprint(source_material)
             snapshot = FifoFinancialPeriodSummary(
@@ -124,7 +128,7 @@ class FifoCostFinancialPeriodSummaryService:
                 discount_points_rub=amounts["discount_points"],
                 net_accrual_rub=amounts["net_accrual"],
                 current_total_product_cost_rub=total_cost,
-                current_sku_product_cost_rub=sku_cost,
+                current_sku_product_cost_rub=summarized_sku_cost,
             )
         except (TypeError, ValueError, KeyError, InvalidOperation, OverflowError):
             return self._error("FIFO_PERIOD_SUMMARY_SOURCE_INVALID")

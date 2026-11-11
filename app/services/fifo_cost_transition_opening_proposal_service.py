@@ -399,7 +399,12 @@ class FifoCostTransitionOpeningProposalService:
             issues.add("OLD_HOME_QUANTITY_UNKNOWN")
         if case.owner_old_transit_units is None:
             issues.add("OLD_TRANSIT_QUANTITY_UNKNOWN")
-        if case.new_home_quantity is None:
+        confirmed_new_home = (
+            opening_composition.get("new_home_quantity")
+            if opening_composition is not None
+            else case.new_home_quantity
+        )
+        if confirmed_new_home is None:
             issues.add("NEW_HOME_QUANTITY_UNKNOWN")
         if not turnover_views or not stock_views:
             issues.add("OPENING_EVIDENCE_INCOMPLETE")
@@ -414,7 +419,7 @@ class FifoCostTransitionOpeningProposalService:
             confirmed_cutoff_date=cutoff_date,
             old_home_units=case.owner_old_home_units,
             old_transit_units=case.owner_old_transit_units,
-            new_home_units=case.new_home_quantity,
+            new_home_units=confirmed_new_home,
             owner_declared_shipped_total=supply_owner_total,
             owner_unassigned_shipped_units=supply_unassigned,
             supply_declarations=supply_declarations,
@@ -508,6 +513,38 @@ class FifoCostTransitionOpeningProposalService:
             or not isinstance(value.get("stock_report_fingerprint"), str)
         ):
             return None
+        has_new_home_quantity = "new_home_quantity" in value
+        raw_new_home = value.get("new_home_quantity", case.new_home_quantity)
+        unknown_new_home = value.get(
+            "unknown_new_home_quantity", raw_new_home is None,
+        )
+        new_party_transit = value.get("new_party_transit_units", 0)
+        if (
+            type(unknown_new_home) is not bool
+            or type(new_party_transit) is not int
+            or not 0 <= new_party_transit <= 1_000_000
+            or (raw_new_home is not None and (
+                type(raw_new_home) is not int
+                or not 0 <= raw_new_home <= 1_000_000
+            ))
+            or (has_new_home_quantity
+                and unknown_new_home != (raw_new_home is None))
+            or (case.new_home_quantity is not None
+                and raw_new_home != case.new_home_quantity)
+        ):
+            return None
+        try:
+            home_total = sum(normalize_quantity(layer["home_units"]) for layer in value["layers"])
+            transit_total = sum(normalize_quantity(layer["transit_units"]) for layer in value["layers"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            case.owner_old_home_units is None
+            or case.owner_old_transit_units is None
+            or home_total != case.owner_old_home_units + (raw_new_home or 0)
+            or transit_total != case.owner_old_transit_units
+        ):
+            return None
         return MappingProxyType({
             "case_id": value["case_id"],
             "opening_date": value["opening_date"],
@@ -515,4 +552,6 @@ class FifoCostTransitionOpeningProposalService:
             "composition_fingerprint": value["composition_fingerprint"].lower(),
             "total_ozon_units": total,
             "reserved_units": value["owner_confirmed_reserved_units"],
+            "new_home_quantity": raw_new_home,
+            "new_party_transit_units": new_party_transit,
         })

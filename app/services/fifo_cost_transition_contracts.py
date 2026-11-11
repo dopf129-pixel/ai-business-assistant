@@ -212,10 +212,10 @@ _CONFIRMATION_PAYLOAD_KEYS = {
 class FifoFinancialPeriodSummary:
     """Frozen Period Profit values bound to exact financial sale identities.
 
-    ``current_sku_product_cost_rub`` is the proven before-COGS for the exact
-    transition sales listed here. ``current_total_product_cost_rub`` remains the
-    canonical whole-store Period Profit cost, so all unaffected SKU and sale
-    costs stay in the unchanged portion of the impact calculation.
+    ``current_sku_product_cost_rub`` is the full-month Period Profit COGS for
+    this SKU. The reconstruction binds the affected sale-identity subset;
+    impact calculation replaces only that subset and retains every other
+    monthly product cost, including unaffected sales of the same SKU.
     """
 
     period_from: str

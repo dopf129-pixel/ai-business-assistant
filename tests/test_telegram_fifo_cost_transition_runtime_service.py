@@ -709,6 +709,129 @@ def test_ready_case_reopens_saved_preview_after_restart_without_repreparing():
         reset_current_tenant_user_id(tenant)
 
 
+def test_expired_ready_preview_is_rebuilt_from_current_evidence_after_restart():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        old_fingerprint = "a" * 64
+        old_preview_id = "transpreview_" + old_fingerprint[:40]
+        new_fingerprint = "b" * 64
+        new_preview_id = "transpreview_" + new_fingerprint[:40]
+        preview_payload = {
+            "case_revision": 5,
+            "effective_date": "2026-11-08",
+            "complete_through": "2026-11-07",
+            "allocation_preview": {"total_cogs_rub": "100.00"},
+            "impact_preview": {
+                "error": False, "complete": True, "candidate_only": False,
+                "periods": [], "related_return_count": 0,
+                "non_sale_outflow_count": 0,
+            },
+        }
+        state = {
+            "case_revision": 9,
+            "state": "READY_TO_CONFIRM",
+            "case": {
+                "metadata": {"scope": dict(IDENTITY)},
+                "last_preview": {
+                    "preview_id": old_preview_id,
+                    "preview_fingerprint": old_fingerprint,
+                },
+            },
+        }
+
+        class Transitions:
+            def get_case(self, *, case_id, **identity):
+                return {"error": False, "case_id": case_id, **state}
+
+        class Apply:
+            def __init__(self):
+                self.reopen_calls = []
+                self.prepare_calls = []
+                self.read_calls = []
+
+            def read_preview(self, *, case_id, identity, preview_id):
+                self.read_calls.append(preview_id)
+                current = preview_id == new_preview_id
+                fingerprint = new_fingerprint if current else old_fingerprint
+                return {
+                    "error": False, "case_revision": state["case_revision"],
+                    "basis_case_revision": state["case_revision"] - 1,
+                    "preview_id": preview_id,
+                    "preview_fingerprint": fingerprint,
+                    "current_case_revision": state["case_revision"],
+                    "current_case_state": state["state"],
+                    "is_current": True,
+                    "expired": not current,
+                    "preview": {
+                        **preview_payload,
+                        "case_revision": state["case_revision"] - 1,
+                    },
+                }
+
+            def reopen_expired_preview(self, **kwargs):
+                self.reopen_calls.append(kwargs)
+                state.update(case_revision=10, state="AWAITING_EVIDENCE")
+                state["case"].pop("last_preview", None)
+                return {"error": False, "case_revision": 10}
+
+            def prepare(self, **kwargs):
+                self.prepare_calls.append(kwargs)
+                state.update(case_revision=11, state="READY_TO_CONFIRM")
+                state["case"]["last_preview"] = {
+                    "preview_id": new_preview_id,
+                    "preview_fingerprint": new_fingerprint,
+                }
+                return {
+                    "error": False, "code": "FIFO_TRANSITION_PREVIEW_READY",
+                    "preview_id": new_preview_id,
+                    "preview_fingerprint": new_fingerprint,
+                }
+
+        review_calls = []
+
+        class Review:
+            def assess(self, *, case_id, identity, sealed_preview_id=None):
+                review_calls.append((case_id, sealed_preview_id, state["case_revision"]))
+                return {"error": False, "case_revision": state["case_revision"]}
+
+        apply = Apply()
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            Transitions(), history_service=None, apply_service=apply,
+        )
+        runtime.review_service = Review()
+        result = runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-expired-preview", expected_case_revision=9,
+        )
+
+        assert result["error"] is False, result
+        assert "Подтверждённый предпросмотр FIFO · редакция 11" in result["message"]
+        assert "Продолжить к подтверждению" in [
+            button["text"] for button in result["keyboard"]["buttons"]
+        ]
+        assert len(apply.reopen_calls) == 1
+        reopen_call = apply.reopen_calls[0]
+        assert {
+            key: value for key, value in reopen_call.items()
+            if key != "idempotency_key"
+        } == {
+            "case_id": "case-expired-preview", "identity": IDENTITY,
+            "expected_case_revision": 9, "preview_id": old_preview_id,
+            "preview_fingerprint": old_fingerprint,
+        }
+        assert reopen_call["idempotency_key"].startswith(
+            "tg-fr25-reopen-expired-preview-",
+        )
+        assert len(reopen_call["idempotency_key"].rsplit("-", 1)[-1]) == 48
+        assert apply.prepare_calls[0]["expected_case_revision"] == 10
+        assert review_calls == [("case-expired-preview", None, 10)]
+        assert apply.read_calls == [old_preview_id, new_preview_id]
+        assert state["state"] == "READY_TO_CONFIRM"
+        assert runtime._sessions["101"]["case_revision"] == 11
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_ready_preview_ticket_binds_exact_persisted_seal_and_replays_commit(tmp_path):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
@@ -857,12 +980,7 @@ def test_ready_preview_ticket_binds_exact_persisted_seal_and_replays_commit(tmp_
             101, identity=IDENTITY, display_name="Крючки",
             case_id="case-ready-12345678", expected_case_revision=9,
         )
-        assert "2026-11: прибыль 240.00 → 252.70 ₽" in expired_preview["message"]
-        assert "Срок подтверждения seal истёк" in expired_preview["message"]
-        assert all(
-            button["text"] != "Продолжить к подтверждению"
-            for button in expired_preview["keyboard"]["buttons"]
-        )
+        assert "пересоздание недоступно" in expired_preview["message"]
         service.expired = False
         first_apply_ticket = next(
             button["callback"] for button in opened["keyboard"]["buttons"]
@@ -1173,12 +1291,13 @@ def test_opening_composition_accepts_unknown_new_home_quantity_without_counting_
 
         runtime._start_opening_composition("101", runtime._sessions["101"])
         result = None
-        for value in ("0", "3", "0", "0", "0"):
+        for value in ("0", "3", "0", "7", "0"):
             result = runtime.handle_text(101, value)
         result = runtime.handle_text(101, "не знаю")
 
         assert "дома неизвестно" in result["message"]
         assert "не включено в конечный остаток" in result["message"]
+        assert "Новая партия в пути: 7 шт." in result["message"]
         assert runtime._sessions["101"]["opening_composition_draft"]["values"][-1] is None
         save_callback = next(
             item["callback"] for item in result["keyboard"]["buttons"]
@@ -1189,6 +1308,20 @@ def test_opening_composition_accepts_unknown_new_home_quantity_without_counting_
         assert len(saved_calls) == 1
         assert saved_calls[0]["unknown_new_home_quantity"] is True
         assert saved_calls[0]["layers"][-1]["home_units"] == 0
+        assert saved_calls[0]["layers"][-1]["transit_units"] == 0
+        assert saved_calls[0]["new_party_transit_units"] == 7
+
+        # Known new-home stock becomes a finite new-cost home layer; stock in
+        # transit remains a separate owner observation until accepted.
+        session = runtime._sessions["101"]
+        session["case"]["new_home_quantity"] = 2
+        runtime._start_opening_composition("101", session)
+        preview = None
+        for value in ("0", "3", "0", "7", "0", "2"):
+            preview = runtime.handle_text(101, value)
+        assert "новой партии по 14.65 ₽/шт.: Ozon 3, в пути 0, дома 2" in preview[
+            "message"
+        ]
     finally:
         reset_current_tenant_user_id(tenant)
 

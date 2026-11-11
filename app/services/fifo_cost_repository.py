@@ -771,6 +771,44 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def reopen_expired_transition_preview(
+        self, *, case_id, preview_id, preview_fingerprint, store_id,
+        product_id=None, offer_id=None, sku, expected_case_revision,
+        idempotency_key,
+    ):
+        """CAS-reopen only the exact expired preview on the current READY case."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not self._valid_transition_case_id(case_id)
+            or not isinstance(preview_id, str)
+            or re.fullmatch(r"transpreview_[a-f0-9]{40}", preview_id) is None
+            or not self._valid_digest(preview_fingerprint)
+            or preview_id != "transpreview_" + preview_fingerprint[:40]
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+            or not self._valid_transition_idempotency_key(idempotency_key)
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_REOPEN_INPUT_INVALID")
+        try:
+            reopened_at = self._iso(self._now())
+        except (TypeError, ValueError, OverflowError):
+            return self._error("FIFO_CLOCK_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.reopen_expired_case_preview(
+                connection, case_id=case_id, scope=scope, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=preview_id, preview_fingerprint=preview_fingerprint,
+                idempotency_key=idempotency_key, reopened_at=reopened_at,
+            )
+        )
+
     def read_transition_commit(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         expected_case_revision, preview_id, preview_fingerprint,
@@ -2059,7 +2097,15 @@ class FifoCostRepository:
             "transit_not_in_ozon_confirmed",
         }
         extended = required | {"cutover_fingerprint", "recorded_at"}
-        if not isinstance(cutover, dict) or frozenset(cutover) not in {frozenset(required), frozenset(extended)}:
+        optional = {"new_party_transit_units", "new_home_quantity"}
+        allowed_keys = {
+            frozenset(base | additions)
+            for base in (required, extended)
+            for additions in (
+                set(), {"new_party_transit_units"}, {"new_home_quantity"}, optional,
+            )
+        }
+        if not isinstance(cutover, dict) or frozenset(cutover) not in allowed_keys:
             return "FIFO_INITIAL_CUTOVER_INVALID"
         if (
             cutover.get("schema_version") != 1
@@ -2078,7 +2124,8 @@ class FifoCostRepository:
         normalized_at = self._normalize_timestamp(recorded_at)
         if normalized_at is None:
             return "FIFO_CLOCK_INVALID"
-        if set(cutover) == set(extended):
+        is_extended = "cutover_fingerprint" in cutover
+        if is_extended:
             if (
                 cutover.get("recorded_at") != normalized_at
                 or not self._valid_digest(cutover.get("cutover_fingerprint"))
@@ -2165,10 +2212,28 @@ class FifoCostRepository:
             name: sum(layer[name] for layer in layers)
             for name in ("ozon_units", "transit_units", "home_units")
         }
+        new_party_transit_units = cutover.get("new_party_transit_units", 0)
+        old_home_units = case.get("owner_old_home_units")
+        case_new_home_units = case.get("new_home_quantity")
+        new_home_units = cutover.get("new_home_quantity", case_new_home_units)
         if (
-            totals["ozon_units"] != available + reserved
+            type(new_party_transit_units) is not int
+            or not 0 <= new_party_transit_units <= self.MAX_COMMAND_UNITS
+            or type(old_home_units) is not int or old_home_units < 0
+            or (case_new_home_units is not None and (
+                type(case_new_home_units) is not int or case_new_home_units < 0
+            ))
+            or (new_home_units is not None and (
+                type(new_home_units) is not int
+                or not 0 <= new_home_units <= self.MAX_COMMAND_UNITS
+            ))
+            or (case_new_home_units is not None
+                and new_home_units != case_new_home_units)
+            or totals["ozon_units"] != available + reserved
             or totals["transit_units"] != case.get("owner_old_transit_units")
-            or totals["home_units"] != case.get("owner_old_home_units")
+            or totals["home_units"] != (
+                old_home_units + (new_home_units or 0)
+            )
             or sum(totals.values()) <= 0
         ):
             return "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
@@ -2199,11 +2264,15 @@ class FifoCostRepository:
             "transit_not_in_ozon_confirmed": True,
             "recorded_at": normalized_at,
         }
+        if "new_home_quantity" in cutover:
+            normalized["new_home_quantity"] = new_home_units
+        if "new_party_transit_units" in cutover:
+            normalized["new_party_transit_units"] = new_party_transit_units
         fingerprint = self._sha256({
             key: value for key, value in normalized.items()
             if key not in {"recorded_at", "case_revision"}
         })
-        if set(cutover) == set(extended) and cutover["cutover_fingerprint"] != fingerprint:
+        if is_extended and cutover["cutover_fingerprint"] != fingerprint:
             return "FIFO_INITIAL_CUTOVER_FINGERPRINT_INVALID"
         normalized["cutover_fingerprint"] = fingerprint
         return normalized

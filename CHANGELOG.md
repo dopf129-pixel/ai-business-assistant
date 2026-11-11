@@ -1,3 +1,10 @@
+# 2026-11-11 — FIFO follow-up review R6–R8
+
+- Opening composition now records a known new-party home quantity as a separate FIFO layer. New-party transit remains separately labelled and is excluded from FIFO until accepted; durable composition, proposal, and atomic cutover validate both boundaries.
+- Period Profit snapshots retain the full-month COGS for the SKU. A late-entry impact replaces only the reconstructed sale-identity subset and preserves earlier same-SKU sales and all other product costs.
+- An expired READY preview can be reopened only by CAS against the exact current expired seal. Reopening appends an editable case revision without FIFO writes; the next preview is rebuilt from current saved evidence and still requires a separate owner confirmation to apply.
+- Verification: linked profile **107 passed**, cutoff/report-worker profile **38 passed**, full isolated pytest **5,285 passed in 92.11s**, compileall and diff checks passed. User `data/` was excluded from the full-suite copy and is unchanged. R1 movement-source blocker remains open.
+
 # 2026-11-11 — FIFO review regressions R2–R5
 
 - Opening-composition save callbacks are bound to the exact current preview; starting or cancelling another draft invalidates the old button. Unknown new-party home quantity can be recorded as unknown and remains outside finite inventory.

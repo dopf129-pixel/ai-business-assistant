@@ -148,7 +148,7 @@ class FifoCostTransitionActivationProposalService:
         if "PHYSICAL_FIFO_OPENING_NOT_PROVEN" in requirements:
             requirements.remove("PHYSICAL_FIFO_OPENING_NOT_PROVEN")
             requirements.add(self._REPLAY_PENDING)
-        if case.new_home_quantity is None:
+        if opening_proposal.new_home_units is None:
             requirements.add("NEW_HOME_QUANTITY_UNKNOWN")
         if case.new_unit_cost_rub is None:
             requirements.add("NEW_UNIT_COST_REQUIRED")
@@ -208,7 +208,7 @@ class FifoCostTransitionActivationProposalService:
             "owner_quantities": {
                 "old_home": case.owner_old_home_units,
                 "old_transit": case.owner_old_transit_units,
-                "new_home": case.new_home_quantity,
+                "new_home": opening_proposal.new_home_units,
                 "declared_shipped": case.declared_shipped_units,
             },
         })
@@ -228,7 +228,7 @@ class FifoCostTransitionActivationProposalService:
             cost_components=case.cost_components,
             old_home_units=case.owner_old_home_units,
             old_transit_units=case.owner_old_transit_units,
-            new_home_units=case.new_home_quantity,
+            new_home_units=opening_proposal.new_home_units,
             owner_declared_shipped_units=case.declared_shipped_units,
             supply_declaration_count=len(opening_proposal.supply_declarations),
             confirmed_stock_buckets=stock_buckets,

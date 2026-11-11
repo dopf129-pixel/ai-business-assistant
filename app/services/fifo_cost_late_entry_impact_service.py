@@ -167,24 +167,26 @@ class FifoCostLateEntryImpactService:
         for period in sorted(periods):
             summary = summaries[period]
             replay = periods[period]
-            before_cost = self._money(summary["current_sku_product_cost"])
-            before_replay_cost = replay["before_cogs"]
+            monthly_sku_cost = self._money(summary["current_sku_product_cost"])
+            before_cost = replay["before_cogs"]
             after_cost = replay["after_cogs"]
             total_cost = self._money(summary["current_total_product_cost"])
-            if before_cost is None or total_cost is None:
+            if monthly_sku_cost is None or before_cost is None or total_cost is None:
                 return self._candidate_only(
                     reconstruction, reason="FIFO_PERIOD_SUMMARY_INVALID",
                     candidate_total=candidate_total, candidate_periods=[],
                     outflow_value=outflow_value,
                     mapping_fingerprint=mapping_fingerprint,
                 )
-            if before_cost != before_replay_cost:
+            if before_cost > monthly_sku_cost:
                 return self._candidate_only(
                     reconstruction, reason="FIFO_PERIOD_COGS_BASELINE_MISMATCH",
                     candidate_total=candidate_total, candidate_periods=[],
                     outflow_value=outflow_value,
                     mapping_fingerprint=mapping_fingerprint,
                 )
+            # Replace only the reconstructed sale-identity subset. All other
+            # COGS, including other same-SKU sales in this month, remain intact.
             other_cost = total_cost - before_cost
             if other_cost < Decimal("-0.01"):
                 return self._blocked("FIFO_PERIOD_COST_RECONCILIATION_CONFLICT")

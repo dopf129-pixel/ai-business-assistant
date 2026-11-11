@@ -171,6 +171,26 @@ def test_late_entry_impact_calculates_cogs_tax_and_profit_using_income_tax_polic
     assert result["read_only"] is True
 
 
+def test_late_entry_replaces_only_target_sale_subset_and_preserves_earlier_same_sku_cogs():
+    result = FifoCostLateEntryImpactService().preview(
+        reconstruction=_reconstruction(before_cost="100.00", after_cost="150.00"),
+        period_summaries=[_summary(
+            current_sku_cost="130.00", total_cost="200.00",
+        )],
+        tax_policy_result=_policy(),
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_READY"
+    period = result["periods"][0]
+    # 30 ₽ is an earlier same-SKU sale and 70 ₽ belongs to other products;
+    # both stay in the 100 ₽ untouched store-cost portion.
+    assert period["before_sku_cogs_rub"] == "100.00"
+    assert period["after_sku_cogs_rub"] == "150.00"
+    assert period["before_total_cogs_rub"] == "200.00"
+    assert period["after_total_cogs_rub"] == "250.00"
+    assert period["delta_profit_rub"] == "-50.00"
+
+
 @pytest.mark.parametrize(
     ("mode", "expected_tax", "expected_before_profit", "expected_after_profit"),
     [

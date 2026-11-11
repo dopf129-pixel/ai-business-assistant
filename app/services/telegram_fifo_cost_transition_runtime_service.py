@@ -808,10 +808,16 @@ class TelegramFifoCostTransitionRuntimeService:
         case = session.get("case")
         old_cost = case.get("old_unit_cost_rub") if isinstance(case, dict) else None
         new_cost = case.get("new_unit_cost_rub") if isinstance(case, dict) else None
+        case_new_home = case.get("new_home_quantity") if isinstance(case, dict) else None
+        if case_new_home is not None and values[5] != case_new_home:
+            return self._failure(
+                "Количество новой партии дома не совпадает с ранее сохранённым. "
+                "Исправьте owner input в карточке и соберите состав заново."
+            )
         layers = []
         old_zone = {"ozon_units": values[0], "transit_units": values[2], "home_units": values[4]}
         new_zone = {
-            "ozon_units": values[1], "transit_units": values[3],
+            "ozon_units": values[1], "transit_units": 0,
             # Unknown home stock remains on the open rate; it is not asserted
             # to be a zero physical balance and is not made a finite layer.
             "home_units": 0 if values[5] is None else values[5],
@@ -849,6 +855,10 @@ class TelegramFifoCostTransitionRuntimeService:
                     else str(layer["home_units"])
                 )
             )
+        summary.append(
+            f"• Новая партия в пути: {values[3]} шт. — записано отдельно, "
+            "в FIFO-остаток не входит до подтверждённой приёмки"
+        )
         callback = self._issue_ticket(
             owner, session, "save_opening_composition",
             opening_composition_fingerprint=session["opening_composition_preview_fingerprint"],
@@ -900,6 +910,8 @@ class TelegramFifoCostTransitionRuntimeService:
             stock_report_fingerprint=draft["stock_report_fingerprint"],
             layers=[dict(layer) for layer in layers],
             unknown_new_home_quantity=draft["values"][5] is None,
+            new_party_transit_units=draft["values"][3],
+            new_home_quantity=draft["values"][5],
             expected_case_revision=session["case_revision"],
             idempotency_key=self._stable_action_key(
                 "opening-record", session, draft["cutoff_evidence_fingerprint"],
@@ -1771,7 +1783,45 @@ class TelegramFifoCostTransitionRuntimeService:
                         "callback": self._issue_ticket(owner, session, "check_readiness"),
                     }]),
                 )
-            return self._show_sealed_preview(owner, session, sealed)
+            if sealed.get("expired") is not True:
+                return self._show_sealed_preview(owner, session, sealed)
+            reopen_method = getattr(
+                self.apply_service, "reopen_expired_preview", None,
+            )
+            if not callable(reopen_method):
+                return self._failure(
+                    "Срок сохранённого предпросмотра истёк; пересоздание недоступно. "
+                    "Проверьте готовность и сохранённые источники заново."
+                )
+            reopened = reopen_method(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                expected_case_revision=sealed["case_revision"],
+                preview_id=sealed["preview_id"],
+                preview_fingerprint=sealed["preview_fingerprint"],
+                idempotency_key=self._stable_action_key(
+                    "reopen-expired-preview", session,
+                    sealed["case_revision"], sealed["preview_id"],
+                    sealed["preview_fingerprint"],
+                ),
+            )
+            if not isinstance(reopened, dict) or reopened.get("error") is not False:
+                return self._failure(
+                    "Просроченный предпросмотр не пересоздан: дело или seal "
+                    "изменились. FIFO не применена; откройте проверку готовности."
+                )
+            refreshed = self._read_case(session["case_id"], session["identity"])
+            if (
+                not isinstance(refreshed, dict)
+                or refreshed.get("error") is not False
+                or refreshed.get("state") != "AWAITING_EVIDENCE"
+                or refreshed.get("case_revision") != sealed["case_revision"] + 1
+            ):
+                return self._failure(
+                    "Редакцию дела после пересоздания не удалось проверить. "
+                    "Ничего не применено; откройте дело заново."
+                )
+            self._refresh_session(session, refreshed)
+            case = refreshed
         if case.get("state") not in self._EDITABLE_STATES:
             return self._failure("Для этого состояния пересчёт недоступен. Данные не изменены.")
         review = self._assess_case(session)
@@ -1999,6 +2049,9 @@ class TelegramFifoCostTransitionRuntimeService:
             return self._result(
                 "\n".join(lines),
                 keyboard=self._keyboard([{
+                    "text": "🔄 Пересобрать предпросмотр",
+                    "callback": self._issue_ticket(owner, session, "view_recalculation"),
+                }, {
                     "text": "↩️ К делу",
                     "callback": self._issue_ticket(owner, session, "finish"),
                 }]),

@@ -249,7 +249,10 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
     tenant = set_current_tenant_user_id(OWNER_SCOPE)
     try:
         repository, service = _service(tmp_path)
-        case = replace(_case(), owner_old_home_units=3, declared_shipped_units=100)
+        case = replace(
+            _case(), owner_old_home_units=3, new_home_quantity=2,
+            declared_shipped_units=100, unknown_values={},
+        )
         created = service.create_case(case=case, idempotency_key="fr17-case-0001")
         assert created["error"] is False
         stock_report = ReportEvidence(
@@ -328,7 +331,7 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             },
             {
                 "sequence": 2, "unit_cost_rub": "14.65",
-                "ozon_units": 100, "transit_units": 0, "home_units": 0,
+                "ozon_units": 100, "transit_units": 0, "home_units": 2,
             },
         ]
         composition = service.record_opening_composition(
@@ -337,7 +340,9 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             cutoff_evidence_fingerprint=cutoff["payload_fingerprint"],
             stock_report_fingerprint=stock_report.file_sha256,
             layers=layers,
-            unknown_new_home_quantity=True,
+            unknown_new_home_quantity=False,
+            new_home_quantity=2,
+            new_party_transit_units=7,
             expected_case_revision=cutoff_confirmed["case_revision"],
             idempotency_key="fr17-opening-0001",
         )
@@ -379,8 +384,10 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
         )
         assert durable_composition["error"] is False, durable_composition
         assert durable_composition["layers"] == layers
-        assert durable_composition["unknown_new_home_quantity"] is True
-        assert durable_composition["total_units"] == 103
+        assert durable_composition["unknown_new_home_quantity"] is False
+        assert durable_composition["total_units"] == 105
+        assert durable_composition["new_home_quantity"] == 2
+        assert durable_composition["new_party_transit_units"] == 7
         assert durable_composition["owner_confirmed_total_ozon_units"] == 100
         assert durable_composition["owner_confirmed_reserved_units"] == 0
         assert durable_composition["reserved_source"] == (

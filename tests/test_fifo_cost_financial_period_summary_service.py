@@ -114,3 +114,36 @@ def test_snapshot_rejects_period_profit_sku_cost_that_disagrees_with_fifo_before
 
     assert result["error"] is True
     assert result["code"] == "FIFO_PERIOD_COGS_BASELINE_MISMATCH"
+
+
+def test_snapshot_keeps_full_month_sku_cost_when_reconstruction_covers_only_sales_subset():
+    summary = _period_profit_summary()
+    summary["current_sku_product_cost"] = 52.00
+    summary["product_cost"] = 110.00
+    result = FifoCostFinancialPeriodSummaryService().build_snapshot(
+        period_profit_summary=summary,
+        reconstruction=_reconstruction(),
+        sale_identity_digests=["b" * 64],
+        daily_source_fingerprint="d" * 64,
+        tax_policy_fingerprint="e" * 64,
+    )
+
+    assert result["error"] is False, result
+    snapshot = result["summary"].as_impact_summary()
+    assert snapshot["current_sku_product_cost"] == "52.00"
+    assert snapshot["current_total_product_cost"] == "110.00"
+
+
+def test_snapshot_rejects_full_month_sku_cost_below_reconstructed_subset():
+    summary = _period_profit_summary()
+    summary["current_sku_product_cost"] = 41.99
+    result = FifoCostFinancialPeriodSummaryService().build_snapshot(
+        period_profit_summary=summary,
+        reconstruction=_reconstruction(),
+        sale_identity_digests=["b" * 64],
+        daily_source_fingerprint="d" * 64,
+        tax_policy_fingerprint="e" * 64,
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "FIFO_PERIOD_COGS_BASELINE_MISMATCH"

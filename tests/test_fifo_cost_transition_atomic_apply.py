@@ -186,6 +186,8 @@ def _initial_cutover(stock):
         "case_revision": 3,
         "cutoff_date": CUTOFF,
         "stock_report_fingerprint": stock.file_sha256,
+        "new_home_quantity": None,
+        "new_party_transit_units": 0,
         "layers": [
             {
                 "sequence": 1, "unit_cost_rub": "21.00",
@@ -1420,6 +1422,53 @@ def test_initial_cutover_rejects_unrelated_or_reversed_cost_layers(
         finally:
             connection.close()
         assert result == expected_code
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_initial_cutover_keeps_new_lot_transit_out_of_fifo_and_accepts_known_home_units(
+    tmp_path,
+):
+    repository = FifoCostRepository(db_path=tmp_path / "new-lot-zones.sqlite")
+    tenant = set_current_tenant_user_id(TENANT)
+    try:
+        stock = _stock_report()
+        case = _open_case(repository, stock)
+        bridge = _bridge_inputs(case, stock)
+        cutover = _initial_cutover(stock)
+        cutover["layers"][1]["home_units"] = 2
+        cutover["new_home_quantity"] = 2
+        cutover["new_party_transit_units"] = 7
+        case_payload = {
+            "old_unit_cost_rub": case.old_unit_cost_rub,
+            "new_unit_cost_rub": case.new_unit_cost_rub,
+            "owner_old_home_units": case.owner_old_home_units,
+            "owner_old_transit_units": case.owner_old_transit_units,
+            "new_home_quantity": None,
+        }
+        connection = repository.get_connection()
+        try:
+            normalized = repository._normalize_transition_initial_cutover(
+                connection, cutover, bridge, case_payload,
+                recorded_at="2026-11-08T12:00:00+00:00",
+            )
+            conflicting_home = {
+                **cutover, "new_home_quantity": 3,
+                "layers": [dict(layer) for layer in cutover["layers"]],
+            }
+            rejected = repository._normalize_transition_initial_cutover(
+                connection, conflicting_home, bridge, case_payload,
+                recorded_at="2026-11-08T12:00:00+00:00",
+            )
+        finally:
+            connection.close()
+
+        assert isinstance(normalized, dict), normalized
+        assert normalized["new_home_quantity"] == 2
+        assert normalized["new_party_transit_units"] == 7
+        assert sum(layer["transit_units"] for layer in normalized["layers"]) == 0
+        assert sum(layer["home_units"] for layer in normalized["layers"]) == 2
+        assert rejected == "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
     finally:
         reset_current_tenant_user_id(tenant)
 

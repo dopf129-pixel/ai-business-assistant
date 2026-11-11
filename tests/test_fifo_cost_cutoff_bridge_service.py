@@ -396,7 +396,12 @@ def test_fr27_owner_confirmed_composition_resolves_reserved_in_actual_cutoff_bri
         "composition_fingerprint": "c" * 64,
         "owner_confirmed_total_ozon_units": 1200,
         "owner_confirmed_reserved_units": 9,
-        "layers": ({"ozon_units": 1200},),
+        "unknown_new_home_quantity": True,
+        "new_home_quantity": None,
+        "new_party_transit_units": 0,
+        "layers": ({
+            "ozon_units": 1200, "transit_units": 0, "home_units": 0,
+        },),
     }
     proposal = _proposal(
         stock=stock_unknown, composition=composition,

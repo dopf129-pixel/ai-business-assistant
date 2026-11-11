@@ -1,3 +1,11 @@
+# 2026-11-11 — FIFO follow-up review R6–R8 fixed locally
+
+- Initial FIFO composition accepts a confirmed finite count of new-party units at home and creates the matching new-cost home layer. New-party transit quantity is retained separately in encrypted composition metadata, shown to the owner, and never counted as FIFO transit or stock before accepted receipt.
+- A frozen Period Profit snapshot keeps full-month SKU COGS even if the FIFO reconstruction covers only some sale identities. Impact replaces only those reconstructed sales and preserves the remainder of the store COGS.
+- An expired current READY seal can return to evidence review only through exact preview ID/fingerprint + revision CAS; this appends a revision and performs no FIFO write. Runtime then rechecks current evidence and creates a fresh preview. Applying remains a separate confirmation.
+- Verification: **107 linked tests**, **38 cutoff/report-worker tests**, **5,285 full isolated tests**; compileall, `git diff --check`, and `git diff --exit-code -- data` passed. Full-suite copy excluded owner data and used a synthetic tax policy. `.fl12-deps/` is preserved and remains untracked. Hosted CI for these local changes has not run yet.
+- Full movement coverage remains blocked under R1. No owner case, live Ozon/Telegram calls, bot launch, merge, or deployment was verified or performed.
+
 # 2026-11-11 — FIFO review regressions R2–R5 fixed locally
 
 - Bound opening-composition save tickets to the exact draft fingerprint and clear all draft/preview state on cancellation. The new-party home count can remain explicitly unknown; it is not converted into confirmed stock and is retained as `UNKNOWN_OPEN_RATE` through encrypted evidence and owner confirmation. Optional evidence/confirmation fields preserve compatibility with earlier records.

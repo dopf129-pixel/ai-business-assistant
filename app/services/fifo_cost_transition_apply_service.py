@@ -200,6 +200,10 @@ class FifoCostTransitionApplyService:
                     "stock_report_fingerprint",
                 ),
                 "layers": [dict(layer) for layer in layers],
+                "new_home_quantity": opening.get("new_home_quantity"),
+                "new_party_transit_units": opening.get(
+                    "new_party_transit_units", 0,
+                ),
                 "ozon_units_include_reserved_confirmed": True,
                 "transit_not_in_ozon_confirmed": True,
             }
@@ -338,6 +342,43 @@ class FifoCostTransitionApplyService:
             "read_only": True,
         }
 
+    def reopen_expired_preview(
+        self, *, case_id, identity, expected_case_revision, preview_id,
+        preview_fingerprint, idempotency_key,
+    ):
+        """Return an expired READY case to editable evidence review by exact CAS."""
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"store_id", "product_id", "offer_id", "sku"}
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 2
+            or not self.repository._valid_transition_case_id(case_id)
+            or not isinstance(preview_id, str)
+            or not self.repository._valid_digest(preview_fingerprint)
+            or preview_id != "transpreview_" + preview_fingerprint[:40]
+            or not self.repository._valid_transition_idempotency_key(idempotency_key)
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_REOPEN_INPUT_INVALID")
+        normalized_identity = self.repository._normalize_transition_read_identity(
+            identity.get("store_id"), product_id=identity.get("product_id"),
+            offer_id=identity.get("offer_id"), sku=identity.get("sku"),
+        )
+        if normalized_identity.get("error"):
+            return normalized_identity
+        identity = {
+            key: normalized_identity[key]
+            for key in ("store_id", "product_id", "offer_id", "sku")
+        }
+        result = self.repository.reopen_expired_transition_preview(
+            case_id=case_id, preview_id=preview_id,
+            preview_fingerprint=preview_fingerprint,
+            expected_case_revision=expected_case_revision,
+            idempotency_key=idempotency_key, **identity,
+        )
+        return result if isinstance(result, dict) else self._error(
+            "FIFO_TRANSITION_PREVIEW_REOPEN_FAILED",
+        )
+
     def collect_period_summaries(
         self, *, case_id, identity, expected_case_revision,
         summary_collection_service, period_profit_service,
@@ -452,6 +493,10 @@ class FifoCostTransitionApplyService:
                 "cutoff_date": cutoff_bridge.cutoff_date,
                 "stock_report_fingerprint": opening.get("stock_report_fingerprint"),
                 "layers": [dict(layer) for layer in opening.get("layers", ())],
+                "new_home_quantity": opening.get("new_home_quantity"),
+                "new_party_transit_units": opening.get(
+                    "new_party_transit_units", 0,
+                ),
                 "ozon_units_include_reserved_confirmed": True,
                 "transit_not_in_ozon_confirmed": True,
             }

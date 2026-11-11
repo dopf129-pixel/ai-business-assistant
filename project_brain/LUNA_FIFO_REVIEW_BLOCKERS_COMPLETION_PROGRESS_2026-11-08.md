@@ -1,5 +1,14 @@
 # FIFO review blockers — журнал FR00–FR31
 
+## 2026-11-11 — повторный review R6–R8: реализация и локальная проверка
+
+- **R6 / opening composition:** explicit new-party home units are now carried into the new-cost home layer when owner-confirmed. New-party transit is retained separately in the durable composition and shown in Telegram, but never copied into the FIFO transit layer. Service, durable reader, proposal, activation fingerprint, apply cutover, and repository validators enforce exact totals and conflicts.
+- **R7 / monthly COGS:** Period Profit snapshot retains the full-month SKU COGS. Snapshot collection rejects only when this full amount is below the reconstructed affected subset or exceeds full-store COGS. Impact preserves `total_store_cogs - reconstructed_before_subset` and changes only the affected subset, including when earlier sales of the same SKU exist before the physical cutoff.
+- **R8 / expired READY seal:** repository/store expose exact-current-preview reopening behind CAS, persisted expiration check, immutable case revision, and idempotent replay marker. It removes the stale current-seal pointer and makes no FIFO writes. Telegram resume/preview can reopen only the exact expired seal, re-read the new case revision, reassess evidence, and prepare a new READY seal; apply still requires a separate confirmation. Runtime coverage verifies the old seal is rejected as current and the new seal is shown.
+- Regressions: composition/service/atomic/runtime/summary/impact linked set **107 passed**; cutoff/report-worker set **38 passed**; full isolated pytest **5,285 passed in 92.11s**. `compileall`, `git diff --check`, and empty tracked `data/` diff passed. The disposable copy excluded `data/`, copied only tracked source files plus `.fl12-deps/`, and used a synthetic tax policy.
+- Current changes are on `codex/fifo-review-production-apply-20261108`; local commit/publication and exact-head CI are pending. `.fl12-deps/` remains untracked and unstaged. No owner data, real APIs, Telegram bot, merge or deployment were used.
+- **R1 remains a hard blocker:** a complete supported inventory-movement ledger is still unavailable; the owner's actual case remains unverified and factual FIFO COGS stays blocked.
+
 ## 2026-11-11 — повторный review R2–R5: исправления и локальная проверка
 
 - R2: callbacks «Сохранить состав» и «Отменить ввод» теперь несут fingerprint полного preview (дело, identity, cutoff/evidence, введённые значения и слои). Перед записью или очисткой он сравнивается с текущим черновиком; начало нового ввода и отмена очищают соответствующие draft/preview/fingerprint. Старое Telegram-сообщение больше не может записать или сбросить новый состав.

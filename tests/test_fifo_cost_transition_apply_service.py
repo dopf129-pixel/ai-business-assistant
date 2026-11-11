@@ -237,6 +237,67 @@ def test_prepare_seals_real_impact_without_changing_fifo_until_apply(tmp_path):
         reset_current_tenant_user_id(tenant)
 
 
+def test_exact_expired_ready_preview_reopens_with_cas_and_no_fifo_write(tmp_path):
+    repository, tenant, _stock, bridge, _impact, cutover, prepared, clock = (
+        _prepared_repository(tmp_path)
+    )
+    try:
+        service = _service(
+            repository, bridge, cutover, _bundle(), clock,
+        )
+        baseline = _transition_no_write_snapshot(repository)
+        before_expiry = service.reopen_expired_preview(
+            case_id=CASE_ID, identity=IDENTITY, expected_case_revision=4,
+            preview_id=prepared["preview_id"],
+            preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="reopen-expired-preview-0001",
+        )
+        assert before_expiry["code"] == "FIFO_TRANSITION_PREVIEW_NOT_EXPIRED"
+        assert _transition_no_write_snapshot(repository) == baseline
+
+        clock[0] += timedelta(hours=1)
+        reopened = service.reopen_expired_preview(
+            case_id=CASE_ID, identity=IDENTITY, expected_case_revision=4,
+            preview_id=prepared["preview_id"],
+            preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="reopen-expired-preview-0001",
+        )
+        assert reopened["error"] is False, reopened
+        assert reopened["case_revision"] == 5
+        assert reopened["state"] == "AWAITING_EVIDENCE"
+        current = repository.read_transition_case(case_id=CASE_ID, **IDENTITY)
+        assert current["case_revision"] == 5
+        assert current["state"] == "AWAITING_EVIDENCE"
+        historical = service.read_preview(
+            case_id=CASE_ID, identity=IDENTITY,
+            preview_id=prepared["preview_id"],
+        )
+        assert historical["error"] is False, historical
+        assert historical["expired"] is True
+        assert historical["is_current"] is False
+
+        retry = service.reopen_expired_preview(
+            case_id=CASE_ID, identity=IDENTITY, expected_case_revision=4,
+            preview_id=prepared["preview_id"],
+            preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="reopen-expired-preview-0001",
+        )
+        assert retry["error"] is False, retry
+        assert retry["replayed"] is True
+        stale_retry = service.reopen_expired_preview(
+            case_id=CASE_ID, identity=IDENTITY, expected_case_revision=4,
+            preview_id=prepared["preview_id"],
+            preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="reopen-expired-preview-0002",
+        )
+        assert stale_retry["code"] == "FIFO_TRANSITION_REVISION_CONFLICT"
+        after = _transition_no_write_snapshot(repository)
+        assert after["fifo_counts"] == baseline["fifo_counts"]
+        assert after["case_revision"] == 5
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_missing_financial_baseline_returns_candidate_only_without_ready_seal(
     tmp_path,
 ):

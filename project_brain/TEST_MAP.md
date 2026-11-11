@@ -1,3 +1,10 @@
+# 2026-11-11 — FIFO follow-up review R6–R8 regressions
+
+- `tests/test_fifo_cost_transition_service.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, and `tests/test_telegram_fifo_cost_transition_runtime_service.py` cover known new-lot home stock, separately retained new-lot transit, exact cutover validation, and fresh resealing after an expired READY preview on restart. The expired seal cannot write FIFO and the replacement still requires owner confirmation.
+- `tests/test_fifo_cost_financial_period_summary_service.py` and `tests/test_fifo_cost_late_entry_impact_service.py` cover full-month SKU COGS with a smaller affected sale subset, preserving earlier same-SKU costs and non-target COGS.
+- The cutoff-bridge fixture now includes the complete normalized layer fields required by the confirmed-composition contract. Subprocess report workers use the isolated copy's `.fl12-deps` directory.
+- Results: linked profile **107 passed**; cutoff/report-worker profile **38 passed**; full isolated pytest **5,285 passed in 92.11s**; `compileall`, diff check and unchanged `data/` passed.
+
 # 2026-11-11 — FIFO review regression fixes R2–R5
 
 - `tests/test_telegram_fifo_cost_transition_runtime_service.py` verifies that old opening-composition save/cancel buttons cannot affect a later draft, cancelling the exact current preview clears its state, and “не знаю” for the new-party home count stays unknown and forwards the explicit status.

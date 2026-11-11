@@ -308,6 +308,7 @@ class FifoCostTransitionService:
         cutoff_evidence_id, cutoff_evidence_fingerprint,
         stock_report_fingerprint, layers, expected_case_revision,
         idempotency_key, unknown_new_home_quantity=False,
+        new_party_transit_units=0, new_home_quantity=None,
     ) -> dict:
         """Persist a bounded FIFO opening composition, never as a live anchor."""
         loaded = self._read_transition_owner_context(
@@ -317,9 +318,32 @@ class FifoCostTransitionService:
         )
         if loaded.get("error"):
             return loaded
-        if type(unknown_new_home_quantity) is not bool:
+        if (
+            type(unknown_new_home_quantity) is not bool
+            or type(new_party_transit_units) is not int
+            or not 0 <= new_party_transit_units <= 1_000_000
+            or (new_home_quantity is not None and (
+                type(new_home_quantity) is not int
+                or not 0 <= new_home_quantity <= 1_000_000
+            ))
+        ):
             return self._error("FIFO_OPENING_COMPOSITION_QUANTITY_STATUS_INVALID")
         case = loaded["case"]
+        if unknown_new_home_quantity:
+            if new_home_quantity is not None or case.new_home_quantity is not None:
+                return self._error("FIFO_OPENING_COMPOSITION_QUANTITY_STATUS_INVALID")
+            confirmed_new_home_units = None
+        else:
+            confirmed_new_home_units = (
+                case.new_home_quantity if new_home_quantity is None
+                else new_home_quantity
+            )
+            if (
+                confirmed_new_home_units is None
+                or (case.new_home_quantity is not None
+                    and case.new_home_quantity != confirmed_new_home_units)
+            ):
+                return self._error("FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH")
         cutoff = self._read_confirmed_cutoff_evidence(
             case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
         )
@@ -377,7 +401,13 @@ class FifoCostTransitionService:
         if (
             owner_reserved_units < 0
             or quantities["ozon_units"] != available + owner_reserved_units
-            or quantities["home_units"] != case.owner_old_home_units
+            or (
+                type(case.owner_old_home_units) is not int
+                or case.owner_old_home_units < 0
+            )
+            or quantities["home_units"] != (
+                case.owner_old_home_units + (confirmed_new_home_units or 0)
+            )
             or quantities["transit_units"] != case.owner_old_transit_units
             or sum(quantities.values()) <= 0
         ):
@@ -409,6 +439,10 @@ class FifoCostTransitionService:
             "stock_report_fingerprint": stock_report_fingerprint,
             "layers": normalized_layers,
             "unknown_new_home_quantity": unknown_new_home_quantity,
+            "new_home_quantity": confirmed_new_home_units,
+            # New-lot units still in transit are recorded for reconciliation,
+            # but are not available FIFO stock until an accepted receipt.
+            "new_party_transit_units": new_party_transit_units,
             "zone_totals": quantities,
             "owner_confirmed_total_ozon_units": quantities["ozon_units"],
             "owner_confirmed_reserved_units": owner_reserved_units,
@@ -633,6 +667,31 @@ class FifoCostTransitionService:
                 stock_report, composition.get("opening_date"),
             ):
                 return self._error("FIFO_OPENING_COMPOSITION_STALE")
+            new_home_quantity = composition.get(
+                "new_home_quantity", case.new_home_quantity,
+            )
+            unknown_new_home = composition.get(
+                "unknown_new_home_quantity", new_home_quantity is None,
+            )
+            new_party_transit_units = composition.get(
+                "new_party_transit_units", 0,
+            )
+            if (
+                type(unknown_new_home) is not bool
+                or type(new_party_transit_units) is not int
+                or not 0 <= new_party_transit_units <= 1_000_000
+                or (new_home_quantity is not None and (
+                    type(new_home_quantity) is not int
+                    or not 0 <= new_home_quantity <= 1_000_000
+                ))
+                or ("new_home_quantity" in composition
+                    and unknown_new_home != (new_home_quantity is None))
+                or (case.new_home_quantity is not None
+                    and new_home_quantity != case.new_home_quantity)
+                or case.owner_old_home_units is None
+                or case.owner_old_transit_units is None
+            ):
+                return self._error("FIFO_OPENING_COMPOSITION_STALE")
             fields = stock_report.normalized_fields
             buckets = fields.get("stock_buckets")
             available = buckets.get("available") if isinstance(buckets, Mapping) else None
@@ -684,6 +743,10 @@ class FifoCostTransitionService:
                 "layers": composition["layers"],
                 "unknown_new_home_quantity": composition.get(
                     "unknown_new_home_quantity", False,
+                ),
+                "new_home_quantity": new_home_quantity,
+                "new_party_transit_units": composition.get(
+                    "new_party_transit_units", 0,
                 ),
                 "stock_report_fingerprint": composition["stock_report_fingerprint"],
                 "cutoff_evidence_id": composition["cutoff_evidence_id"],
