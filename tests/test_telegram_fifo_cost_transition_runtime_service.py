@@ -1022,3 +1022,264 @@ def test_supply_refresh_requires_exact_declared_id_and_never_exposes_it(tmp_path
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_documents_menu_routes_owner_opening_composition_to_bound_preview(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+
+        menu = runtime._documents_prompt("101")
+        opening_button = next(
+            item for item in menu["keyboard"]["buttons"]
+            if item["text"] == "🧾 Задать начальный состав FIFO"
+        )
+        opened = runtime.handle_callback(101, opening_button["callback"])
+        assert "Сколько упаковок старой партии" in opened["message"]
+
+        prompts = []
+        for value in ("0", "3", "0", "0", "0", "0"):
+            response = runtime.handle_text(101, value)
+            prompts.append(response)
+        preview = prompts[-1]
+        assert "cutoff 2026-11-04" in preview["message"]
+        assert "новой партии по 14.65 ₽/шт.: Ozon 3" in preview["message"]
+        assert "Сохранить состав" in preview["message"]
+        # The preview is only a draft: no opening composition was persisted.
+        assert transitions.read_confirmed_opening_composition(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )["error"] is True
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_old_opening_composition_save_button_cannot_save_the_next_draft(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+        saved_calls = []
+        transitions.record_opening_composition = lambda **kwargs: (
+            saved_calls.append(kwargs) or {"error": True, "code": "MUST_NOT_SAVE"}
+        )
+        session = runtime._sessions["101"]
+
+        first = runtime._start_opening_composition("101", session)
+        for value in ("3", "0", "0", "0", "0", "0"):
+            first = runtime.handle_text(101, value)
+        stale_save = next(
+            item["callback"] for item in first["keyboard"]["buttons"]
+            if "Сохранить состав" in item["text"]
+        )
+        stale_cancel = next(
+            item["callback"] for item in first["keyboard"]["buttons"]
+            if "Отменить ввод" in item["text"]
+        )
+
+        second = runtime._start_opening_composition("101", session)
+        assert second.get("error") is False
+        for value in ("0", "3", "0", "0", "0", "0"):
+            second = runtime.handle_text(101, value)
+        assert "новой партии по 14.65 ₽/шт.: Ozon 3" in second["message"]
+
+        rejected = runtime.handle_callback(101, stale_save)
+
+        assert rejected.get("error") is True
+        assert saved_calls == []
+        rejected_cancel = runtime.handle_callback(101, stale_cancel)
+        assert rejected_cancel.get("error") is True
+        assert session["opening_composition_preview"][0]["ozon_units"] == 3
+        assert session["opening_composition_preview"][0]["unit_cost_rub"] == "14.65"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_cancelled_opening_composition_clears_preview_and_invalidates_save_button(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+        saved_calls = []
+        transitions.record_opening_composition = lambda **kwargs: (
+            saved_calls.append(kwargs) or {"error": True, "code": "MUST_NOT_SAVE"}
+        )
+        runtime._start_opening_composition("101", runtime._sessions["101"])
+        for value in ("0", "3", "0", "0", "0", "0"):
+            preview = runtime.handle_text(101, value)
+        save_callback = next(
+            item["callback"] for item in preview["keyboard"]["buttons"]
+            if "Сохранить состав" in item["text"]
+        )
+        cancel_callback = next(
+            item["callback"] for item in preview["keyboard"]["buttons"]
+            if "Отменить ввод" in item["text"]
+        )
+
+        runtime.handle_callback(101, cancel_callback)
+        session = runtime._sessions["101"]
+        assert not any(key.startswith("opening_composition_") for key in session)
+        assert session.get("step") is None
+
+        rejected = runtime.handle_callback(101, save_callback)
+
+        assert rejected.get("error") is True
+        assert saved_calls == []
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_opening_composition_accepts_unknown_new_home_quantity_without_counting_it(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+        saved_calls = []
+        transitions.record_opening_composition = lambda **kwargs: (
+            saved_calls.append(kwargs) or {"error": True, "code": "STOP_AFTER_CAPTURE"}
+        )
+
+        runtime._start_opening_composition("101", runtime._sessions["101"])
+        result = None
+        for value in ("0", "3", "0", "0", "0"):
+            result = runtime.handle_text(101, value)
+        result = runtime.handle_text(101, "не знаю")
+
+        assert "дома неизвестно" in result["message"]
+        assert "не включено в конечный остаток" in result["message"]
+        assert runtime._sessions["101"]["opening_composition_draft"]["values"][-1] is None
+        save_callback = next(
+            item["callback"] for item in result["keyboard"]["buttons"]
+            if "Сохранить состав" in item["text"]
+        )
+        runtime.handle_callback(101, save_callback)
+
+        assert len(saved_calls) == 1
+        assert saved_calls[0]["unknown_new_home_quantity"] is True
+        assert saved_calls[0]["layers"][-1]["home_units"] == 0
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_documents_menu_routes_bounded_finance_collection_without_saving_unavailable_source(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, _transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+
+        class SourceCollection:
+            def __init__(self):
+                self.calls = []
+
+            def collect_finance_identity_snapshot(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(
+                    status="UNAVAILABLE", finance_identity_snapshots=(),
+                    continuation_token=None, issue_codes=("OZON_HTTP_404",),
+                    actual_http_attempts=1, source_fingerprint=None,
+                )
+
+        class Evidence:
+            def __init__(self):
+                self.write_calls = []
+
+            def record_finance_identity_batches(self, **kwargs):
+                self.write_calls.append(kwargs)
+                return {"error": False}
+
+        source = SourceCollection()
+        evidence = Evidence()
+        runtime.source_collection_service = source
+        runtime.evidence_service = evidence
+
+        menu = runtime._documents_prompt("101")
+        finance_button = next(
+            item for item in menu["keyboard"]["buttons"]
+            if item["text"] == "🔗 Собрать финансовые привязки"
+        )
+        prompt = runtime.handle_callback(101, finance_button["callback"])
+        assert "первый и последний месяц" in prompt["message"]
+        result = runtime.handle_text(101, "2026-08 — 2026-08")
+
+        assert "Финансовые привязки не сохранены" in result["message"]
+        assert source.calls[0]["period_from"] == "2026-08-01"
+        assert source.calls[0]["period_to"] == "2026-08-31"
+        assert source.calls[0]["max_pages_per_call"] == 2
+        assert source.calls[0]["http_attempt_budget"] == 10
+        assert source.calls[0]["time_budget_seconds"] == 20.0
+        assert evidence.write_calls == []
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_documents_menu_routes_period_summary_collection_as_read_only_action(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, _transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+
+        class Apply:
+            def __init__(self):
+                self.calls = []
+
+            def collect_period_summaries(self, **kwargs):
+                self.calls.append(kwargs)
+                return {
+                    "error": True,
+                    "code": "FIFO_TRANSITION_EVIDENCE_INCOMPLETE",
+                    "requirements": ["MOVEMENT_COVERAGE_MISSING"],
+                }
+
+        apply = Apply()
+        runtime.apply_service = apply
+        runtime.period_summary_collection_service = object()
+        runtime.period_profit_service = object()
+
+        menu = runtime._documents_prompt("101")
+        summary_button = next(
+            item for item in menu["keyboard"]["buttons"]
+            if item["text"] == "📊 Собрать месячные итоги Period Profit"
+        )
+        result = runtime.handle_callback(101, summary_button["callback"])
+
+        assert "MOVEMENT_COVERAGE_MISSING" in result["message"]
+        assert "FIFO и прибыль не изменены" in result["message"]
+        assert len(apply.calls) == 1
+        assert apply.calls[0]["case_id"] == runtime._sessions["101"]["case_id"]
+        assert apply.calls[0]["continuation_token"] is None
+    finally:
+        reset_current_tenant_user_id(tenant)

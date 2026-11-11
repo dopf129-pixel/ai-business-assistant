@@ -179,7 +179,41 @@ class FifoCostHistoryService:
 
         next_unit_cost = None
         next_unit_cost_basis = "UNAVAILABLE"
-        if not movements_need_replay:
+        if replay_complete:
+            exact_status = latest_allocation.get(
+                "exact_next_unit_cost_status",
+            ) if isinstance(latest_allocation, dict) else None
+            exact_basis = latest_allocation.get(
+                "exact_next_unit_cost_basis",
+            ) if isinstance(latest_allocation, dict) else None
+            exact_cost = FifoCostRepository._normalize_money(
+                latest_allocation.get("exact_next_unit_cost_rub"),
+            ) if isinstance(latest_allocation, dict) else None
+            if (
+                exact_status in {
+                    "CONFIRMED_FINITE_LAYER", "RATE_ONLY_QUANTITY_UNKNOWN",
+                    "NO_CONFIRMED_UNIT",
+                }
+                and exact_basis in {
+                    "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                    "OPEN_RATE_QUANTITY_UNKNOWN", "UNAVAILABLE",
+                }
+                and (
+                    exact_status == "NO_CONFIRMED_UNIT"
+                    and exact_cost is None and exact_basis == "UNAVAILABLE"
+                    or exact_status == "CONFIRMED_FINITE_LAYER"
+                    and exact_cost is not None
+                    and exact_basis in {
+                        "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                    }
+                    or exact_status == "RATE_ONLY_QUANTITY_UNKNOWN"
+                    and exact_cost is not None
+                    and exact_basis == "OPEN_RATE_QUANTITY_UNKNOWN"
+                )
+            ):
+                next_unit_cost = exact_cost
+                next_unit_cost_basis = exact_basis
+        elif not movements_need_replay:
             first_finite_layer = next(
                 (item for item in layers if item["remaining_units"] > 0), None,
             ) or next(
@@ -196,21 +230,6 @@ class FifoCostHistoryService:
             elif active_rate is not None:
                 next_unit_cost = active_rate["unit_cost_rub"]
                 next_unit_cost_basis = "OPEN_RATE_QUANTITY_UNKNOWN"
-        elif replay_complete:
-            first_finite_layer = next(
-                (item for item in layers if item["remaining_units"] > 0), None,
-            ) or next(
-                (item for item in reconciled_rate_layers
-                 if item["remaining_units"] > 0), None,
-            )
-            if first_finite_layer is not None:
-                next_unit_cost = first_finite_layer["unit_cost_rub"]
-                next_unit_cost_basis = (
-                    "RECONCILED_RATE_LAYER"
-                    if first_finite_layer.get("kind") == "RECONCILED_RATE"
-                    else "FINITE_FIFO_LAYER"
-                )
-
         return {
             "error": False,
             "code": snapshot["code"],

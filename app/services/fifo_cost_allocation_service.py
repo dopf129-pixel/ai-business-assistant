@@ -61,6 +61,7 @@ class FifoRestoreSlice:
     sale_event_id: str
     layer_id: str
     quantity: int
+    sale_line_ordinal: int | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,7 @@ class FifoAllocationResult:
     total_available_units: int | None
     next_unit_cost_rub: Decimal | None
     next_unit_cost_status: str
+    next_unit_cost_basis: str
     rate_balances: tuple["FifoRateBalance", ...] = ()
 
 
@@ -285,9 +287,14 @@ class FifoCostAllocationService:
         if initial_known > 0 and anchor_status == self.ANCHOR_CONFIRMED_ZERO:
             return self._incomplete("FIFO_ZERO_ANCHOR_HAS_LAYERS")
 
-        restored_by_sale_layer: dict[tuple[str, str], int] = {}
+        restored_by_sale_layer: dict[tuple[str, object], int] = {}
         allocation_by_sale: dict[str, FifoSaleAllocation] = {}
-        allocation_line_by_sale_layer: dict[tuple[str, str], FifoAllocationLine] = {}
+        allocation_line_by_sale_layer: dict[
+            tuple[str, str], list[FifoAllocationLine]
+        ] = {}
+        allocation_line_by_sale_number: dict[
+            tuple[str, int], FifoAllocationLine
+        ] = {}
         sale_allocations: list[FifoSaleAllocation] = []
         outflow_allocations: list[FifoOutflowAllocation] = []
         total_cogs = Decimal("0.00")
@@ -432,12 +439,17 @@ class FifoCostAllocationService:
                     lines=tuple(lines),
                 )
                 allocation_by_sale[event.event_id] = allocation
-                for line in allocation.lines:
+                for sale_line_ordinal, line in enumerate(allocation.lines, start=1):
+                    allocation_line_by_sale_number[(
+                        event.event_id, sale_line_ordinal,
+                    )] = line
                     basis_id = (
                         line.rate_change_id
                         if line.rate_change_id is not None else line.layer_id
                     )
-                    allocation_line_by_sale_layer[(event.event_id, basis_id)] = line
+                    allocation_line_by_sale_layer.setdefault(
+                        (event.event_id, basis_id), [],
+                    ).append(line)
                 sale_allocations.append(allocation)
                 total_cogs += allocation.total_cost_rub
                 continue
@@ -503,12 +515,36 @@ class FifoCostAllocationService:
                 sale = allocation_by_sale.get(restore.sale_event_id)
                 if sale is None:
                     return self._incomplete("FIFO_RETURN_ORIGIN_SALE_MISSING")
-                line = allocation_line_by_sale_layer.get(
-                    (restore.sale_event_id, restore.layer_id)
-                )
+                if restore.sale_line_ordinal is not None:
+                    line = allocation_line_by_sale_number.get((
+                        restore.sale_event_id, restore.sale_line_ordinal,
+                    ))
+                    sale_line_ordinal = restore.sale_line_ordinal
+                else:
+                    matching_lines = allocation_line_by_sale_layer.get(
+                        (restore.sale_event_id, restore.layer_id), [],
+                    )
+                    if len(matching_lines) > 1:
+                        return self._incomplete("FIFO_RETURN_BASIS_LINE_REQUIRED")
+                    line = matching_lines[0] if matching_lines else None
+                    sale_line_ordinal = (
+                        sale.lines.index(line) + 1 if line in sale.lines else None
+                    )
                 if line is None:
                     return self._incomplete("FIFO_RETURN_ORIGIN_LAYER_MISSING")
-                key = (restore.sale_event_id, restore.layer_id)
+                expected_basis_id = (
+                    line.rate_change_id
+                    if line.rate_change_id is not None else line.layer_id
+                )
+                if (
+                    sale_line_ordinal is None
+                    or restore.layer_id != expected_basis_id
+                ):
+                    return self._incomplete("FIFO_RETURN_BASIS_LINE_MISMATCH")
+                # Both the legacy layer reference and the exact line ordinal
+                # address one canonical consumed sale line. Mixing the two
+                # input formats must not create two independent return limits.
+                key = (restore.sale_event_id, ("LINE", sale_line_ordinal))
                 restored_before = restored_by_sale_layer.get(key, 0)
                 # The prior sale allocation line is the exact quantity basis,
                 # including units priced by the open current rate.
@@ -539,11 +575,11 @@ class FifoCostAllocationService:
                             source_sequence.index(active_open_rate_id), restored_layer_id,
                         )
                 else:
-                    if restore.layer_id not in layer_state:
+                    if line.layer_id not in layer_state:
                         return self._incomplete("FIFO_RETURN_ORIGIN_LAYER_MISSING")
-                    if layer_state[restore.layer_id] + restore.quantity > self.MAX_UNITS_IN_STREAM:
+                    if layer_state[line.layer_id] + restore.quantity > self.MAX_UNITS_IN_STREAM:
                         return self._incomplete("FIFO_STREAM_QUANTITY_LIMIT")
-                    layer_state[restore.layer_id] += restore.quantity
+                    layer_state[line.layer_id] += restore.quantity
                 restored_amount = (line.unit_cost_rub * restore.quantity).quantize(
                     _CENT, rounding=ROUND_HALF_UP
                 )
@@ -560,14 +596,22 @@ class FifoCostAllocationService:
             and layer_state.get(layer_id, 0) > 0
         ]
         if available_sequence:
-            next_unit_cost = layer_costs[available_sequence[0]]
+            next_layer_id = available_sequence[0]
+            next_unit_cost = layer_costs[next_layer_id]
             next_unit_status = "CONFIRMED_FINITE_LAYER"
+            next_unit_basis = (
+                "RECONCILED_RATE_LAYER"
+                if rate_layer_ids.get(next_layer_id) is not None
+                else "FINITE_FIFO_LAYER"
+            )
         elif active_open_rate_id is not None:
             next_unit_cost = layer_costs[active_open_rate_id]
             next_unit_status = "RATE_ONLY_QUANTITY_UNKNOWN"
+            next_unit_basis = "OPEN_RATE_QUANTITY_UNKNOWN"
         else:
             next_unit_cost = None
             next_unit_status = "NO_CONFIRMED_UNIT"
+            next_unit_basis = "UNAVAILABLE"
 
         rate_balances = tuple(
             FifoRateBalance(
@@ -602,6 +646,7 @@ class FifoCostAllocationService:
             total_available_units=total_available,
             next_unit_cost_rub=next_unit_cost,
             next_unit_cost_status=next_unit_status,
+            next_unit_cost_basis=next_unit_basis,
             rate_balances=rate_balances,
         )
 
@@ -702,7 +747,15 @@ class FifoCostAllocationService:
                     restore_quantity = self._quantity(item.quantity)
                     if sale_id is None or layer_id is None or restore_quantity is None:
                         return "FIFO_EVENT_INPUT_INVALID"
-                    slices.append(FifoRestoreSlice(sale_id, layer_id, restore_quantity))
+                    line_number = item.sale_line_ordinal
+                    if (
+                        line_number is not None
+                        and (type(line_number) is not int or line_number < 1)
+                    ):
+                        return "FIFO_EVENT_INPUT_INVALID"
+                    slices.append(FifoRestoreSlice(
+                        sale_id, layer_id, restore_quantity, line_number,
+                    ))
                 if sum(item.quantity for item in slices) != quantity:
                     return "FIFO_RETURN_BASIS_QUANTITY_MISMATCH"
                 normalized.append(FifoRestockEvent(event_id, quantity, tuple(slices)))
@@ -801,5 +854,6 @@ class FifoCostAllocationService:
             total_available_units=None,
             next_unit_cost_rub=None,
             next_unit_cost_status="UNAVAILABLE",
+            next_unit_cost_basis="UNAVAILABLE",
             rate_balances=(),
         )

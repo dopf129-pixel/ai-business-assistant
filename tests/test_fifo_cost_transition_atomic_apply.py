@@ -5,6 +5,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
+from cryptography.fernet import Fernet
 import pytest
 
 from test_fifo_cost_cutoff_bridge_service import (
@@ -23,6 +24,7 @@ from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
     EvidenceSourceKind,
+    FifoFinancialPeriodSummary,
     PeriodProvenance,
     ReportEvidence,
     ReportType,
@@ -34,6 +36,10 @@ from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from services.fifo_cost_transition_evidence_service import (
+    FifoCostTransitionEvidenceService,
+)
+from services.fifo_cost_transition_service import FifoCostTransitionService
 from test_fifo_cost_transition_store import _case
 
 
@@ -441,6 +447,79 @@ def test_read_only_reconstruction_matches_prepare_seal_without_business_writes(
                 row["event_id"], row["layer_id"] or "", row["rate_change_id"] or "",
             ),
         )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_period_summary_append_does_not_change_reconstruction_fingerprint(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    repository, tenant, stock, bridge, _impact, cutover, _prepared, _clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        first = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="period-summary-fingerprint-stable",
+            initial_opening_cutover=cutover,
+        )
+        assert first["error"] is False, first
+
+        case = repository.read_transition_case(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        summary = FifoFinancialPeriodSummary(
+            period_from="2026-11-01", period_to="2026-11-30",
+            source_fingerprint=source_fingerprint("period-summary-fingerprint"),
+            reconstruction_fingerprint=first["reconstruction_fingerprint"],
+            tax_policy_fingerprint=TAX_POLICY,
+            sale_identity_digests=tuple(
+                first["sale_identity_digests_by_event"].values()
+            ),
+            revenue_rub="1000.00", discount_points_rub="0.00",
+            net_accrual_rub="750.00", current_total_product_cost_rub="100.00",
+            current_sku_product_cost_rub="42.00",
+        )
+        evidence_service = FifoCostTransitionEvidenceService(
+            FifoCostTransitionService(repository)
+        )
+        saved = evidence_service.record_period_profit_summary(
+            case_id=CASE_ID, identity={
+                "store_id": STORE, "product_id": SCOPE.product_id,
+                "offer_id": SCOPE.offer_id, "sku": SCOPE.sku,
+            }, summary=summary, expected_case_revision=case["case_revision"],
+            idempotency_key="period-summary-fingerprint-stable",
+        )
+        assert saved["error"] is False, saved
+
+        template_case = _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE)
+        refreshed_case = replace(
+            template_case,
+            metadata=replace(template_case.metadata, scope=SCOPE),
+            case_revision=saved["case_revision"],
+            state=TransitionState.AWAITING_EVIDENCE,
+        )
+        refreshed_bridge = _bridge_inputs(refreshed_case, stock)
+        refreshed_cutover = {**cutover, "case_revision": saved["case_revision"]}
+        second = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=saved["case_revision"],
+            effective_date="2026-11-07", cutoff_bridge=refreshed_bridge,
+            tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="period-summary-fingerprint-stable",
+            initial_opening_cutover=refreshed_cutover,
+        )
+        assert second["error"] is False, second
+        assert second["lineage"] == first["lineage"]
+        assert second["reconstruction_fingerprint"] == first[
+            "reconstruction_fingerprint"
+        ]
     finally:
         reset_current_tenant_user_id(tenant)
 

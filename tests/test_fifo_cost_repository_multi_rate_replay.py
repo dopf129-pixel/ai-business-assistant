@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 
 from services.fifo_cost_repository import FifoCostRepository
@@ -69,7 +69,7 @@ def _rate_source(fingerprint, captured_at):
 
 def _seed_three_rate_scenario(
     repository, *, include_last_reconciliation=True, include_mapping=True,
-    mr05_sale_quantity=0,
+    mr05_sale_quantity=0, additional_sales=(), mapping_complete_through=None,
 ):
     opening_source = {
         "kind": "OWNER_CONFIRMATION",
@@ -93,29 +93,40 @@ def _seed_three_rate_scenario(
         },
     ], source=opening_source, idempotency_key="multirate-anchor01")
 
+    sale_inputs = [
+        ("mr01", "2026-11-08", 5),
+        ("mr02", "2026-11-10", 110),
+        ("mr03", "2026-11-12", 10),
+    ]
+    if mr05_sale_quantity:
+        sale_inputs.append(("mr04", "2026-11-14", mr05_sale_quantity))
+    sale_inputs.extend(additional_sales)
+    complete_through = max(
+        "2026-11-15",
+        max(effective_date for _posting, effective_date, _quantity in sale_inputs),
+    )
+    mapping_complete_through = max(
+        complete_through, mapping_complete_through or complete_through,
+    )
+    capture_date = (
+        date.fromisoformat(complete_through) + timedelta(days=1)
+    ).isoformat()
     sale_source = {
         "kind": "OZON_REALIZATION",
         "method": "OZON_REALIZATION_REPORT",
         "status": "COMPLETE",
         "provenance": "OZON_CONFIRMED_FIELD",
         "coverage_status": "COMPLETE",
-        "captured_at": "2026-11-16T12:00:00Z",
-        "source_as_of": "2026-11-15T00:00:00Z",
+        "captured_at": capture_date + "T12:00:00Z",
+        "source_as_of": complete_through + "T23:59:59Z",
         "inventory_cutoff": ANCHOR_DATE,
     }
-    sale_inputs = [
-        ("2026-11-08", 5),
-        ("2026-11-10", 110),
-        ("2026-11-12", 10),
-    ]
-    if mr05_sale_quantity:
-        sale_inputs.append(("2026-11-14", mr05_sale_quantity))
     sale_digests = []
     sale_events = []
-    for index, (effective_date, quantity) in enumerate(sale_inputs, start=1):
+    for posting_number, effective_date, quantity in sale_inputs:
         identity_digest = FifoCostSaleEvidenceNormalizer.build_identity_digest(
             store_id=IDENTITY["store_id"],
-            posting_number=f"mr0{index}",
+            posting_number=posting_number,
             finance_sku=IDENTITY["sku"],
             identity={
                 "mapping_confirmed": True,
@@ -218,7 +229,7 @@ def _seed_three_rate_scenario(
                     complete_through, bridge_fingerprint, mapping_count, created_at
                 ) VALUES (?, ?, 1, ?, ?, ?, ?, ?)""",
                 (
-                    mapping_set_id, stream_id, ANCHOR_DATE, "2026-11-15",
+                    mapping_set_id, stream_id, ANCHOR_DATE, mapping_complete_through,
                     "f" * 64, len(sale_digests), "2026-11-16T12:00:00.000000Z",
                 ),
             )
@@ -413,7 +424,7 @@ def test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates(t
         assert history["cutoff_mapping_revision"] == 1
         assert history["complete_through"] == "2026-11-15"
         assert [row["remaining_units"] for row in history["reconciled_rate_layers"]] == [0, 0]
-        assert history["next_unit_cost_rub"] == "18.00"
+        assert history["next_unit_cost_rub"] == "18.00", history["latest_allocation"]
         assert history["next_unit_cost_basis"] == "OPEN_RATE_QUANTITY_UNKNOWN"
 
         class _NoLegacyCost:
@@ -1044,6 +1055,148 @@ def test_fr10_repeated_partial_returns_consume_latest_origin_basis_first(tmp_pat
         assert after["error"] is False, after
         assert after["restored_units"] == 3
         assert after["total_cogs_rub"] == "1872.50"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_fr_review_full_return_preserves_two_same_rate_lines_from_distinct_origins(
+    tmp_path,
+):
+    db_path = tmp_path / "same-rate-return-lines.sqlite"
+    now = lambda: datetime(2026, 11, 20, 12, tzinfo=timezone.utc)
+    repository = FifoCostRepository(db_path=db_path, now_provider=now)
+    token = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-multirate", IDENTITY["store_id"]),
+    )
+    try:
+        _seed_three_rate_scenario(
+            repository,
+            additional_sales=(
+                ("mr04", "2026-11-13", 1),
+                ("mr05", "2026-11-14", 1),
+                ("mr06", "2026-11-17", 2),
+            ),
+            mapping_complete_through="2026-11-18",
+        )
+        initial = repository.preview_current_allocation(**IDENTITY)
+        assert initial["error"] is False, initial
+        committed = repository.append_allocation_revision(
+            **IDENTITY, preview=initial,
+            idempotency_key="fr-review-same-rate-initial01",
+        )
+        assert committed["error"] is False, committed
+
+        returns = FifoCostReturnRestockService(repository, now_provider=now)
+        for index, posting_number in enumerate(("mr04", "mr05"), start=1):
+            preview = _preview_saleable_return(
+                returns, posting_number=posting_number,
+                return_id=f"private-same-rate-origin-{index}", quantity=1,
+                confirmed_on="2026-11-15" if index == 1 else "2026-11-16",
+            )
+            assert preview["code"] == "FIFO_RETURN_RESTOCK_PREVIEW_READY", preview
+            restored = returns.commit_return(
+                preview_id=preview["preview_id"],
+                active_preview_id=preview["preview_id"],
+                idempotency_key=f"fr-review-same-rate-origin-{index}",
+                store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+                offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+            )
+            assert restored["code"] == "FIFO_RETURN_RESTOCK_COMMITTED", restored
+            if index == 1:
+                refreshed = repository.preview_current_allocation(**IDENTITY)
+                assert refreshed["error"] is False, refreshed
+                refreshed_commit = repository.append_allocation_revision(
+                    **IDENTITY, preview=refreshed,
+                    idempotency_key="fr-review-same-rate-between-returns01",
+                )
+                assert refreshed_commit["error"] is False, refreshed_commit
+
+        before_final_sale_return = repository.preview_current_allocation(**IDENTITY)
+        assert before_final_sale_return["error"] is False, before_final_sale_return
+        sale_cogs = {
+            row["event_id"]: row["total_cost_rub"]
+            for row in before_final_sale_return["allocations"]
+        }
+        assert len(sale_cogs) == 6
+        final_sale = repository.append_allocation_revision(
+            **IDENTITY, preview=before_final_sale_return,
+            idempotency_key="fr-review-same-rate-before-final-return01",
+        )
+        assert final_sale["error"] is False, final_sale
+
+        connection = repository.get_connection()
+        try:
+            sale_event = connection.execute(
+                """SELECT event_id FROM fifo_cost_events
+                   WHERE stream_id=(SELECT stream_id FROM fifo_cost_streams WHERE store_id=?)
+                     AND event_kind='PHYSICAL_SALE' AND effective_date='2026-11-17'""",
+                (IDENTITY["store_id"],),
+            ).fetchone()
+            same_rate_lines = connection.execute(
+                """SELECT line_number, rate_change_id, quantity, unit_cost_rub,
+                          total_cost_rub
+                   FROM fifo_cost_allocation_rate_lines
+                   WHERE allocation_id=? AND event_id=? ORDER BY line_number""",
+                (final_sale["allocation_id"], sale_event["event_id"]),
+            ).fetchall()
+        finally:
+            connection.close()
+        assert [
+            (row["rate_change_id"], row["quantity"], row["unit_cost_rub"],
+             row["total_cost_rub"])
+            for row in same_rate_lines
+        ] == [
+            ("rate-multi-3", 1, "18.00", "18.00"),
+            ("rate-multi-3", 1, "18.00", "18.00"),
+        ]
+        sale_line_numbers = [row["line_number"] for row in same_rate_lines]
+        assert len(set(sale_line_numbers)) == 2
+
+        full_return = _preview_saleable_return(
+            returns, posting_number="mr06", return_id="private-same-rate-full",
+            quantity=2, confirmed_on="2026-11-18",
+        )
+        assert full_return["code"] == "FIFO_RETURN_RESTOCK_PREVIEW_READY", full_return
+        committed_return = returns.commit_return(
+            preview_id=full_return["preview_id"],
+            active_preview_id=full_return["preview_id"],
+            idempotency_key="fr-review-same-rate-full-return01",
+            store_id=IDENTITY["store_id"], product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"], sku=IDENTITY["sku"],
+        )
+        assert committed_return["code"] == "FIFO_RETURN_RESTOCK_COMMITTED", committed_return
+
+        reopened = FifoCostRepository(db_path=db_path, now_provider=now)
+        after = reopened.preview_current_allocation(**IDENTITY)
+        assert after["error"] is False, after
+        assert after["complete"] is True, after
+        assert after["total_cogs_rub"] == "1944.50"
+        after_sale_cogs = {
+            row["event_id"]: row["total_cost_rub"] for row in after["allocations"]
+        }
+        assert sale_cogs == after_sale_cogs
+        connection = reopened.get_connection()
+        try:
+            return_basis = connection.execute(
+                """SELECT b.allocation_line_number, b.quantity, b.unit_cost_rub,
+                          b.total_cost_rub
+                   FROM fifo_cost_return_basis AS b
+                   WHERE b.origin_sale_event_id=(
+                       SELECT event_id FROM fifo_cost_events
+                       WHERE stream_id=(SELECT stream_id FROM fifo_cost_streams WHERE store_id=?)
+                         AND event_kind='PHYSICAL_SALE'
+                         AND effective_date='2026-11-17'
+                   )
+                   ORDER BY b.basis_line_number""",
+                (IDENTITY["store_id"],),
+            ).fetchall()
+        finally:
+            connection.close()
+        assert [
+            (row["quantity"], row["unit_cost_rub"], row["total_cost_rub"])
+            for row in return_basis
+        ] == [(1, "18.00", "18.00"), (1, "18.00", "18.00")]
+        assert [row["allocation_line_number"] for row in return_basis] == sale_line_numbers
     finally:
         reset_current_tenant_user_id(token)
 

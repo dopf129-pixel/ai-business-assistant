@@ -21,6 +21,7 @@ from services.fifo_cost_sale_evidence_normalizer import (
     FifoCostSaleEvidenceNormalizer,
 )
 from services.fifo_cost_transition_contracts import source_fingerprint
+from services.fifo_cost_transition_contracts import FifoFinancialPeriodSummary
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
     activate_period_profit_trace,
@@ -34,6 +35,7 @@ class _Checkpoint:
     binding: str
     periods: tuple[str, ...]
     digests_by_period: tuple[tuple[str, tuple[str, ...]], ...]
+    expected_case_revision: int
     period_index: int
     next_date: str
     totals: tuple[tuple[str, str], ...]
@@ -70,6 +72,7 @@ class FifoCostFinancialPeriodSummaryCollectionService:
         finance_service, evidence_service, continuation_token=None,
         days_per_call=MAX_DAYS_PER_CALL, http_attempt_budget=MAX_HTTP_ATTEMPTS,
         time_budget_seconds=MAX_SECONDS, parent_trace=None,
+        existing_summaries=(),
     ):
         if (
             not isinstance(case_id, str) or not case_id
@@ -79,6 +82,11 @@ class FifoCostFinancialPeriodSummaryCollectionService:
             or not callable(summary_reader)
             or not callable(getattr(finance_service, "get_cached_daily_accruals", None))
             or not callable(getattr(evidence_service, "record_period_profit_summary", None))
+            or not isinstance(existing_summaries, tuple)
+            or any(
+                not isinstance(item, FifoFinancialPeriodSummary)
+                for item in existing_summaries
+            )
         ):
             return self._error("FIFO_PERIOD_SUMMARY_COLLECTION_INPUT_INVALID")
         try:
@@ -95,11 +103,18 @@ class FifoCostFinancialPeriodSummaryCollectionService:
             periods = tuple(sorted(digest_map))
             if not periods or len(periods) > self.MAX_PERIODS or catalog_fp is None:
                 return self._error("FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE")
+            persisted_by_period = {}
+            for item in existing_summaries:
+                if (
+                    item.period not in digest_map
+                    or item.period in persisted_by_period
+                ):
+                    return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT")
+                persisted_by_period[item.period] = item
             mapping = tuple((month, tuple(digest_map[month])) for month in periods)
             binding = source_fingerprint({
                 "case_id": case_id,
                 "identity": identity,
-                "case_revision": expected_case_revision,
                 "reconstruction": reconstruction.get("preview_fingerprint"),
                 "finance_identity": getattr(finance_batch, "source_fingerprint", None),
                 "tax_policy": policy["fingerprint"],
@@ -111,11 +126,14 @@ class FifoCostFinancialPeriodSummaryCollectionService:
 
         state, checkpoint_error = self._take_checkpoint(
             continuation_token, binding=binding, periods=periods, mapping=mapping,
+            expected_case_revision=expected_case_revision,
         )
         if checkpoint_error:
             return self._error(checkpoint_error)
         if state is None:
-            state = self._initial_checkpoint(binding, periods, mapping)
+            state = self._initial_checkpoint(
+                binding, periods, mapping, expected_case_revision,
+            )
 
         trace = PeriodProfitOperationTrace(
             operation="fifo_financial_period_summary_collection",
@@ -171,7 +189,8 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                     break
                 after = chunk_end + timedelta(days=1)
                 candidate_state = _Checkpoint(
-                    binding, periods, mapping, state.period_index,
+                    binding, periods, mapping, state.expected_case_revision,
+                    state.period_index,
                     after.isoformat() if after <= end else end.isoformat(),
                     tuple(sorted(totals.items())),
                     (*state.chunk_fingerprints, source_fp),
@@ -204,16 +223,30 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                     if built.get("error") is True:
                         issue = built.get("code") or "FIFO_PERIOD_SUMMARY_SOURCE_INVALID"
                         break
-                    stored = evidence_service.record_period_profit_summary(
-                        case_id=case_id,
-                        identity=identity,
-                        summary=built["summary"],
-                        expected_case_revision=expected_case_revision,
-                        idempotency_key="fifo-period-summary-" + built["summary"].source_fingerprint[:40],
-                    )
-                    if not isinstance(stored, dict) or stored.get("error") is not False:
-                        issue = self._source_code(stored)
-                        break
+                    persisted = persisted_by_period.get(period)
+                    if persisted is not None:
+                        # A restarted collector re-reads the month and proves
+                        # it is byte-for-byte equivalent to the durable freeze.
+                        # It must not append the immutable month a second time.
+                        if persisted.source_fingerprint != built["summary"].source_fingerprint:
+                            issue = "FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT"
+                            break
+                        next_case_revision = state.expected_case_revision
+                    else:
+                        stored = evidence_service.record_period_profit_summary(
+                            case_id=case_id,
+                            identity=identity,
+                            summary=built["summary"],
+                            expected_case_revision=state.expected_case_revision,
+                            idempotency_key="fifo-period-summary-" + built["summary"].source_fingerprint[:40],
+                        )
+                        if not isinstance(stored, dict) or stored.get("error") is not False:
+                            issue = self._source_code(stored)
+                            break
+                        next_case_revision = stored.get("case_revision")
+                        if next_case_revision != state.expected_case_revision + 1:
+                            issue = "FIFO_TRANSITION_REVISION_CONFLICT"
+                            break
                     saved_periods.append(period)
                     next_index = state.period_index + 1
                     next_date = (
@@ -221,7 +254,8 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                         if next_index < len(periods) else ""
                     )
                     state = _Checkpoint(
-                        binding, periods, mapping, next_index, next_date, (), (),
+                        binding, periods, mapping, next_case_revision,
+                        next_index, next_date, (), (),
                         self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
                     )
                 else:
@@ -247,6 +281,7 @@ class FifoCostFinancialPeriodSummaryCollectionService:
             "elapsed_seconds": round(self.monotonic_clock() - trace.started_at, 3),
             "issue_code": issue,
             "continuation_token": continuation,
+            "current_case_revision": state.expected_case_revision,
             "read_only": True,
         }
 
@@ -445,14 +480,16 @@ class FifoCostFinancialPeriodSummaryCollectionService:
         )
         return start, next_month - timedelta(days=1)
 
-    def _initial_checkpoint(self, binding, periods, mapping):
+    def _initial_checkpoint(self, binding, periods, mapping, expected_case_revision):
         return _Checkpoint(
-            binding, periods, mapping, 0,
+            binding, periods, mapping, expected_case_revision, 0,
             self._month_bounds(periods[0])[0].isoformat(),
             (), (), self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
         )
 
-    def _take_checkpoint(self, token, *, binding, periods, mapping):
+    def _take_checkpoint(
+        self, token, *, binding, periods, mapping, expected_case_revision,
+    ):
         if token is None:
             return None, None
         if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
@@ -469,6 +506,9 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                 or value.digests_by_period != mapping
             ):
                 return None, "FIFO_PERIOD_SUMMARY_CONTINUATION_SCOPE_MISMATCH"
+            if value.expected_case_revision != expected_case_revision:
+                self._checkpoints.pop(token, None)
+                return None, "FIFO_TRANSITION_REVISION_CONFLICT"
             self._checkpoints.pop(token, None)
         return value, None
 

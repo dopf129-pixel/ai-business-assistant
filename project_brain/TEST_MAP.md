@@ -1,3 +1,16 @@
+# 2026-11-11 — FIFO review regression fixes R2–R5
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` verifies that old opening-composition save/cancel buttons cannot affect a later draft, cancelling the exact current preview clears its state, and “не знаю” for the new-party home count stays unknown and forwards the explicit status.
+- `tests/test_fifo_cost_transition_service.py` verifies unknown-home status survives encrypted evidence confirmation and a fresh service read. `tests/test_fifo_cost_transition_production_workflow.py` exercises the same optional confirmation metadata through the durable owner-reserved-stock check while retaining fail-closed stock scope checks.
+- `tests/test_fifo_cost_allocation_service.py` rejects a mixed legacy-layer/line-ordinal return that would otherwise restore one sold unit twice. `tests/test_fifo_cost_financial_period_summary_collection_service.py` restarts collection after one persisted month, revalidates that month, and confirms no duplicate append before completing the next month.
+- Linked FIFO profile: **730 passed in 43.69s**; isolated full suite: **5,279 passed in 81.93s**. Full movement coverage remains blocked under R1; return status is not treated as an inventory-movement ledger.
+
+# 2026-11-10 — FIFO review correction regressions
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers navigation from the documents menu into the exact-cutoff opening-composition preview, financial-period parsing and bounded collection failure without evidence writes, and the monthly-summary action staying candidate/read-only when required movement evidence is missing.
+- `tests/test_fifo_cost_transition_apply_service.py` verifies product-catalog refresh and finance collection share one 10-request root budget, aggregate attempts are reported together, and the collector is not called after the catalog consumes the cap.
+- `tests/test_fifo_cost_transition_production_workflow.py` asserts the factory passes source collection, durable evidence, monthly collector, and Period Profit runtime into the user-facing runtime. The linked regression profile passed **99 tests**; apply/production/runtime subset passed **28 tests**; full isolated pytest passed **5,275 tests**.
+
 # 2026-11-10 — FIFO FR11 fix and exact-head CI stack
 
 - `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` and the multi-rate history/replay profile pass: **49 passed in 2.88s**. The open-rate cost is retained only for one complete, unreconciled initial rate with unknown quantity; other missing balances remain fail-closed.

@@ -4,6 +4,7 @@ from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Barrier
+from types import SimpleNamespace
 
 from services.fifo_cost_late_entry_impact_service import (
     FifoCostLateEntryImpactService,
@@ -258,6 +259,134 @@ def test_missing_financial_baseline_returns_candidate_only_without_ready_seal(
             "FIFO_PERIOD_SUMMARY_COVERAGE_INCOMPLETE"
         )
         assert _transition_no_write_snapshot(repository) == before
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_period_summary_catalog_and_finance_reads_share_ten_attempt_root_budget(
+    tmp_path,
+):
+    from services.period_profit_operation_diagnostics import (
+        current_period_profit_trace,
+    )
+
+    repository, tenant, _stock, bridge, _impact, cutover, _prepared, clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        reconstruction = _reconstruct(repository, bridge, cutover)
+        assert reconstruction["error"] is False, reconstruction
+        bundle = replace(_bundle(), finance_batch=object())
+        service = _service(repository, bridge, cutover, bundle, clock)
+        calls = {"catalog": 0, "collector": 0}
+
+        def product_provider():
+            trace = current_period_profit_trace()
+            assert trace is not None
+            for _ in range(11):
+                calls["catalog"] += 1
+                reservation = trace.reserve_ozon_request("product-list")
+                if reservation["error"]:
+                    break
+            return []
+
+        finance = SimpleNamespace(
+            get_cached_daily_accruals=lambda *_args: {},
+        )
+        summary_service = SimpleNamespace(
+            finance_service=finance,
+            calculate=lambda *_args: {},
+        )
+        period_profit = SimpleNamespace(
+            query_service=SimpleNamespace(
+                product_provider=product_provider,
+                summary_service=summary_service,
+            ),
+        )
+
+        class Collector:
+            def collect(self, **_kwargs):
+                calls["collector"] += 1
+                return {"error": False, "status": "COMPLETE"}
+
+        result = service.collect_period_summaries(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=3,
+            summary_collection_service=Collector(),
+            period_profit_service=period_profit,
+            idempotency_key="period-summary-budget-0001",
+        )
+
+        assert result["code"] == "FIFO_PERIOD_SUMMARY_PRODUCTS_UNAVAILABLE"
+        assert calls == {"catalog": 11, "collector": 0}
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_period_summary_collection_reports_catalog_and_finance_attempts_together(
+    tmp_path,
+):
+    from services.period_profit_operation_diagnostics import (
+        current_period_profit_trace,
+    )
+
+    repository, tenant, _stock, bridge, _impact, cutover, _prepared, clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        reconstruction = _reconstruct(repository, bridge, cutover)
+        assert reconstruction["error"] is False, reconstruction
+        bundle = replace(_bundle(), finance_batch=object())
+        service = _service(repository, bridge, cutover, bundle, clock)
+        counters = {"catalog": 0, "finance": 0}
+
+        def product_provider():
+            trace = current_period_profit_trace()
+            assert trace is not None
+            assert trace.reserve_ozon_request("product-list")["error"] is False
+            counters["catalog"] += 1
+            return [{"product_id": "101"}]
+
+        summary_service = SimpleNamespace(
+            finance_service=SimpleNamespace(
+                get_cached_daily_accruals=lambda *_args: {},
+            ),
+            calculate=lambda *_args: {},
+        )
+        period_profit = SimpleNamespace(
+            query_service=SimpleNamespace(
+                product_provider=product_provider,
+                summary_service=summary_service,
+            ),
+        )
+
+        class Collector:
+            def collect(self, **kwargs):
+                trace = current_period_profit_trace()
+                assert trace is kwargs["parent_trace"]
+                for _ in range(9):
+                    assert trace.reserve_ozon_request("finance-day")["error"] is False
+                    counters["finance"] += 1
+                return {
+                    "error": False,
+                    "status": "COMPLETE",
+                    "current_case_revision": 3,
+                    "actual_http_attempts": trace.ozon_requests_reserved,
+                    "http_attempt_cap": trace.ozon_request_budget,
+                }
+
+        result = service.collect_period_summaries(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=3,
+            summary_collection_service=Collector(),
+            period_profit_service=period_profit,
+            idempotency_key="period-summary-budget-0002",
+        )
+
+        assert result["error"] is False, result
+        assert counters == {"catalog": 1, "finance": 9}
+        assert result["actual_http_attempts"] == 10
+        assert result["http_attempt_cap"] == 10
     finally:
         reset_current_tenant_user_id(tenant)
 

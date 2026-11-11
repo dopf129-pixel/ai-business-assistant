@@ -1,3 +1,16 @@
+# 2026-11-11 — FIFO review regressions R2–R5 fixed locally
+
+- Bound opening-composition save tickets to the exact draft fingerprint and clear all draft/preview state on cancellation. The new-party home count can remain explicitly unknown; it is not converted into confirmed stock and is retained as `UNKNOWN_OPEN_RATE` through encrypted evidence and owner confirmation. Optional evidence/confirmation fields preserve compatibility with earlier records.
+- Period Profit collection now receives already-persisted month snapshots, re-reads and fingerprint-checks them after a collector restart, and advances the case revision only for a new month. Return allocations use one canonical sale-line key so legacy layer references cannot bypass a line's remaining return quantity.
+- Linked FIFO tests: **730 passed in 43.69s**. Full isolated pytest: **5,279 passed in 81.93s**. `compileall`, `git diff --check`, and tracked `data/` equality passed. The disposable test copy excluded live data and credentials.
+- R1 remains a hard blocker: no supported complete inventory-movement ledger is available. Owner-case readiness, current-SHA hosted CI, merge, deployment, live APIs and bot startup remain unverified. Changes are local and uncommitted.
+
+# 2026-11-10 — FIFO review corrections in progress
+
+- Fixed the reviewed FIFO return-basis and monthly-collection regressions, and added Telegram actions that expose initial opening composition, bounded finance identities, and canonical Period Profit monthly snapshots through the production workflow. Catalog refresh and daily finance collection share one 20-second/10-request root trace.
+- Added regressions for omitted-old-layer labeling, no-write behavior on unavailable finance sources, Telegram action routing, production dependency wiring, and exact shared-budget accounting. The linked FIFO review profile passes **99 tests**; focused apply/production/runtime profile passes **28 tests**; full isolated pytest passes **5,275 tests**. `compileall`, `git diff --check`, and tracked `data/` equality pass.
+- R1 is only partially closed: no supported complete movement-ledger source was found. Full movement coverage remains a hard blocker and is not inferred from the Returns API. Owner case and hosted current-SHA CI remain unverified; no merge or deployment was performed.
+
 # 2026-11-10 — FIFO dependent PR delivery
 
 - PR #731 delivers FR02–FR11 on PR #730. It fixes the single-open-rate reader edge; the isolated full suite passed **5,170 tests**. Verify run `42790983173` on head `af7d93324eea9952d60fc26553d8ed673bd8834f` passed Windows/Linux and production Docker build/runtime smoke.

@@ -338,6 +338,193 @@ class FifoCostTransitionApplyService:
             "read_only": True,
         }
 
+    def collect_period_summaries(
+        self, *, case_id, identity, expected_case_revision,
+        summary_collection_service, period_profit_service,
+        idempotency_key, continuation_token=None,
+    ):
+        """Collect missing monthly freezes from the exact saved FIFO evidence.
+
+        This is a separate owner-triggered read operation. It never prepares or
+        applies a transition; every source and reconstruction prerequisite is
+        re-read at the current case revision before the bounded collector runs.
+        """
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"store_id", "product_id", "offer_id", "sku"}
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+            or not self.repository._valid_transition_case_id(case_id)
+            or not self.repository._valid_transition_idempotency_key(idempotency_key)
+            or not callable(getattr(summary_collection_service, "collect", None))
+        ):
+            return self._error("FIFO_PERIOD_SUMMARY_COLLECTION_INPUT_INVALID")
+        query = getattr(period_profit_service, "query_service", None)
+        summary_service = getattr(query, "summary_service", None)
+        product_provider = getattr(query, "product_provider", None)
+        finance_service = getattr(summary_service, "finance_service", None)
+        summary_reader = getattr(summary_service, "calculate", None)
+        if (
+            not callable(product_provider)
+            or not callable(summary_reader)
+            or not callable(getattr(finance_service, "get_cached_daily_accruals", None))
+        ):
+            return self._error("FIFO_PERIOD_SUMMARY_SOURCE_UNAVAILABLE")
+
+        current = self.transition_service.get_case(case_id=case_id, **identity)
+        if (
+            not isinstance(current, dict) or current.get("error") is not False
+            or current.get("case_revision") != expected_case_revision
+            or current.get("state") not in {"DRAFT", "AWAITING_EVIDENCE"}
+        ):
+            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        review = self.review_service.assess(
+            case_id=case_id, identity=identity, for_transition_prepare=True,
+        )
+        if not isinstance(review, dict) or review.get("error") is not False:
+            return review if isinstance(review, dict) else self._error(
+                "FIFO_TRANSITION_READINESS_UNAVAILABLE",
+            )
+        if review.get("case_revision") != expected_case_revision:
+            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        loaded = self.evidence_service.load(
+            case_id=case_id, identity=identity,
+            expected_case_revision=expected_case_revision,
+            require_opening_composition=not (review.get("fifo_queue_initialized") is True),
+        )
+        if not isinstance(loaded, dict) or loaded.get("error") is not False:
+            return loaded if isinstance(loaded, dict) else self._error(
+                "FIFO_TRANSITION_EVIDENCE_UNAVAILABLE",
+            )
+        bundle = loaded.get("bundle")
+        if not isinstance(bundle, FifoCostTransitionEvidenceBundle):
+            return self._error("FIFO_TRANSITION_EVIDENCE_SCOPE_MISMATCH")
+        missing = set(loaded.get("missing_requirements", ()))
+        missing.discard("FINANCIAL_PERIOD_SUMMARY_SNAPSHOT_MISSING")
+        if missing:
+            return self._blocked(
+                "FIFO_TRANSITION_EVIDENCE_INCOMPLETE",
+                requirements=tuple(sorted(missing)),
+            )
+        bridge_result = self.evidence_service.build_cutoff_bridge(
+            bundle=bundle, proposal=review.get("proposal"),
+        )
+        if not isinstance(bridge_result, dict) or bridge_result.get("error") is not False:
+            return bridge_result if isinstance(bridge_result, dict) else self._error(
+                "FIFO_CUTOFF_BRIDGE_BUILD_FAILED",
+            )
+        cutoff_bridge = bridge_result.get("result")
+        from services.fifo_cost_cutoff_bridge_service import FifoCutoffBridgeResult
+        if (
+            not isinstance(cutoff_bridge, FifoCutoffBridgeResult)
+            or cutoff_bridge.status != "READY"
+            or cutoff_bridge.case_id != case_id
+            or cutoff_bridge.case_revision != expected_case_revision
+        ):
+            return self._blocked(
+                "FIFO_CUTOFF_BRIDGE_NOT_READY",
+                requirements=tuple(bridge_result.get("missing_requirements", ()))
+                or ("CUTOFF_BRIDGE_NOT_READY",),
+            )
+        try:
+            tax_policy = self.tax_configuration_service.get_policy()
+        except Exception:
+            return self._error("FIFO_TAX_POLICY_UNAVAILABLE")
+        tax_fingerprint = self._tax_policy_fingerprint(tax_policy)
+        if not self.repository._valid_digest(tax_fingerprint):
+            return self._error("FIFO_TAX_POLICY_UNAVAILABLE")
+        effective_date = self._successor_date(cutoff_bridge.cutoff_date)
+        if isinstance(effective_date, str) and effective_date.startswith("FIFO_"):
+            return self._error(effective_date)
+        initial_opening_cutover = None
+        if review.get("fifo_queue_initialized") is not True:
+            opening = self.transition_service.read_confirmed_opening_composition(
+                case_id=case_id, **identity,
+            )
+            if not isinstance(opening, dict) or opening.get("error") is not False:
+                return opening if isinstance(opening, dict) else self._error(
+                    "FIFO_OPENING_COMPOSITION_UNAVAILABLE",
+                )
+            initial_opening_cutover = {
+                "schema_version": 1,
+                "case_id": case_id,
+                "case_revision": expected_case_revision,
+                "cutoff_date": cutoff_bridge.cutoff_date,
+                "stock_report_fingerprint": opening.get("stock_report_fingerprint"),
+                "layers": [dict(layer) for layer in opening.get("layers", ())],
+                "ozon_units_include_reserved_confirmed": True,
+                "transit_not_in_ozon_confirmed": True,
+            }
+        reconstruction = self.repository.reconstruct_transition_preview(
+            case_id=case_id, **identity,
+            expected_case_revision=expected_case_revision,
+            effective_date=effective_date,
+            cutoff_bridge=cutoff_bridge,
+            tax_policy_fingerprint=tax_fingerprint,
+            idempotency_key=idempotency_key,
+            initial_opening_cutover=initial_opening_cutover,
+        )
+        if (
+            not isinstance(reconstruction, dict)
+            or reconstruction.get("error") is not False
+            or reconstruction.get("code") != "FIFO_TRANSITION_RECONSTRUCTION_READY"
+        ):
+            return reconstruction if isinstance(reconstruction, dict) else self._error(
+                "FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE",
+            )
+        from services.period_profit_operation_diagnostics import (
+            PeriodProfitOperationTrace,
+            activate_period_profit_trace,
+            reset_period_profit_trace,
+        )
+
+        operation_trace = PeriodProfitOperationTrace(
+            operation="fifo_period_summary_collection",
+            time_budget_seconds=20.0,
+            ozon_request_budget=10,
+        )
+        trace_token = activate_period_profit_trace(operation_trace)
+        try:
+            # The product provider refreshes the catalog through Ozon. Keep
+            # that work under the same root budget as daily finance reads.
+            try:
+                products = product_provider()
+            except Exception:
+                return self._error("FIFO_PERIOD_SUMMARY_PRODUCTS_UNAVAILABLE")
+            if not isinstance(products, list) or not products:
+                return self._error("FIFO_PERIOD_SUMMARY_PRODUCTS_UNAVAILABLE")
+            try:
+                result = summary_collection_service.collect(
+                    case_id=case_id, identity=dict(identity),
+                    expected_case_revision=expected_case_revision,
+                    reconstruction=reconstruction,
+                    finance_batch=bundle.finance_batch,
+                    products=products,
+                    tax_policy_result=tax_policy,
+                    summary_reader=summary_reader,
+                    finance_service=finance_service,
+                    evidence_service=self.evidence_service,
+                    existing_summaries=bundle.period_summaries,
+                    continuation_token=continuation_token,
+                    parent_trace=operation_trace,
+                )
+            except Exception:
+                return self._error("FIFO_PERIOD_SUMMARY_SOURCE_UNAVAILABLE")
+            if isinstance(result, dict) and result.get("error") is False:
+                return {
+                    **result,
+                    "actual_http_attempts": operation_trace.ozon_requests_reserved,
+                    "http_attempt_cap": operation_trace.ozon_request_budget,
+                    "elapsed_seconds": round(
+                        operation_trace.clock() - operation_trace.started_at, 3,
+                    ),
+                }
+            return result
+        except Exception:
+            return self._error("FIFO_PERIOD_SUMMARY_PRODUCTS_UNAVAILABLE")
+        finally:
+            reset_period_profit_trace(trace_token)
+
     def read_commit(self, *, case_id, identity):
         """Read the exact durable receipt for an APPLIED case after restart."""
         if (

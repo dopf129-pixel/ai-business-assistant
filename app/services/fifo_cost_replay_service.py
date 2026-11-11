@@ -268,6 +268,12 @@ class FifoCostReplayService:
                 format(result.total_cogs_rub, ".2f")
                 if result.total_cogs_rub is not None else None
             ),
+            "next_unit_cost_rub": (
+                format(result.next_unit_cost_rub, ".2f")
+                if result.next_unit_cost_rub is not None else None
+            ),
+            "next_unit_cost_status": result.next_unit_cost_status,
+            "next_unit_cost_basis": result.next_unit_cost_basis,
             "non_sale_outflow_value_rub": (
                 format(result.non_sale_outflow_value_rub, ".2f")
                 if result.non_sale_outflow_value_rub is not None else None
@@ -647,6 +653,7 @@ class FifoCostReplayService:
             result.inventory_restored_value_rub, result.restored_units,
             result.remaining_confirmed_units, result.total_available_units,
             result.next_unit_cost_rub, result.next_unit_cost_status,
+            result.next_unit_cost_basis,
             tuple((row.rate_change_id, row.unit_cost_rub, row.remaining_units,
                    row.reconciliation_evidence_fingerprint)
                   for row in result.rate_balances),

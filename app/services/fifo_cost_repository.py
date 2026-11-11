@@ -1303,7 +1303,6 @@ class FifoCostRepository:
                 baseline_rate_date = effective_date
                 baseline_rate_id = "transition-baseline_" + self._sha256({
                     "case_id": case_id,
-                    "case_revision": expected_case_revision,
                     "unit_cost_rub": old_unit_cost,
                     "cutoff": projection["inventory_cutoff"],
                 })[:40]
@@ -1344,7 +1343,6 @@ class FifoCostRepository:
 
                 candidate_rate_id = "rate_transition_" + self._sha256({
                     "case_id": case_id,
-                    "case_revision": expected_case_revision,
                     "effective_date": effective_date,
                     "unit_cost_rub": case["new_unit_cost_rub"],
                     "bridge": cutoff_bridge.source_set_fingerprint,
@@ -1381,7 +1379,6 @@ class FifoCostRepository:
                 source_fingerprint = self._sha256({
                     "source": "OWNER_CONFIRMED_FIFO_TRANSITION",
                     "case_id": case_id,
-                    "case_revision": expected_case_revision,
                     "case_fingerprint": evidence_fingerprint,
                     "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     "tax_policy_fingerprint": tax_policy_fingerprint,
@@ -1403,7 +1400,9 @@ class FifoCostRepository:
                     "owner_old_home_units": case["owner_old_home_units"],
                     "source_fingerprint": source_fingerprint,
                     "idempotency_key": "transition-" + self._sha256({
-                        "case_id": case_id, "revision": expected_case_revision,
+                        "case_id": case_id,
+                        "case_fingerprint": evidence_fingerprint,
+                        "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     })[:40],
                 }
                 rate_payload_fingerprint = self._sha256(rate_payload)
@@ -1502,10 +1501,9 @@ class FifoCostRepository:
                     connection.execute("RELEASE SAVEPOINT transition_initial_preview")
                 if read_only_reconstruction:
                     reconstruction_material = {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "identity": identity,
                         "case_id": case_id,
-                        "case_revision": expected_case_revision,
                         "effective_date": effective_date,
                         "revisions": {
                             "fifo": stream["revision"],
@@ -1975,7 +1973,6 @@ class FifoCostRepository:
                 if (
                     rate["rate_change_id"] != "rate_transition_" + self._sha256({
                         "case_id": case_id,
-                        "case_revision": expected_case_revision - 1,
                         "effective_date": payload["effective_date"],
                         "unit_cost_rub": case_payload.get("new_unit_cost_rub"),
                         "bridge": cutoff_bridge.source_set_fingerprint,
@@ -2203,7 +2200,8 @@ class FifoCostRepository:
             "recorded_at": normalized_at,
         }
         fingerprint = self._sha256({
-            key: value for key, value in normalized.items() if key != "recorded_at"
+            key: value for key, value in normalized.items()
+            if key not in {"recorded_at", "case_revision"}
         })
         if set(cutover) == set(extended) and cutover["cutover_fingerprint"] != fingerprint:
             return "FIFO_INITIAL_CUTOVER_FINGERPRINT_INVALID"
@@ -2349,6 +2347,12 @@ class FifoCostRepository:
                 "opening_date": safe.get("opening_date"),
                 "total_units": safe.get("total_units"),
             }
+            unknown_new_home = composition.get(
+                "unknown_new_home_quantity", False,
+            )
+            quantity_status = safe.get("new_home_quantity_status")
+            if quantity_status is not None:
+                expected_confirmation["new_home_quantity_status"] = quantity_status
             reserved = composition.get("owner_confirmed_reserved_units")
             total_ozon = composition.get("owner_confirmed_total_ozon_units")
             if (
@@ -2363,6 +2367,13 @@ class FifoCostRepository:
                 or composition.get("stock_report_fingerprint")
                 != stock_report_fingerprint
                 or composition.get("layers") != layers
+                or type(unknown_new_home) is not bool
+                or (
+                    quantity_status is not None
+                    and quantity_status != (
+                        "UNKNOWN_OPEN_RATE" if unknown_new_home else "CONFIRMED"
+                    )
+                )
                 or not self._valid_digest(safe.get("composition_fingerprint"))
                 or type(safe.get("total_units")) is not int
                 or not 0 <= safe.get("total_units") <= self.MAX_COMMAND_UNITS
@@ -3148,7 +3159,7 @@ class FifoCostRepository:
             if identity_conflict is not None:
                 return identity_conflict
             stream = connection.execute(
-                """SELECT state, revision FROM fifo_cost_streams
+                """SELECT state, revision, policy_version FROM fifo_cost_streams
                    WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
                 (stream_id, identity["store_id"], identity_fingerprint),
             ).fetchone()
@@ -3173,7 +3184,7 @@ class FifoCostRepository:
             projection_row = connection.execute(
                 """SELECT revision, state, known_quantity, known_cost_rub,
                           next_unit_cost_rub, queue_complete, cutoff_status,
-                          updated_at, inventory_cutoff
+                          updated_at, inventory_cutoff, source_set_fingerprint
                    FROM fifo_cost_projections WHERE stream_id=?""",
                 (stream_id,),
             ).fetchone()
@@ -3187,6 +3198,7 @@ class FifoCostRepository:
                 "cutoff_status": projection_row["cutoff_status"],
                 "updated_at": projection_row["updated_at"],
                 "inventory_cutoff": projection_row["inventory_cutoff"],
+                "source_set_fingerprint": projection_row["source_set_fingerprint"],
             }
             layer_rows = connection.execute(
                 """SELECT l.layer_sequence, l.quantity, l.unit_cost_rub,
@@ -3296,7 +3308,8 @@ class FifoCostRepository:
                 if kind not in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}
             )
             allocation = connection.execute(
-                """SELECT revision, stream_revision, status, cutoff_status, created_at
+                """SELECT revision, stream_revision, status, cutoff_status,
+                          source_set_fingerprint, created_at
                    FROM fifo_cost_allocations WHERE stream_id=?
                    ORDER BY revision DESC LIMIT 1""",
                 (stream_id,),
@@ -3335,6 +3348,65 @@ class FifoCostRepository:
                                 connection, stream_id, allocation["revision"],
                             )
                         )
+                    current_replay_source = (
+                        self._allocation_source_fingerprint(
+                            connection, stream_id, stream["revision"],
+                            stream["policy_version"], projection["cutoff_status"],
+                        ) if projection is not None else None
+                    )
+                    if current_replay_source == allocation["source_set_fingerprint"]:
+                        exact_replay = self._preview_allocation_from_connection(
+                            connection, stream_id,
+                            stream_revision=stream["revision"],
+                            allocation_revision=allocation["revision"] - 1,
+                            source_fingerprint=allocation["source_set_fingerprint"],
+                            cutoff_status=projection["cutoff_status"],
+                            anchor_cutoff_date=projection["inventory_cutoff"],
+                        )
+                        if (
+                            isinstance(exact_replay, dict)
+                            and exact_replay.get("error") is False
+                            and exact_replay.get("complete") is True
+                            and exact_replay.get("status") == "COMPLETE"
+                            and exact_replay.get("stream_revision") == stream["revision"]
+                            and exact_replay.get("expected_allocation_revision")
+                            == allocation["revision"] - 1
+                            and exact_replay.get("source_set_fingerprint")
+                            == allocation["source_set_fingerprint"]
+                            and self._valid_digest(
+                                exact_replay.get("preview_fingerprint"),
+                            )
+                            and exact_replay.get("next_unit_cost_status") in {
+                                "CONFIRMED_FINITE_LAYER",
+                                "RATE_ONLY_QUANTITY_UNKNOWN",
+                                "NO_CONFIRMED_UNIT",
+                            }
+                            and exact_replay.get("next_unit_cost_basis") in {
+                                "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                                "OPEN_RATE_QUANTITY_UNKNOWN", "UNAVAILABLE",
+                            }
+                            and (
+                                exact_replay.get("next_unit_cost_status")
+                                == "NO_CONFIRMED_UNIT"
+                                and exact_replay.get("next_unit_cost_rub") is None
+                                or exact_replay.get("next_unit_cost_status")
+                                != "NO_CONFIRMED_UNIT"
+                                and self._normalize_money(
+                                    exact_replay.get("next_unit_cost_rub"),
+                                ) is not None
+                            )
+                        ):
+                            latest_allocation["exact_next_unit_cost_rub"] = (
+                                self._normalize_money(
+                                    exact_replay.get("next_unit_cost_rub"),
+                                )
+                            )
+                            latest_allocation["exact_next_unit_cost_status"] = (
+                                exact_replay["next_unit_cost_status"]
+                            )
+                            latest_allocation["exact_next_unit_cost_basis"] = (
+                                exact_replay["next_unit_cost_basis"]
+                            )
                 else:
                     latest_allocation["replayed_remaining_layers"] = None
             cutoff_date = connection.execute(
@@ -8149,10 +8221,21 @@ class FifoCostRepository:
             raise ValueError("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
 
         prior_basis_rows = connection.execute(
-            """SELECT layer_id, rate_change_id, SUM(quantity) AS quantity
+            """SELECT allocation_id, allocation_line_number,
+                      layer_id, rate_change_id, SUM(quantity) AS quantity,
+                      (SELECT COUNT(*) FROM fifo_cost_allocation_lines AS x
+                       WHERE x.allocation_id=fifo_cost_return_basis.allocation_id
+                         AND x.event_id=fifo_cost_return_basis.origin_sale_event_id
+                         AND x.line_number<=fifo_cost_return_basis.allocation_line_number)
+                      + (SELECT COUNT(*) FROM fifo_cost_allocation_rate_lines AS y
+                         WHERE y.allocation_id=fifo_cost_return_basis.allocation_id
+                           AND y.event_id=fifo_cost_return_basis.origin_sale_event_id
+                           AND y.line_number<=fifo_cost_return_basis.allocation_line_number)
+                      AS sale_line_ordinal
                FROM fifo_cost_return_basis
                WHERE origin_sale_event_id=?
-               GROUP BY layer_id, rate_change_id""",
+               GROUP BY allocation_id, allocation_line_number,
+                        layer_id, rate_change_id""",
             (sale["event_id"],),
         ).fetchall()
         if sum(row["quantity"] for row in prior_basis_rows) != prior:
@@ -8160,28 +8243,22 @@ class FifoCostRepository:
         remaining_by_line = {
             row["line_number"]: row["quantity"] for row in basis_rows
         }
+        current_line_by_ordinal = {
+            ordinal: row["line_number"]
+            for ordinal, row in enumerate(basis_rows, start=1)
+        }
         for previous in prior_basis_rows:
-            key = (
-                ("LAYER", previous["layer_id"])
-                if previous["layer_id"] is not None
-                else ("RATE", previous["rate_change_id"])
+            line_number = current_line_by_ordinal.get(
+                previous["sale_line_ordinal"],
             )
-            to_match = previous["quantity"]
-            for row in reversed(basis_rows):
-                row_key = (
-                    ("LAYER", row["layer_id"])
-                    if row["layer_id"] is not None
-                    else ("RATE", row["rate_change_id"])
-                )
-                if row_key != key:
-                    continue
-                take = min(remaining_by_line[row["line_number"]], to_match)
-                remaining_by_line[row["line_number"]] -= take
-                to_match -= take
-                if to_match == 0:
-                    break
-            if to_match:
+            if (
+                type(previous["sale_line_ordinal"]) is not int
+                or previous["sale_line_ordinal"] < 1
+                or line_number not in remaining_by_line
+                or previous["quantity"] > remaining_by_line[line_number]
+            ):
                 raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
+            remaining_by_line[line_number] -= previous["quantity"]
 
         remaining = event["quantity"]
         prepared = []
@@ -8190,6 +8267,10 @@ class FifoCostRepository:
             # The owner-approved rule assigns partial returns to the latest
             # units consumed by the original FIFO sale first.
             selection_rows.reverse()
+        line_ordinal_by_number = {
+            row["line_number"]: ordinal
+            for ordinal, row in enumerate(basis_rows, start=1)
+        }
         for row in selection_rows:
             available = remaining_by_line[row["line_number"]]
             take = min(available, remaining)
@@ -8201,6 +8282,7 @@ class FifoCostRepository:
                 prepared.append({
                     "allocation_id": allocation["allocation_id"],
                     "allocation_line_number": row["line_number"],
+                    "sale_line_ordinal": line_ordinal_by_number[row["line_number"]],
                     "layer_id": row["layer_id"],
                     "rate_change_id": row["rate_change_id"],
                     "quantity": take,
@@ -8787,7 +8869,9 @@ class FifoCostRepository:
             "error", "complete", "status", "reason_code", "cutoff_status",
             "anchor_cutoff_date", "open_rate_effective_date", "stream_revision",
             "expected_allocation_revision", "source_set_fingerprint",
-            "total_cogs_rub", "non_sale_outflow_value_rub",
+            "total_cogs_rub", "next_unit_cost_rub", "next_unit_cost_status",
+            "next_unit_cost_basis",
+            "non_sale_outflow_value_rub",
             "remaining_confirmed_units", "restored_units",
             "allocations", "outflows", "preview_fingerprint",
         }
@@ -8825,6 +8909,36 @@ class FifoCostRepository:
         if type(allocation_revision) is not int or allocation_revision < 0:
             return "FIFO_REVISION_CONFLICT"
         if not cls._valid_digest(source_fingerprint) or not cls._valid_digest(preview_fingerprint):
+            return "FIFO_ALLOCATION_PREVIEW_INVALID"
+        next_unit_cost = cls._normalize_money(preview.get("next_unit_cost_rub"))
+        next_unit_status = preview.get("next_unit_cost_status")
+        next_unit_basis = preview.get("next_unit_cost_basis")
+        if (
+            next_unit_status not in {
+                "CONFIRMED_FINITE_LAYER", "RATE_ONLY_QUANTITY_UNKNOWN",
+                "NO_CONFIRMED_UNIT",
+            }
+            or (next_unit_status == "NO_CONFIRMED_UNIT" and next_unit_cost is not None)
+            or (next_unit_status != "NO_CONFIRMED_UNIT" and next_unit_cost is None)
+            or next_unit_basis not in {
+                "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                "OPEN_RATE_QUANTITY_UNKNOWN", "UNAVAILABLE",
+            }
+            or (
+                next_unit_status == "CONFIRMED_FINITE_LAYER"
+                and next_unit_basis not in {
+                    "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                }
+            )
+            or (
+                next_unit_status == "RATE_ONLY_QUANTITY_UNKNOWN"
+                and next_unit_basis != "OPEN_RATE_QUANTITY_UNKNOWN"
+            )
+            or (
+                next_unit_status == "NO_CONFIRMED_UNIT"
+                and next_unit_basis != "UNAVAILABLE"
+            )
+        ):
             return "FIFO_ALLOCATION_PREVIEW_INVALID"
         material = {
             key: value for key, value in preview.items()
@@ -8946,14 +9060,16 @@ class FifoCostRepository:
                         not isinstance(rate_change_id, str) or not rate_change_id
                         or len(rate_change_id) > 160
                     ))
-                    or basis_key in seen_layers or type(line_quantity) is not int
+                    or (layer_id is not None and basis_key in seen_layers)
+                    or type(line_quantity) is not int
                     or line_quantity < 1 or unit_cost is None or line_total is None
                     or (origin is not None and (
                         not isinstance(origin, str) or not origin or len(origin) > 160
                     ))
                 ):
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
-                seen_layers.add(basis_key)
+                if layer_id is not None:
+                    seen_layers.add(basis_key)
                 calculated = (Decimal(unit_cost) * line_quantity).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 )
@@ -9045,7 +9161,11 @@ class FifoCostRepository:
                             or not rate_change_id or len(rate_change_id) > 160
                         ))
                     )
-                    or (layer_id if rate_change_id is None else rate_change_id) in seen_layers
+                    or (
+                        layer_id is not None
+                        and (layer_id if rate_change_id is None else rate_change_id)
+                        in seen_layers
+                    )
                     or type(line_quantity) is not int
                     or line_quantity < 1 or unit_cost is None or line_total is None
                     or (origin is not None and (
@@ -9053,7 +9173,8 @@ class FifoCostRepository:
                     ))
                 ):
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
-                seen_layers.add(layer_id if rate_change_id is None else rate_change_id)
+                if layer_id is not None:
+                    seen_layers.add(layer_id if rate_change_id is None else rate_change_id)
                 if (Decimal(unit_cost) * line_quantity).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 ) != Decimal(line_total):
@@ -9097,6 +9218,9 @@ class FifoCostRepository:
             "allocations": normalized,
             "outflows": normalized_outflows,
             "total_cogs_rub": grand_total,
+            "next_unit_cost_rub": next_unit_cost,
+            "next_unit_cost_status": next_unit_status,
+            "next_unit_cost_basis": next_unit_basis,
             "non_sale_outflow_value_rub": normalized_outflow_total,
         }
         if has_multirate:
@@ -9766,6 +9890,15 @@ class FifoCostRepository:
                       b.allocation_line_number, b.origin_sale_event_id,
                       b.layer_id, b.rate_change_id, b.quantity,
                       b.unit_cost_rub, b.total_cost_rub,
+                      (SELECT COUNT(*) FROM fifo_cost_allocation_lines AS x
+                       WHERE x.allocation_id=b.allocation_id
+                         AND x.event_id=b.origin_sale_event_id
+                         AND x.line_number<=b.allocation_line_number)
+                      + (SELECT COUNT(*) FROM fifo_cost_allocation_rate_lines AS y
+                         WHERE y.allocation_id=b.allocation_id
+                           AND y.event_id=b.origin_sale_event_id
+                           AND y.line_number<=b.allocation_line_number)
+                      AS sale_line_ordinal,
                       a.stream_revision, a.status, a.cutoff_status,
                       l.event_id AS allocated_event_id, l.layer_id AS allocated_layer_id,
                       l.quantity AS allocated_quantity,
@@ -9828,8 +9961,11 @@ class FifoCostRepository:
             if (
                 not bases or command_revision is None
                 or sum(base["quantity"] for base in bases) != row["quantity"]
+                or len({base["sale_line_ordinal"] for base in bases}) != len(bases)
                 or any(
                     base["origin_sale_event_id"] != row["supersedes_event_id"]
+                    or type(base["sale_line_ordinal"]) is not int
+                    or base["sale_line_ordinal"] < 1
                     or ((base["layer_id"] is None) == (base["rate_change_id"] is None))
                     or (
                         base["layer_id"] is not None and (
@@ -9866,6 +10002,7 @@ class FifoCostRepository:
                             row["supersedes_event_id"],
                             base["layer_id"] or base["rate_change_id"],
                             base["quantity"],
+                            base["sale_line_ordinal"],
                         ) for base in bases
                     ),
                 ),

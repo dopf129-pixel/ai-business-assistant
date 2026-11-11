@@ -307,7 +307,7 @@ class FifoCostTransitionService:
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         cutoff_evidence_id, cutoff_evidence_fingerprint,
         stock_report_fingerprint, layers, expected_case_revision,
-        idempotency_key,
+        idempotency_key, unknown_new_home_quantity=False,
     ) -> dict:
         """Persist a bounded FIFO opening composition, never as a live anchor."""
         loaded = self._read_transition_owner_context(
@@ -317,6 +317,8 @@ class FifoCostTransitionService:
         )
         if loaded.get("error"):
             return loaded
+        if type(unknown_new_home_quantity) is not bool:
+            return self._error("FIFO_OPENING_COMPOSITION_QUANTITY_STATUS_INVALID")
         case = loaded["case"]
         cutoff = self._read_confirmed_cutoff_evidence(
             case_id=case_id, identity=loaded["identity"], scope=case.metadata.scope,
@@ -406,6 +408,7 @@ class FifoCostTransitionService:
             "cutoff_evidence_fingerprint": cutoff_evidence_fingerprint,
             "stock_report_fingerprint": stock_report_fingerprint,
             "layers": normalized_layers,
+            "unknown_new_home_quantity": unknown_new_home_quantity,
             "zone_totals": quantities,
             "owner_confirmed_total_ozon_units": quantities["ozon_units"],
             "owner_confirmed_reserved_units": owner_reserved_units,
@@ -438,6 +441,9 @@ class FifoCostTransitionService:
                 "component_count": len(normalized_layers),
                 "composition_fingerprint": composition_fingerprint,
                 "identity_fingerprint": identity_fingerprint,
+                "new_home_quantity_status": (
+                    "UNKNOWN_OPEN_RATE" if unknown_new_home_quantity else "CONFIRMED"
+                ),
             },
             sensitive_payload=self._canonical_transition_json(composition),
         )
@@ -478,15 +484,29 @@ class FifoCostTransitionService:
             != cutoff["item"].get("payload_fingerprint")
             or composition.get("composition_fingerprint")
             != safe.get("composition_fingerprint")
+            or type(composition.get("unknown_new_home_quantity", False)) is not bool
+            or (
+                "new_home_quantity_status" in safe
+                and safe.get("new_home_quantity_status") != (
+                "UNKNOWN_OPEN_RATE"
+                if composition.get("unknown_new_home_quantity", False)
+                else "CONFIRMED"
+                )
+            )
         ):
             return self._error("FIFO_OPENING_COMPOSITION_STALE")
-        confirmation = TransitionEvidenceConfirmation(
-            confirmation_kind=TransitionEvidenceConfirmationKind.OPENING_COMPOSITION,
-            confirmed_fields={
+        confirmed_fields = {
             "composition_fingerprint": safe["composition_fingerprint"],
             "opening_date": safe["opening_date"],
             "total_units": safe["total_units"],
-            },
+        }
+        if "new_home_quantity_status" in safe:
+            confirmed_fields["new_home_quantity_status"] = safe[
+                "new_home_quantity_status"
+            ]
+        confirmation = TransitionEvidenceConfirmation(
+            confirmation_kind=TransitionEvidenceConfirmationKind.OPENING_COMPOSITION,
+            confirmed_fields=confirmed_fields,
         )
         return self.repository.confirm_transition_evidence(
             case_id=case_id, metadata=loaded["case"].metadata,
@@ -578,6 +598,10 @@ class FifoCostTransitionService:
                 "opening_date": safe.get("opening_date"),
                 "total_units": safe.get("total_units"),
             }
+            if "new_home_quantity_status" in safe:
+                expected_fields["new_home_quantity_status"] = safe[
+                    "new_home_quantity_status"
+                ]
             confirmed = any(
                 value.get("confirmation_kind") == TransitionEvidenceConfirmationKind.OPENING_COMPOSITION.value
                 and value.get("confirmed_fields") == expected_fields
@@ -658,6 +682,9 @@ class FifoCostTransitionService:
                 ),
                 "reserved_source": composition.get("reserved_source"),
                 "layers": composition["layers"],
+                "unknown_new_home_quantity": composition.get(
+                    "unknown_new_home_quantity", False,
+                ),
                 "stock_report_fingerprint": composition["stock_report_fingerprint"],
                 "cutoff_evidence_id": composition["cutoff_evidence_id"],
                 "cutoff_evidence_fingerprint": composition["cutoff_evidence_fingerprint"],

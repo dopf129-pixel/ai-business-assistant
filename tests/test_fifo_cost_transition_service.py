@@ -337,6 +337,7 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
             cutoff_evidence_fingerprint=cutoff["payload_fingerprint"],
             stock_report_fingerprint=stock_report.file_sha256,
             layers=layers,
+            unknown_new_home_quantity=True,
             expected_case_revision=cutoff_confirmed["case_revision"],
             idempotency_key="fr17-opening-0001",
         )
@@ -378,6 +379,7 @@ def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
         )
         assert durable_composition["error"] is False, durable_composition
         assert durable_composition["layers"] == layers
+        assert durable_composition["unknown_new_home_quantity"] is True
         assert durable_composition["total_units"] == 103
         assert durable_composition["owner_confirmed_total_ozon_units"] == 100
         assert durable_composition["owner_confirmed_reserved_units"] == 0

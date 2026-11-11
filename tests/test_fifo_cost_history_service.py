@@ -201,6 +201,9 @@ def test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit(
             "status": "COMPLETE",
             "cutoff_status": "RECONCILED",
             "stale": False,
+            "exact_next_unit_cost_rub": "20.00",
+            "exact_next_unit_cost_status": "RATE_ONLY_QUANTITY_UNKNOWN",
+            "exact_next_unit_cost_basis": "OPEN_RATE_QUANTITY_UNKNOWN",
             "replayed_remaining_layers": [{
                 "sequence": 1, "remaining_units": 0,
             }],
@@ -268,7 +271,7 @@ def test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit(
         assert all(row["remaining_units"] is None for row in invalid["layers"])
 
 
-def test_history_uses_replayed_finite_closed_rate_before_current_open_rate():
+def test_history_uses_exact_replay_queue_order_after_rate_returns():
     snapshot = {
         "error": False,
         "code": "FIFO_HISTORY_READY",
@@ -284,7 +287,7 @@ def test_history_uses_replayed_finite_closed_rate_before_current_open_rate():
         "rates": [
             {
                 "sequence": 1, "effective_date": "2026-11-06",
-                "unit_cost_rub": "14.65", "provenance": "OWNER_CONFIRMED",
+                "unit_cost_rub": "16.00", "provenance": "OWNER_CONFIRMED",
                 "cancelled": False,
             },
             {
@@ -292,13 +295,26 @@ def test_history_uses_replayed_finite_closed_rate_before_current_open_rate():
                 "unit_cost_rub": "18.00", "provenance": "OWNER_CONFIRMED",
                 "cancelled": False,
             },
+            {
+                "sequence": 3, "effective_date": "2026-11-10",
+                "unit_cost_rub": "20.00", "provenance": "OWNER_CONFIRMED",
+                "cancelled": False,
+            },
         ],
-        "rate_reconciliations": [{
-            "reconciled_rate_sequence": 1,
-            "transition_rate_sequence": 2,
-            "prior_rate_units": 1,
-            "reconciled_total_units": 1,
-        }],
+        "rate_reconciliations": [
+            {
+                "reconciled_rate_sequence": 1,
+                "transition_rate_sequence": 2,
+                "prior_rate_units": 1,
+                "reconciled_total_units": 1,
+            },
+            {
+                "reconciled_rate_sequence": 2,
+                "transition_rate_sequence": 3,
+                "prior_rate_units": 1,
+                "reconciled_total_units": 2,
+            },
+        ],
         "rate_cancellations": [],
         "movement_count": 1,
         "latest_allocation": {
@@ -307,12 +323,16 @@ def test_history_uses_replayed_finite_closed_rate_before_current_open_rate():
             "status": "COMPLETE",
             "cutoff_status": "RECONCILED",
             "stale": False,
+            "exact_next_unit_cost_rub": "18.00",
+            "exact_next_unit_cost_status": "CONFIRMED_FINITE_LAYER",
+            "exact_next_unit_cost_basis": "RECONCILED_RATE_LAYER",
             "replayed_remaining_layers": [{
                 "sequence": 1, "remaining_units": 0,
             }],
             "replayed_rate_balances": [
-                {"sequence": 1, "remaining_units": 1, "unit_cost_rub": "14.65"},
-                {"sequence": 2, "remaining_units": None, "unit_cost_rub": "18.00"},
+                {"sequence": 1, "remaining_units": 1, "unit_cost_rub": "16.00"},
+                {"sequence": 2, "remaining_units": 1, "unit_cost_rub": "18.00"},
+                {"sequence": 3, "remaining_units": None, "unit_cost_rub": "20.00"},
             ],
         },
     }
@@ -327,9 +347,9 @@ def test_history_uses_replayed_finite_closed_rate_before_current_open_rate():
     )
 
     assert result["remaining_status"] == "AFTER_CONFIRMED_REPLAY"
-    assert result["next_unit_cost_rub"] == "14.65"
+    assert result["next_unit_cost_rub"] == "18.00"
     assert result["next_unit_cost_basis"] == "RECONCILED_RATE_LAYER"
-    assert result["reconciled_rate_layers"][0]["remaining_units"] == 1
+    assert result["reconciled_rate_layers"][0]["unit_cost_rub"] == "16.00"
 
 
 def test_late_delivery_transfer_does_not_create_a_second_cost_layer(tmp_path):

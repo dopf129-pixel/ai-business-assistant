@@ -128,6 +128,12 @@ def test_production_workflow_builder_wires_durable_evidence_review_apply_and_run
 
     assert workflow["runtime_service"].apply_service is workflow["apply_service"]
     assert workflow["runtime_service"].cache_invalidator is None
+    assert workflow["runtime_service"].source_collection_service is source_collection
+    assert workflow["runtime_service"].evidence_service is workflow["evidence_service"]
+    assert workflow["runtime_service"].period_summary_collection_service is workflow[
+        "period_summary_collection_service"
+    ]
+    assert workflow["runtime_service"].period_profit_service is period_profit_service
     assert workflow["review_service"].evidence_service is workflow["evidence_service"]
     assert workflow["review_service"].transition_service is transition
     assert workflow["evidence_service"].repository is repository

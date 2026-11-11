@@ -1188,6 +1188,10 @@ def _validate_transition_bridge_payload(
         allowed_key_sets.add(_BRIDGE_PAYLOAD_KEYS[kind] | {
             "stock_report_fingerprint",
         })
+    elif kind is TransitionBridgeEvidenceKind.OPENING_COMPOSITION:
+        allowed_key_sets.add(_BRIDGE_PAYLOAD_KEYS[kind] | {
+            "new_home_quantity_status",
+        })
     if key_set not in allowed_key_sets:
         _fail(TransitionReasonCode.FIFO_TRANSITION_EVIDENCE_MISSING)
     result = dict(value)
@@ -1229,7 +1233,10 @@ def _validate_transition_bridge_payload(
     for key in ("timezone",):
         if key in result:
             result[key] = normalize_store_timezone(result[key])
-    for key in ("semantics", "report_type", "policy_code", "calculation_basis"):
+    for key in (
+        "semantics", "report_type", "policy_code", "calculation_basis",
+        "new_home_quantity_status",
+    ):
         if key in result:
             token = _required_text(result[key], 64)
             if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", token):
@@ -1358,6 +1365,10 @@ def _validate_transition_confirmation_fields(
     if kind is TransitionEvidenceConfirmationKind.CUTOFF_SELECTION:
         allowed_key_sets.add(_CONFIRMATION_PAYLOAD_KEYS[kind] | {
             "supplier_receiving_units",
+        })
+    elif kind is TransitionEvidenceConfirmationKind.OPENING_COMPOSITION:
+        allowed_key_sets.add(_CONFIRMATION_PAYLOAD_KEYS[kind] | {
+            "new_home_quantity_status",
         })
     if key_set not in allowed_key_sets:
         _fail(TransitionReasonCode.CONTRACT_INVALID)

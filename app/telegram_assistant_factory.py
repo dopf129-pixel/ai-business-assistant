@@ -268,6 +268,11 @@ def create_fifo_cost_transition_workflow(
         transition_service=transition_service,
         source_collection=source_collection_service,
     )
+    period_summary_collection_service = (
+        FifoCostFinancialPeriodSummaryCollectionService(
+            impact_service=impact_service,
+        )
+    )
     runtime_service = TelegramFifoCostTransitionRuntimeService(
         transition_service=transition_service,
         history_service=history_service,
@@ -278,12 +283,11 @@ def create_fifo_cost_transition_workflow(
         # ApplyService owns revision-aware invalidation after the durable write.
         cache_invalidator=None,
         physical_sales_import_service=physical_sales_import_service,
+        source_collection_service=source_collection_service,
+        evidence_service=evidence_service,
+        period_summary_collection_service=period_summary_collection_service,
+        period_profit_service=period_profit_service,
         now_provider=now_provider,
-    )
-    period_summary_collection_service = (
-        FifoCostFinancialPeriodSummaryCollectionService(
-            impact_service=impact_service,
-        )
     )
     return {
         "repository": repository,

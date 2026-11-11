@@ -1,3 +1,15 @@
+# 2026-11-11 — FIFO review regressions R2–R5
+
+- Opening-composition save callbacks are bound to the exact current preview; starting or cancelling another draft invalidates the old button. Unknown new-party home quantity can be recorded as unknown and remains outside finite inventory.
+- Monthly financial collection verifies already-frozen months after process restart instead of appending duplicate snapshots. Legacy layer-based and new sale-line return bases share one restored-quantity limit.
+- Full isolated pytest: **5,279 passed**; linked FIFO profile: **730 passed**. Complete movement coverage (R1) remains blocked; no owner records, live APIs, bot, merge, or deployment were used.
+
+# 2026-11-10 — FIFO review correction pass
+
+- Added owner-facing Telegram actions for initial FIFO composition, bounded finance-identity collection, and Period Profit month snapshots. These actions reuse the shared evidence/review/apply workflow and never apply FIFO implicitly.
+- Fixed a new-layer label mismatch when the opening FIFO composition contains only the new-cost layer. Financial collection now rejects conflicting/invalid source responses without persisting them, and product-catalog refresh shares the same 20-second/10-request root budget as Period Profit reads.
+- Added regression coverage for Telegram navigation, exact layer labeling, unavailable-source no-write behavior, production wiring, and shared Ozon request limits. Full isolated pytest passed **5,275 tests**; compileall, diff check, and tracked `data/` equality passed. Full movement coverage remains blocked until complete movement evidence is available; returns are not treated as a complete movement ledger.
+
 # 2026-11-10 — FIFO explicit owner confirmation for cutoff stock
 
 - Added a Telegram flow to select an exact saved one-day stock report, enter the missing `supplier_receiving` count, review the cutoff/SKU binding, and confirm it durably. Zero is accepted only as an explicit owner input; Ozon data and other stock buckets are not inferred.

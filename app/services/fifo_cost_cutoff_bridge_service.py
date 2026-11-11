@@ -915,7 +915,6 @@ class FifoCostCutoffBridgeService:
                 "offer_id": scope.offer_id,
             },
             "case_id": case.case_id,
-            "case_revision": case.case_revision,
             "cutoff": cutoff,
             "timezone": timezone_name,
             "stock": stock_evidence.file_sha256 if isinstance(stock_evidence, ReportEvidence) else None,

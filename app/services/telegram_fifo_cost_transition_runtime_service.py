@@ -46,6 +46,9 @@ class TelegramFifoCostTransitionRuntimeService:
         *, review_service=None, supply_refresh_service=None,
         apply_service=None, cache_invalidator=None,
         physical_sales_import_service=None,
+        source_collection_service=None, evidence_service=None,
+        period_summary_collection_service=None,
+        period_profit_service=None,
         monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
@@ -56,6 +59,10 @@ class TelegramFifoCostTransitionRuntimeService:
         self.apply_service = apply_service
         self.cache_invalidator = cache_invalidator
         self.physical_sales_import_service = physical_sales_import_service
+        self.source_collection_service = source_collection_service
+        self.evidence_service = evidence_service
+        self.period_summary_collection_service = period_summary_collection_service
+        self.period_profit_service = period_profit_service
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -241,6 +248,10 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
                 keyboard=self._field_confirmation_keyboard(session["candidate_token"]),
             )
+        if session.get("step") == "opening_composition":
+            return self._handle_opening_composition_text(owner, session, text)
+        if session.get("step") == "finance_identity_period":
+            return self._handle_finance_identity_period_text(owner, session, text)
         if session.get("step") == "supplier_receiving_units":
             return self._handle_supplier_receiving_text(owner, session, text)
         if session.get("step") == "refresh_reference":
@@ -338,6 +349,42 @@ class TelegramFifoCostTransitionRuntimeService:
                 scope=self._physical_sales_scope(owner, session),
                 expected_case_revision=session["case_revision"],
             )
+        if action == "opening_composition":
+            return self._start_opening_composition(owner, session)
+        if action == "cancel_opening_composition":
+            if (
+                ticket.get("opening_composition_fingerprint")
+                != session.get("opening_composition_preview_fingerprint")
+            ):
+                return self._stale()
+            for key in (
+                "opening_composition_draft", "opening_composition_pending",
+                "opening_composition_preview", "opening_composition_preview_fingerprint",
+                "step",
+            ):
+                session.pop(key, None)
+            return self._show_summary(owner)
+        if action == "save_opening_composition":
+            return self._save_opening_composition(owner, session, ticket)
+        if action == "confirm_opening_composition":
+            result = self._confirm_opening_composition(owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
+        if action == "collect_finance_identity":
+            if self.source_collection_service is None or self.evidence_service is None:
+                return self._failure("Сбор финансовых привязок временно недоступен. Данные дела не изменены.")
+            session["step"] = "finance_identity_period"
+            return self._result(
+                "Укажите первый и последний месяц финансового признания через дефис, например 2026-08 — 2026-10. "
+                "Это месяцы отчёта реализации, не даты физической продажи. Коллекция будет ограничена несколькими месяцами за один шаг."
+            )
+        if action == "continue_finance_identity":
+            return self._collect_finance_identity(owner, session, continuation=True)
+        if action == "collect_period_summaries":
+            return self._collect_period_summaries(owner, session, continuation=False)
+        if action == "continue_period_summaries":
+            return self._collect_period_summaries(owner, session, continuation=True)
         if action == "reports":
             return self._documents_prompt(owner)
         if action == "supplier_receiving":
@@ -664,6 +711,466 @@ class TelegramFifoCostTransitionRuntimeService:
             "введите 0; неизвестное количество не вводите наугад. Значение останется "
             "отдельным складским bucket и не добавится к FIFO-слоям принятого товара."
         )
+
+    def _start_opening_composition(self, owner, session):
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Не удалось прочитать дело. Состав FIFO не изменён.")
+        self._refresh_session(session, case)
+        if case.get("state") not in self._EDITABLE_STATES:
+            return self._failure("Состав FIFO можно подтвердить только в редактируемом деле.")
+        history = self.history_service.get_sku_history(**session["identity"])
+        if not isinstance(history, dict) or history.get("error") is not False:
+            return self._failure("Текущую очередь FIFO не удалось проверить. Состав не изменён.")
+        if history.get("queue_initialized") is True:
+            return self._result("Очередь FIFO уже создана; начальный состав для этого дела не требуется.")
+        existing = self.transition_service.read_confirmed_opening_composition(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if isinstance(existing, dict) and existing.get("error") is False:
+            return self._result("Начальный состав FIFO уже сохранён и подтверждён владельцем.")
+        cutoff = self.transition_service.read_confirmed_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if not isinstance(cutoff, dict) or cutoff.get("error") is not False:
+            return self._failure("Сначала выберите и подтвердите точный cutoff и дневной отчёт по остаткам.")
+        if case["case"].get("old_unit_cost_rub") is None or case["case"].get("new_unit_cost_rub") is None:
+            return self._failure("Сначала подтвердите старую и новую себестоимость; состав FIFO не изменён.")
+        session["opening_composition_draft"] = {
+            "cutoff_evidence_id": cutoff["evidence_id"],
+            "cutoff_evidence_fingerprint": cutoff["evidence_fingerprint"],
+            "stock_report_fingerprint": cutoff["stock_report_fingerprint"],
+            "cutoff_date": cutoff["descriptor"]["cutoff_date"],
+            "values": [],
+        }
+        session.pop("opening_composition_preview", None)
+        session.pop("opening_composition_preview_fingerprint", None)
+        session["step"] = "opening_composition"
+        return self._result(
+            f"Для cutoff {cutoff['descriptor']['cutoff_date']} введите точное число упаковок по каждой партии и месту. "
+            "Сюда входит только принятое наличие Ozon, включая резерв по подтверждённому вами составу; товар на приёмке задаётся отдельно. "
+            "Если количество новой партии дома неизвестно, укажите это отдельно на последнем вопросе — оно останется неизвестным, а не станет нулём. "
+            "Неизвестное количество старой партии не вводите наугад.\n\nСколько упаковок старой партии находилось на складах Ozon?"
+        )
+
+    def _handle_opening_composition_text(self, owner, session, text):
+        draft = session.get("opening_composition_draft")
+        if not isinstance(draft, dict) or not isinstance(draft.get("values"), list):
+            session.pop("opening_composition_draft", None)
+            session.pop("step", None)
+            return self._stale()
+        labels = (
+            "Старая партия на складах Ozon",
+            "Новая партия на складах Ozon",
+            "Старая партия в пути",
+            "Новая партия в пути",
+            "Старая партия дома",
+            "Новая партия дома",
+        )
+        values = list(draft["values"])
+        if len(values) >= len(labels):
+            return self._opening_composition_preview(owner, session, values)
+        try:
+            unknown_new_home = (
+                len(values) == 5
+                and str(text or "").strip().casefold()
+                in {"не знаю", "неизвестно", "?"}
+            )
+            values.append(
+                None if unknown_new_home
+                else self._quantity(text, allow_zero=True)
+            )
+        except (TypeError, ValueError):
+            return self._result("Введите целое число упаковок от 0 до 1 000 000. Неизвестное число не вводите наугад.")
+        draft["values"] = values
+        if len(values) < len(labels):
+            prompts = (
+                "Сколько упаковок новой партии находилось на складах Ozon?",
+                "Сколько упаковок старой партии было в пути?",
+                "Сколько упаковок новой партии было в пути?",
+                "Сколько упаковок старой партии было дома?",
+                "Сколько упаковок новой партии было дома? Если количество неизвестно, введите «не знаю»: бот не добавит его в подтверждённый остаток, а сохранит новую цену с неизвестным количеством.",
+            )
+            return self._result(prompts[len(values) - 1])
+        return self._opening_composition_preview(owner, session, values)
+
+    def _opening_composition_preview(self, owner, session, values):
+        draft = session.get("opening_composition_draft")
+        if (
+            not isinstance(draft, dict)
+            or not isinstance(draft.get("values"), list)
+            or draft.get("values") != values
+            or len(values) != 6
+            or any(type(value) is not int for value in values[:5])
+            or (values[5] is not None and type(values[5]) is not int)
+        ):
+            return self._failure("Состав FIFO заполнен не полностью. Ничего не сохранено.")
+        case = session.get("case")
+        old_cost = case.get("old_unit_cost_rub") if isinstance(case, dict) else None
+        new_cost = case.get("new_unit_cost_rub") if isinstance(case, dict) else None
+        layers = []
+        old_zone = {"ozon_units": values[0], "transit_units": values[2], "home_units": values[4]}
+        new_zone = {
+            "ozon_units": values[1], "transit_units": values[3],
+            # Unknown home stock remains on the open rate; it is not asserted
+            # to be a zero physical balance and is not made a finite layer.
+            "home_units": 0 if values[5] is None else values[5],
+        }
+        layer_labels = []
+        for label, layer_cost, zones in (
+            ("старой", old_cost, old_zone),
+            ("новой", new_cost, new_zone),
+        ):
+            if sum(zones.values()) <= 0:
+                continue
+            layers.append({
+                "sequence": len(layers) + 1,
+                "unit_cost_rub": str(Decimal(str(layer_cost)).quantize(Decimal("0.01"))),
+                **zones,
+            })
+            layer_labels.append(label)
+        if not layers:
+            session.pop("opening_composition_draft", None)
+            session.pop("step", None)
+            return self._failure("Общий остаток равен нулю; начальный состав не сохранён. Проверьте количества и начните заново.")
+        session["opening_composition_preview"] = layers
+        session["opening_composition_preview_fingerprint"] = self._opening_composition_fingerprint(
+            session, draft, values, layers,
+        )
+        session["step"] = "opening_composition_confirm"
+        summary = []
+        for layer, name in zip(layers, layer_labels):
+            summary.append(
+                f"• {name} партии по {layer['unit_cost_rub']} ₽/шт.: Ozon {layer['ozon_units']}, "
+                f"в пути {layer['transit_units']}, дома "
+                + (
+                    "неизвестно; количество не включено в конечный остаток, новая цена остаётся открытой"
+                    if name == "новой" and values[5] is None
+                    else str(layer["home_units"])
+                )
+            )
+        callback = self._issue_ticket(
+            owner, session, "save_opening_composition",
+            opening_composition_fingerprint=session["opening_composition_preview_fingerprint"],
+        )
+        cancel = self._issue_ticket(
+            owner, session, "cancel_opening_composition",
+            opening_composition_fingerprint=session[
+                "opening_composition_preview_fingerprint"
+            ],
+        )
+        return self._result(
+            f"Проверьте состав FIFO на cutoff {session['opening_composition_draft']['cutoff_date']}:\n"
+            + "\n".join(summary)
+            + "\n\nНажмите «Сохранить состав» для записи неподтверждённого черновика. Следующим отдельным действием бот попросит подтвердить его владельцем. "
+            "Число на приёмке в FIFO-слои не добавляется. Неизвестное количество дома также не записывается как ноль или как подтверждённый конечный запас.",
+            keyboard=self._keyboard([
+                {"text": "💾 Сохранить состав", "callback": callback},
+                {"text": "↩️ Отменить ввод", "callback": cancel},
+            ]),
+        )
+
+    def _save_opening_composition(self, owner, session, ticket):
+        draft = session.get("opening_composition_draft")
+        layers = session.get("opening_composition_preview")
+        current_fingerprint = session.get("opening_composition_preview_fingerprint")
+        if (
+            not isinstance(draft, dict) or not isinstance(layers, list)
+            or len(draft.get("values", ())) != 6
+            or not isinstance(current_fingerprint, str)
+            or ticket.get("opening_composition_fingerprint") != current_fingerprint
+            or current_fingerprint != self._opening_composition_fingerprint(
+                session, draft, draft["values"], layers,
+            )
+        ):
+            return self._stale()
+        cutoff = self.transition_service.read_confirmed_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if not isinstance(cutoff, dict) or cutoff.get("error") is not False or any((
+            cutoff.get("evidence_id") != draft.get("cutoff_evidence_id"),
+            cutoff.get("evidence_fingerprint") != draft.get("cutoff_evidence_fingerprint"),
+            cutoff.get("stock_report_fingerprint") != draft.get("stock_report_fingerprint"),
+        )):
+            return self._failure("Cutoff или отчёт изменился. Состав не сохранён; откройте дело и проверьте данные заново.")
+        saved = self.transition_service.record_opening_composition(
+            case_id=session["case_id"], **session["identity"],
+            cutoff_evidence_id=draft["cutoff_evidence_id"],
+            cutoff_evidence_fingerprint=draft["cutoff_evidence_fingerprint"],
+            stock_report_fingerprint=draft["stock_report_fingerprint"],
+            layers=[dict(layer) for layer in layers],
+            unknown_new_home_quantity=draft["values"][5] is None,
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "opening-record", session, draft["cutoff_evidence_fingerprint"],
+                layers, draft["values"][5] is None,
+            ),
+        )
+        if not isinstance(saved, dict) or saved.get("error") is not False:
+            return self._failure("Состав не сохранён: дело, cutoff или отчёт изменились. FIFO не менялась.")
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Черновик состава записан, но карточку не удалось перечитать. Откройте дело и проверьте подтверждение.")
+        self._refresh_session(session, case)
+        for key in (
+            "opening_composition_draft", "opening_composition_preview",
+            "opening_composition_preview_fingerprint", "step",
+        ):
+            session.pop(key, None)
+        session["opening_composition_pending"] = {
+            "evidence_id": saved.get("evidence_id"),
+            "evidence_fingerprint": saved.get("payload_fingerprint"),
+            "composition_fingerprint": saved.get("source_fingerprint"),
+        }
+        callback = self._issue_ticket(
+            owner, session, "confirm_opening_composition",
+            evidence_id=saved.get("evidence_id"),
+            evidence_fingerprint=saved.get("payload_fingerprint"),
+        )
+        return self._result(
+            "Черновик состава сохранён зашифрованно и пока не считается подтверждённым. "
+            "Проверьте указанные партии, зоны и количества; подтвердите отдельно.",
+            keyboard=self._keyboard([
+                {"text": "✅ Подтвердить состав владельцем", "callback": callback},
+                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    def _confirm_opening_composition(self, owner, session, ticket):
+        pending = session.get("opening_composition_pending")
+        if not isinstance(pending, dict) or any((
+            pending.get("evidence_id") != ticket.get("evidence_id"),
+            pending.get("evidence_fingerprint") != ticket.get("evidence_fingerprint"),
+        )):
+            return self._stale()
+        result = self.transition_service.confirm_opening_composition(
+            case_id=session["case_id"], **session["identity"],
+            evidence_id=pending["evidence_id"],
+            expected_evidence_fingerprint=pending["evidence_fingerprint"],
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "opening-confirm", session, pending["evidence_fingerprint"],
+            ),
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._failure("Состав не подтверждён: evidence устарело или изменилась редакция дела. Повторно проверьте данные.")
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Подтверждение записано, но дело не удалось перечитать. Откройте его повторно.")
+        self._refresh_session(session, case)
+        for key in (
+            "opening_composition_pending", "opening_composition_draft",
+            "opening_composition_preview", "opening_composition_preview_fingerprint",
+            "step",
+        ):
+            session.pop(key, None)
+        return self._show_summary(owner)
+
+    def _opening_composition_fingerprint(self, session, draft, values, layers):
+        material = json.dumps(
+            {
+                "case_id": session.get("case_id"),
+                "identity": session.get("identity"),
+                "cutoff_evidence_id": draft.get("cutoff_evidence_id"),
+                "cutoff_evidence_fingerprint": draft.get("cutoff_evidence_fingerprint"),
+                "stock_report_fingerprint": draft.get("stock_report_fingerprint"),
+                "cutoff_date": draft.get("cutoff_date"),
+                "values": values,
+                "layers": layers,
+            },
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        )
+        return self._fingerprint("fifo-opening-composition-v1", material)
+
+    def _handle_finance_identity_period_text(self, owner, session, text):
+        import re
+        match = re.fullmatch(r"\s*(\d{4}-\d{2})\s*(?:-|—|–)\s*(\d{4}-\d{2})\s*", str(text or ""))
+        if not match:
+            return self._result("Введите два месяца в формате ГГГГ-ММ — ГГГГ-ММ. Например: 2026-08 — 2026-10.")
+        try:
+            from calendar import monthrange
+            start_year, start_month = map(int, match.group(1).split("-"))
+            end_year, end_month = map(int, match.group(2).split("-"))
+            start = date(start_year, start_month, 1)
+            end = date(end_year, end_month, monthrange(end_year, end_month)[1])
+        except (ValueError, OverflowError):
+            return self._result("Месяц не распознан. Используйте формат ГГГГ-ММ — ГГГГ-ММ.")
+        if end < start:
+            return self._result("Последний месяц не может быть раньше первого. Дело не изменено.")
+        session["finance_identity_period"] = (start.isoformat(), end.isoformat())
+        session.pop("finance_identity_continuation", None)
+        return self._collect_finance_identity(owner, session, continuation=False)
+
+    def _collect_finance_identity(self, owner, session, *, continuation):
+        service = self.source_collection_service
+        evidence = self.evidence_service
+        period = session.get("finance_identity_period")
+        if service is None or evidence is None or not isinstance(period, tuple) or len(period) != 2:
+            return self._failure("Сбор финансовых привязок недоступен. Дело не изменено.")
+        continuation_token = session.get("finance_identity_continuation")
+        if continuation != bool(continuation_token):
+            return self._stale()
+        case = session.get("case")
+        metadata = case.get("metadata") if isinstance(case, dict) else None
+        timezone_name = metadata.get("store_timezone") if isinstance(metadata, dict) else None
+        tenant_owner, _store = split_store_tenant_scope(session["tenant"])
+        try:
+            scope = ScopeIdentity(
+                owner_id=tenant_owner,
+                store_id=session["identity"]["store_id"],
+                product_id=session["identity"].get("product_id"),
+                offer_id=session["identity"].get("offer_id"),
+                sku=session["identity"]["sku"],
+            )
+            collected = service.collect_finance_identity_snapshot(
+                scope=scope, period_from=period[0], period_to=period[1],
+                transition_case_id=session["case_id"],
+                transition_case_revision=session["case_revision"],
+                store_timezone=timezone_name,
+                continuation_token=continuation_token,
+                max_pages_per_call=2, http_attempt_budget=10,
+                time_budget_seconds=20.0,
+            )
+        except Exception:
+            return self._failure("Ozon не удалось прочитать в установленном лимите. Сохранённые сведения не изменены.")
+        if collected is None or getattr(collected, "status", None) not in {
+            "COMPLETE", "PARTIAL", "UNAVAILABLE", "CONFLICT", "INVALID",
+        }:
+            return self._failure("Источник вернул неподдерживаемый ответ. Дело не изменено.")
+        batches = getattr(collected, "finance_identity_snapshots", ())
+        continuation = getattr(collected, "continuation_token", None)
+        if continuation:
+            session["finance_identity_continuation"] = continuation
+            callback = self._issue_ticket(owner, session, "continue_finance_identity")
+            issues = ", ".join(getattr(collected, "issue_codes", ())[:4]) or "предел шага достигнут"
+            return self._result(
+                f"Прочитаны месяцы финансового отчёта не полностью: попыток {getattr(collected, 'actual_http_attempts', 0)}; {issues}. "
+                "Продолжить можно безопасно: незаконченные месяцы не будут считаться полными.",
+                keyboard=self._keyboard([{"text": "➡️ Продолжить чтение", "callback": callback}]),
+            )
+        if getattr(collected, "status", None) not in {"COMPLETE", "PARTIAL"}:
+            session.pop("finance_identity_continuation", None)
+            session.pop("finance_identity_period", None)
+            status = getattr(collected, "status", None)
+            if status == "UNAVAILABLE":
+                reason = "Источник временно недоступен"
+            elif status == "INVALID":
+                reason = "Период или ответ источника некорректен"
+            else:
+                reason = "Источник вернул конфликт данных"
+            return self._result(
+                f"{reason}. Финансовые привязки не сохранены; "
+                "проверьте период и повторите сбор позже."
+            )
+        if not isinstance(batches, tuple) or not batches:
+            session.pop("finance_identity_continuation", None)
+            session.pop("finance_identity_period", None)
+            return self._result(
+                "Не удалось получить ни одного полного месячного ответа. Финансовая привязка не сохранена; "
+                "проверьте период позже. Возвраты и статусы не используются как замена финансовым строкам."
+            )
+        complete = getattr(collected, "status", None) == "COMPLETE"
+        try:
+            saved = evidence.record_finance_identity_batches(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                batches=batches, requested_period_from=period[0],
+                requested_period_to=period[1], source_complete=complete,
+                expected_case_revision=session["case_revision"],
+                idempotency_key=self._stable_action_key(
+                    "finance-identity", session,
+                    period[0], period[1], getattr(collected, "source_fingerprint", None),
+                ),
+            )
+        except Exception:
+            saved = {"error": True}
+        if not isinstance(saved, dict) or saved.get("error") is not False:
+            return self._failure("Финансовая привязка не сохранена: редакция дела или область источника изменились.")
+        fresh = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(fresh, dict) or fresh.get("error") is not False:
+            return self._failure("Доказательство сохранено, но карточку не удалось перечитать. Откройте дело повторно.")
+        self._refresh_session(session, fresh)
+        session.pop("finance_identity_continuation", None)
+        session.pop("finance_identity_period", None)
+        session.pop("step", None)
+        summary = self._show_summary(owner)
+        summary["message"] = (
+            f"Финансовые строки сохранены: месяцев {len(batches)}, строк {sum(len(batch.rows) for batch in batches)}, "
+            f"статус источника {'полный' if complete else 'частичный'}; попыток {getattr(collected, 'actual_http_attempts', 0)}.\n\n"
+            + summary.get("message", "")
+        )
+        return summary
+
+    def _collect_period_summaries(self, owner, session, *, continuation):
+        collector = self.period_summary_collection_service
+        if (
+            collector is None or self.apply_service is None
+            or self.period_profit_service is None
+        ):
+            return self._failure("Сбор финансовых итогов временно недоступен. Дело не изменено.")
+        token = session.get("period_summary_continuation")
+        if continuation != bool(token):
+            return self._stale()
+        if not continuation:
+            session["period_summary_reconstruction_key"] = self._stable_action_key(
+                "period-summary-reconstruction", session,
+                session["case_revision"],
+            )
+        reconstruction_key = session.get("period_summary_reconstruction_key")
+        if not isinstance(reconstruction_key, str):
+            return self._stale()
+        try:
+            result = self.apply_service.collect_period_summaries(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                expected_case_revision=session["case_revision"],
+                summary_collection_service=collector,
+                period_profit_service=self.period_profit_service,
+                idempotency_key=reconstruction_key,
+                continuation_token=token,
+            )
+        except Exception:
+            return self._failure("Не удалось собрать финансовые итоги в ограниченном режиме. Дело не изменено.")
+        if not isinstance(result, dict) or result.get("error") is not False:
+            requirements = result.get("requirements") if isinstance(result, dict) else None
+            detail = ", ".join(str(value) for value in requirements[:5]) if isinstance(requirements, (tuple, list)) else None
+            code = result.get("code") if isinstance(result, dict) else None
+            return self._result(
+                "Месячные итоги пока не собраны: " + (detail or str(code or "нужны подтверждённые источники"))
+                + ". FIFO и прибыль не изменены. Сначала добавьте или подтвердите перечисленные источники."
+            )
+        revision = result.get("current_case_revision")
+        if type(revision) is not int:
+            return self._failure("Источник не вернул текущую редакцию дела. Финансовые итоги не применены к FIFO.")
+        fresh = self._read_case(session["case_id"], session["identity"])
+        if (
+            not isinstance(fresh, dict) or fresh.get("error") is not False
+            or fresh.get("case_revision") != revision
+        ):
+            return self._failure("Данные сохранены частично, но редакция дела изменилась. Откройте его заново и проверьте готовность.")
+        self._refresh_session(session, fresh)
+        continuation_token = result.get("continuation_token")
+        if continuation_token:
+            session["period_summary_continuation"] = continuation_token
+            callback = self._issue_ticket(owner, session, "continue_period_summaries")
+        else:
+            session.pop("period_summary_continuation", None)
+            session.pop("period_summary_reconstruction_key", None)
+            callback = None
+        status_text = (
+            f"Завершено периодов в этом шаге: {result.get('periods_complete_this_call', 0)} из {result.get('periods_total', 0)}; "
+            f"дней прочитано: {result.get('days_collected_this_call', 0)}; "
+            f"запросов Ozon: {result.get('actual_http_attempts', 0)} из {result.get('http_attempt_cap', 0)}."
+        )
+        issue = result.get("issue_code")
+        if issue:
+            status_text += f"\nНеполный источник: {issue}."
+        if callback:
+            return self._result(
+                "Сбор месячных финансовых итогов продолжается. " + status_text,
+                keyboard=self._keyboard([{"text": "➡️ Продолжить сбор", "callback": callback}]),
+            )
+        summary = self._show_summary(owner)
+        summary["message"] = "Сбор месячных финансовых итогов завершён. " + status_text + "\n\n" + summary.get("message", "")
+        return summary
 
     def _handle_supplier_receiving_text(self, owner, session, text):
         report = session.get("supplier_receiving_report")
@@ -1095,11 +1602,15 @@ class TelegramFifoCostTransitionRuntimeService:
             {"text": "📦 Добавить отчёт по остаткам", "callback": self._issue_ticket(owner, session, "report_stock")},
             {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
             {"text": "🧾 Добавить подтверждение физических продаж", "callback": self._issue_ticket(owner, session, "physical_sales")},
+            {"text": "🧾 Задать начальный состав FIFO", "callback": self._issue_ticket(owner, session, "opening_composition")},
+            {"text": "🔗 Собрать финансовые привязки", "callback": self._issue_ticket(owner, session, "collect_finance_identity")},
+            {"text": "📊 Собрать месячные итоги Period Profit", "callback": self._issue_ticket(owner, session, "collect_period_summaries")},
             {"text": "Продолжить без отчётов", "callback": self._issue_ticket(owner, session, "finish")},
         ]
         return self._result(
             "Можно добавить оборотную ведомость, отчёт по остаткам и отдельно известные физические продажи. "
-            "Периоды файлов бот попросит подтвердить отдельно; отсутствие отчёта не удаляет уже введённые сведения.",
+            "Периоды файлов бот попросит подтвердить отдельно; отсутствие отчёта не удаляет уже введённые сведения. "
+            "Полное покрытие складских движений пока не подтверждается текущим источником Ozon: список возвратов не заменяет журнал всех движений, поэтому неполные данные останутся заблокированными.",
             keyboard=self._keyboard(buttons),
         )
 
@@ -1179,6 +1690,9 @@ class TelegramFifoCostTransitionRuntimeService:
                 {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
                 {"text": "📄 Добавить отчёт", "callback": self._issue_ticket(owner, session, "reports")},
                 {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
+                {"text": "🧾 Задать начальный состав FIFO", "callback": self._issue_ticket(owner, session, "opening_composition")},
+                {"text": "🔗 Собрать финансовые привязки", "callback": self._issue_ticket(owner, session, "collect_finance_identity")},
+                {"text": "📊 Собрать месячные итоги Period Profit", "callback": self._issue_ticket(owner, session, "collect_period_summaries")},
             ])
         buttons.extend([
             {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},

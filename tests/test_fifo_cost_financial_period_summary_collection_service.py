@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+from cryptography.fernet import Fernet
+
 from services.fifo_cost_cutoff_bridge_service import (
     FifoFinanceSaleIdentity,
     FifoFinanceSaleIdentityBatch,
@@ -10,6 +12,8 @@ from services.fifo_cost_financial_period_summary_collection_service import (
 from services.fifo_cost_sale_evidence_normalizer import (
     FifoCostSaleEvidenceNormalizer,
 )
+from services.fifo_cost_history_service import FifoCostHistoryService
+from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
     EvidenceSourceKind,
@@ -17,8 +21,17 @@ from services.fifo_cost_transition_contracts import (
     SourceProof,
     TransitionMetadata,
 )
+from services.fifo_cost_transition_evidence_service import (
+    FifoCostTransitionEvidenceService,
+)
+from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.ozon_account_repository import make_store_tenant_scope
 from services.period_profit_operation_diagnostics import (
     current_period_profit_trace,
+)
+from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.telegram_fifo_cost_transition_runtime_service import (
+    TelegramFifoCostTransitionRuntimeService,
 )
 
 
@@ -59,6 +72,48 @@ def _finance_batch():
             financial_period=PERIOD,
         ),),
     )
+
+
+def _multi_month_inputs():
+    batch = _finance_batch()
+    rows = tuple(
+        FifoFinanceSaleIdentity(
+            posting_number=f"synthetic-posting-{period}",
+            finance_sku=IDENTITY["sku"], offer_id=IDENTITY["offer_id"],
+            product_id=IDENTITY["product_id"], financial_period=period,
+        )
+        for period in ("2026-10", "2026-11")
+    )
+    batch = FifoFinanceSaleIdentityBatch(
+        metadata=batch.metadata, source_fingerprint=batch.source_fingerprint,
+        period_from="2026-10-01", period_to="2026-11-30",
+        source_as_of=batch.source_as_of, proof=batch.proof, rows=rows,
+    )
+    digests = {
+        row.financial_period: FifoCostSaleEvidenceNormalizer.build_identity_digest(
+            store_id=IDENTITY["store_id"], posting_number=row.posting_number,
+            finance_sku=IDENTITY["sku"], identity={
+                "mapping_confirmed": True, "offer_id": IDENTITY["offer_id"],
+                "product_id": IDENTITY["product_id"],
+            },
+        )["source_identity_digest"]
+        for row in rows
+    }
+    reconstruction = {
+        "error": False, "code": "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+        "before_complete": True, "preview_fingerprint": "b" * 64,
+        "sale_identity_digests_by_event": {
+            f"event-{period}": digest for period, digest in digests.items()
+        },
+        "before_allocations": [
+            {
+                "event_id": f"event-{period}",
+                "total_cost_rub": "43.40" if period == "2026-10" else "42.00",
+            }
+            for period in digests
+        ],
+    }
+    return reconstruction, batch
 
 
 def _inputs():
@@ -114,10 +169,17 @@ class _FinanceCache:
 class _Evidence:
     def __init__(self):
         self.saved = []
+        self.case_revision = 3
 
     def record_period_profit_summary(self, **kwargs):
+        if kwargs["expected_case_revision"] != self.case_revision:
+            return {"error": True, "code": "FIFO_TRANSITION_REVISION_CONFLICT"}
         self.saved.append(kwargs)
-        return {"error": False, "code": "FIFO_PERIOD_SUMMARY_SNAPSHOT_SAVED"}
+        self.case_revision += 1
+        return {
+            "error": False, "code": "FIFO_PERIOD_SUMMARY_SNAPSHOT_SAVED",
+            "case_revision": self.case_revision,
+        }
 
 
 def _reader(start, end, products):
@@ -151,10 +213,15 @@ def _reader(start, end, products):
 
 
 def _collect(service, evidence, *, token=None, reader=_reader, reconstruction=None,
-             finance=None, products=None):
+             finance=None, products=None, expected_case_revision=None,
+             existing_summaries=()):
     default_reconstruction, policy, default_products = _inputs()
     return service.collect(
-        case_id="case-fr20-1", identity=IDENTITY, expected_case_revision=3,
+        case_id="case-fr20-1", identity=IDENTITY,
+        expected_case_revision=(
+            evidence.case_revision if expected_case_revision is None
+            else expected_case_revision
+        ),
         reconstruction=reconstruction or default_reconstruction,
         finance_batch=finance or _finance_batch(),
         products=products or default_products,
@@ -162,6 +229,7 @@ def _collect(service, evidence, *, token=None, reader=_reader, reconstruction=No
         summary_reader=reader,
         finance_service=_FinanceCache(), evidence_service=evidence,
         continuation_token=token,
+        existing_summaries=existing_summaries,
     )
 
 
@@ -303,6 +371,155 @@ def test_continuation_is_bound_to_revision_and_rejects_cross_case_reuse():
     assert second["error"] is True
     assert second["code"] == "FIFO_PERIOD_SUMMARY_CONTINUATION_SCOPE_MISMATCH"
     assert evidence.saved == []
+
+
+def test_multiple_month_snapshots_advance_case_revision_between_months():
+    reconstruction, finance = _multi_month_inputs()
+    evidence = _Evidence()
+    service = FifoCostFinancialPeriodSummaryCollectionService()
+    result = _collect(
+        service, evidence, reconstruction=reconstruction, finance=finance,
+    )
+    for _ in range(40):
+        token = result.get("continuation_token")
+        if not token:
+            break
+        result = _collect(
+            service, evidence, token=token, reconstruction=reconstruction,
+            finance=finance,
+        )
+
+    assert result["status"] == "COMPLETE", (
+        result.get("issue_code"), result.get("current_case_revision"),
+        result.get("days_collected_this_call"), result.get("periods_complete_this_call"),
+    )
+    assert result["current_case_revision"] == 5
+    assert [
+        item["summary"].as_impact_summary()["period"]
+        for item in evidence.saved
+    ] == ["2026-10", "2026-11"]
+    assert [item["expected_case_revision"] for item in evidence.saved] == [3, 4]
+    assert evidence.case_revision == 5
+
+
+def test_continuation_rejects_owner_revision_change_after_partial_collection():
+    service = FifoCostFinancialPeriodSummaryCollectionService()
+    evidence = _Evidence()
+    first = _collect(service, evidence)
+    assert first["continuation_token"]
+    assert first["current_case_revision"] == 3
+
+    # Simulate another owner action appending a case revision between calls.
+    evidence.case_revision = 4
+    reader_calls = []
+
+    def reader(*args):
+        reader_calls.append(args)
+        return _reader(*args)
+
+    resumed = _collect(
+        service, evidence, token=first["continuation_token"], reader=reader,
+        expected_case_revision=4,
+    )
+
+    assert resumed["error"] is True
+    assert resumed["code"] == "FIFO_TRANSITION_REVISION_CONFLICT"
+    assert reader_calls == []
+    assert evidence.saved == []
+
+
+def test_multi_month_collection_persists_through_real_case_revision_cas(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    tenant = set_current_tenant_user_id(
+        make_store_tenant_scope("owner-fr20", IDENTITY["store_id"]),
+    )
+    database = tmp_path / "multi-month-period-summary.sqlite"
+    try:
+        repository = FifoCostRepository(db_path=database)
+        history = FifoCostHistoryService(repository)
+        transition = FifoCostTransitionService(repository)
+        runtime = TelegramFifoCostTransitionRuntimeService(transition, history)
+        created = runtime.start_new_case(
+            101, IDENTITY, "Synthetic FR20 Multi-Month", 0, "TOTAL_LANDED",
+        )
+        assert created["error"] is False, created
+        case_id = runtime._sessions["101"]["case_id"]
+        evidence = FifoCostTransitionEvidenceService(transition)
+        collector = FifoCostFinancialPeriodSummaryCollectionService()
+        reconstruction, finance = _multi_month_inputs()
+        policy = _inputs()[1]
+        products = _inputs()[2]
+        case = transition.get_case(case_id=case_id, **IDENTITY)
+        assert case["error"] is False, case
+        expected_revision = case["case_revision"]
+        token = None
+        result = None
+        restarted_after_snapshot = False
+        for _ in range(40):
+            result = collector.collect(
+                case_id=case_id, identity=IDENTITY,
+                expected_case_revision=expected_revision,
+                reconstruction=reconstruction, finance_batch=finance,
+                products=products, tax_policy_result=policy,
+                summary_reader=_reader, finance_service=_FinanceCache(),
+                evidence_service=evidence, continuation_token=token,
+            )
+            assert result["error"] is False, result
+            expected_revision = result["current_case_revision"]
+            token = result["continuation_token"]
+            if token is None:
+                break
+            current = transition.get_case(case_id=case_id, **IDENTITY)
+            assert current["error"] is False, current
+            loaded = evidence.load(
+                case_id=case_id, identity=IDENTITY,
+                expected_case_revision=current["case_revision"],
+            )
+            assert loaded["error"] is False, loaded
+            if len(loaded["bundle"].period_summaries) == 1:
+                # Simulate a process restart after October was durably frozen.
+                # A fresh collector has no in-memory continuation checkpoint;
+                # it must replay October for verification without appending it.
+                expected_revision = current["case_revision"]
+                existing_summaries = loaded["bundle"].period_summaries
+                collector = FifoCostFinancialPeriodSummaryCollectionService()
+                restarted_after_snapshot = True
+                token = None
+                for _ in range(40):
+                    result = collector.collect(
+                        case_id=case_id, identity=IDENTITY,
+                        expected_case_revision=expected_revision,
+                        reconstruction=reconstruction, finance_batch=finance,
+                        products=products, tax_policy_result=policy,
+                        summary_reader=_reader, finance_service=_FinanceCache(),
+                        evidence_service=evidence,
+                        existing_summaries=existing_summaries,
+                        continuation_token=token,
+                    )
+                    assert result["error"] is False, result
+                    expected_revision = result["current_case_revision"]
+                    token = result["continuation_token"]
+                    if token is None:
+                        break
+                break
+
+        assert restarted_after_snapshot is True
+        assert result["status"] == "COMPLETE", result
+        current = transition.get_case(case_id=case_id, **IDENTITY)
+        assert current["case_revision"] == 3
+        loaded = evidence.load(
+            case_id=case_id, identity=IDENTITY,
+            expected_case_revision=current["case_revision"],
+        )
+        assert loaded["error"] is False, loaded
+        summaries = loaded["bundle"].period_summaries
+        assert [summary.period_from[:7] for summary in summaries] == [
+            "2026-10", "2026-11",
+        ]
+    finally:
+        reset_current_tenant_user_id(tenant)
 
 
 def test_collection_rejects_non_month_finance_identity_rows():
