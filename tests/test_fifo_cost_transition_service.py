@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from threading import Barrier
 
 from cryptography.fernet import Fernet
+import pytest
 
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_repository import FifoCostRepository
@@ -11,12 +12,16 @@ from services.fifo_cost_transition_contracts import (
     CostInputMode,
     EvidenceCompleteness,
     EvidenceSourceKind,
+    PeriodProvenance,
+    ReportEvidence,
+    ReportType,
     ScopeIdentity,
     TransitionCase,
     TransitionMetadata,
     TransitionReasonCode,
     TransitionState,
     UnknownValue,
+    source_fingerprint,
 )
 from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.ozon_account_repository import make_store_tenant_scope
@@ -224,6 +229,193 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path, monkeypa
             assert connection.execute(
                 "SELECT COUNT(*) FROM fifo_cost_transition_case_revisions"
             ).fetchone()[0] == 5
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+@pytest.mark.parametrize("reported_reserved", [0, None], ids=["reported", "owner-confirmed"])
+@pytest.mark.parametrize(
+    "supplier_receiving_units", [None, 0, 148],
+    ids=["unreported", "owner-confirmed-zero", "owner-confirmed-148"],
+)
+def test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new(
+    tmp_path, monkeypatch, reported_reserved, supplier_receiving_units,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        repository, service = _service(tmp_path)
+        case = replace(
+            _case(), owner_old_home_units=3, new_home_quantity=2,
+            declared_shipped_units=100, unknown_values={},
+        )
+        created = service.create_case(case=case, idempotency_key="fr17-case-0001")
+        assert created["error"] is False
+        stock_report = ReportEvidence(
+            metadata=TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_IMPORTED,
+                completeness=EvidenceCompleteness.COMPLETE,
+                source_fingerprint=source_fingerprint("fr17-stock-source"),
+                store_timezone="Europe/Moscow",
+            ),
+            report_type=ReportType.STOCK_MANAGEMENT,
+            period_from="2026-11-06",
+            period_to="2026-11-06",
+            period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+            captured_at="2026-11-07T18:00:00Z",
+            file_sha256=source_fingerprint("fr17-stock-file"),
+            parser_version="stock-test-v1",
+            cell_references=("A1",),
+            normalized_fields={
+                "stock_buckets": {
+                        "available": 100, "reserved": reported_reserved,
+                    "preparing": 0, "checking": 0,
+                },
+                "fbs_return_available_units": 0,
+                "fbs_return_is_subset_of_available": True,
+            },
+        )
+        saved_report = repository.append_report_evidence(
+            case_id=case.case_id, report=stock_report,
+            expected_case_revision=1, idempotency_key="fr17-report-0001",
+        )
+        assert saved_report["error"] is False, saved_report
+
+        cutoff = service.record_cutoff_selection(
+            case_id=case.case_id, **IDENTITY,
+            cutoff_date="2026-11-06",
+            stock_report_fingerprint=stock_report.file_sha256,
+            supplier_receiving_units=supplier_receiving_units,
+            expected_case_revision=saved_report["case_revision"],
+            idempotency_key="fr17-cutoff-0001",
+        )
+        assert cutoff["error"] is False, cutoff
+        stored_cutoff = repository.read_transition_bridge_evidence(
+            case_id=case.case_id, **IDENTITY,
+            evidence_kind="CUTOFF_SELECTION", evidence_id=cutoff["evidence_id"],
+            limit=1,
+        )["items"][0]
+        assert stored_cutoff["completeness"] == "PARTIAL"
+        assert stored_cutoff["payload"]["selected_event_count"] is None
+        cutoff_confirmed = service.confirm_cutoff_selection(
+            case_id=case.case_id, **IDENTITY,
+            evidence_id=cutoff["evidence_id"],
+            expected_evidence_fingerprint=cutoff["payload_fingerprint"],
+            expected_case_revision=cutoff["case_revision"],
+            idempotency_key="fr17-cutoff-confirm-0001",
+        )
+        assert cutoff_confirmed["error"] is False, cutoff_confirmed
+        durable_cutoff = service.read_confirmed_cutoff_selection(
+            case_id=case.case_id, **IDENTITY,
+        )
+        assert durable_cutoff["error"] is False, durable_cutoff
+        assert durable_cutoff["descriptor"] == {
+            "cutoff_date": "2026-11-06",
+            "timezone": "Europe/Moscow",
+            "precision": "STORE_LOCAL_DATE",
+            "boundary": "END_OF_LOCAL_DATE",
+        }
+        assert durable_cutoff["owner_confirmed_supplier_receiving_units"] == (
+            supplier_receiving_units
+        )
+
+        layers = [
+            {
+                "sequence": 1, "unit_cost_rub": "21.00",
+                "ozon_units": 0, "transit_units": 0, "home_units": 3,
+            },
+            {
+                "sequence": 2, "unit_cost_rub": "14.65",
+                "ozon_units": 100, "transit_units": 0, "home_units": 2,
+            },
+        ]
+        composition = service.record_opening_composition(
+            case_id=case.case_id, **IDENTITY,
+            cutoff_evidence_id=cutoff["evidence_id"],
+            cutoff_evidence_fingerprint=cutoff["payload_fingerprint"],
+            stock_report_fingerprint=stock_report.file_sha256,
+            layers=layers,
+            unknown_new_home_quantity=False,
+            new_home_quantity=2,
+            new_party_transit_units=7,
+            expected_case_revision=cutoff_confirmed["case_revision"],
+            idempotency_key="fr17-opening-0001",
+        )
+        assert composition["error"] is False, composition
+        invalid_ozon_units = 200 if reported_reserved == 0 else 99
+        rejected_mismatch = service.record_opening_composition(
+            case_id=case.case_id, **IDENTITY,
+            cutoff_evidence_id=cutoff["evidence_id"],
+            cutoff_evidence_fingerprint=cutoff["payload_fingerprint"],
+            stock_report_fingerprint=stock_report.file_sha256,
+            layers=[layers[0], {**layers[1], "ozon_units": invalid_ozon_units}],
+            expected_case_revision=composition["case_revision"],
+            idempotency_key="fr17-opening-mismatch-0001",
+        )
+        assert rejected_mismatch["code"] == "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
+        assert repository.read_transition_case(case_id=case.case_id, **IDENTITY)[
+            "case_revision"
+        ] == composition["case_revision"]
+
+        confirmed = service.confirm_opening_composition(
+            case_id=case.case_id, **IDENTITY,
+            evidence_id=composition["evidence_id"],
+            expected_evidence_fingerprint=composition["payload_fingerprint"],
+            expected_case_revision=composition["case_revision"],
+            idempotency_key="fr17-opening-confirm-0001",
+        )
+        assert confirmed["error"] is False, confirmed
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_events"
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+
+        restarted = FifoCostTransitionService(repository)
+        durable_composition = restarted.read_confirmed_opening_composition(
+            case_id=case.case_id, **IDENTITY,
+        )
+        assert durable_composition["error"] is False, durable_composition
+        assert durable_composition["layers"] == layers
+        assert durable_composition["unknown_new_home_quantity"] is False
+        assert durable_composition["total_units"] == 105
+        assert durable_composition["new_home_quantity"] == 2
+        assert durable_composition["new_party_transit_units"] == 7
+        assert durable_composition["owner_confirmed_total_ozon_units"] == 100
+        assert durable_composition["owner_confirmed_reserved_units"] == 0
+        assert durable_composition["reserved_source"] == (
+            "OWNER_CONFIRMED_OPENING_COMPOSITION"
+            if reported_reserved is None else "OZON_STOCK_REPORT"
+        )
+        assert durable_composition["opening_date"] == "2026-11-06"
+        assert durable_composition["preview_only"] is True
+        assert stock_report.normalized_fields["stock_buckets"]["reserved"] == reported_reserved
+
+        revised = restarted.update_owner_inputs(
+            case_id=case.case_id, **IDENTITY,
+            expected_revision=confirmed["case_revision"],
+            updates={"owner_old_home_units": 4},
+            idempotency_key="fr17-owner-basis-revision",
+        )
+        assert revised["error"] is False, revised
+        assert restarted.read_confirmed_cutoff_selection(
+            case_id=case.case_id, **IDENTITY,
+        )["code"] == "FIFO_CUTOFF_SELECTION_STALE"
+        assert restarted.read_confirmed_opening_composition(
+            case_id=case.case_id, **IDENTITY,
+        )["error"] is True
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_events"
+            ).fetchone()[0] == 0
         finally:
             connection.close()
     finally:

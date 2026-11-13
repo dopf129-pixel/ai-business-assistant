@@ -119,6 +119,8 @@ class PeriodProfitFifoExplanationViewService:
                     "cutoff_date": None,
                     "stream_revision": None,
                     "allocation_revision": None,
+                    "cutoff_mapping_revision": None,
+                    "cutoff_mapping_complete_through": None,
                     "layers": [],
                     "corrections": {"status": "NOT_APPLICABLE", "reason_code": None, "revisions": []},
                 })
@@ -138,6 +140,8 @@ class PeriodProfitFifoExplanationViewService:
                     "cutoff_date": None,
                     "stream_revision": None,
                     "allocation_revision": None,
+                    "cutoff_mapping_revision": None,
+                    "cutoff_mapping_complete_through": None,
                     "layers": [],
                     "corrections": {"status": "UNKNOWN", "reason_code": "PERIOD_COST_MODE_UNKNOWN", "revisions": []},
                 })
@@ -167,6 +171,10 @@ class PeriodProfitFifoExplanationViewService:
             if item.get("cost_mode") in {"FIFO", "MIXED_CUTOFF"}
             and item.get("cutoff_date")
         })
+        complete_through_dates = sorted({
+            item["cutoff_mapping_complete_through"] for item in products
+            if item.get("cutoff_mapping_complete_through")
+        })
         result = {
             "schema_version": 1,
             "cost_mode": mode,
@@ -179,6 +187,7 @@ class PeriodProfitFifoExplanationViewService:
             "confirmed_fifo_sku_count": complete_fifo_rows,
             "mixed_cutoff_sku_count": mixed_cutoff_rows,
             "cutoff_dates": cutoff_dates,
+            "cutoff_mapping_complete_through_dates": complete_through_dates,
             "products": products,
             "read_only": True,
             "executed": False,
@@ -227,6 +236,9 @@ class PeriodProfitFifoExplanationViewService:
                     "fifo_allocation_revision": item.get("allocation_revision"),
                     "fifo_cutoff_date": item.get("cutoff_date"),
                     "fifo_cutoff_mapping_revision": item.get("cutoff_mapping_revision"),
+                    "fifo_cutoff_mapping_complete_through": item.get(
+                        "cutoff_mapping_complete_through",
+                    ),
                     "fifo_cutoff_bridge_fingerprint": item.get("cutoff_bridge_fingerprint"),
                     "fifo_cost_explanation": {
                         "cost_mode": "FIFO",
@@ -235,6 +247,10 @@ class PeriodProfitFifoExplanationViewService:
                         "cutoff_date": item.get("cutoff_date"),
                         "stream_revision": item.get("stream_revision"),
                         "allocation_revision": item.get("allocation_revision"),
+                        "cutoff_mapping_revision": item.get("cutoff_mapping_revision"),
+                        "cutoff_mapping_complete_through": item.get(
+                            "cutoff_mapping_complete_through",
+                        ),
                         "layers": item.get("layers"),
                         "corrections": item.get("corrections"),
                     },
@@ -259,6 +275,13 @@ class PeriodProfitFifoExplanationViewService:
             + ", " + cls._money_text(explanation.get("fifo_cogs_rub"))
             + "; " + status + "; cutoff " + cutoff_text + "."
         )
+        through_dates = explanation.get("cutoff_mapping_complete_through_dates")
+        through_text = (
+            ", ".join(through_dates)
+            if isinstance(through_dates, list) and through_dates
+            else "не подтверждено"
+        )
+        line += " Покрытие моста отсечки до " + through_text + "."
         if explanation.get("cost_mode") == "MIXED":
             if explanation.get("mixed_cutoff_sku_count"):
                 line += " Для части SKU стоимость объединяет датированную историю до cutoff и FIFO после него."
@@ -300,7 +323,10 @@ class PeriodProfitFifoExplanationViewService:
                 lines.append(
                     "Cutoff " + str(product.get("cutoff_date") or "не подтверждён")
                     + "; stream rev " + cls._revision_text(product.get("stream_revision"))
-                    + "; allocation rev " + cls._revision_text(product.get("allocation_revision")) + "."
+                    + "; allocation rev " + cls._revision_text(product.get("allocation_revision"))
+                    + "; mapping rev " + cls._revision_text(product.get("cutoff_mapping_revision"))
+                    + "; покрытие моста отсечки до "
+                    + str(product.get("cutoff_mapping_complete_through") or "не подтверждено") + "."
                 )
                 layers = product.get("layers")
                 if isinstance(layers, list) and layers:
@@ -347,7 +373,9 @@ class PeriodProfitFifoExplanationViewService:
                     "Cutoff " + str(product.get("cutoff_date") or "не подтверждён")
                     + "; stream rev " + cls._revision_text(product.get("stream_revision"))
                     + "; allocation rev " + cls._revision_text(product.get("allocation_revision"))
-                    + "; mapping rev " + cls._revision_text(product.get("cutoff_mapping_revision")) + "."
+                    + "; mapping rev " + cls._revision_text(product.get("cutoff_mapping_revision"))
+                    + "; покрытие моста отсечки до "
+                    + str(product.get("cutoff_mapping_complete_through") or "не подтверждено") + "."
                 )
                 layers = product.get("layers")
                 if isinstance(layers, list):
@@ -496,12 +524,26 @@ class PeriodProfitFifoExplanationViewService:
             cutoff = None
         stream_revision = explanation.get("stream_revision")
         allocation_revision = explanation.get("allocation_revision")
+        mapping_revision = explanation.get("cutoff_mapping_revision")
+        mapping_complete_through = explanation.get(
+            "cutoff_mapping_complete_through",
+        )
         if type(stream_revision) is not int or stream_revision < 1:
             complete = False
             stream_revision = None
         if type(allocation_revision) is not int or allocation_revision < 0:
             complete = False
             allocation_revision = None
+        if mapping_revision is not None and (
+            type(mapping_revision) is not int or mapping_revision < 1
+        ):
+            complete = False
+            mapping_revision = None
+        if mapping_complete_through is not None and not self._iso_date(
+            mapping_complete_through,
+        ):
+            complete = False
+            mapping_complete_through = None
         return {
             "sku": sku,
             "cost_mode": "FIFO",
@@ -517,6 +559,8 @@ class PeriodProfitFifoExplanationViewService:
             "cutoff_date": cutoff,
             "stream_revision": stream_revision,
             "allocation_revision": allocation_revision,
+            "cutoff_mapping_revision": mapping_revision,
+            "cutoff_mapping_complete_through": mapping_complete_through,
             "layers": projected_layers,
             "corrections": corrections,
         }
@@ -537,6 +581,7 @@ class PeriodProfitFifoExplanationViewService:
         stream_revision = row.get("fifo_stream_revision")
         allocation_revision = row.get("fifo_allocation_revision")
         mapping_revision = row.get("fifo_cutoff_mapping_revision")
+        mapping_complete_through = row.get("fifo_cutoff_mapping_complete_through")
         bridge_fingerprint = row.get("fifo_cutoff_bridge_fingerprint")
         if (
             not self._iso_date(cutoff)
@@ -582,6 +627,8 @@ class PeriodProfitFifoExplanationViewService:
         if (legacy_units or fifo_units) and (
             type(mapping_revision) is not int or mapping_revision < 1
             or not mapping_fingerprint_valid
+            or not self._iso_date(mapping_complete_through)
+            or mapping_complete_through < cutoff
         ):
             complete = False
         status = (
@@ -606,6 +653,10 @@ class PeriodProfitFifoExplanationViewService:
             "stream_revision": stream_revision if type(stream_revision) is int else None,
             "allocation_revision": allocation_revision if type(allocation_revision) is int else None,
             "cutoff_mapping_revision": mapping_revision if type(mapping_revision) is int else None,
+            "cutoff_mapping_complete_through": (
+                mapping_complete_through
+                if self._iso_date(mapping_complete_through) else None
+            ),
             "cutoff_bridge_fingerprint": bridge_fingerprint if mapping_fingerprint_valid else None,
             "layers": layers,
             "corrections": corrections,

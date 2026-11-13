@@ -6,6 +6,14 @@ Keep factual FIFO evidence in a dedicated append-only repository using the exist
 
 Implementation note (2026-11-08): late-entry work is verified only with synthetic sources in the review branch. The current owner case remains `SOURCE_BLOCKED`; see `DECISIONS_066.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for the 1,191/1,192 source mismatch and remaining evidence.
 
+Implementation note (2026-11-10, FR22): prepare recomputes readiness from durable scoped evidence and can persist READY only after a complete reconstruction-bound, current-tax-bound whole-period impact. A candidate-only result does not seal or change business state. The first post-cutoff effective date is the successor store-local date; confirmed cutoff is inclusive through local end-of-day. Applying the later preview is FR23 and remains a separate owner confirmation.
+
+Implementation note (2026-11-11, review R6–R8): a confirmed new-party home count is represented by its new-cost layer; new-party transit remains a separately labelled owner observation and does not enter FIFO until accepted. Monthly impact replaces only reconstructed sale identities inside the full-month SKU/store COGS snapshot. An expired READY seal is reopenable only by exact current-seal CAS, which appends an editable revision and performs no FIFO writes; a fresh review/prepare and separate apply confirmation remain required.
+
+Implementation note (2026-11-13, review R15–R17): corrected financial-period snapshots remain append-only. The collector reuses a saved month only when its reconstruction fingerprint, tax-policy fingerprint, and exact sale-identity digest set still match the current inputs; otherwise it recollects and appends a new snapshot. Evidence readers use the highest valid evidence revision per month, retaining older snapshots for audit without treating them as current. Re-uploading the same physical-sales CSV reuses its exact verified immutable evidence row despite a new capture timestamp; confirmation and current-version selection remain explicit owner actions.
+
+Implementation note (2026-11-13, review R18–R20): retain every validated monthly snapshot version with its evidence revision in the loaded evidence bundle. At each prepare, confirmation, and collection, choose the newest snapshot bound to the exact active reconstruction and tax-policy fingerprints; months and settings from other historical bindings remain available but do not participate in the current calculation. A deliberate repeat owner confirmation is a separate idempotent operation keyed by the saved case revision, while a retry for that same revision remains stable.
+
 ## Decision 065 — owner decisions are immutable experiment evidence
 
 Keep recommendations as deterministic projections of validated immutable phase results. Rank only each candidate's latest assessed result when the exact baseline and frozen economics are shared. Persist owner decisions in an additive tenant-scoped append-only Planning Workspace ledger bound to the exact current result revision; use CAS, idempotency, a finite quota and immutable triggers. A decision based on a comparison must also match the latest phase-state, control-event and collection revisions atomically. Completion requires a current terminal owner choice, while continuing leaves the experiment in review. Choices never call Ozon or change a seller price. Details: `DECISIONS_065.md` and `UNIT_ECONOMICS_W29_RECOMMENDATION_DECISIONS_2026-10-29.md`.
@@ -2973,3 +2981,30 @@ The user should be able to fix supported gaps without silently switching product
 Status:
 
 Implemented in the existing query formatter, assistant/keyboard routing, seller-cost flow and adapter. MA17 linked profile: 98 passed; full pytest and exact-head CI remain pending.
+
+---
+
+## Decision 056
+
+Date:
+
+2026-11-13
+
+Topic:
+
+FIFO finance snapshot stability and owner-selected physical-sales CSV versions
+
+Decision:
+
+- New monthly finance snapshot fingerprints are independent of API request chunk boundaries. Bind every daily finance-cache value to its ISO date and combine that ordered set with canonical monthly Period Profit totals. Replaying a frozen month with different page sizes or request budgets must not append a duplicate snapshot or change the case revision.
+- A pre-v2 frozen snapshot may be replayed only when its exact historical chunk-based fingerprint is reproduced. Never infer the old chunk layout from timestamps or aggregate equality.
+- Physical-sales CSV evidence is append-only and partial. A corrected file becomes current only after a separate owner confirmation bound to its own fingerprint and the complete sorted set of previously confirmed fingerprints it supersedes. Preserve older documents; multiple legacy confirmations without an explicit selection remain a conflict.
+- The owner declares the CSV's complete coverage interval before upload. Coverage boundaries are not derived from the first/last dated rows; the preview displays both owner-declared coverage and row-date bounds. The period must cover the case dispatch date.
+
+Reason:
+
+Transport chunking is not a financial fact and must not make unchanged frozen economics conflict after restart. At the same time, a digest from the old format cannot prove an unknown chunk layout. Physical-sales corrections and their coverage need explicit owner provenance; silently choosing by timestamp or dropping zero-sale dates can alter FIFO replay.
+
+Status:
+
+Implemented in the existing collection, evidence and Telegram import services. Linked regression profile: 116 passed; full isolated pytest: 5,288 passed in 73.96s. `compileall`, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702). R1 complete-movement-source remains open.

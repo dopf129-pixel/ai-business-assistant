@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from threading import RLock
@@ -32,6 +34,7 @@ class TelegramFifoCostTransitionRuntimeService:
     MAX_SESSIONS = 256
     MAX_TICKETS = 1024
     SUPPLY_REFRESH_PAGE_SIZE = 8
+    RECEIVING_REPORT_PAGE_SIZE = 8
     _EDITABLE_STATES = frozenset({"DRAFT", "AWAITING_EVIDENCE"})
     _READY_READ_ACTIONS = frozenset({
         "finish", "check_readiness", "view_recalculation",
@@ -42,6 +45,10 @@ class TelegramFifoCostTransitionRuntimeService:
         self, transition_service, history_service, report_import_service=None,
         *, review_service=None, supply_refresh_service=None,
         apply_service=None, cache_invalidator=None,
+        physical_sales_import_service=None,
+        source_collection_service=None, evidence_service=None,
+        period_summary_collection_service=None,
+        period_profit_service=None,
         monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
@@ -51,6 +58,11 @@ class TelegramFifoCostTransitionRuntimeService:
         self.supply_refresh_service = supply_refresh_service
         self.apply_service = apply_service
         self.cache_invalidator = cache_invalidator
+        self.physical_sales_import_service = physical_sales_import_service
+        self.source_collection_service = source_collection_service
+        self.evidence_service = evidence_service
+        self.period_summary_collection_service = period_summary_collection_service
+        self.period_profit_service = period_profit_service
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -192,7 +204,9 @@ class TelegramFifoCostTransitionRuntimeService:
         if (
             not isinstance(case, dict) or case.get("error") is not False
             or case.get("case_revision") != expected_case_revision
-            or case.get("state") not in self._EDITABLE_STATES | {"READY_TO_CONFIRM"}
+            or case.get("state") not in self._EDITABLE_STATES | {
+                "READY_TO_CONFIRM", "APPLIED",
+            }
             or not self._case_matches_identity(case.get("case"), identity)
         ):
             return self._failure(
@@ -204,9 +218,10 @@ class TelegramFifoCostTransitionRuntimeService:
         ):
             return self._failure("Черновик не удалось загрузить в мастер. Откройте список изменений заново.")
         if case.get("state") == "READY_TO_CONFIRM":
-            # A sealed READY preview is immutable. After restart, reopen its
-            # summary so the owner can inspect/reconfirm it; never resume the
-            # editable field wizard for a non-editable case.
+            # Reopen the exact persisted seal; never rebuild a READY preview
+            # after restart or resume the editable field wizard.
+            return self._show_recalculation(owner)
+        if case.get("state") == "APPLIED":
             return self._show_summary(owner)
         return self._prompt_next(owner)
 
@@ -225,10 +240,32 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Активный магазин изменился. Текст не записан; откройте нужный черновик заново."
             )
         if session.get("candidate_pending"):
+            if session.get("supplier_receiving_token"):
+                return self._result(
+                    "Проверьте число на приёмке и используйте кнопки подтверждения или отмены в предыдущем сообщении."
+                )
             return self._result(
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
                 keyboard=self._field_confirmation_keyboard(session["candidate_token"]),
             )
+        if session.get("step") == "physical_sales":
+            if self.physical_sales_import_service is None:
+                return self._failure(
+                    "Загрузка физических продаж временно недоступна. FIFO-дело не изменено."
+                )
+            return self.physical_sales_import_service.handle_period_text(
+                user_id=user_id,
+                text=text,
+                expected_case_id=session["case_id"],
+                expected_scope=self._physical_sales_scope(owner, session),
+                expected_case_revision=session["case_revision"],
+            )
+        if session.get("step") == "opening_composition":
+            return self._handle_opening_composition_text(owner, session, text)
+        if session.get("step") == "finance_identity_period":
+            return self._handle_finance_identity_period_text(owner, session, text)
+        if session.get("step") == "supplier_receiving_units":
+            return self._handle_supplier_receiving_text(owner, session, text)
         if session.get("step") == "refresh_reference":
             return self._handle_refresh_reference(owner, session, text)
         if session.get("step") in {"supply_reference_kind", "supply_reference", "supply_quantity"}:
@@ -272,7 +309,7 @@ class TelegramFifoCostTransitionRuntimeService:
         if case.get("case_revision") != session["case_revision"]:
             if action not in {
                 "finish", "supply", "skip_supplies", "report_turnover",
-                "report_stock", "reports",
+                "report_stock", "reports", "supplier_receiving",
             }:
                 return self._stale()
             self._refresh_session(session, case)
@@ -314,18 +351,91 @@ class TelegramFifoCostTransitionRuntimeService:
             return self._confirm_supply(owner, session, ticket)
         if action in {"report_turnover", "report_stock"}:
             return self._start_report_import(user_id, session, action)
+        if action == "physical_sales":
+            if self.physical_sales_import_service is None:
+                return self._failure("Загрузка физических продаж временно недоступна. Дело не изменено.")
+            session["step"] = "physical_sales"
+            return self.physical_sales_import_service.start_selection(
+                user_id=user_id,
+                case_id=session["case_id"],
+                scope=self._physical_sales_scope(owner, session),
+                expected_case_revision=session["case_revision"],
+            )
+        if action == "opening_composition":
+            return self._start_opening_composition(owner, session)
+        if action == "cancel_opening_composition":
+            if (
+                ticket.get("opening_composition_fingerprint")
+                != session.get("opening_composition_preview_fingerprint")
+            ):
+                return self._stale()
+            for key in (
+                "opening_composition_draft", "opening_composition_pending",
+                "opening_composition_preview", "opening_composition_preview_fingerprint",
+                "step",
+            ):
+                session.pop(key, None)
+            return self._show_summary(owner)
+        if action == "save_opening_composition":
+            return self._save_opening_composition(owner, session, ticket)
+        if action == "confirm_opening_composition":
+            result = self._confirm_opening_composition(owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
+        if action == "collect_finance_identity":
+            if self.source_collection_service is None or self.evidence_service is None:
+                return self._failure("Сбор финансовых привязок временно недоступен. Данные дела не изменены.")
+            session["step"] = "finance_identity_period"
+            return self._result(
+                "Укажите первый и последний месяц финансового признания через дефис, например 2026-08 — 2026-10. "
+                "Это месяцы отчёта реализации, не даты физической продажи. Коллекция будет ограничена несколькими месяцами за один шаг."
+            )
+        if action == "continue_finance_identity":
+            return self._collect_finance_identity(owner, session, continuation=True)
+        if action == "collect_period_summaries":
+            return self._collect_period_summaries(owner, session, continuation=False)
+        if action == "continue_period_summaries":
+            return self._collect_period_summaries(owner, session, continuation=True)
         if action == "reports":
             return self._documents_prompt(owner)
+        if action == "supplier_receiving":
+            return self._supplier_receiving_report_prompt(owner, page=0)
+        if action == "supplier_receiving_page":
+            page = ticket.get("page")
+            if type(page) is not int or page < 0:
+                return self._stale()
+            return self._supplier_receiving_report_prompt(owner, page=page)
+        if action == "supplier_receiving_report":
+            return self._select_supplier_receiving_report(owner, session, ticket)
+        if action == "confirm_supplier_receiving":
+            result = self._confirm_supplier_receiving(owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
+        if action == "cancel_supplier_receiving":
+            self._clear_supplier_receiving_pending(session)
+            return self._show_summary(owner)
         if action == "finish":
             return self._show_summary(owner)
         if action == "check_readiness":
-            return self._show_readiness(owner)
+            result = self._show_readiness(owner)
+            ticket["confirmed_result"] = dict(result)
+            return result
         if action == "view_recalculation":
-            return self._show_recalculation(owner)
+            result = self._show_recalculation(owner)
+            ticket["confirmed_result"] = dict(result)
+            return result
         if action == "apply_transition":
-            return self._confirm_apply_prompt(user_id, owner, session)
+            result = self._confirm_apply_prompt(owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
         if action == "confirm_apply":
-            return self._apply_transition(user_id, owner, session, ticket)
+            result = self._apply_transition(user_id, owner, session, ticket)
+            if result.get("error") is False:
+                ticket["confirmed_result"] = dict(result)
+            return result
         if action == "refresh_supplies":
             return self._refresh_supplies_prompt(owner, page=0)
         if action == "refresh_supplies_page":
@@ -363,6 +473,101 @@ class TelegramFifoCostTransitionRuntimeService:
             self._sessions.pop(owner, None)
             for key in [key for key in self._tickets if key[0] == owner]:
                 self._tickets.pop(key, None)
+        if self.physical_sales_import_service is not None:
+            self.physical_sales_import_service.clear_selection(user_id=user_id)
+
+    def has_physical_sales_document_selection(self, user_id):
+        service = self.physical_sales_import_service
+        return bool(service is not None and service.has_active_selection(user_id=user_id))
+
+    def preflight_physical_sales_document(self, user_id, filename, file_size):
+        service = self.physical_sales_import_service
+        if service is None or not service.has_active_selection(user_id=user_id):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if (
+            not isinstance(session, dict) or session.get("tenant") != tenant
+            or session.get("step") != "physical_sales"
+        ):
+            return {
+                "error": False, "handled": True, "selected": True,
+                "accepted": False, "code": "FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                "message": "Выбранное действие уже не относится к текущей форме. Файл не загружен; FIFO-дело сохранено.",
+                "read_only_ozon": True,
+            }
+        scope = self._physical_sales_scope(owner, session)
+        return service.preflight_document(
+            user_id=user_id,
+            filename=filename,
+            file_size=file_size,
+            expected_case_id=session["case_id"],
+            expected_scope=scope,
+            expected_case_revision=session["case_revision"],
+        )
+
+    def handle_physical_sales_document(self, user_id, content, filename=None):
+        service = self.physical_sales_import_service
+        if service is None or not service.has_active_selection(user_id=user_id):
+            return {"error": False, "handled": False, "read_only_ozon": True}
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if (
+            not isinstance(session, dict) or session.get("tenant") != tenant
+            or session.get("step") != "physical_sales"
+        ):
+            return {
+                "error": False, "handled": True,
+                "code": "FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                "message": "Выбранное действие уже не относится к текущей форме. Файл не обработан; FIFO-дело сохранено.",
+                "read_only_ozon": True,
+            }
+        scope = self._physical_sales_scope(owner, session)
+        return service.handle_document(
+            user_id=user_id,
+            content=content,
+            filename=filename,
+            expected_case_id=session["case_id"],
+            expected_scope=scope,
+            expected_case_revision=session["case_revision"],
+        )
+
+    def handle_physical_sales_callback(self, user_id, callback):
+        service = self.physical_sales_import_service
+        if service is None:
+            return self._stale()
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if (
+            not isinstance(session, dict) or session.get("tenant") != tenant
+            or session.get("step") not in {"physical_sales", "documents"}
+        ):
+            return self._stale()
+        result = service.handle_callback(
+            user_id=user_id,
+            callback=callback,
+            expected_case_id=session["case_id"],
+            expected_scope=self._physical_sales_scope(owner, session),
+            expected_case_revision=session["case_revision"],
+        )
+        if (
+            isinstance(result, dict) and result.get("error") is False
+            and result.get("code") in {
+                "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED",
+                "FIFO_PHYSICAL_SALES_VERSION_SELECTION_UNAVAILABLE",
+                "FIFO_PHYSICAL_SALES_CONFIRMED",
+            }
+        ):
+            current = self._read_case(session["case_id"], session["identity"])
+            if isinstance(current, dict) and current.get("error") is False:
+                self._refresh_session(session, current)
+            if result.get("code") == "FIFO_PHYSICAL_SALES_CONFIRMED":
+                session["step"] = "documents"
+        elif (
+            isinstance(result, dict) and result.get("code") == "FIFO_PHYSICAL_SALES_PREVIEW_CANCELLED"
+        ):
+            session["step"] = "documents"
+        return result
 
     def _handle_field_text(self, owner, session, text):
         step = self._next_field(session["case"])
@@ -399,6 +604,710 @@ class TelegramFifoCostTransitionRuntimeService:
         except (InvalidOperation, TypeError, ValueError):
             return self._input_error(step)
         return self._stage_field_confirmation(owner, session, updates, label, shown)
+
+    def _supplier_receiving_report_prompt(self, owner, *, page):
+        session = self._sessions.get(owner)
+        if not isinstance(session, dict):
+            return self._stale()
+        reports = self._eligible_supplier_receiving_reports(session)
+        if reports is None:
+            return self._failure(
+                "Не удалось прочитать сохранённые отчёты. Данные дела не изменены."
+            )
+        if not reports:
+            return self._result(
+                "Для ручного подтверждения нужен сохранённый полный отчёт по остаткам "
+                "за один день с подтверждённым периодом. Сначала добавьте такой отчёт; "
+                "значение приёмки из отсутствующего поля не будет считаться нулём.",
+                keyboard=self._keyboard([{
+                    "text": "📄 Добавить отчёт",
+                    "callback": self._issue_ticket(owner, session, "reports"),
+                }]),
+            )
+        page_count = max(
+            1, (len(reports) + self.RECEIVING_REPORT_PAGE_SIZE - 1)
+            // self.RECEIVING_REPORT_PAGE_SIZE,
+        )
+        if page >= page_count:
+            return self._stale()
+        start = page * self.RECEIVING_REPORT_PAGE_SIZE
+        page_reports = reports[start:start + self.RECEIVING_REPORT_PAGE_SIZE]
+        buttons = []
+        for index, report in enumerate(page_reports, start=start + 1):
+            buttons.append({
+                "text": f"📅 {report['date']} · отчёт {index}",
+                "callback": self._issue_ticket(
+                    owner, session, "supplier_receiving_report",
+                    cutoff_date=report["date"],
+                    stock_report_fingerprint=report["fingerprint"],
+                ),
+            })
+        if page > 0:
+            buttons.append({
+                "text": "⬅️ Назад",
+                "callback": self._issue_ticket(
+                    owner, session, "supplier_receiving_page", page=page - 1,
+                ),
+            })
+        if page + 1 < page_count:
+            buttons.append({
+                "text": "➡️ Далее",
+                "callback": self._issue_ticket(
+                    owner, session, "supplier_receiving_page", page=page + 1,
+                ),
+            })
+        buttons.append({
+            "text": "↩️ К делу",
+            "callback": self._issue_ticket(owner, session, "finish"),
+        })
+        return self._result(
+            "Выберите точный дневной отчёт: его дата станет cutoff FIFO. "
+            "Показываются только полные отчёты с подтверждённым периодом, "
+            "где Ozon не указал supplier_receiving.",
+            keyboard=self._keyboard(buttons),
+        )
+
+    def _eligible_supplier_receiving_reports(self, session):
+        result = self.transition_service.repository.read_transition_evidence(
+            case_id=session["case_id"], **session["identity"],
+            kind="REPORT_EVIDENCE", limit=101,
+        )
+        if (
+            not isinstance(result, dict) or result.get("error") is not False
+            or not isinstance(result.get("items"), list)
+            or len(result["items"]) > 100
+        ):
+            return None
+        reports = []
+        for item in result["items"]:
+            payload = item.get("payload")
+            fields = payload.get("normalized_fields") if isinstance(payload, dict) else None
+            buckets = fields.get("stock_buckets") if isinstance(fields, dict) else None
+            fingerprint = item.get("file_sha256")
+            period_from = item.get("period_from")
+            if (
+                item.get("report_type") != ReportType.STOCK_MANAGEMENT.value
+                or item.get("source_kind") != EvidenceSourceKind.OWNER_IMPORTED.value
+                or item.get("completeness") != EvidenceCompleteness.COMPLETE.value
+                or item.get("period_provenance") != "OWNER_CONFIRMED"
+                or not isinstance(period_from, str)
+                or item.get("period_to") != period_from
+                or not isinstance(buckets, dict)
+                or buckets.get("supplier_receiving") is not None
+                or not isinstance(fingerprint, str)
+                or len(fingerprint) != 64
+                or any(char not in "0123456789abcdef" for char in fingerprint.lower())
+            ):
+                continue
+            reports.append({"date": period_from, "fingerprint": fingerprint})
+        reports.sort(key=lambda value: (value["date"], value["fingerprint"]))
+        return reports
+
+    def _select_supplier_receiving_report(self, owner, session, ticket):
+        cutoff_date = ticket.get("cutoff_date")
+        fingerprint = ticket.get("stock_report_fingerprint")
+        reports = self._eligible_supplier_receiving_reports(session)
+        if reports is None or not any(
+            report["date"] == cutoff_date and report["fingerprint"] == fingerprint
+            for report in reports
+        ):
+            return self._stale()
+        session["supplier_receiving_report"] = {
+            "cutoff_date": cutoff_date,
+            "stock_report_fingerprint": fingerprint,
+        }
+        session["step"] = "supplier_receiving_units"
+        return self._result(
+            f"Введите точное число упаковок SKU {session['identity']['sku']}, "
+            f"которые на конец {cutoff_date} находились в статусе «приёмка на складе». "
+            "Это ручное подтверждение владельца. Если точно знаете, что их не было, "
+            "введите 0; неизвестное количество не вводите наугад. Значение останется "
+            "отдельным складским bucket и не добавится к FIFO-слоям принятого товара."
+        )
+
+    def _start_opening_composition(self, owner, session):
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Не удалось прочитать дело. Состав FIFO не изменён.")
+        self._refresh_session(session, case)
+        if case.get("state") not in self._EDITABLE_STATES:
+            return self._failure("Состав FIFO можно подтвердить только в редактируемом деле.")
+        history = self.history_service.get_sku_history(**session["identity"])
+        if not isinstance(history, dict) or history.get("error") is not False:
+            return self._failure("Текущую очередь FIFO не удалось проверить. Состав не изменён.")
+        if history.get("queue_initialized") is True:
+            return self._result("Очередь FIFO уже создана; начальный состав для этого дела не требуется.")
+        existing = self.transition_service.read_confirmed_opening_composition(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if isinstance(existing, dict) and existing.get("error") is False:
+            return self._result("Начальный состав FIFO уже сохранён и подтверждён владельцем.")
+        cutoff = self.transition_service.read_confirmed_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if not isinstance(cutoff, dict) or cutoff.get("error") is not False:
+            return self._failure("Сначала выберите и подтвердите точный cutoff и дневной отчёт по остаткам.")
+        if case["case"].get("old_unit_cost_rub") is None or case["case"].get("new_unit_cost_rub") is None:
+            return self._failure("Сначала подтвердите старую и новую себестоимость; состав FIFO не изменён.")
+        session["opening_composition_draft"] = {
+            "cutoff_evidence_id": cutoff["evidence_id"],
+            "cutoff_evidence_fingerprint": cutoff["evidence_fingerprint"],
+            "stock_report_fingerprint": cutoff["stock_report_fingerprint"],
+            "cutoff_date": cutoff["descriptor"]["cutoff_date"],
+            "values": [],
+        }
+        session.pop("opening_composition_preview", None)
+        session.pop("opening_composition_preview_fingerprint", None)
+        session["step"] = "opening_composition"
+        return self._result(
+            f"Для cutoff {cutoff['descriptor']['cutoff_date']} введите точное число упаковок по каждой партии и месту. "
+            "Сюда входит только принятое наличие Ozon, включая резерв по подтверждённому вами составу; товар на приёмке задаётся отдельно. "
+            "Если количество новой партии дома неизвестно, укажите это отдельно на последнем вопросе — оно останется неизвестным, а не станет нулём. "
+            "Неизвестное количество старой партии не вводите наугад.\n\nСколько упаковок старой партии находилось на складах Ozon?"
+        )
+
+    def _handle_opening_composition_text(self, owner, session, text):
+        draft = session.get("opening_composition_draft")
+        if not isinstance(draft, dict) or not isinstance(draft.get("values"), list):
+            session.pop("opening_composition_draft", None)
+            session.pop("step", None)
+            return self._stale()
+        labels = (
+            "Старая партия на складах Ozon",
+            "Новая партия на складах Ozon",
+            "Старая партия в пути",
+            "Новая партия в пути",
+            "Старая партия дома",
+            "Новая партия дома",
+        )
+        values = list(draft["values"])
+        if len(values) >= len(labels):
+            return self._opening_composition_preview(owner, session, values)
+        try:
+            unknown_new_home = (
+                len(values) == 5
+                and str(text or "").strip().casefold()
+                in {"не знаю", "неизвестно", "?"}
+            )
+            values.append(
+                None if unknown_new_home
+                else self._quantity(text, allow_zero=True)
+            )
+        except (TypeError, ValueError):
+            return self._result("Введите целое число упаковок от 0 до 1 000 000. Неизвестное число не вводите наугад.")
+        draft["values"] = values
+        if len(values) < len(labels):
+            prompts = (
+                "Сколько упаковок новой партии находилось на складах Ozon?",
+                "Сколько упаковок старой партии было в пути?",
+                "Сколько упаковок новой партии было в пути?",
+                "Сколько упаковок старой партии было дома?",
+                "Сколько упаковок новой партии было дома? Если количество неизвестно, введите «не знаю»: бот не добавит его в подтверждённый остаток, а сохранит новую цену с неизвестным количеством.",
+            )
+            return self._result(prompts[len(values) - 1])
+        return self._opening_composition_preview(owner, session, values)
+
+    def _opening_composition_preview(self, owner, session, values):
+        draft = session.get("opening_composition_draft")
+        if (
+            not isinstance(draft, dict)
+            or not isinstance(draft.get("values"), list)
+            or draft.get("values") != values
+            or len(values) != 6
+            or any(type(value) is not int for value in values[:5])
+            or (values[5] is not None and type(values[5]) is not int)
+        ):
+            return self._failure("Состав FIFO заполнен не полностью. Ничего не сохранено.")
+        case = session.get("case")
+        old_cost = case.get("old_unit_cost_rub") if isinstance(case, dict) else None
+        new_cost = case.get("new_unit_cost_rub") if isinstance(case, dict) else None
+        case_new_home = case.get("new_home_quantity") if isinstance(case, dict) else None
+        if case_new_home is not None and values[5] != case_new_home:
+            return self._failure(
+                "Количество новой партии дома не совпадает с ранее сохранённым. "
+                "Исправьте owner input в карточке и соберите состав заново."
+            )
+        layers = []
+        old_zone = {"ozon_units": values[0], "transit_units": values[2], "home_units": values[4]}
+        new_zone = {
+            "ozon_units": values[1], "transit_units": 0,
+            # Unknown home stock remains on the open rate; it is not asserted
+            # to be a zero physical balance and is not made a finite layer.
+            "home_units": 0 if values[5] is None else values[5],
+        }
+        layer_labels = []
+        for label, layer_cost, zones in (
+            ("старой", old_cost, old_zone),
+            ("новой", new_cost, new_zone),
+        ):
+            if sum(zones.values()) <= 0:
+                continue
+            layers.append({
+                "sequence": len(layers) + 1,
+                "unit_cost_rub": str(Decimal(str(layer_cost)).quantize(Decimal("0.01"))),
+                **zones,
+            })
+            layer_labels.append(label)
+        if not layers:
+            session.pop("opening_composition_draft", None)
+            session.pop("step", None)
+            return self._failure("Общий остаток равен нулю; начальный состав не сохранён. Проверьте количества и начните заново.")
+        session["opening_composition_preview"] = layers
+        session["opening_composition_preview_fingerprint"] = self._opening_composition_fingerprint(
+            session, draft, values, layers,
+        )
+        session["step"] = "opening_composition_confirm"
+        summary = []
+        for layer, name in zip(layers, layer_labels):
+            summary.append(
+                f"• {name} партии по {layer['unit_cost_rub']} ₽/шт.: Ozon {layer['ozon_units']}, "
+                f"в пути {layer['transit_units']}, дома "
+                + (
+                    "неизвестно; количество не включено в конечный остаток, новая цена остаётся открытой"
+                    if name == "новой" and values[5] is None
+                    else str(layer["home_units"])
+                )
+            )
+        summary.append(
+            f"• Новая партия в пути: {values[3]} шт. — записано отдельно, "
+            "в FIFO-остаток не входит до подтверждённой приёмки"
+        )
+        callback = self._issue_ticket(
+            owner, session, "save_opening_composition",
+            opening_composition_fingerprint=session["opening_composition_preview_fingerprint"],
+        )
+        cancel = self._issue_ticket(
+            owner, session, "cancel_opening_composition",
+            opening_composition_fingerprint=session[
+                "opening_composition_preview_fingerprint"
+            ],
+        )
+        return self._result(
+            f"Проверьте состав FIFO на cutoff {session['opening_composition_draft']['cutoff_date']}:\n"
+            + "\n".join(summary)
+            + "\n\nНажмите «Сохранить состав» для записи неподтверждённого черновика. Следующим отдельным действием бот попросит подтвердить его владельцем. "
+            "Число на приёмке в FIFO-слои не добавляется. Неизвестное количество дома также не записывается как ноль или как подтверждённый конечный запас.",
+            keyboard=self._keyboard([
+                {"text": "💾 Сохранить состав", "callback": callback},
+                {"text": "↩️ Отменить ввод", "callback": cancel},
+            ]),
+        )
+
+    def _save_opening_composition(self, owner, session, ticket):
+        draft = session.get("opening_composition_draft")
+        layers = session.get("opening_composition_preview")
+        current_fingerprint = session.get("opening_composition_preview_fingerprint")
+        if (
+            not isinstance(draft, dict) or not isinstance(layers, list)
+            or len(draft.get("values", ())) != 6
+            or not isinstance(current_fingerprint, str)
+            or ticket.get("opening_composition_fingerprint") != current_fingerprint
+            or current_fingerprint != self._opening_composition_fingerprint(
+                session, draft, draft["values"], layers,
+            )
+        ):
+            return self._stale()
+        cutoff = self.transition_service.read_confirmed_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+        )
+        if not isinstance(cutoff, dict) or cutoff.get("error") is not False or any((
+            cutoff.get("evidence_id") != draft.get("cutoff_evidence_id"),
+            cutoff.get("evidence_fingerprint") != draft.get("cutoff_evidence_fingerprint"),
+            cutoff.get("stock_report_fingerprint") != draft.get("stock_report_fingerprint"),
+        )):
+            return self._failure("Cutoff или отчёт изменился. Состав не сохранён; откройте дело и проверьте данные заново.")
+        saved = self.transition_service.record_opening_composition(
+            case_id=session["case_id"], **session["identity"],
+            cutoff_evidence_id=draft["cutoff_evidence_id"],
+            cutoff_evidence_fingerprint=draft["cutoff_evidence_fingerprint"],
+            stock_report_fingerprint=draft["stock_report_fingerprint"],
+            layers=[dict(layer) for layer in layers],
+            unknown_new_home_quantity=draft["values"][5] is None,
+            new_party_transit_units=draft["values"][3],
+            new_home_quantity=draft["values"][5],
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "opening-record", session, draft["cutoff_evidence_fingerprint"],
+                layers, draft["values"][5] is None,
+            ),
+        )
+        if not isinstance(saved, dict) or saved.get("error") is not False:
+            return self._failure("Состав не сохранён: дело, cutoff или отчёт изменились. FIFO не менялась.")
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Черновик состава записан, но карточку не удалось перечитать. Откройте дело и проверьте подтверждение.")
+        self._refresh_session(session, case)
+        for key in (
+            "opening_composition_draft", "opening_composition_preview",
+            "opening_composition_preview_fingerprint", "step",
+        ):
+            session.pop(key, None)
+        session["opening_composition_pending"] = {
+            "evidence_id": saved.get("evidence_id"),
+            "evidence_fingerprint": saved.get("payload_fingerprint"),
+            "composition_fingerprint": saved.get("source_fingerprint"),
+        }
+        callback = self._issue_ticket(
+            owner, session, "confirm_opening_composition",
+            evidence_id=saved.get("evidence_id"),
+            evidence_fingerprint=saved.get("payload_fingerprint"),
+        )
+        return self._result(
+            "Черновик состава сохранён зашифрованно и пока не считается подтверждённым. "
+            "Проверьте указанные партии, зоны и количества; подтвердите отдельно.",
+            keyboard=self._keyboard([
+                {"text": "✅ Подтвердить состав владельцем", "callback": callback},
+                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    def _confirm_opening_composition(self, owner, session, ticket):
+        pending = session.get("opening_composition_pending")
+        if not isinstance(pending, dict) or any((
+            pending.get("evidence_id") != ticket.get("evidence_id"),
+            pending.get("evidence_fingerprint") != ticket.get("evidence_fingerprint"),
+        )):
+            return self._stale()
+        result = self.transition_service.confirm_opening_composition(
+            case_id=session["case_id"], **session["identity"],
+            evidence_id=pending["evidence_id"],
+            expected_evidence_fingerprint=pending["evidence_fingerprint"],
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "opening-confirm", session, pending["evidence_fingerprint"],
+            ),
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._failure("Состав не подтверждён: evidence устарело или изменилась редакция дела. Повторно проверьте данные.")
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Подтверждение записано, но дело не удалось перечитать. Откройте его повторно.")
+        self._refresh_session(session, case)
+        for key in (
+            "opening_composition_pending", "opening_composition_draft",
+            "opening_composition_preview", "opening_composition_preview_fingerprint",
+            "step",
+        ):
+            session.pop(key, None)
+        return self._show_summary(owner)
+
+    def _opening_composition_fingerprint(self, session, draft, values, layers):
+        material = json.dumps(
+            {
+                "case_id": session.get("case_id"),
+                "identity": session.get("identity"),
+                "cutoff_evidence_id": draft.get("cutoff_evidence_id"),
+                "cutoff_evidence_fingerprint": draft.get("cutoff_evidence_fingerprint"),
+                "stock_report_fingerprint": draft.get("stock_report_fingerprint"),
+                "cutoff_date": draft.get("cutoff_date"),
+                "values": values,
+                "layers": layers,
+            },
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        )
+        return self._fingerprint("fifo-opening-composition-v1", material)
+
+    def _handle_finance_identity_period_text(self, owner, session, text):
+        import re
+        match = re.fullmatch(r"\s*(\d{4}-\d{2})\s*(?:-|—|–)\s*(\d{4}-\d{2})\s*", str(text or ""))
+        if not match:
+            return self._result("Введите два месяца в формате ГГГГ-ММ — ГГГГ-ММ. Например: 2026-08 — 2026-10.")
+        try:
+            from calendar import monthrange
+            start_year, start_month = map(int, match.group(1).split("-"))
+            end_year, end_month = map(int, match.group(2).split("-"))
+            start = date(start_year, start_month, 1)
+            end = date(end_year, end_month, monthrange(end_year, end_month)[1])
+        except (ValueError, OverflowError):
+            return self._result("Месяц не распознан. Используйте формат ГГГГ-ММ — ГГГГ-ММ.")
+        if end < start:
+            return self._result("Последний месяц не может быть раньше первого. Дело не изменено.")
+        session["finance_identity_period"] = (start.isoformat(), end.isoformat())
+        session.pop("finance_identity_continuation", None)
+        return self._collect_finance_identity(owner, session, continuation=False)
+
+    def _collect_finance_identity(self, owner, session, *, continuation):
+        service = self.source_collection_service
+        evidence = self.evidence_service
+        period = session.get("finance_identity_period")
+        if service is None or evidence is None or not isinstance(period, tuple) or len(period) != 2:
+            return self._failure("Сбор финансовых привязок недоступен. Дело не изменено.")
+        continuation_token = session.get("finance_identity_continuation")
+        if continuation != bool(continuation_token):
+            return self._stale()
+        case = session.get("case")
+        metadata = case.get("metadata") if isinstance(case, dict) else None
+        timezone_name = metadata.get("store_timezone") if isinstance(metadata, dict) else None
+        tenant_owner, _store = split_store_tenant_scope(session["tenant"])
+        try:
+            scope = ScopeIdentity(
+                owner_id=tenant_owner,
+                store_id=session["identity"]["store_id"],
+                product_id=session["identity"].get("product_id"),
+                offer_id=session["identity"].get("offer_id"),
+                sku=session["identity"]["sku"],
+            )
+            collected = service.collect_finance_identity_snapshot(
+                scope=scope, period_from=period[0], period_to=period[1],
+                transition_case_id=session["case_id"],
+                transition_case_revision=session["case_revision"],
+                store_timezone=timezone_name,
+                continuation_token=continuation_token,
+                max_pages_per_call=2, http_attempt_budget=10,
+                time_budget_seconds=20.0,
+            )
+        except Exception:
+            return self._failure("Ozon не удалось прочитать в установленном лимите. Сохранённые сведения не изменены.")
+        if collected is None or getattr(collected, "status", None) not in {
+            "COMPLETE", "PARTIAL", "UNAVAILABLE", "CONFLICT", "INVALID",
+        }:
+            return self._failure("Источник вернул неподдерживаемый ответ. Дело не изменено.")
+        batches = getattr(collected, "finance_identity_snapshots", ())
+        continuation = getattr(collected, "continuation_token", None)
+        if continuation:
+            session["finance_identity_continuation"] = continuation
+            callback = self._issue_ticket(owner, session, "continue_finance_identity")
+            issues = ", ".join(getattr(collected, "issue_codes", ())[:4]) or "предел шага достигнут"
+            return self._result(
+                f"Прочитаны месяцы финансового отчёта не полностью: попыток {getattr(collected, 'actual_http_attempts', 0)}; {issues}. "
+                "Продолжить можно безопасно: незаконченные месяцы не будут считаться полными.",
+                keyboard=self._keyboard([{"text": "➡️ Продолжить чтение", "callback": callback}]),
+            )
+        if getattr(collected, "status", None) not in {"COMPLETE", "PARTIAL"}:
+            session.pop("finance_identity_continuation", None)
+            session.pop("finance_identity_period", None)
+            status = getattr(collected, "status", None)
+            if status == "UNAVAILABLE":
+                reason = "Источник временно недоступен"
+            elif status == "INVALID":
+                reason = "Период или ответ источника некорректен"
+            else:
+                reason = "Источник вернул конфликт данных"
+            return self._result(
+                f"{reason}. Финансовые привязки не сохранены; "
+                "проверьте период и повторите сбор позже."
+            )
+        if not isinstance(batches, tuple) or not batches:
+            session.pop("finance_identity_continuation", None)
+            session.pop("finance_identity_period", None)
+            return self._result(
+                "Не удалось получить ни одного полного месячного ответа. Финансовая привязка не сохранена; "
+                "проверьте период позже. Возвраты и статусы не используются как замена финансовым строкам."
+            )
+        complete = getattr(collected, "status", None) == "COMPLETE"
+        try:
+            saved = evidence.record_finance_identity_batches(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                batches=batches, requested_period_from=period[0],
+                requested_period_to=period[1], source_complete=complete,
+                expected_case_revision=session["case_revision"],
+                idempotency_key=self._stable_action_key(
+                    "finance-identity", session,
+                    period[0], period[1], getattr(collected, "source_fingerprint", None),
+                ),
+            )
+        except Exception:
+            saved = {"error": True}
+        if not isinstance(saved, dict) or saved.get("error") is not False:
+            return self._failure("Финансовая привязка не сохранена: редакция дела или область источника изменились.")
+        fresh = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(fresh, dict) or fresh.get("error") is not False:
+            return self._failure("Доказательство сохранено, но карточку не удалось перечитать. Откройте дело повторно.")
+        self._refresh_session(session, fresh)
+        session.pop("finance_identity_continuation", None)
+        session.pop("finance_identity_period", None)
+        session.pop("step", None)
+        summary = self._show_summary(owner)
+        summary["message"] = (
+            f"Финансовые строки сохранены: месяцев {len(batches)}, строк {sum(len(batch.rows) for batch in batches)}, "
+            f"статус источника {'полный' if complete else 'частичный'}; попыток {getattr(collected, 'actual_http_attempts', 0)}.\n\n"
+            + summary.get("message", "")
+        )
+        return summary
+
+    def _collect_period_summaries(self, owner, session, *, continuation):
+        collector = self.period_summary_collection_service
+        if (
+            collector is None or self.apply_service is None
+            or self.period_profit_service is None
+        ):
+            return self._failure("Сбор финансовых итогов временно недоступен. Дело не изменено.")
+        token = session.get("period_summary_continuation")
+        if continuation != bool(token):
+            return self._stale()
+        if not continuation:
+            session["period_summary_reconstruction_key"] = self._stable_action_key(
+                "period-summary-reconstruction", session,
+                session["case_revision"],
+            )
+        reconstruction_key = session.get("period_summary_reconstruction_key")
+        if not isinstance(reconstruction_key, str):
+            return self._stale()
+        try:
+            result = self.apply_service.collect_period_summaries(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                expected_case_revision=session["case_revision"],
+                summary_collection_service=collector,
+                period_profit_service=self.period_profit_service,
+                idempotency_key=reconstruction_key,
+                continuation_token=token,
+            )
+        except Exception:
+            return self._failure("Не удалось собрать финансовые итоги в ограниченном режиме. Дело не изменено.")
+        if not isinstance(result, dict) or result.get("error") is not False:
+            requirements = result.get("requirements") if isinstance(result, dict) else None
+            detail = ", ".join(str(value) for value in requirements[:5]) if isinstance(requirements, (tuple, list)) else None
+            code = result.get("code") if isinstance(result, dict) else None
+            return self._result(
+                "Месячные итоги пока не собраны: " + (detail or str(code or "нужны подтверждённые источники"))
+                + ". FIFO и прибыль не изменены. Сначала добавьте или подтвердите перечисленные источники."
+            )
+        revision = result.get("current_case_revision")
+        if type(revision) is not int:
+            return self._failure("Источник не вернул текущую редакцию дела. Финансовые итоги не применены к FIFO.")
+        fresh = self._read_case(session["case_id"], session["identity"])
+        if (
+            not isinstance(fresh, dict) or fresh.get("error") is not False
+            or fresh.get("case_revision") != revision
+        ):
+            return self._failure("Данные сохранены частично, но редакция дела изменилась. Откройте его заново и проверьте готовность.")
+        self._refresh_session(session, fresh)
+        continuation_token = result.get("continuation_token")
+        if continuation_token:
+            session["period_summary_continuation"] = continuation_token
+            callback = self._issue_ticket(owner, session, "continue_period_summaries")
+        else:
+            session.pop("period_summary_continuation", None)
+            session.pop("period_summary_reconstruction_key", None)
+            callback = None
+        status_text = (
+            f"Завершено периодов в этом шаге: {result.get('periods_complete_this_call', 0)} из {result.get('periods_total', 0)}; "
+            f"дней прочитано: {result.get('days_collected_this_call', 0)}; "
+            f"запросов Ozon: {result.get('actual_http_attempts', 0)} из {result.get('http_attempt_cap', 0)}."
+        )
+        issue = result.get("issue_code")
+        if issue:
+            status_text += f"\nНеполный источник: {issue}."
+        if callback:
+            return self._result(
+                "Сбор месячных финансовых итогов продолжается. " + status_text,
+                keyboard=self._keyboard([{"text": "➡️ Продолжить сбор", "callback": callback}]),
+            )
+        summary = self._show_summary(owner)
+        summary["message"] = "Сбор месячных финансовых итогов завершён. " + status_text + "\n\n" + summary.get("message", "")
+        return summary
+
+    def _handle_supplier_receiving_text(self, owner, session, text):
+        report = session.get("supplier_receiving_report")
+        if not isinstance(report, dict):
+            self._clear_supplier_receiving_pending(session)
+            return self._stale()
+        try:
+            quantity = self._quantity(text, allow_zero=True)
+        except (TypeError, ValueError):
+            return self._result(
+                "Введите точное целое число упаковок от 0 до 1 000 000. "
+                "Если количество неизвестно, отмените ввод."
+            )
+        callback = self._issue_ticket(owner, session, "confirm_supplier_receiving")
+        token = callback.rsplit(":", 1)[-1]
+        ticket = self._ticket(owner, token)
+        ticket.update({
+            "cutoff_date": report["cutoff_date"],
+            "stock_report_fingerprint": report["stock_report_fingerprint"],
+            "supplier_receiving_units": quantity,
+        })
+        session["candidate_pending"] = True
+        session["supplier_receiving_token"] = token
+        return self._result(
+            f"Проверьте ввод: {quantity} упаковок этого SKU находились на приёмке "
+            f"на конец {report['cutoff_date']} согласно вашему подтверждению. "
+            "Это не значение, полученное от Ozon. Оно не войдёт в принятое FIFO-наличие. "
+            "Подтверждение заменит выбранный cutoff текущего дела.",
+            keyboard=self._keyboard([
+                {"text": "✅ Подтвердить количество", "callback": callback},
+                {
+                    "text": "↩️ Отмена",
+                    "callback": self._issue_ticket(
+                        owner, session, "cancel_supplier_receiving",
+                    ),
+                },
+            ]),
+        )
+
+    def _confirm_supplier_receiving(self, owner, session, ticket):
+        if session.get("supplier_receiving_token") != ticket.get("token"):
+            return self._stale()
+        cutoff_date = ticket.get("cutoff_date")
+        report_fingerprint = ticket.get("stock_report_fingerprint")
+        units = ticket.get("supplier_receiving_units")
+        reports = self._eligible_supplier_receiving_reports(session)
+        if (
+            reports is None
+            or not any(
+                item["date"] == cutoff_date
+                and item["fingerprint"] == report_fingerprint
+                for item in reports
+            )
+            or type(units) is not int or not 0 <= units <= 1_000_000
+        ):
+            return self._stale()
+        saved = self.transition_service.record_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+            cutoff_date=cutoff_date,
+            stock_report_fingerprint=report_fingerprint,
+            supplier_receiving_units=units,
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "sr-record", session,
+                report_fingerprint, cutoff_date, units,
+            ),
+        )
+        if not isinstance(saved, dict) or saved.get("error") is not False:
+            return self._failure(
+                "Количество не сохранено: дело или отчёт изменились. "
+                "Откройте карточку FIFO заново; предыдущая FIFO не менялась."
+            )
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure(
+                "Черновик cutoff сохранён, но состояние не удалось перечитать. "
+                "Откройте дело заново и проверьте подтверждение."
+            )
+        self._refresh_session(session, case)
+        confirmed = self.transition_service.confirm_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+            evidence_id=saved.get("evidence_id"),
+            expected_evidence_fingerprint=saved.get("payload_fingerprint"),
+            expected_case_revision=session["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "sr-confirm", session,
+                saved.get("payload_fingerprint"), units,
+            ),
+        )
+        if not isinstance(confirmed, dict) or confirmed.get("error") is not False:
+            self._clear_supplier_receiving_pending(session)
+            return self._failure(
+                "Количество сохранено как неподтверждённый cutoff, но не прошло финальную "
+                "проверку. Оно не будет использовано в расчёте; откройте дело и повторите "
+                "подтверждение после проверки источников."
+            )
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure(
+                "Подтверждение записано, но карточку не удалось обновить. "
+                "Откройте дело повторно."
+            )
+        self._refresh_session(session, case)
+        self._clear_supplier_receiving_pending(session)
+        return self._show_summary(owner)
+
+    @staticmethod
+    def _clear_supplier_receiving_pending(session):
+        session.pop("step", None)
+        session.pop("supplier_receiving_report", None)
+        session.pop("supplier_receiving_token", None)
+        session.pop("candidate_pending", None)
 
     def _handle_component_text(self, owner, session, text):
         component_fields = (
@@ -716,11 +1625,17 @@ class TelegramFifoCostTransitionRuntimeService:
         buttons = [
             {"text": "📄 Добавить оборотную ведомость", "callback": self._issue_ticket(owner, session, "report_turnover")},
             {"text": "📦 Добавить отчёт по остаткам", "callback": self._issue_ticket(owner, session, "report_stock")},
+            {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
+            {"text": "🧾 Добавить подтверждение физических продаж", "callback": self._issue_ticket(owner, session, "physical_sales")},
+            {"text": "🧾 Задать начальный состав FIFO", "callback": self._issue_ticket(owner, session, "opening_composition")},
+            {"text": "🔗 Собрать финансовые привязки", "callback": self._issue_ticket(owner, session, "collect_finance_identity")},
+            {"text": "📊 Собрать месячные итоги Period Profit", "callback": self._issue_ticket(owner, session, "collect_period_summaries")},
             {"text": "Продолжить без отчётов", "callback": self._issue_ticket(owner, session, "finish")},
         ]
         return self._result(
-            "Теперь можно добавить подтверждения: оборотную ведомость и отчёт по остаткам. "
-            "Периоды файлов бот попросит подтвердить отдельно; отсутствие отчёта не удаляет уже введённые сведения.",
+            "Можно добавить оборотную ведомость, отчёт по остаткам и отдельно известные физические продажи. "
+            "Периоды файлов бот попросит подтвердить отдельно; отсутствие отчёта не удаляет уже введённые сведения. "
+            "Полное покрытие складских движений пока не подтверждается текущим источником Ozon: список возвратов не заменяет журнал всех движений, поэтому неполные данные останутся заблокированными.",
             keyboard=self._keyboard(buttons),
         )
 
@@ -732,6 +1647,16 @@ class TelegramFifoCostTransitionRuntimeService:
         if not isinstance(case, dict) or case.get("error") is not False:
             return self._failure("Не удалось открыть сохранённый черновик. Данные не изменены.")
         self._refresh_session(session, case)
+        if case.get("state") == "APPLIED":
+            receipt = None
+            if self.apply_service is not None:
+                read_commit = getattr(self.apply_service, "read_commit", None)
+                if callable(read_commit):
+                    receipt = read_commit(
+                        case_id=session["case_id"],
+                        identity=dict(session["identity"]),
+                    )
+            return self._show_applied_summary(owner, receipt)
         manifest = self.transition_service.get_supply_manifest(
             case_id=session["case_id"], **session["identity"],
         )
@@ -744,6 +1669,28 @@ class TelegramFifoCostTransitionRuntimeService:
             if isinstance(evidence, dict) and evidence.get("error") is False
             and len(evidence.get("items", ())) <= 100 else None
         )
+        cutoff = self.transition_service.read_confirmed_cutoff_selection(
+            case_id=session["case_id"], **session["identity"],
+        )
+        receiving_units = (
+            cutoff.get("owner_confirmed_supplier_receiving_units")
+            if isinstance(cutoff, dict) and cutoff.get("error") is False
+            else None
+        )
+        if isinstance(cutoff, dict) and cutoff.get("error") is False:
+            if receiving_units is None:
+                cutoff_summary = (
+                    f"Cutoff: {cutoff['descriptor']['cutoff_date']}; "
+                    "количество на приёмке в отчёте отсутствует"
+                )
+            else:
+                cutoff_summary = (
+                    f"Приёмка на cutoff {cutoff['descriptor']['cutoff_date']}: "
+                    f"{receiving_units} шт. (ручное подтверждение владельца; "
+                    "отдельно от FIFO-слоёв)"
+                )
+        else:
+            cutoff_summary = "Cutoff и ручное количество на приёмке не подтверждены"
         text = (
             f"🧾 Черновик поздней партии · {session['display_name']} · SKU {session['identity']['sku']}\n"
             f"Состояние: {case['state']} · редакция {case['case_revision']}\n"
@@ -755,25 +1702,27 @@ class TelegramFifoCostTransitionRuntimeService:
             f"количество новой партии дома: неизвестно\n"
             f"Поставки: {manifest.get('known_assigned_units') if isinstance(manifest, dict) else 'нет данных'} из "
             f"{manifest.get('owner_declared_total') if isinstance(manifest, dict) else 'нет данных'} шт.; "
-            f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n\n"
+            f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n"
+            f"{cutoff_summary}\n\n"
             "Это сохранённые сведения для сверки. История FIFO, текущая себестоимость и прибыль не применялись."
         )
+        if case.get("state") == "READY_TO_CONFIRM":
+            text += "\nСохранённый предпросмотр доступен через кнопку «Посмотреть пересчёт»; применить его можно только после просмотра и отдельного подтверждения."
         buttons = []
         if case.get("state") in self._EDITABLE_STATES:
             buttons.extend([
                 {"text": "📦 Поставки", "callback": self._issue_ticket(owner, session, "supply")},
                 {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
                 {"text": "📄 Добавить отчёт", "callback": self._issue_ticket(owner, session, "reports")},
+                {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
+                {"text": "🧾 Задать начальный состав FIFO", "callback": self._issue_ticket(owner, session, "opening_composition")},
+                {"text": "🔗 Собрать финансовые привязки", "callback": self._issue_ticket(owner, session, "collect_finance_identity")},
+                {"text": "📊 Собрать месячные итоги Period Profit", "callback": self._issue_ticket(owner, session, "collect_period_summaries")},
             ])
         buttons.extend([
             {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},
             {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
         ])
-        if case.get("state") == "READY_TO_CONFIRM" and self.apply_service is not None:
-            buttons.append({
-                "text": "✅ Применить подтверждённую историю",
-                "callback": self._issue_ticket(owner, session, "apply_transition"),
-            })
         if case.get("state") in self._EDITABLE_STATES:
             buttons.append({
                 "text": "✖️ Отменить изменение",
@@ -785,7 +1734,25 @@ class TelegramFifoCostTransitionRuntimeService:
         session = self._sessions.get(owner)
         if not isinstance(session, dict):
             return self._stale()
-        review = self._assess_case(session)
+        case = self._read_case(session["case_id"], session["identity"])
+        if not isinstance(case, dict) or case.get("error") is not False:
+            return self._failure("Не удалось проверить готовность. Черновик не изменён; попробуйте открыть его заново.")
+        self._refresh_session(session, case)
+        sealed = None
+        if case.get("state") == "READY_TO_CONFIRM":
+            sealed = self._load_current_ready_preview(session, case)
+            if sealed is None:
+                return self._result(
+                    "Сохранённый предпросмотр READY истёк или устарел. Он не будет применён; обновите доказательства и откройте пересчёт заново.",
+                    keyboard=self._keyboard([{
+                        "text": "📊 Проверить пересчёт",
+                        "callback": self._issue_ticket(owner, session, "view_recalculation"),
+                    }]),
+                )
+        review = self._assess_case(
+            session,
+            sealed_preview_id=sealed.get("preview_id") if sealed else None,
+        )
         if not isinstance(review, dict) or review.get("error") is not False:
             return self._failure("Не удалось проверить готовность. Черновик не изменён; попробуйте открыть его заново.")
         readiness = review.get("readiness")
@@ -817,9 +1784,94 @@ class TelegramFifoCostTransitionRuntimeService:
         if not isinstance(case, dict) or case.get("error") is not False:
             return self._failure("Не удалось открыть дело для пересчёта; данные не изменены.")
         self._refresh_session(session, case)
+        if case.get("state") == "READY_TO_CONFIRM":
+            sealed = self._load_current_ready_preview(
+                session, case, allow_expired=True,
+            )
+            if sealed is None:
+                return self._result(
+                    "Сохранённый READY-предпросмотр недоступен или устарел. Ничего не применено; проверьте готовность и источники заново.",
+                    keyboard=self._keyboard([{
+                        "text": "🔍 Проверить готовность",
+                        "callback": self._issue_ticket(owner, session, "check_readiness"),
+                    }]),
+                )
+            if sealed.get("expired") is not True:
+                return self._show_sealed_preview(owner, session, sealed)
+            reopen_method = getattr(
+                self.apply_service, "reopen_expired_preview", None,
+            )
+            if not callable(reopen_method):
+                return self._failure(
+                    "Срок сохранённого предпросмотра истёк; пересоздание недоступно. "
+                    "Проверьте готовность и сохранённые источники заново."
+                )
+            reopened = reopen_method(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                expected_case_revision=sealed["case_revision"],
+                preview_id=sealed["preview_id"],
+                preview_fingerprint=sealed["preview_fingerprint"],
+                idempotency_key=self._stable_action_key(
+                    "reopen-expired-preview", session,
+                    sealed["case_revision"], sealed["preview_id"],
+                    sealed["preview_fingerprint"],
+                ),
+            )
+            if not isinstance(reopened, dict) or reopened.get("error") is not False:
+                return self._failure(
+                    "Просроченный предпросмотр не пересоздан: дело или seal "
+                    "изменились. FIFO не применена; откройте проверку готовности."
+                )
+            refreshed = self._read_case(session["case_id"], session["identity"])
+            if (
+                not isinstance(refreshed, dict)
+                or refreshed.get("error") is not False
+                or refreshed.get("state") != "AWAITING_EVIDENCE"
+                or refreshed.get("case_revision") != sealed["case_revision"] + 1
+            ):
+                return self._failure(
+                    "Редакцию дела после пересоздания не удалось проверить. "
+                    "Ничего не применено; откройте дело заново."
+                )
+            self._refresh_session(session, refreshed)
+            case = refreshed
+        if case.get("state") not in self._EDITABLE_STATES:
+            return self._failure("Для этого состояния пересчёт недоступен. Данные не изменены.")
         review = self._assess_case(session)
         if not isinstance(review, dict) or review.get("error") is not False:
             return self._failure("Не удалось собрать пересчёт по сохранённым источникам. Дело не изменено.")
+        prepare_result = None
+        if self.apply_service is not None:
+            prepare_method = getattr(self.apply_service, "prepare", None)
+            if not callable(prepare_method):
+                return self._failure("Сервис сохранённого предпросмотра недоступен. Дело не изменено.")
+            prepare_result = prepare_method(
+                case_id=session["case_id"], identity=dict(session["identity"]),
+                expected_case_revision=case["case_revision"],
+                idempotency_key=self._stable_action_key(
+                    "prepare", session, case["case_revision"],
+                ),
+            )
+            if (
+                isinstance(prepare_result, dict)
+                and prepare_result.get("error") is False
+                and prepare_result.get("code") == "FIFO_TRANSITION_PREVIEW_READY"
+            ):
+                current = self._read_case(session["case_id"], session["identity"])
+                if (
+                    not isinstance(current, dict) or current.get("error") is not False
+                    or current.get("state") != "READY_TO_CONFIRM"
+                ):
+                    return self._failure("Seal сохранён, но состояние дела не удалось перечитать. Откройте его заново.")
+                self._refresh_session(session, current)
+                sealed = self._load_current_ready_preview(session, current)
+                if sealed is None or (
+                    sealed.get("preview_id") != prepare_result.get("preview_id")
+                    or sealed.get("preview_fingerprint")
+                        != prepare_result.get("preview_fingerprint")
+                ):
+                    return self._failure("Seal изменился после подготовки. Применение недоступно; проверьте дело заново.")
+                return self._show_sealed_preview(owner, session, sealed)
         proposal = review["proposal"]
         status = review["readiness"].status
         cost_components = case["case"].get("cost_components")
@@ -893,6 +1945,23 @@ class TelegramFifoCostTransitionRuntimeService:
         ]
         if missing_fields:
             lines.append("Не введено владельцем: " + ", ".join(missing_fields))
+        if isinstance(prepare_result, dict):
+            if prepare_result.get("error") is False:
+                lines.append(
+                    "Seal не создан: " + str(prepare_result.get("code") or "готовность не подтверждена")
+                )
+                requirements = prepare_result.get("requirements")
+                if isinstance(requirements, (tuple, list)) and requirements:
+                    lines.append("Не выполнено: " + ", ".join(str(item) for item in requirements[:8]))
+                candidate = prepare_result.get("candidate_total_cogs_rub")
+                if candidate is not None:
+                    lines.append(f"Кандидатная себестоимость по найденным данным: {candidate} ₽; это не готовый результат.")
+            else:
+                lines.append(
+                    "Seal не создан из-за ошибки проверки: "
+                    + str(prepare_result.get("code") or "источники недоступны")
+                    + ". FIFO и прибыль не изменены."
+                )
         old_cost = case["case"].get("old_unit_cost_rub")
         new_cost = case["case"].get("new_unit_cost_rub")
         if old_cost is not None and new_cost is not None:
@@ -912,6 +1981,143 @@ class TelegramFifoCostTransitionRuntimeService:
                 {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
             ]),
         )
+
+    def _load_current_ready_preview(self, session, case, *, allow_expired=False):
+        if self.apply_service is None or not isinstance(case, dict):
+            return None
+        payload = case.get("case")
+        last_preview = payload.get("last_preview") if isinstance(payload, dict) else None
+        if not isinstance(last_preview, dict):
+            return None
+        preview_id = last_preview.get("preview_id")
+        preview_fingerprint = last_preview.get("preview_fingerprint")
+        if (
+            not isinstance(preview_id, str) or not preview_id
+            or not isinstance(preview_fingerprint, str)
+            or case.get("state") != "READY_TO_CONFIRM"
+            or type(case.get("case_revision")) is not int
+        ):
+            return None
+        read_method = getattr(self.apply_service, "read_preview", None)
+        if not callable(read_method):
+            return None
+        sealed = read_method(
+            case_id=session["case_id"], identity=dict(session["identity"]),
+            preview_id=preview_id,
+        )
+        preview = sealed.get("preview") if isinstance(sealed, dict) else None
+        if (
+            not isinstance(sealed, dict) or sealed.get("error") is not False
+            or sealed.get("is_current") is not True
+            or (sealed.get("expired") is True and not allow_expired)
+            or sealed.get("current_case_state") != "READY_TO_CONFIRM"
+            or sealed.get("current_case_revision") != case["case_revision"]
+            or sealed.get("case_revision") != case["case_revision"]
+            or sealed.get("preview_fingerprint") != preview_fingerprint
+            or not isinstance(preview, dict)
+            or preview.get("case_revision") != case["case_revision"] - 1
+        ):
+            return None
+        return {
+            "preview_id": preview_id,
+            "preview_fingerprint": preview_fingerprint,
+            "case_revision": case["case_revision"],
+            "preview": preview,
+            "expired": sealed.get("expired") is True,
+        }
+
+    def _show_sealed_preview(self, owner, session, sealed):
+        preview = sealed["preview"]
+        impact = preview.get("impact_preview")
+        allocation = preview.get("allocation_preview")
+        if (
+            not isinstance(impact, dict) or impact.get("error") is not False
+            or impact.get("complete") is not True
+            or impact.get("candidate_only") is True
+            or not isinstance(impact.get("periods"), list)
+            or not isinstance(allocation, dict)
+            or not all(isinstance(row, dict) for row in impact["periods"])
+        ):
+            return self._failure("Сохранённый seal не содержит полного impact. Применение запрещено.")
+        lines = [
+            f"📊 Подтверждённый предпросмотр FIFO · редакция {sealed['case_revision']}",
+            f"Дата применения: {preview.get('effective_date') or 'не указана'}",
+            f"Покрытие финансовых данных до: {preview.get('complete_through') or 'не подтверждено'}",
+            f"Себестоимость после пересчёта: {allocation.get('total_cogs_rub', 'нет данных')} ₽",
+            f"Полный impact: {len(impact['periods'])} финансовых периодов; возвращено {impact.get('related_return_count', 0)} шт.; отдельные выбытия {impact.get('non_sale_outflow_count', 0)}",
+        ]
+        for period in impact["periods"][:6]:
+            lines.append(
+                f"• {period.get('period')}: прибыль {period.get('before_profit_rub')} → "
+                f"{period.get('after_profit_rub')} ₽; изменение {period.get('delta_profit_rub')} ₽; "
+                f"налог {period.get('before_tax_rub')} → {period.get('after_tax_rub')} ₽"
+            )
+        if len(impact["periods"]) > 6:
+            lines.append(f"• Ещё периодов: {len(impact['periods']) - 6}")
+        if sealed.get("expired") is True:
+            lines.append("Срок подтверждения seal истёк. Этот исторический предпросмотр доступен для просмотра, но применить его нельзя.")
+        else:
+            lines.append("Это сохранённый exact seal. Применение ещё раз проверит его fingerprint, редакцию дела, источники, cutoff, налоги и FIFO.")
+        if sealed.get("expired") is True:
+            return self._result(
+                "\n".join(lines),
+                keyboard=self._keyboard([{
+                    "text": "🔄 Пересобрать предпросмотр",
+                    "callback": self._issue_ticket(owner, session, "view_recalculation"),
+                }, {
+                    "text": "↩️ К делу",
+                    "callback": self._issue_ticket(owner, session, "finish"),
+                }]),
+            )
+        apply_ticket = self._issue_ticket(
+            owner, session, "apply_transition",
+            preview_id=sealed["preview_id"],
+            preview_fingerprint=sealed["preview_fingerprint"],
+            expected_preview_case_revision=sealed["case_revision"],
+            idempotency_key=self._stable_action_key(
+                "apply", session, sealed["preview_id"],
+                sealed["preview_fingerprint"],
+            ),
+        )
+        return self._result(
+            "\n".join(lines),
+            keyboard=self._keyboard([
+                {"text": "Продолжить к подтверждению", "callback": apply_ticket},
+                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+            ]),
+        )
+
+    def _show_applied_summary(self, owner, receipt):
+        if (
+            not isinstance(receipt, dict) or receipt.get("error") is not False
+            or receipt.get("code") != "FIFO_TRANSITION_APPLIED"
+            or not isinstance(receipt.get("commit_id"), str)
+            or not isinstance(receipt.get("complete_through"), str)
+        ):
+            return self._result(
+                "Переход FIFO имеет состояние APPLIED, но квитанцию commit не удалось прочитать. Не повторяйте действие; откройте дело и проверьте сохранённый результат.",
+            )
+        return self._result(
+            "✅ Переход FIFO применён\n"
+            f"Commit: {receipt['commit_id']}\n"
+            f"Покрытие подтверждено до: {receipt['complete_through']}\n"
+            f"Редакция дела: {receipt.get('case_revision')}\n"
+            "Это подтверждение сохранённой операции; повторное нажатие не создаёт второй commit.",
+        )
+
+    @staticmethod
+    def _stable_action_key(action, session, *binding):
+        material = json.dumps(
+            {
+                "action": action,
+                "case_id": session.get("case_id"),
+                "identity": session.get("identity"),
+                "tenant": session.get("tenant"),
+                "binding": binding,
+            },
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+        return f"tg-fr25-{action}-" + hashlib.sha256(material).hexdigest()[:48]
 
     @staticmethod
     def _append_readiness_requirements(lines, readiness, *, limit):
@@ -939,14 +2145,15 @@ class TelegramFifoCostTransitionRuntimeService:
         if len(requirements) > limit:
             lines.append(f"• Ещё требований: {len(requirements) - limit}")
 
-    def _assess_case(self, session):
+    def _assess_case(self, session, *, sealed_preview_id=None):
         if self.review_service is None:
             return {"error": True, "code": "FIFO_TRANSITION_REVIEW_UNAVAILABLE"}
         return self.review_service.assess(
             case_id=session["case_id"], identity=session["identity"],
+            sealed_preview_id=sealed_preview_id,
         )
 
-    def _confirm_apply_prompt(self, user_id, owner, session):
+    def _confirm_apply_prompt(self, owner, session, ticket):
         current = self._read_case(session["case_id"], session["identity"])
         if (
             not isinstance(current, dict) or current.get("error") is not False
@@ -955,9 +2162,25 @@ class TelegramFifoCostTransitionRuntimeService:
             or self.apply_service is None
         ):
             return self._failure("Применение недоступно: нет актуального READY предпросмотра. FIFO не изменена.")
-        callback = self._issue_ticket(owner, session, "confirm_apply")
+        sealed = self._load_current_ready_preview(session, current)
+        if (
+            sealed is None
+            or ticket.get("preview_id") != sealed.get("preview_id")
+            or ticket.get("preview_fingerprint") != sealed.get("preview_fingerprint")
+            or ticket.get("expected_preview_case_revision") != current.get("case_revision")
+            or ticket.get("case_revision") != current.get("case_revision")
+            or not isinstance(ticket.get("idempotency_key"), str)
+        ):
+            return self._failure("Предпросмотр изменился или устарел. Повторно откройте точный пересчёт; FIFO не изменена.")
+        callback = self._issue_ticket(
+            owner, session, "confirm_apply",
+            preview_id=sealed["preview_id"],
+            preview_fingerprint=sealed["preview_fingerprint"],
+            expected_preview_case_revision=sealed["case_revision"],
+            idempotency_key=ticket["idempotency_key"],
+        )
         return self._result(
-            "Проверьте подтверждённый предпросмотр. Применение ещё раз проверит редакции дела, источников, cutoff, налогов и FIFO.",
+            "Применить этот сохранённый предпросмотр FIFO? Будут использованы только показанный seal и его точные редакции; источники, cutoff, налоги и FIFO проверяются повторно.",
             keyboard=self._keyboard([
                 {"text": "✅ Применить подтверждённую историю", "callback": callback},
                 {"text": "↩️ Назад", "callback": self._issue_ticket(owner, session, "finish")},
@@ -969,28 +2192,35 @@ class TelegramFifoCostTransitionRuntimeService:
         if (
             not isinstance(current, dict) or current.get("error") is not False
             or current.get("state") != "READY_TO_CONFIRM"
+            or current.get("case_revision") != ticket.get("expected_preview_case_revision")
             or current.get("case_revision") != ticket.get("case_revision")
             or self.apply_service is None
         ):
             return self._failure("Предпросмотр устарел или больше не готов. Применение отклонено, FIFO не изменена.")
+        sealed = self._load_current_ready_preview(session, current)
+        if (
+            sealed is None
+            or ticket.get("preview_id") != sealed.get("preview_id")
+            or ticket.get("preview_fingerprint") != sealed.get("preview_fingerprint")
+            or not isinstance(ticket.get("idempotency_key"), str)
+        ):
+            return self._failure("Точный предпросмотр не совпал с кнопкой подтверждения. FIFO не изменена.")
         apply_method = getattr(self.apply_service, "apply", None)
         if not callable(apply_method):
             return self._failure("Сервис применения недоступен. FIFO не изменена.")
         result = apply_method(
             case_id=session["case_id"], identity=dict(session["identity"]),
-            expected_case_revision=current["case_revision"],
+            expected_case_revision=ticket["expected_preview_case_revision"],
+            expected_preview_id=ticket["preview_id"],
+            expected_preview_fingerprint=ticket["preview_fingerprint"],
+            idempotency_key=ticket["idempotency_key"],
         )
         if not isinstance(result, dict) or result.get("error") is not False:
             return self._failure("Серверная проверка применения не пройдена. Данные FIFO не изменены.")
-        if callable(self.cache_invalidator):
-            try:
-                self.cache_invalidator(dict(session["identity"]))
-            except Exception:
-                # The atomic commit is already authoritative. Detail callbacks
-                # still validate the exact local cost/allocation revision.
-                pass
-        self._refresh_session(session, self._read_case(session["case_id"], session["identity"]))
-        return self._show_summary(owner)
+        updated = self._read_case(session["case_id"], session["identity"])
+        if isinstance(updated, dict) and updated.get("error") is False:
+            self._refresh_session(session, updated)
+        return self._show_applied_summary(owner, result)
 
     def _refresh_supplies_prompt(self, owner, *, page):
         session = self._sessions.get(owner)
@@ -1057,8 +2287,32 @@ class TelegramFifoCostTransitionRuntimeService:
     def _ticket(self, owner, token):
         return self._tickets[(owner, token)]
 
+    @staticmethod
+    def _physical_sales_scope(owner, session):
+        identity = session["identity"]
+        return ScopeIdentity(
+            owner_id=owner,
+            store_id=identity["store_id"],
+            product_id=identity.get("product_id"),
+            offer_id=identity.get("offer_id"),
+            sku=identity["sku"],
+        )
+
     def _set_session(self, owner, tenant, identity, display_name, case_id, revision):
         now = self._now_monotonic()
+        previous = self._sessions.get(owner)
+        if (
+            self.physical_sales_import_service is not None
+            and isinstance(previous, dict)
+            and (
+                previous.get("tenant") != tenant
+                or previous.get("case_id") != case_id
+                or previous.get("identity") != identity
+            )
+        ):
+            # Drop only the transient upload/preview when the user switches
+            # forms. The durable FIFO case and any saved evidence remain intact.
+            self.physical_sales_import_service.clear_selection(user_id=owner)
         session = {
             "tenant": tenant,
             "identity": dict(identity),

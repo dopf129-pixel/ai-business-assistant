@@ -6,6 +6,9 @@ from cryptography.fernet import Fernet
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_transition_evidence_service import (
+    FifoCostTransitionEvidenceService,
+)
 from services.fifo_cost_transition_review_service import FifoCostTransitionReviewService
 from services.fifo_cost_report_import_service import FifoCostReportImportService
 from services.fifo_cost_stock_management_import_service import FifoCostStockManagementImportService
@@ -16,11 +19,22 @@ from services.fifo_cost_transition_contracts import (
     ReportEvidence,
     ReportType,
     ScopeIdentity,
+    StockBucket,
     TransitionMetadata,
+    source_fingerprint,
+)
+from services.fifo_cost_physical_sales_evidence_service import (
+    FifoCostPhysicalSalesEvidenceService,
+)
+from services.fifo_cost_physical_sales_import_service import (
+    FifoCostPhysicalSalesImportService,
 )
 from services.ozon_account_repository import make_store_tenant_scope
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_report_import_service import TelegramFifoCostReportImportService
+from services.telegram_fifo_cost_physical_sales_import_service import (
+    TelegramFifoCostPhysicalSalesImportService,
+)
 from services.telegram_fifo_cost_transition_runtime_service import (
     TelegramFifoCostTransitionRuntimeService,
 )
@@ -171,6 +185,97 @@ def test_components_mode_saves_exact_total_without_inventing_components(tmp_path
         reset_current_tenant_user_id(tenant)
 
 
+def test_owner_can_confirm_cutoff_receiving_quantity_without_adding_fifo_units(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history, transitions, _report_import, runtime = _services(tmp_path)
+        started = runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        assert "старую итоговую себестоимость" in started["message"].lower()
+        _complete_owner_inputs(runtime)
+        listed = transitions.list_cases(store_id="store-a", sku=IDENTITY["sku"])
+        case_item = listed["cases"][0]
+        case = transitions._case_from_payload(case_item["case"])
+        stock_buckets = {bucket.value: 0 for bucket in StockBucket}
+        stock_buckets.update({
+            "available": 100,
+            "reserved": 0,
+            "supplier_receiving": None,
+        })
+        stock_report = ReportEvidence(
+            metadata=TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_IMPORTED,
+                completeness=EvidenceCompleteness.COMPLETE,
+                source_fingerprint=source_fingerprint("runtime-owner-stock"),
+                store_timezone="Europe/Moscow",
+            ),
+            report_type=ReportType.STOCK_MANAGEMENT,
+            period_from="2026-11-06",
+            period_to="2026-11-06",
+            period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+            captured_at="2026-11-07T18:00:00Z",
+            file_sha256=source_fingerprint("runtime-owner-stock-file"),
+            parser_version="stock-test-v1",
+            cell_references=("A1",),
+            normalized_fields={
+                "stock_buckets": stock_buckets,
+                "fbs_return_available_units": 0,
+                "fbs_return_is_subset_of_available": True,
+            },
+        )
+        saved_report = repository.append_report_evidence(
+            case_id=case.case_id, report=stock_report,
+            expected_case_revision=case_item["case_revision"],
+            idempotency_key="runtime-owner-stock-report-1",
+        )
+        assert saved_report.get("error") is False, saved_report
+
+        summary = runtime._show_summary("101")
+        receiving_button = next(
+            item["callback"] for item in summary["keyboard"]["buttons"]
+            if item["text"] == "📦 Указать число на приёмке"
+        )
+        report_choices = runtime.handle_callback(101, receiving_button)
+        report_choice = next(
+            item["callback"] for item in report_choices["keyboard"]["buttons"]
+            if item["text"].startswith("📅 2026-11-06")
+        )
+        quantity_prompt = runtime.handle_callback(101, report_choice)
+        assert "ручное подтверждение владельца" in quantity_prompt["message"].lower()
+        assert "не добавится к fifo-слоям" in quantity_prompt["message"].lower()
+
+        invalid = runtime.handle_text(101, "не знаю")
+        assert "введите точное целое число" in invalid["message"].lower()
+        assert transitions.get_case(case_id=case.case_id, **IDENTITY)["case_revision"] == (
+            saved_report["case_revision"]
+        )
+        preview = runtime.handle_text(101, "148")
+        assert "не значение, полученное от ozon" in preview["message"].lower()
+        assert "не войдёт в принятое fifo-наличие" in preview["message"].lower()
+        confirmed = runtime.handle_callback(
+            101, preview["keyboard"]["buttons"][0]["callback"],
+        )
+        assert confirmed.get("error") is False, confirmed
+        assert "ручное подтверждение владельца" in confirmed["message"].lower()
+        assert "148 шт." in confirmed["message"]
+
+        cutoff = transitions.read_confirmed_cutoff_selection(
+            case_id=case.case_id, **IDENTITY,
+        )
+        assert cutoff.get("error") is False, cutoff
+        assert cutoff["descriptor"]["cutoff_date"] == "2026-11-06"
+        assert cutoff["stock_report_fingerprint"] == stock_report.file_sha256
+        assert cutoff["owner_confirmed_supplier_receiving_units"] == 148
+        assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_confirmed_supply_declarations_are_typed_and_report_import_is_case_bound(tmp_path):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
     try:
@@ -228,6 +333,324 @@ def test_confirmed_supply_declarations_are_typed_and_report_import_is_case_bound
         assert "case_" not in choose_case
         selected = report_import.handle_callback(101, choose_case)
         assert "Теперь отправьте соответствующий XLSX" in selected["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately(tmp_path, monkeypatch):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
+    try:
+        repository, history, transitions, report_import, _runtime = _services(tmp_path)
+
+        class Worker:
+            def parse_physical_sales(self, *, filename, payload, scope):
+                return FifoCostPhysicalSalesImportService().parse_csv(
+                    filename=filename, payload=payload, scope=scope,
+                )
+
+        class OneTransientConfirmedListFailure(FifoCostPhysicalSalesEvidenceService):
+            def __init__(self):
+                super().__init__()
+                self.fail_once = True
+
+            def list_confirmed_documents(self, **kwargs):
+                if self.fail_once:
+                    self.fail_once = False
+                    return {
+                        "error": True,
+                        "code": "FIFO_TRANSITION_STORAGE_UNAVAILABLE",
+                    }
+                return super().list_confirmed_documents(**kwargs)
+
+        physical_evidence = OneTransientConfirmedListFailure()
+        physical_import = TelegramFifoCostPhysicalSalesImportService(
+            repository=repository,
+            worker=Worker(),
+            evidence_service=physical_evidence,
+            now_provider=lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc),
+        )
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            transitions, history, report_import,
+            physical_sales_import_service=physical_import,
+            now_provider=lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc),
+        )
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        supply_stage = runtime._show_supply_stage("101")
+        skip = next(
+            item["callback"] for item in supply_stage["keyboard"]["buttons"]
+            if item["text"] == "Продолжить без списка поставок"
+        )
+        documents = runtime.handle_callback(101, skip)
+        action = next(
+            item["callback"] for item in documents["keyboard"]["buttons"]
+            if item["text"].startswith("🧾 Добавить подтверждение физических продаж")
+        )
+        selected = runtime.handle_callback(101, action)
+        assert selected["code"] == "FIFO_PHYSICAL_SALES_UPLOAD_SELECTED"
+        assert runtime.has_physical_sales_document_selection(101) is True
+        missing_period = runtime.preflight_physical_sales_document(
+            101, "physical-sales.csv", 300,
+        )
+        assert missing_period["code"] == "FIFO_PHYSICAL_SALES_PERIOD_REQUIRED"
+        invalid_period = runtime.handle_text(101, "2026-11-06 — 2026-11-08")
+        assert invalid_period["code"] == "FIFO_PHYSICAL_SALES_PERIOD_DOES_NOT_COVER_DISPATCH"
+        period_set = runtime.handle_text(101, "2026-11-05 — 2026-11-09")
+        assert period_set["code"] == "FIFO_PHYSICAL_SALES_PERIOD_SET"
+
+        bad_file = runtime.preflight_physical_sales_document(
+            101, "wrong.xlsx", 200,
+        )
+        assert bad_file["selected"] is True and bad_file["accepted"] is not True
+        case_before = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        assert case_before["case_revision"] == 7
+
+        content = (
+            FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
+            "posting-111;3921245627;2;2026-11-06;source-row-1\r\n"
+            "posting-222;3921245627;3;2026-11-08;source-row-2\r\n"
+        ).encode("utf-8")
+        preflight = runtime.preflight_physical_sales_document(
+            101, "physical-sales.csv", len(content),
+        )
+        assert preflight["accepted"] is True
+        preview = runtime.handle_physical_sales_document(
+            101, content, "physical-sales.csv",
+        )
+        assert preview["code"] == "FIFO_PHYSICAL_SALES_PREVIEW_READY"
+        assert "Строк: 2 · единиц: 5" in preview["message"]
+        assert "Период покрытия по вашему указанию: 2026-11-05 — 2026-11-09" in preview["message"]
+        assert "Даты в строках CSV: 2026-11-06 — 2026-11-08" in preview["message"]
+        assert "PARTIAL" in preview["message"]
+        assert "posting-111" not in preview["message"]
+        save_callback = preview["keyboard"]["buttons"][0]["callback"]
+        assert len(save_callback.encode("utf-8")) <= 64
+        assert "case_" not in save_callback and "posting-111" not in save_callback
+
+        unavailable = runtime.handle_physical_sales_callback(101, save_callback)
+        assert unavailable["code"] == (
+            "FIFO_PHYSICAL_SALES_VERSION_SELECTION_UNAVAILABLE"
+        ), unavailable
+        assert unavailable["error"] is False
+        assert runtime._sessions["101"]["case_revision"] == 8
+        retry_callback = unavailable["keyboard"]["buttons"][0]["callback"]
+        saved = runtime.handle_physical_sales_callback(101, retry_callback)
+        assert saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED", saved
+        assert saved["error"] is False
+        assert "Отдельно подтвердите" in saved["message"]
+        confirm_callback = saved["keyboard"]["buttons"][0]["callback"]
+        assert len(confirm_callback.encode("utf-8")) <= 64
+        assert "case_" not in confirm_callback and "posting-111" not in confirm_callback
+        after_save = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        assert after_save["case_revision"] == 8
+        assert after_save["state"] == "AWAITING_EVIDENCE"
+
+        confirmed = runtime.handle_physical_sales_callback(101, confirm_callback)
+        assert confirmed["code"] == "FIFO_PHYSICAL_SALES_CONFIRMED", confirmed
+        assert "полнота всех продаж и движений" in confirmed["message"]
+        replayed = runtime.handle_physical_sales_callback(101, confirm_callback)
+        assert replayed["error"] is False and replayed["replayed"] is True
+        after_confirm = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        assert after_confirm["case_revision"] == 9
+        assert runtime._sessions["101"]["step"] == "documents"
+
+        evidence = repository.read_transition_bridge_evidence(
+            case_id=runtime._sessions["101"]["case_id"],
+            **IDENTITY,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT",
+            include_sensitive_payload=True,
+        )
+        assert evidence["error"] is False and len(evidence["items"]) == 1
+        item = evidence["items"][0]
+        assert item["completeness"] == "PARTIAL"
+        assert item["confirmations"][-1]["confirmation_kind"] == "PHYSICAL_SALES"
+        assert item["payload"]["semantics"] == "PHYSICAL_OUTFLOW"
+        assert "posting-111" not in repr(item["payload"])
+        reread = physical_import.evidence_service.read_document(
+            repository=repository,
+            case_id=runtime._sessions["101"]["case_id"],
+            scope=runtime._physical_sales_scope("101", runtime._sessions["101"]),
+            evidence_id=item["evidence_id"],
+        )
+        assert reread["error"] is False, reread
+        assert reread["preview"]["period_from"] == "2026-11-05"
+        assert reread["preview"]["period_to"] == "2026-11-09"
+
+        # Uploading a corrected CSV does not overwrite the first immutable row.
+        # The owner explicitly selects the new version as current, superseding
+        # every previously confirmed file by its exact evidence fingerprint.
+        documents = runtime._documents_prompt("101")
+        replace_action = next(
+            button["callback"] for button in documents["keyboard"]["buttons"]
+            if button["text"].startswith("🧾 Добавить подтверждение физических продаж")
+        )
+        runtime.handle_callback(101, replace_action)
+        assert runtime.handle_text(101, "2026-11-05 — 2026-11-09")["code"] == (
+            "FIFO_PHYSICAL_SALES_PERIOD_SET"
+        )
+        corrected_content = (
+            FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
+            "posting-111;3921245627;1;2026-11-06;source-row-1-corrected\r\n"
+            "posting-222;3921245627;2;2026-11-08;source-row-2-corrected\r\n"
+        ).encode("utf-8")
+        corrected_preview = runtime.handle_physical_sales_document(
+            101, corrected_content, "physical-sales-corrected.csv",
+        )
+        corrected_saved = runtime.handle_physical_sales_callback(
+            101, corrected_preview["keyboard"]["buttons"][0]["callback"],
+        )
+        assert corrected_saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED"
+        assert "будут заменены выбором этого файла: 1" in corrected_saved["message"]
+        replace_callback = corrected_saved["keyboard"]["buttons"][0]["callback"]
+        corrected_confirmed = runtime.handle_physical_sales_callback(
+            101, replace_callback,
+        )
+        assert corrected_confirmed["code"] == "FIFO_PHYSICAL_SALES_CONFIRMED"
+        assert "1 ранее подтверждённых версий оставлены в истории" in corrected_confirmed["message"]
+
+        versions = repository.read_transition_bridge_evidence(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT", include_sensitive_payload=True,
+        )
+        assert versions["error"] is False and len(versions["items"]) == 2
+        assert all(item["completeness"] == "PARTIAL" for item in versions["items"])
+        current_case = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        resolver = FifoCostTransitionEvidenceService(transitions)
+        active = resolver._read_physical_document(
+            case_id=runtime._sessions["101"]["case_id"], identity=IDENTITY,
+            scope=runtime._physical_sales_scope("101", runtime._sessions["101"]),
+            case=transitions._case_from_payload(current_case["case"]),
+        )
+        assert active["error"] is False, active
+        assert {row.quantity for row in active["document"].rows} == {1, 2}
+        assert active["document"].period_from == "2026-11-05"
+        assert active["document"].period_to == "2026-11-09"
+
+        def reselect_existing_csv(payload, filename):
+            documents_prompt = runtime._documents_prompt("101")
+            add_action = next(
+                button["callback"]
+                for button in documents_prompt["keyboard"]["buttons"]
+                if button["text"].startswith(
+                    "🧾 Добавить подтверждение физических продаж",
+                )
+            )
+            assert runtime.handle_callback(101, add_action)["error"] is False
+            assert runtime.handle_text(
+                101, "2026-11-05 — 2026-11-09",
+            )["code"] == "FIFO_PHYSICAL_SALES_PERIOD_SET"
+            file_preview = runtime.handle_physical_sales_document(
+                101, payload, filename,
+            )
+            assert file_preview["code"] == "FIFO_PHYSICAL_SALES_PREVIEW_READY"
+            file_saved = runtime.handle_physical_sales_callback(
+                101, file_preview["keyboard"]["buttons"][0]["callback"],
+            )
+            assert file_saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED"
+            result = runtime.handle_physical_sales_callback(
+                101, file_saved["keyboard"]["buttons"][0]["callback"],
+            )
+            assert result["code"] == "FIFO_PHYSICAL_SALES_CONFIRMED", result
+
+        # Re-select an identical document, then switch A -> B -> A -> B.
+        # Each explicit owner confirmation is a new revision-bound operation;
+        # it must not collide with the earlier confirmation's idempotency key.
+        reselect_existing_csv(corrected_content, "physical-sales-corrected.csv")
+        reselect_existing_csv(content, "physical-sales.csv")
+        reselect_existing_csv(corrected_content, "physical-sales-corrected.csv")
+        versions = repository.read_transition_bridge_evidence(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT", include_sensitive_payload=True,
+        )
+        assert versions["error"] is False and len(versions["items"]) == 2
+        confirmation_counts = sorted(
+            sum(
+                confirmation["confirmation_kind"] == "PHYSICAL_SALES"
+                for confirmation in item["confirmations"]
+            )
+            for item in versions["items"]
+        )
+        assert confirmation_counts == [2, 3]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_switching_fifo_case_invalidates_old_physical_preview_without_closing_either_case(tmp_path, monkeypatch):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
+    try:
+        repository, history, transitions, report_import, _runtime = _services(tmp_path)
+
+        class Worker:
+            def parse_physical_sales(self, *, filename, payload, scope):
+                return FifoCostPhysicalSalesImportService().parse_csv(
+                    filename=filename, payload=payload, scope=scope,
+                )
+
+        physical_import = TelegramFifoCostPhysicalSalesImportService(
+            repository=repository,
+            worker=Worker(),
+            evidence_service=FifoCostPhysicalSalesEvidenceService(),
+        )
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            transitions, history, report_import,
+            physical_sales_import_service=physical_import,
+        )
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        stage = runtime._show_supply_stage("101")
+        skip = next(
+            item["callback"] for item in stage["keyboard"]["buttons"]
+            if item["text"] == "Продолжить без списка поставок"
+        )
+        documents = runtime.handle_callback(101, skip)
+        select = next(
+            item["callback"] for item in documents["keyboard"]["buttons"]
+            if item["callback"].startswith("fifo_transition:physical_sales:")
+        )
+        runtime.handle_callback(101, select)
+        assert runtime.handle_text(101, "2026-11-05 — 2026-11-06")["code"] == (
+            "FIFO_PHYSICAL_SALES_PERIOD_SET"
+        )
+        content = (
+            FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
+            "posting-111;3921245627;1;2026-11-05;source-row-1\r\n"
+        ).encode("utf-8")
+        preview = runtime.handle_physical_sales_document(
+            101, content, "physical-sales.csv",
+        )
+        old_case_id = runtime._sessions["101"]["case_id"]
+        save_callback = preview["keyboard"]["buttons"][0]["callback"]
+
+        other_identity = {
+            "store_id": "store-a", "product_id": "product-202",
+            "offer_id": "hook-3", "sku": "3921245628",
+        }
+        started = runtime.start_new_case(
+            101, other_identity, "Другой товар", 0, "TOTAL_LANDED",
+        )
+        assert started["error"] is False
+        new_case_id = runtime._sessions["101"]["case_id"]
+        assert new_case_id != old_case_id
+        assert runtime.has_physical_sales_document_selection(101) is False
+
+        stale = runtime.handle_physical_sales_callback(101, save_callback)
+        assert stale["error"] is True
+        assert runtime._sessions["101"]["case_id"] == new_case_id
+        assert runtime._sessions["101"]["step"] == "old_unit_cost_rub"
+        old_case = transitions.get_case(case_id=old_case_id, **IDENTITY)
+        new_case = transitions.get_case(case_id=new_case_id, **other_identity)
+        assert old_case["case_revision"] == 7 and old_case["state"] == "AWAITING_EVIDENCE"
+        assert new_case["case_revision"] == 1 and new_case["state"] == "DRAFT"
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -314,6 +737,15 @@ def test_distinct_review_actions_fail_closed_before_ready_and_do_not_write(tmp_p
             item["callback"] for item in readiness["keyboard"]["buttons"]
             if item["text"] == "📊 Посмотреть пересчёт"
         )
+        prepare_calls = []
+        runtime.apply_service = SimpleNamespace(
+            prepare=lambda **kwargs: prepare_calls.append(kwargs) or {
+                "error": False,
+                "code": "FIFO_TRANSITION_NOT_READY",
+                "requirements": ("FINANCIAL_PERIOD_SUMMARY_MISSING",),
+                "candidate_total_cogs_rub": "92.30",
+            },
+        )
         preview = runtime.handle_callback(101, preview_callback)
         assert "Подтверждённый FIFO cutoff: отсутствует" in preview["message"]
         assert "Старая очередь FIFO не инициализирована" in preview["message"]
@@ -325,6 +757,20 @@ def test_distinct_review_actions_fail_closed_before_ready_and_do_not_write(tmp_p
         assert "период OWNER_CONFIRMED" in preview["message"]
         assert "снимок 2026-11-08" in preview["message"]
         assert "прибыли" in preview["message"].lower()
+        assert "Seal не создан: FIFO_TRANSITION_NOT_READY" in preview["message"]
+        assert "кандидатная себестоимость" in preview["message"].lower()
+        assert len(prepare_calls) == 1
+        assert prepare_calls[0]["expected_case_revision"] == 8
+        assert prepare_calls[0]["idempotency_key"].startswith("tg-fr25-prepare-")
+        assert len(prepare_calls[0]["idempotency_key"]) <= 128
+        retry_view = runtime._show_summary("101")
+        retry_callback = next(
+            button["callback"] for button in retry_view["keyboard"]["buttons"]
+            if button["text"] == "📊 Посмотреть пересчёт"
+        )
+        runtime.handle_callback(101, retry_callback)
+        assert len(prepare_calls) == 2
+        assert prepare_calls[1]["idempotency_key"] == prepare_calls[0]["idempotency_key"]
 
         apply_calls = []
         runtime.apply_service = SimpleNamespace(apply=lambda **kwargs: apply_calls.append(kwargs))
@@ -370,7 +816,7 @@ def test_components_cost_mode_preview_shows_components_without_reinterpreting_pr
         reset_current_tenant_user_id(tenant)
 
 
-def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
+def test_ready_case_reopens_saved_preview_after_restart_without_repreparing():
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
         class ReadyTransitions:
@@ -386,9 +832,9 @@ def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
         runtime = TelegramFifoCostTransitionRuntimeService(
             ReadyTransitions(), history_service=None,
         )
-        summary_calls = []
-        runtime._show_summary = lambda owner: summary_calls.append(owner) or {
-            "error": False, "message": "sealed READY summary",
+        preview_calls = []
+        runtime._show_recalculation = lambda owner: preview_calls.append(owner) or {
+            "error": False, "message": "same persisted seal",
         }
 
         result = runtime.resume_case(
@@ -399,11 +845,340 @@ def test_ready_case_can_be_reopened_after_restart_as_read_only_summary():
             expected_case_revision=9,
         )
 
-        assert result["message"] == "sealed READY summary"
-        assert summary_calls == ["101"]
+        assert result["message"] == "same persisted seal"
+        assert preview_calls == ["101"]
         session = runtime._sessions["101"]
         assert session["state"] == "READY_TO_CONFIRM"
         assert "step" not in session
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_expired_ready_preview_is_rebuilt_from_current_evidence_after_restart():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        old_fingerprint = "a" * 64
+        old_preview_id = "transpreview_" + old_fingerprint[:40]
+        new_fingerprint = "b" * 64
+        new_preview_id = "transpreview_" + new_fingerprint[:40]
+        preview_payload = {
+            "case_revision": 5,
+            "effective_date": "2026-11-08",
+            "complete_through": "2026-11-07",
+            "allocation_preview": {"total_cogs_rub": "100.00"},
+            "impact_preview": {
+                "error": False, "complete": True, "candidate_only": False,
+                "periods": [], "related_return_count": 0,
+                "non_sale_outflow_count": 0,
+            },
+        }
+        state = {
+            "case_revision": 9,
+            "state": "READY_TO_CONFIRM",
+            "case": {
+                "metadata": {"scope": dict(IDENTITY)},
+                "last_preview": {
+                    "preview_id": old_preview_id,
+                    "preview_fingerprint": old_fingerprint,
+                },
+            },
+        }
+
+        class Transitions:
+            def get_case(self, *, case_id, **identity):
+                return {"error": False, "case_id": case_id, **state}
+
+        class Apply:
+            def __init__(self):
+                self.reopen_calls = []
+                self.prepare_calls = []
+                self.read_calls = []
+
+            def read_preview(self, *, case_id, identity, preview_id):
+                self.read_calls.append(preview_id)
+                current = preview_id == new_preview_id
+                fingerprint = new_fingerprint if current else old_fingerprint
+                return {
+                    "error": False, "case_revision": state["case_revision"],
+                    "basis_case_revision": state["case_revision"] - 1,
+                    "preview_id": preview_id,
+                    "preview_fingerprint": fingerprint,
+                    "current_case_revision": state["case_revision"],
+                    "current_case_state": state["state"],
+                    "is_current": True,
+                    "expired": not current,
+                    "preview": {
+                        **preview_payload,
+                        "case_revision": state["case_revision"] - 1,
+                    },
+                }
+
+            def reopen_expired_preview(self, **kwargs):
+                self.reopen_calls.append(kwargs)
+                state.update(case_revision=10, state="AWAITING_EVIDENCE")
+                state["case"].pop("last_preview", None)
+                return {"error": False, "case_revision": 10}
+
+            def prepare(self, **kwargs):
+                self.prepare_calls.append(kwargs)
+                state.update(case_revision=11, state="READY_TO_CONFIRM")
+                state["case"]["last_preview"] = {
+                    "preview_id": new_preview_id,
+                    "preview_fingerprint": new_fingerprint,
+                }
+                return {
+                    "error": False, "code": "FIFO_TRANSITION_PREVIEW_READY",
+                    "preview_id": new_preview_id,
+                    "preview_fingerprint": new_fingerprint,
+                }
+
+        review_calls = []
+
+        class Review:
+            def assess(self, *, case_id, identity, sealed_preview_id=None):
+                review_calls.append((case_id, sealed_preview_id, state["case_revision"]))
+                return {"error": False, "case_revision": state["case_revision"]}
+
+        apply = Apply()
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            Transitions(), history_service=None, apply_service=apply,
+        )
+        runtime.review_service = Review()
+        result = runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-expired-preview", expected_case_revision=9,
+        )
+
+        assert result["error"] is False, result
+        assert "Подтверждённый предпросмотр FIFO · редакция 11" in result["message"]
+        assert "Продолжить к подтверждению" in [
+            button["text"] for button in result["keyboard"]["buttons"]
+        ]
+        assert len(apply.reopen_calls) == 1
+        reopen_call = apply.reopen_calls[0]
+        assert {
+            key: value for key, value in reopen_call.items()
+            if key != "idempotency_key"
+        } == {
+            "case_id": "case-expired-preview", "identity": IDENTITY,
+            "expected_case_revision": 9, "preview_id": old_preview_id,
+            "preview_fingerprint": old_fingerprint,
+        }
+        assert reopen_call["idempotency_key"].startswith(
+            "tg-fr25-reopen-expired-preview-",
+        )
+        assert len(reopen_call["idempotency_key"].rsplit("-", 1)[-1]) == 48
+        assert apply.prepare_calls[0]["expected_case_revision"] == 10
+        assert review_calls == [("case-expired-preview", None, 10)]
+        assert apply.read_calls == [old_preview_id, new_preview_id]
+        assert state["state"] == "READY_TO_CONFIRM"
+        assert runtime._sessions["101"]["case_revision"] == 11
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_ready_preview_ticket_binds_exact_persisted_seal_and_replays_commit(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        preview_id = "preview-12345678"
+        preview_fingerprint = "a" * 64
+        preview = {
+            "case_revision": 8,
+            "effective_date": "2026-11-07",
+            "complete_through": "2026-11-06",
+            "allocation_preview": {"total_cogs_rub": "92.30"},
+            "impact_preview": {
+                "error": False,
+                "complete": True,
+                "candidate_only": False,
+                "related_return_count": 2,
+                "non_sale_outflow_count": 1,
+                "periods": [{
+                    "period": "2026-11",
+                    "before_profit_rub": "240.00",
+                    "after_profit_rub": "252.70",
+                    "delta_profit_rub": "12.70",
+                    "before_tax_rub": "60.00",
+                    "after_tax_rub": "60.00",
+                }],
+            },
+            "idempotency_key": "tg-fr25-prepare-012345678901234567890123456789012345678901234567",
+        }
+        state = {
+            "case_revision": 9,
+            "state": "READY_TO_CONFIRM",
+            "case": {
+                "metadata": {"scope": dict(IDENTITY)},
+                "last_preview": {
+                    "preview_id": preview_id,
+                    "preview_fingerprint": preview_fingerprint,
+                },
+            },
+        }
+
+        class ReadyTransitions:
+            def get_case(self, *, case_id, **identity):
+                return {"error": False, "case_id": case_id, **state}
+
+        class ExactApply:
+            def __init__(self):
+                self.apply_calls = []
+                self.read_calls = []
+                self.expired = False
+
+            def prepare(self, **kwargs):
+                raise AssertionError("READY restart must read, never prepare a new seal")
+
+            def read_preview(self, *, case_id, identity, preview_id):
+                self.read_calls.append((case_id, dict(identity), preview_id))
+                return {
+                    "error": False,
+                    "case_revision": 9,
+                    "basis_case_revision": 8,
+                    "preview_id": preview_id,
+                    "preview_fingerprint": preview_fingerprint,
+                    "current_case_revision": state["case_revision"],
+                    "current_case_state": state["state"],
+                    "is_current": True,
+                    "expired": self.expired,
+                    "preview": preview,
+                    "read_only": True,
+                }
+
+            def apply(self, **kwargs):
+                self.apply_calls.append(kwargs)
+                state["case_revision"] = 10
+                state["state"] = "APPLIED"
+                return {
+                    "error": False,
+                    "code": "FIFO_TRANSITION_APPLIED",
+                    "commit_id": "transcommit_1234567890",
+                    "preview_id": preview_id,
+                    "case_revision": 10,
+                    "complete_through": "2026-11-06",
+                    "committed_at": "2026-11-10T12:00:00Z",
+                }
+
+            def read_commit(self, *, case_id, identity):
+                return {
+                    "error": False,
+                    "code": "FIFO_TRANSITION_APPLIED",
+                    "commit_id": "transcommit_1234567890",
+                    "preview_id": preview_id,
+                    "case_revision": 10,
+                    "complete_through": "2026-11-06",
+                }
+
+        service = ExactApply()
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        opened = runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=9,
+        )
+        assert "Подтверждённый предпросмотр FIFO" in opened["message"]
+        assert "2026-11: прибыль 240.00 → 252.70 ₽" in opened["message"]
+        assert "Покрытие финансовых данных до: 2026-11-06" in opened["message"]
+        assert len(service.read_calls) == 1
+
+        readiness_bindings = []
+
+        class ReadyReview:
+            def assess(self, *, case_id, identity, sealed_preview_id=None):
+                readiness_bindings.append((case_id, sealed_preview_id))
+                return {
+                    "error": False,
+                    "case_revision": 8,
+                    "readiness": SimpleNamespace(
+                        status="PREVIEW_READY", ready_to_apply=True,
+                        source_data_through="2026-11-06",
+                        candidate_data_through=None,
+                        complete_through="2026-11-06",
+                        requirements=(),
+                    ),
+                }
+
+        runtime.review_service = ReadyReview()
+        readiness_button = runtime._issue_ticket(
+            "101", runtime._sessions["101"], "check_readiness",
+        )
+        readiness = runtime.handle_callback(101, readiness_button)
+        assert "Состояние: PREVIEW_READY" in readiness["message"]
+        assert "Проверка только читает" in readiness["message"]
+        assert readiness_bindings == [("case-ready-12345678", preview_id)]
+
+        restart_runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        restarted = restart_runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=9,
+        )
+        assert restarted["message"] == opened["message"]
+
+        service.expired = True
+        expired_runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        expired_preview = expired_runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=9,
+        )
+        assert "пересоздание недоступно" in expired_preview["message"]
+        service.expired = False
+        first_apply_ticket = next(
+            button["callback"] for button in opened["keyboard"]["buttons"]
+            if button["text"] == "Продолжить к подтверждению"
+        )
+        first_apply_token = first_apply_ticket.rsplit(":", 1)[-1]
+        first_ticket = runtime._ticket("101", first_apply_token)
+        assert first_ticket["preview_id"] == preview_id
+        assert first_ticket["preview_fingerprint"] == preview_fingerprint
+        assert first_ticket["expected_preview_case_revision"] == 9
+        assert preview_id not in first_apply_ticket
+        assert preview_fingerprint not in first_apply_ticket
+
+        prompt = runtime.handle_callback(101, first_apply_ticket)
+        confirm_callback = prompt["keyboard"]["buttons"][0]["callback"]
+        confirm_token = confirm_callback.rsplit(":", 1)[-1]
+        confirm_ticket = runtime._ticket("101", confirm_token)
+        assert confirm_ticket["preview_id"] == preview_id
+        assert confirm_ticket["preview_fingerprint"] == preview_fingerprint
+        assert confirm_ticket["expected_preview_case_revision"] == 9
+        assert confirm_ticket["idempotency_key"] == first_ticket["idempotency_key"]
+
+        changed_fingerprint = "b" * 64
+        state["case"]["last_preview"]["preview_fingerprint"] = changed_fingerprint
+        rejected = runtime.handle_callback(101, confirm_callback)
+        assert rejected["error"] is True
+        assert service.apply_calls == []
+
+        state["case"]["last_preview"]["preview_fingerprint"] = preview_fingerprint
+        applied = runtime.handle_callback(101, confirm_callback)
+        assert "Commit: transcommit_1234567890" in applied["message"]
+        assert "Покрытие подтверждено до: 2026-11-06" in applied["message"]
+        assert service.apply_calls == [{
+            "case_id": "case-ready-12345678",
+            "identity": IDENTITY,
+            "expected_case_revision": 9,
+            "expected_preview_id": preview_id,
+            "expected_preview_fingerprint": preview_fingerprint,
+            "idempotency_key": confirm_ticket["idempotency_key"],
+        }]
+        replayed = runtime.handle_callback(101, confirm_callback)
+        assert replayed == applied
+        assert len(service.apply_calls) == 1
+
+        applied_restart_runtime = TelegramFifoCostTransitionRuntimeService(
+            ReadyTransitions(), history_service=None, apply_service=service,
+        )
+        applied_restart = applied_restart_runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки",
+            case_id="case-ready-12345678", expected_case_revision=10,
+        )
+        assert "Commit: transcommit_1234567890" in applied_restart["message"]
+        assert "Покрытие подтверждено до: 2026-11-06" in applied_restart["message"]
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -508,5 +1283,281 @@ def test_supply_refresh_requires_exact_declared_id_and_never_exposes_it(tmp_path
         assert "700003" not in refreshed["message"]
         assert "COMPLETE" in refreshed["message"]
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_documents_menu_routes_owner_opening_composition_to_bound_preview(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+
+        menu = runtime._documents_prompt("101")
+        opening_button = next(
+            item for item in menu["keyboard"]["buttons"]
+            if item["text"] == "🧾 Задать начальный состав FIFO"
+        )
+        opened = runtime.handle_callback(101, opening_button["callback"])
+        assert "Сколько упаковок старой партии" in opened["message"]
+
+        prompts = []
+        for value in ("0", "3", "0", "0", "0", "0"):
+            response = runtime.handle_text(101, value)
+            prompts.append(response)
+        preview = prompts[-1]
+        assert "cutoff 2026-11-04" in preview["message"]
+        assert "новой партии по 14.65 ₽/шт.: Ozon 3" in preview["message"]
+        assert "Сохранить состав" in preview["message"]
+        # The preview is only a draft: no opening composition was persisted.
+        assert transitions.read_confirmed_opening_composition(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )["error"] is True
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_old_opening_composition_save_button_cannot_save_the_next_draft(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+        saved_calls = []
+        transitions.record_opening_composition = lambda **kwargs: (
+            saved_calls.append(kwargs) or {"error": True, "code": "MUST_NOT_SAVE"}
+        )
+        session = runtime._sessions["101"]
+
+        first = runtime._start_opening_composition("101", session)
+        for value in ("3", "0", "0", "0", "0", "0"):
+            first = runtime.handle_text(101, value)
+        stale_save = next(
+            item["callback"] for item in first["keyboard"]["buttons"]
+            if "Сохранить состав" in item["text"]
+        )
+        stale_cancel = next(
+            item["callback"] for item in first["keyboard"]["buttons"]
+            if "Отменить ввод" in item["text"]
+        )
+
+        second = runtime._start_opening_composition("101", session)
+        assert second.get("error") is False
+        for value in ("0", "3", "0", "0", "0", "0"):
+            second = runtime.handle_text(101, value)
+        assert "новой партии по 14.65 ₽/шт.: Ozon 3" in second["message"]
+
+        rejected = runtime.handle_callback(101, stale_save)
+
+        assert rejected.get("error") is True
+        assert saved_calls == []
+        rejected_cancel = runtime.handle_callback(101, stale_cancel)
+        assert rejected_cancel.get("error") is True
+        assert session["opening_composition_preview"][0]["ozon_units"] == 3
+        assert session["opening_composition_preview"][0]["unit_cost_rub"] == "14.65"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_cancelled_opening_composition_clears_preview_and_invalidates_save_button(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+        saved_calls = []
+        transitions.record_opening_composition = lambda **kwargs: (
+            saved_calls.append(kwargs) or {"error": True, "code": "MUST_NOT_SAVE"}
+        )
+        runtime._start_opening_composition("101", runtime._sessions["101"])
+        for value in ("0", "3", "0", "0", "0", "0"):
+            preview = runtime.handle_text(101, value)
+        save_callback = next(
+            item["callback"] for item in preview["keyboard"]["buttons"]
+            if "Сохранить состав" in item["text"]
+        )
+        cancel_callback = next(
+            item["callback"] for item in preview["keyboard"]["buttons"]
+            if "Отменить ввод" in item["text"]
+        )
+
+        runtime.handle_callback(101, cancel_callback)
+        session = runtime._sessions["101"]
+        assert not any(key.startswith("opening_composition_") for key in session)
+        assert session.get("step") is None
+
+        rejected = runtime.handle_callback(101, save_callback)
+
+        assert rejected.get("error") is True
+        assert saved_calls == []
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_opening_composition_accepts_unknown_new_home_quantity_without_counting_it(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        transitions.read_confirmed_cutoff_selection = lambda **_kwargs: {
+            "error": False,
+            "evidence_id": "evidence-cutoff-1",
+            "evidence_fingerprint": "a" * 64,
+            "stock_report_fingerprint": "b" * 64,
+            "descriptor": {"cutoff_date": "2026-11-04"},
+        }
+        saved_calls = []
+        transitions.record_opening_composition = lambda **kwargs: (
+            saved_calls.append(kwargs) or {"error": True, "code": "STOP_AFTER_CAPTURE"}
+        )
+
+        runtime._start_opening_composition("101", runtime._sessions["101"])
+        result = None
+        for value in ("0", "3", "0", "7", "0"):
+            result = runtime.handle_text(101, value)
+        result = runtime.handle_text(101, "не знаю")
+
+        assert "дома неизвестно" in result["message"]
+        assert "не включено в конечный остаток" in result["message"]
+        assert "Новая партия в пути: 7 шт." in result["message"]
+        assert runtime._sessions["101"]["opening_composition_draft"]["values"][-1] is None
+        save_callback = next(
+            item["callback"] for item in result["keyboard"]["buttons"]
+            if "Сохранить состав" in item["text"]
+        )
+        runtime.handle_callback(101, save_callback)
+
+        assert len(saved_calls) == 1
+        assert saved_calls[0]["unknown_new_home_quantity"] is True
+        assert saved_calls[0]["layers"][-1]["home_units"] == 0
+        assert saved_calls[0]["layers"][-1]["transit_units"] == 0
+        assert saved_calls[0]["new_party_transit_units"] == 7
+
+        # Known new-home stock becomes a finite new-cost home layer; stock in
+        # transit remains a separate owner observation until accepted.
+        session = runtime._sessions["101"]
+        session["case"]["new_home_quantity"] = 2
+        runtime._start_opening_composition("101", session)
+        preview = None
+        for value in ("0", "3", "0", "7", "0", "2"):
+            preview = runtime.handle_text(101, value)
+        assert "новой партии по 14.65 ₽/шт.: Ozon 3, в пути 0, дома 2" in preview[
+            "message"
+        ]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_documents_menu_routes_bounded_finance_collection_without_saving_unavailable_source(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, _transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+
+        class SourceCollection:
+            def __init__(self):
+                self.calls = []
+
+            def collect_finance_identity_snapshot(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(
+                    status="UNAVAILABLE", finance_identity_snapshots=(),
+                    continuation_token=None, issue_codes=("OZON_HTTP_404",),
+                    actual_http_attempts=1, source_fingerprint=None,
+                )
+
+        class Evidence:
+            def __init__(self):
+                self.write_calls = []
+
+            def record_finance_identity_batches(self, **kwargs):
+                self.write_calls.append(kwargs)
+                return {"error": False}
+
+        source = SourceCollection()
+        evidence = Evidence()
+        runtime.source_collection_service = source
+        runtime.evidence_service = evidence
+
+        menu = runtime._documents_prompt("101")
+        finance_button = next(
+            item for item in menu["keyboard"]["buttons"]
+            if item["text"] == "🔗 Собрать финансовые привязки"
+        )
+        prompt = runtime.handle_callback(101, finance_button["callback"])
+        assert "первый и последний месяц" in prompt["message"]
+        result = runtime.handle_text(101, "2026-08 — 2026-08")
+
+        assert "Финансовые привязки не сохранены" in result["message"]
+        assert source.calls[0]["period_from"] == "2026-08-01"
+        assert source.calls[0]["period_to"] == "2026-08-31"
+        assert source.calls[0]["max_pages_per_call"] == 2
+        assert source.calls[0]["http_attempt_budget"] == 10
+        assert source.calls[0]["time_budget_seconds"] == 20.0
+        assert evidence.write_calls == []
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_documents_menu_routes_period_summary_collection_as_read_only_action(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        _repository, _history, _transitions, _report_import, runtime = _services(tmp_path)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+
+        class Apply:
+            def __init__(self):
+                self.calls = []
+
+            def collect_period_summaries(self, **kwargs):
+                self.calls.append(kwargs)
+                return {
+                    "error": True,
+                    "code": "FIFO_TRANSITION_EVIDENCE_INCOMPLETE",
+                    "requirements": ["MOVEMENT_COVERAGE_MISSING"],
+                }
+
+        apply = Apply()
+        runtime.apply_service = apply
+        runtime.period_summary_collection_service = object()
+        runtime.period_profit_service = object()
+
+        menu = runtime._documents_prompt("101")
+        summary_button = next(
+            item for item in menu["keyboard"]["buttons"]
+            if item["text"] == "📊 Собрать месячные итоги Period Profit"
+        )
+        result = runtime.handle_callback(101, summary_button["callback"])
+
+        assert "MOVEMENT_COVERAGE_MISSING" in result["message"]
+        assert "FIFO и прибыль не изменены" in result["message"]
+        assert len(apply.calls) == 1
+        assert apply.calls[0]["case_id"] == runtime._sessions["101"]["case_id"]
+        assert apply.calls[0]["continuation_token"] is None
     finally:
         reset_current_tenant_user_id(tenant)

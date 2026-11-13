@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -30,7 +31,10 @@ class FifoCostLateEntryImpactService:
     def preview(self, *, reconstruction, period_summaries, tax_policy_result):
         if not isinstance(reconstruction, dict) or reconstruction.get("error") is not False:
             return self._blocked("FIFO_RECONSTRUCTION_UNAVAILABLE")
-        if reconstruction.get("code") != "FIFO_LATE_ENTRY_RECONSTRUCTION_READY":
+        if reconstruction.get("code") not in {
+            "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+            "FIFO_TRANSITION_RECONSTRUCTION_READY",
+        }:
             return self._blocked("FIFO_RECONSTRUCTION_UNAVAILABLE")
         if type(reconstruction.get("related_return_count")) is not int:
             return self._blocked("FIFO_RETURN_EVIDENCE_INVALID")
@@ -73,6 +77,7 @@ class FifoCostLateEntryImpactService:
             return self._blocked(reason)
         summaries = self._normalize_summaries(
             period_summaries, set(identity_map.values()),
+            reconstruction_fingerprint=reconstruction.get("preview_fingerprint"),
         )
         if isinstance(summaries, str):
             return self._candidate_only(
@@ -146,30 +151,46 @@ class FifoCostLateEntryImpactService:
         policy = self._normalize_policy(tax_policy_result)
         if isinstance(policy, str):
             return self._blocked(policy)
+        if any(
+            summary["tax_policy_fingerprint"] != policy["fingerprint"]
+            for summary in summaries.values()
+        ):
+            return self._candidate_only(
+                reconstruction,
+                reason="FIFO_PERIOD_SUMMARY_TAX_POLICY_MISMATCH",
+                candidate_total=candidate_total, candidate_periods=[],
+                outflow_value=outflow_value,
+                mapping_fingerprint=mapping_fingerprint,
+            )
 
         result_periods = []
         for period in sorted(periods):
             summary = summaries[period]
             replay = periods[period]
-            before_cost = self._money(summary["current_sku_product_cost"])
-            before_replay_cost = replay["before_cogs"]
+            monthly_sku_cost = self._money(summary["current_sku_product_cost"])
+            before_cost = replay["before_cogs"]
             after_cost = replay["after_cogs"]
             total_cost = self._money(summary["current_total_product_cost"])
-            if before_cost is None or total_cost is None:
+            if monthly_sku_cost is None or before_cost is None or total_cost is None:
                 return self._candidate_only(
                     reconstruction, reason="FIFO_PERIOD_SUMMARY_INVALID",
                     candidate_total=candidate_total, candidate_periods=[],
                     outflow_value=outflow_value,
                     mapping_fingerprint=mapping_fingerprint,
                 )
-            if before_cost != before_replay_cost:
+            # The month snapshot contains one SKU aggregate, while the FIFO
+            # replay can cover only a subset of its sale identities. Without
+            # a canonical COGS breakdown for those exact identities, the
+            # difference cannot safely be attributed to unaffected sales.
+            # Keep the impact candidate-only until that partition is proven.
+            if before_cost != monthly_sku_cost:
                 return self._candidate_only(
                     reconstruction, reason="FIFO_PERIOD_COGS_BASELINE_MISMATCH",
                     candidate_total=candidate_total, candidate_periods=[],
                     outflow_value=outflow_value,
                     mapping_fingerprint=mapping_fingerprint,
                 )
-            other_cost = total_cost - before_cost
+            other_cost = total_cost - monthly_sku_cost
             if other_cost < Decimal("-0.01"):
                 return self._blocked("FIFO_PERIOD_COST_RECONCILIATION_CONFLICT")
             other_cost = max(Decimal("0.00"), other_cost)
@@ -431,9 +452,15 @@ class FifoCostLateEntryImpactService:
         return {"periods": periods, "events": events}
 
     @classmethod
-    def _normalize_summaries(cls, values, expected_sale_digests):
+    def _normalize_summaries(
+        cls, values, expected_sale_digests, *, reconstruction_fingerprint,
+    ):
         if not isinstance(values, list) or not values or len(values) > 200:
             return "FIFO_PERIOD_SUMMARY_COVERAGE_INCOMPLETE"
+        if not isinstance(reconstruction_fingerprint, str) or not cls._DIGEST.fullmatch(
+            reconstruction_fingerprint,
+        ):
+            return "FIFO_PERIOD_SUMMARY_RECONSTRUCTION_MISMATCH"
         result = {}
         all_digests = []
         for row in values:
@@ -441,11 +468,17 @@ class FifoCostLateEntryImpactService:
                 return "FIFO_PERIOD_SUMMARY_UNAVAILABLE"
             period = row.get("period")
             fingerprint = row.get("source_fingerprint")
+            snapshot_reconstruction_fingerprint = row.get("reconstruction_fingerprint")
+            tax_policy_fingerprint = row.get("tax_policy_fingerprint")
             sale_digests = row.get("sale_identity_digests")
             if (
                 not isinstance(period, str) or not cls._PERIOD.fullmatch(period)
                 or period in result
                 or not isinstance(fingerprint, str) or not cls._DIGEST.fullmatch(fingerprint)
+                or not isinstance(snapshot_reconstruction_fingerprint, str)
+                or not cls._DIGEST.fullmatch(snapshot_reconstruction_fingerprint)
+                or not isinstance(tax_policy_fingerprint, str)
+                or not cls._DIGEST.fullmatch(tax_policy_fingerprint)
                 or not isinstance(sale_digests, list) or not sale_digests
                 or any(
                     not isinstance(digest, str) or not cls._DIGEST.fullmatch(digest)
@@ -454,12 +487,24 @@ class FifoCostLateEntryImpactService:
                 or len(sale_digests) != len(set(sale_digests))
             ):
                 return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+            period_start = row.get("period_from")
+            period_end = row.get("period_to")
+            last_day = monthrange(int(period[:4]), int(period[5:7]))[1]
+            if (
+                period_start != f"{period}-01"
+                or period_end != f"{period}-{last_day:02d}"
+            ):
+                return "FIFO_PERIOD_SUMMARY_INVALID"
+            if snapshot_reconstruction_fingerprint != reconstruction_fingerprint:
+                return "FIFO_PERIOD_SUMMARY_RECONSTRUCTION_MISMATCH"
             if len(all_digests) + len(sale_digests) > 100_000:
                 return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
             all_digests.extend(sale_digests)
             normalized = {
                 "period": period, "complete": True,
                 "source_fingerprint": fingerprint,
+                "reconstruction_fingerprint": snapshot_reconstruction_fingerprint,
+                "tax_policy_fingerprint": tax_policy_fingerprint,
                 "sale_identity_digests": list(sale_digests),
             }
             for key in (

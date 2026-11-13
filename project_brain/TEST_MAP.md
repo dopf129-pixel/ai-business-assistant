@@ -1,7 +1,162 @@
-# 2026-11-10 — FIFO FR11 open-rate current-cost regression
+# 2026-11-13 — FIFO review fixes R18–R20
 
-- `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` now passes after a complete single-open-rate replay with no finite `replayed_rate_balances`; the current cost is preserved while its remaining quantity stays unknown. Missing balances for later/multiple rates continue to fail closed.
-- The production-workflow red regressions are scheduled with their implementation in dependent PR #732 instead of failing independently in PR #731.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` now re-selects identical saved CSVs and runs A→B→A→B; it verifies the immutable documents are reused and every explicit confirmation succeeds at a distinct case revision.
+- `tests/test_fifo_cost_transition_period_summary_evidence.py::test_latest_corrected_frozen_summary_is_selected_and_history_is_retained` verifies SQLite rehydration retains historical bound versions with durable revisions and makes each exact reconstruction/tax binding selectable.
+- `tests/test_fifo_cost_transition_apply_service.py::test_period_summary_selection_uses_current_reconstruction_and_restored_tax_binding` verifies stale October evidence is removed after correction and historical monthly snapshots can be selected again for their matching prior binding.
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_restoring_prior_tax_and_reconstruction_reuses_matching_snapshot` verifies a 6%→5%→6% cycle reuses the original immutable summary without a duplicate append or idempotency conflict.
+- Changed-service profile: **81 passed**. Verify run [#43414761340](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43414761340) passed on code SHA `7b1c9aeb02dfae3958ba2134c914b0183611903a`: Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report.
+
+# 2026-11-13 — FIFO review fixes R15–R17
+
+- `tests/test_fifo_cost_physical_sales_evidence_service.py::test_physical_csv_is_encrypted_restartable_and_confirmed_separately` verifies re-uploading the same CSV with a new capture timestamp reuses the original immutable evidence row without increasing the case revision.
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_corrected_reconstruction_appends_new_month_snapshot_version` verifies stale snapshots are not treated as current after a reconstruction correction and that a new immutable month version is appended.
+- `tests/test_fifo_cost_transition_period_summary_evidence.py::test_latest_corrected_frozen_summary_is_selected_and_history_is_retained` verifies evidence selects the highest revision per month while both immutable versions remain readable.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` injects a one-time confirmed-document list failure after save and verifies retry refreshes the runtime session before confirmation.
+- Linked changed-service and consumer profile: **102 passed**. Verify run [#43408293179](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43408293179) passed on implementation SHA `6e629c9fe06d1063c999019e8d3ca81fe0d03b71`, including Linux/Windows full suites, compile, Linux Docker build/runtime smoke, and SHA-bound report.
+
+# 2026-11-13 — FIFO review corrections R12–R14
+
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_restart_with_different_chunking_and_http_budget_revalidates_same_snapshots` restarts after immutable monthly freezes, changes daily request chunking from 1 to 4 days and request budget from 1 to 10, and verifies the same source fingerprints are reused without duplicate snapshots/revision writes.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` verifies coverage is owner-entered before upload, excludes a too-short window that misses dispatch, preserves no-sale edge days in the preview, and lets an explicitly confirmed corrected CSV supersede the prior version while retaining both records.
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` now traverses the updated period-entry step before the physical CSV preview; both missing and explicitly supplied receiving-bucket cases remain covered.
+- Linked FIFO profile: **116 passed**; full isolated pytest: **5,288 passed in 73.96s**. `compileall`, diff check, and unchanged tracked `data/` passed. The disposable test copy excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702) on Windows/Linux and Docker smoke.
+
+# 2026-11-13 — FIFO review corrections R9–R11
+
+- `tests/test_fifo_cost_late_entry_impact_service.py::test_late_entry_blocks_when_subset_cogs_cannot_be_proven_against_month_total` confirms the 100/130/150 ₽ partial-subset scenario remains candidate-only; no profit delta is produced without identity-level canonical COGS.
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_financial_period_mapping_partitions_full_batch_by_verified_cutoff_bridge` validates a typed READY bridge partitions a complete two-row batch into one proven pre-cutoff row and one reconstructed post-cutoff row. It also verifies an omitted pre-cutoff mapping and missing bridge do not silently discard data.
+- `tests/test_fifo_cost_transition_apply_service.py::test_reprepare_after_expired_preview_reuses_frozen_month_without_fingerprint_drift` drives repository-backed prepare → expiry → exact CAS reopen → prepare and checks the old monthly snapshot remains bound to the unchanged reconstruction fingerprint.
+- Result: linked four-file profile **59 passed**; full isolated pytest **5,287 passed in 92.32s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded project `data/` and used a synthetic tax policy. Hosted status is tracked on PR #732. The R1 complete-movement-source blocker remains open.
+
+# 2026-11-11 — FIFO follow-up review R6–R8 regressions
+
+- `tests/test_fifo_cost_transition_service.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, and `tests/test_telegram_fifo_cost_transition_runtime_service.py` cover known new-lot home stock, separately retained new-lot transit, exact cutover validation, and fresh resealing after an expired READY preview on restart. The expired seal cannot write FIFO and the replacement still requires owner confirmation.
+- `tests/test_fifo_cost_financial_period_summary_service.py` and `tests/test_fifo_cost_late_entry_impact_service.py` cover full-month SKU COGS with a smaller affected sale subset, preserving earlier same-SKU costs and non-target COGS.
+- The cutoff-bridge fixture now includes the complete normalized layer fields required by the confirmed-composition contract. Subprocess report workers use the isolated copy's `.fl12-deps` directory.
+- Results: linked profile **107 passed**; cutoff/report-worker profile **38 passed**; full isolated pytest **5,285 passed in 92.11s**; `compileall`, diff check and unchanged `data/` passed.
+- Exact-head Verify run **43009830700** on code SHA `2ed94ed124cf4d09b604cad9d9e1200f22908ff9` passed Linux/Windows full verification and production Docker build/runtime smoke; the run uploaded its SHA-bound test report.
+
+# 2026-11-11 — FIFO review regression fixes R2–R5
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` verifies that old opening-composition save/cancel buttons cannot affect a later draft, cancelling the exact current preview clears its state, and “не знаю” for the new-party home count stays unknown and forwards the explicit status.
+- `tests/test_fifo_cost_transition_service.py` verifies unknown-home status survives encrypted evidence confirmation and a fresh service read. `tests/test_fifo_cost_transition_production_workflow.py` exercises the same optional confirmation metadata through the durable owner-reserved-stock check while retaining fail-closed stock scope checks.
+- `tests/test_fifo_cost_allocation_service.py` rejects a mixed legacy-layer/line-ordinal return that would otherwise restore one sold unit twice. `tests/test_fifo_cost_financial_period_summary_collection_service.py` restarts collection after one persisted month, revalidates that month, and confirms no duplicate append before completing the next month.
+- Linked FIFO profile: **730 passed in 43.69s**; isolated full suite: **5,279 passed in 81.93s**. Full movement coverage remains blocked under R1; return status is not treated as an inventory-movement ledger.
+
+# 2026-11-10 — FIFO review correction regressions
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers navigation from the documents menu into the exact-cutoff opening-composition preview, financial-period parsing and bounded collection failure without evidence writes, and the monthly-summary action staying candidate/read-only when required movement evidence is missing.
+- `tests/test_fifo_cost_transition_apply_service.py` verifies product-catalog refresh and finance collection share one 10-request root budget, aggregate attempts are reported together, and the collector is not called after the catalog consumes the cap.
+- `tests/test_fifo_cost_transition_production_workflow.py` asserts the factory passes source collection, durable evidence, monthly collector, and Period Profit runtime into the user-facing runtime. The linked regression profile passed **99 tests**; apply/production/runtime subset passed **28 tests**; full isolated pytest passed **5,275 tests**.
+
+# 2026-11-10 — FIFO FR11 fix and exact-head CI stack
+
+- `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` and the multi-rate history/replay profile pass: **49 passed in 2.88s**. The open-rate cost is retained only for one complete, unreconciled initial rate with unknown quantity; other missing balances remain fail-closed.
+- Full isolated PR A suite: **5,170 passed in 78.35s**. PR #731 current head is `af7d93324eea9952d60fc26553d8ed673bd8834f`; Verify run `42790983173` passed Windows/Linux and production Docker build/runtime smoke. PR #732 merge SHA `0ae37298b832775c1f6431a97924420b311ec358` passed Verify run `42793814822` on Windows/Linux full suites and Docker. The documentation-only status-sync head is covered by the latest PR Checks.
+
+# 2026-11-10 — FIFO owner-confirmed receiving bucket regressions
+
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` covers both missing confirmation (blocked) and explicit owner count (READY bridge), then verifies the durable cutoff proof and initial cutover. The opening queue remains 103 units while the separate receiving bucket is 148; a tampered opening that adds those 148 units is rejected.
+- `tests/test_fifo_cost_transition_service.py` covers durable explicit counts including zero; `tests/test_fifo_cost_cutoff_bridge_service.py` covers exact case/SKU/report/cutoff binding and conflicts; `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers report selection, invalid input without revision mutation, confirmation, restart-safe evidence and no implicit FIFO layer initialization.
+- Linked production workflow/service/bridge/atomic-apply/runtime profile: **77 passed**; direct FR27 workflow + atomic-apply profile: **21 passed**; isolated full pytest: **5,264 passed in 89.34s**. `compileall`, data manifest and diff checks passed. Hosted current-SHA CI remains pending; owner data is not part of these tests.
+
+# 2026-11-10 — FIFO FR27 source-gate, correction, and full-suite coverage
+
+- `tests/test_fifo_cost_stock_management_import_service.py` verifies the parser preserves Ozon sub-buckets and emits canonical aggregates (`defective`, `seller_withdrawal`); the unsupported `supplier_receiving` remains `None`.
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_fails_closed_without_cutoff_receiving_bucket` drives synthetic supply/API payloads and real stock/turnover/physical-document import through the shared production workflow. It asserts the actual bridge remains source-blocked, READY is false, and the case remains `AWAITING_EVIDENCE` when the stock report omits the receiving bucket.
+- `tests/test_fifo_cost_late_entry_correction_service.py` and `tests/test_fifo_cost_backup_restore.py` now bind monthly finance rows to the exact reconstruction and normalized tax-policy fingerprints. `tests/test_seller_attention_summary_service.py` covers the production factory's intentionally degraded configuration with no Period Profit runtime; the factory also imports its required `TaxService` in the full configuration.
+- Linked correction/backup/production workflow profile: **67 passed**. Full pytest from a disposable copy: **5,258 passed in 86.19s** using only a synthetic tax configuration. `compileall`, data manifest, and diff checks passed.
+- Positive FR27 apply is not verified because no authoritative receiving-at-cutoff value is available. Hosted CI for the current worktree SHA has not run.
+
+# 2026-11-10 — FIFO FR26 current and historical consumer regressions
+
+- `tests/test_fifo_cost_history_service.py` verifies that a replayed finite closed-rate residual is the next unit before a later open rate; an omitted balance on a multi-rate snapshot remains incomplete. `tests/test_fifo_late_entry_current_consumers.py` covers legacy cost before apply, FIFO cost after apply, revision-based cache refresh, and runtime forwarding of the exact seal without a second invalidation.
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` checks that reopened history, current unit-economics metadata/text, Telegram history/CSV, and allocation rows share the exact stream/allocation/mapping revisions and `complete_through` date.
+- `tests/test_period_profit_fifo_cost_integration.py` checks cutoff mapping metadata in Period Profit rows, explanations, and sanitized export; analytics export fixtures cover the new mapping columns. The linked FR26 profile also runs `tests/test_fifo_cost_late_entry_impact_service.py` (MR18 keeps non-sale outflow outside sales COGS) and `tests/test_saved_planning_plan_telegram_flow.py` (saved-plan lifecycle remains immutable).
+- Result: **177 passed in 7.82s**; compile, diff check, and five-file FR00 user-data manifest passed. Full-suite/current-head CI remain FR30.
+
+# 2026-11-10 — FIFO FR25 exact preview/confirmation tests
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers read-only readiness bound to the saved preview, stable prepare retry keys, candidate/missing result without READY, restart recovery of the exact READY seal, expired seal display without an apply action, opaque exact-binding confirmation, changed-fingerprint rejection, idempotent callback replay, and APPLIED receipt display after restart.
+- `tests/test_fifo_cost_transition_apply_service.py` verifies `read_commit` returns the exact durable commit and `complete_through` after a repository/service restart. `tests/test_fifo_cost_transition_atomic_apply.py` continues to cover CAS, atomicity, rollback and tenant isolation.
+- Linked production workflow/apply/evidence/review/runtime/atomic profile: **48 passed in 8.60s**; compile, diff/data checks and FR00 manifest PASS. Full suite/current-head CI remain FR30.
+
+# 2026-11-10 — FIFO FR24 production assembly tests
+
+- `tests/test_fifo_cost_transition_production_workflow.py::test_production_workflow_builder_wires_durable_evidence_review_apply_and_runtime` verifies one shared evidence/review/apply/runtime graph, exact repository/source/tax/Period Profit dependencies, period-summary impact service, and apply-only revision-aware cache invalidation.
+- `test_durable_physical_sale_document_is_available_to_production_workflow` verifies the builder exposes the real public physical-sales selection/document/callback route (`start_selection`, `handle_document`, `handle_callback`). `create_telegram_assistant` now calls the builder and exposes the resulting graph on its runner; no second test-only factory was added.
+- Linked builder/FR22–FR23/evidence/review profile: **17 passed in 4.09s**; `py_compile`, diff/data checks and five owner-data hashes PASS. Full suite/current-head CI remain FR30.
+
+# 2026-11-10 — FIFO FR23 apply/restart tests
+
+- `tests/test_fifo_cost_transition_apply_service.py` covers exact stored-preview reads without recalculation, full sealed-basis review at READY N+1, one atomic apply, recovery of the same commit after repository restart and preview expiry, rejection of a new key on an expired preview, fingerprint/idempotency conflicts, and cache invalidation failure after durable commit.
+- The concurrent same-key regression uses independent repositories and verifies both callers receive the one durable commit; it passed five consecutive runs. `tests/test_fifo_cost_transition_atomic_apply.py` remains linked for repository-level CAS, transaction, tenant isolation, and rollback controls.
+- Linked FR22–FR23 profile: **34 passed in 5.80s**; modified Python modules compile. Full pytest and exact-head CI remain FR30.
+
+# 2026-11-10 — FIFO FR22 prepare/seal tests
+
+- `tests/test_fifo_cost_transition_apply_service.py`: prepare requires a current complete durable evidence bundle, exact cutoff bridge, financial-period impact, and current tax fingerprint; candidate-only/missing evidence never creates a seal; exact idempotent retry is scoped to key/revision/fingerprint/TTL; existing initialized queues do not request another opening composition.
+- `tests/test_fifo_cost_transition_atomic_apply.py`, `tests/test_fifo_cost_transition_evidence_service.py`, and `tests/test_fifo_cost_transition_production_workflow.py::test_readiness_assessment_reloads_saved_evidence_before_cutoff_bridge_review`: no FIFO writes before confirmation and existing-stream readiness behavior.
+- FR22 linked profile: 31 passed in 5.24s; focused existing-stream regression: 1 passed. Production factory wiring remains FR24.
+
+# 2026-11-10 — FIFO FR21 canonical impact
+
+- `tests/test_fifo_cost_late_entry_impact_service.py`: exact MR12–MR15 tax/profit matrix through the existing TaxService; complete-month validation; exact reconstruction/tax-policy snapshot binding; whole-store cost preservation across financial months; incomplete-baseline candidate-only; non-sale outflow outside sales COGS.
+- `tests/test_fifo_cost_late_entry_reconstruction_service.py::test_fl21_preview_impact_uses_public_reconstruction_and_bound_month_snapshot`: public repository reconstruction passes through the late-entry impact wrapper with typed `FifoFinancialPeriodSummary`; exact reconstruction/tax fingerprints and financial recognition month are asserted.
+- Linked FR20–FR21 profile and current result are recorded in the progress journal.
+
+# 2026-11-10 — FIFO FR20 frozen financial-period summaries
+
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py` covers four-day continuation, exact month and store/product identity mapping, whole-account versus target-SKU COGS, daily source completeness, missing before baseline, scope binding, and retry after an unsuccessful month snapshot write without double-counting.
+- `tests/test_fifo_cost_financial_period_summary_service.py` verifies exact reconstruction before COGS and preserves total-store costs; `tests/test_fifo_cost_transition_period_summary_evidence.py` and the extended `tests/test_fifo_cost_transition_evidence_service.py` verify encrypted persistence, restart, conflict detection, and financial-recognition month mapping.
+- Linked FR20/FR19/source/impact profile: **88 passed in 3.96s**. Python compile passed. Full suite/current-head CI remain FR30; production assembly and Telegram UI remain FR24–FR25.
+
+# 2026-11-09 — FIFO FR19 read-only reconstruction
+
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_read_only_reconstruction_matches_prepare_seal_without_business_writes` verifies an uninitialized opening is staged and rolled back, exact identity/revisions/lineage/coverage are returned, repeated reconstruction is stable, and baseline/candidate replay fingerprints and COGS match the persisted prepare seal. After explicit synthetic confirmation, committed allocation lines equal the read-only candidate lines.
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_read_only_reconstruction_rolls_back_staged_opening_after_exception` injects an unexpected replay exception and verifies FIFO rows, preview rows, case state and case revision remain unchanged.
+- Linked FR19 profile runs all matching transition, cutoff bridge, physical-sales, late-entry, allocation, repository multi-rate, report-import, supply reconciliation, stock import and source-snapshot tests except the production workflow suite reserved for FR24: **372 passed in 25.57s**. Full suite/current-head CI remain FR30.
+
+# 2026-11-09 — FIFO FR18 durable evidence assembly and cutoff bridge
+
+- `tests/test_fifo_cost_transition_evidence_service.py::test_finance_identity_batches_rehydrate_from_durable_snapshot_after_restart` validates rehydration of exact typed finance identities from tenant-encrypted storage. `test_incomplete_movement_snapshot_stays_a_concrete_blocker_after_restart` confirms partial pagination never becomes zero movement or a bridge. `test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart` stores owner cutoff/opening confirmation, finance, physical-sales CSV and complete movement coverage, then uses fresh services to rebuild an actual `READY` bridge; the case remains unapplied and no FIFO events are written.
+- The linked profile includes transition evidence/service/review/readiness, cutoff bridge, physical-sales parser/evidence, schema v16/v13, source snapshots, stock and supply reconciliation, report import/worker, and Telegram route regressions: **210 passed in 15.82s**. `py_compile`, `git diff --check`, and `git diff --exit-code -- data` pass. Two future production-factory tests remain assigned to FR24 and were excluded from this FR18 result.
+- Synthetic tenant context, Fernet keys, SQLite and CSV in `tmp_path` only. No live API, owner records, bot process, merge or deployment. Full suite/current-head CI are FR30.
+
+# 2026-11-09 — FIFO FR17 cutoff/opening owner confirmations
+
+- `tests/test_fifo_cost_transition_service.py::test_fr17_public_owner_confirmations_persist_cutoff_and_3_old_plus_100_new` uses public service calls and a synthetic saved stock report. It verifies exact store-local cutoff, `available + reserved` semantics, 3 old home units plus 100 new Ozon units, explicit rejection of double-counting, separately confirmed restart reads, stale confirmation after owner-basis change, and no FIFO event writes.
+- `tests/test_fifo_cost_transition_review_service.py::test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready` verifies a process-memory cutoff is not authority and review remains read-only/non-ready.
+- Linked FIFO transition, evidence, acceptance, schema and readiness profile: **152 passed in 9.21s**. At that checkpoint the cross-source bridge remained open; FR18 now completes it through durable evidence reconstruction and the actual bridge builder.
+
+# 2026-11-09 — FIFO FR15 Telegram physical-sales route
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers explicit case-bound selection, preview/save/separate confirm, exact callback replay and stale preview after switching cases while both durable cases survive.
+- `tests/test_fifo_cost_report_import_telegram_adapter.py` verifies selected physical CSV reaches the new flow, preflight rejects unsupported/oversized uploads before download, and an unselected legacy cost CSV still reaches its original handler.
+- Linked Telegram/FIFO profile: **32 passed in 4.51s**. Synthetic tenant context and local SQLite only; full suite/current-head CI remain FR30.
+
+# 2026-11-09 — FIFO FR16 bounded finance and returns sources
+
+- `tests/test_fifo_cost_transition_source_snapshots.py` exercises real monthly realization and Returns normalizers with synthetic raw responses, calendar-month publication gating, complete zero versus unavailable, bounded pagination and parent HTTP budgets, duplicate identities, scope/period validation, byte/row caps, continuation scope/expiry/replay, and identifier-safe payload/repr behavior. Returns API observations preserve typed status/timestamp fields but explicitly do not prove physical movement coverage.
+- Linked FR16 profile also runs existing source collection, normalizer, cutoff bridge, return evidence and supply refresh regressions: **132 passed in 3.24s**. Compileall, `git diff --check`, tracked `data/` equality and the five owner-data hashes passed. Synthetic only; exact-head CI remains FR30.
+
+# 2026-11-09 — FIFO FR14 durable physical-sales evidence
+
+- `tests/test_fifo_cost_physical_sales_evidence_service.py` covers exact uploaded-byte reparse, safe preview, encrypted tenant storage, restart reconstruction, separate exact confirmation, idempotent save retry, stale confirmation rejection, timezone/declared-period binding, wrong-key fail-closed behavior, and persisted `PARTIAL`/unverified-coverage semantics.
+- `tests/test_fifo_cost_transition_bridge_evidence.py::test_bridge_evidence_can_be_read_by_exact_scoped_id` verifies the new bounded selector cannot read evidence outside the requested case/identity/kind.
+- The linked FR14 profile runs the new persistence path with the physical-sales parser/worker, schema v16/v13, transition store/service/atomic apply, multi-rate replay, late-entry reconstruction, existing Ozon report import and legacy seller-cost CSV paths: **157 passed in 13.95s**. Local synthetic SQLite only; full suite/current-head CI remain FR30.
+
+# 2026-11-09 — FIFO FR13 physical-sales CSV parser
+
+- `tests/test_fifo_cost_physical_sales_import_service.py` covers the exact empty template, UTF-8/BOM, quoted fields, exact headers, malformed quotes/columns, file and row limits, NUL/encoding, SKU scope, dates, positive integer units, aggregate unit cap, duplicate/conflicting row references and posting/SKU identities, worker-manifest recomputation, and identifier-free repr.
+- `tests/test_fifo_cost_report_import_worker_client.py` covers real subprocess parsing, exact byte/normalized-manifest binding, coherent worker substitution rejection, the shared 15-second timeout and three-slot pool. The same linked profile runs existing Ozon report parsers, Telegram report adapter, and seller-cost CSV service to retain the legacy route.
+- Linked FR13 profile: **74 passed in 5.24s** on final FR13 code. Compileall, `git diff --check`, tracked `data/` equality, and the five-file user-data SHA-256 manifest passed. This is local targeted verification; full suite and current-head CI remain FR30.
+
+# 2026-11-09 — FIFO FR12: durable bridge evidence and seals
+
+- `tests/test_fifo_cost_transition_bridge_evidence.py` covers keyword-only API signatures, typed per-kind payloads, complete-source proofs, encrypted raw source material, restart, exact case revision/idempotency, separate typed confirmation and confirmation-kind binding. Negative cases cover missing/wrong Fernet key, wrong tenant, canceled case, stale revision, corrupt payload/hash, and quota-sensitive physical-document validation.
+- The suite verifies new evidence moves a READY case back to `AWAITING_EVIDENCE` while preserving its exact historical preview; `read_transition_preview` checks its stored seal and scope without recomputing FIFO/financial calculations.
+- Linked transition/schema-v16/history/current/Period Profit/export/frozen-plan profile: **133 passed in 10.53s**. Compileall and user-data hash checks pass. Synthetic SQLite only; full suite and exact-head CI remain for FR30.
 
 # 2026-11-09 — FIFO FR11: readers, exports, and frozen plans
 

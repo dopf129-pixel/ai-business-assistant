@@ -1,4 +1,4 @@
-"""Managed subprocess boundary for the two allowlisted FIFO XLSX parsers."""
+"""Managed subprocess boundary for allowlisted FIFO report/document parsers."""
 
 from __future__ import annotations
 
@@ -13,12 +13,16 @@ from services.fifo_cost_report_import_service import FifoCostReportImportService
 from services.fifo_cost_stock_management_import_service import (
     FifoCostStockManagementImportService,
 )
+from services.fifo_cost_physical_sales_import_service import (
+    FifoCostPhysicalSalesImportService,
+)
 from services.fifo_cost_transition_contracts import ScopeIdentity
 
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_HEADER_BYTES = 4096
 MAX_OUTPUT_BYTES = 384 * 1024
+MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
 _ALLOWED_REPORTS = {
     "TURNOVER": "parse_turnover_workbook",
     "STOCK_MANAGEMENT": "parse_stock_management_workbook",
@@ -55,10 +59,6 @@ def _read_request(stream):
     payload = stream.read(expected + 1)
     if len(payload) != expected:
         raise ValueError("FIFO_REPORT_WORKER_PAYLOAD_INVALID")
-    report_type = header.get("report_type")
-    method_name = _ALLOWED_REPORTS.get(report_type)
-    if method_name is None:
-        raise ValueError("FIFO_REPORT_FORMAT_UNSUPPORTED")
     scope_value = header.get("scope")
     if not isinstance(scope_value, dict):
         raise ValueError("FIFO_REPORT_SCOPE_INVALID")
@@ -66,15 +66,49 @@ def _read_request(stream):
     filename = header.get("filename")
     if not isinstance(filename, str) or len(filename) > 255:
         raise ValueError("FIFO_REPORT_FILENAME_INVALID")
+    document_kind = header.get("document_kind")
+    if document_kind is not None:
+        if document_kind != "PHYSICAL_SALES_CSV":
+            raise ValueError("FIFO_REPORT_FORMAT_UNSUPPORTED")
+        return document_kind, None, filename, payload, scope
+    report_type = header.get("report_type")
+    method_name = _ALLOWED_REPORTS.get(report_type)
+    if method_name is None:
+        raise ValueError("FIFO_REPORT_FORMAT_UNSUPPORTED")
     return report_type, method_name, filename, payload, scope
 
 
 def _run():
     try:
-        report_type, method_name, filename, payload, scope = _read_request(sys.stdin.buffer)
+        parser_kind, method_name, filename, payload, scope = _read_request(sys.stdin.buffer)
+        if parser_kind == "PHYSICAL_SALES_CSV":
+            parsed = FifoCostPhysicalSalesImportService().parse_csv(
+                payload=payload, filename=filename, scope=scope,
+            )
+            if parsed.document is None:
+                code = parsed.issue_codes[0] if parsed.issue_codes else "FIFO_PHYSICAL_SALES_PARSE_FAILED"
+                encoded = json.dumps(
+                    {"error": True, "code": code}, separators=(",", ":"),
+                ).encode("utf-8")
+                sys.stdout.buffer.write(encoded)
+                sys.stdout.buffer.flush()
+                return 0
+            response = {
+                "error": False,
+                "document_kind": parser_kind,
+                "document": parsed.document.to_worker_summary_payload(),
+            }
+            encoded = json.dumps(
+                response, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+            if len(encoded) > MAX_PHYSICAL_OUTPUT_BYTES:
+                raise ValueError("FIFO_PHYSICAL_SALES_WORKER_RESULT_TOO_LARGE")
+            sys.stdout.buffer.write(encoded)
+            sys.stdout.buffer.flush()
+            return 0
         parser = (
             FifoCostReportImportService()
-            if report_type == "TURNOVER"
+            if parser_kind == "TURNOVER"
             else FifoCostStockManagementImportService()
         )
         result = getattr(parser, method_name)(

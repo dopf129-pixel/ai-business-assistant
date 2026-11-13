@@ -429,6 +429,12 @@ class FifoCostPeriodProfitSourceService:
             "stream_revision": result.get("stream_revision"),
             "allocation_revision": result.get("allocation_revision"),
             "cutoff_date": result.get("cutoff_date"),
+            "cutoff_mapping_revision": (
+                mapping_result.get("mapping_revision") if mapping_complete else None
+            ),
+            "cutoff_mapping_complete_through": (
+                mapping_complete_through if mapping_complete else None
+            ),
             "units_sold": selected_total_units,
             "product_cost": format(fifo_cogs.quantize(Decimal("0.01")), ".2f"),
         }
@@ -440,6 +446,7 @@ class FifoCostPeriodProfitSourceService:
                 "legacy_units_sold": legacy_units,
                 "legacy_sales": legacy_sales,
                 "cutoff_mapping_revision": mapping_result.get("mapping_revision") if mapping_complete else None,
+                "cutoff_mapping_complete_through": mapping_complete_through if mapping_complete else None,
                 "cutoff_bridge_fingerprint": mapping_result.get("bridge_fingerprint") if mapping_complete else None,
             })
         # Repository layer summaries cover every finance-SKU alias in this
@@ -449,8 +456,7 @@ class FifoCostPeriodProfitSourceService:
                 FifoCostPeriodExplanationService,
             )
 
-            response["fifo_cost_explanation"] = (
-                FifoCostPeriodExplanationService().build(
+            explanation = FifoCostPeriodExplanationService().build(
                     allocation_result=result,
                     repository=self.repository,
                     store_id=scope["store_id"],
@@ -461,7 +467,13 @@ class FifoCostPeriodProfitSourceService:
                     units=fifo_units,
                     product_cost=fifo_cogs,
                 )
-            )
+            explanation["cutoff_mapping_revision"] = response[
+                "cutoff_mapping_revision"
+            ]
+            explanation["cutoff_mapping_complete_through"] = response[
+                "cutoff_mapping_complete_through"
+            ]
+            response["fifo_cost_explanation"] = explanation
         return response
 
     def _identity_and_store(self, product):

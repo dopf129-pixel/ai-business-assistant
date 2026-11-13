@@ -58,7 +58,10 @@ def test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready(tmp_path):
         case_id = _create_case(runtime)
         before = transition.get_case(case_id=case_id, **IDENTITY)
 
-        result = review.assess(case_id=case_id, identity=IDENTITY)
+        result = review.assess(
+            case_id=case_id, identity=IDENTITY,
+            owner_confirmed_cutoff_date="2026-11-06",
+        )
 
         after = transition.get_case(case_id=case_id, **IDENTITY)
         assert result["error"] is False, result
@@ -69,6 +72,8 @@ def test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready(tmp_path):
         assert result["readiness"].ready_to_apply is False
         assert result["readiness"].status in {"AWAITING_EVIDENCE", "CONFLICT"}
         assert "OWNER_CUTOFF_DATE_REQUIRED" in result["proposal"].requirements
+        assert result["proposal"].confirmed_cutoff_date is None
+        assert result["cutoff_selection_confirmed"] is False
         assert result["fifo_queue_initialized"] is False
         assert result["fifo_layers"] == ()
 

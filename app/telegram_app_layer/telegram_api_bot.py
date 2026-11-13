@@ -188,6 +188,27 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if document is None:
         return
     filename = str(document.file_name or "")
+    runner = get_runner()
+    preflight = getattr(runner, "preflight_document_upload", None)
+    if callable(preflight):
+        try:
+            admission = preflight(user_id, filename, document.file_size)
+        except Exception:
+            admission = {
+                "error": True,
+                "selected": True,
+                "accepted": False,
+                "message": "Не удалось проверить размер файла до загрузки. Файл не загружен; FIFO-дело не изменено.",
+            }
+        if (
+            isinstance(admission, dict)
+            and admission.get("selected") is True
+            and admission.get("accepted") is not True
+        ):
+            await update.message.reply_text(
+                str(admission.get("message") or "Файл не загружен; FIFO-дело не изменено.")
+            )
+            return
     if (
         filename.lower().endswith(".xlsx")
         and type(document.file_size) is int
@@ -208,7 +229,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         telegram_file = await context.bot.get_file(document.file_id)
         content = bytes(await telegram_file.download_as_bytearray())
         result = await _run_sync_with_stall_notice(
-            lambda: get_runner().receive_document(user_id, content, document.file_name),
+            lambda: runner.receive_document(user_id, content, document.file_name),
             progress_message=progress_message,
         )
     except Exception:

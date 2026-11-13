@@ -5,6 +5,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
+from cryptography.fernet import Fernet
 import pytest
 
 from test_fifo_cost_cutoff_bridge_service import (
@@ -23,6 +24,7 @@ from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
     EvidenceSourceKind,
+    FifoFinancialPeriodSummary,
     PeriodProvenance,
     ReportEvidence,
     ReportType,
@@ -34,6 +36,10 @@ from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from services.fifo_cost_transition_evidence_service import (
+    FifoCostTransitionEvidenceService,
+)
+from services.fifo_cost_transition_service import FifoCostTransitionService
 from test_fifo_cost_transition_store import _case
 
 
@@ -180,6 +186,8 @@ def _initial_cutover(stock):
         "case_revision": 3,
         "cutoff_date": CUTOFF,
         "stock_report_fingerprint": stock.file_sha256,
+        "new_home_quantity": None,
+        "new_party_transit_units": 0,
         "layers": [
             {
                 "sequence": 1, "unit_cost_rub": "21.00",
@@ -197,7 +205,7 @@ def _initial_cutover(stock):
 
 def _prepared_repository(
     tmp_path, *, db_path=None, post_cutoff_sales=None,
-    complete_through=COMPLETE_THROUGH,
+    complete_through=COMPLETE_THROUGH, prepare=True,
 ):
     clock = [datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)]
     repository = FifoCostRepository(
@@ -226,15 +234,17 @@ def _prepared_repository(
         if key not in {"error", "code", "preview_fingerprint"}
     })
     cutover = _initial_cutover(stock)
-    prepared = repository.prepare_transition_preview(
-        case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
-        offer_id=SCOPE.offer_id, sku=SCOPE.sku, expected_case_revision=3,
-        effective_date="2026-11-07", cutoff_bridge=bridge,
-        impact_preview=impact, tax_policy_fingerprint=TAX_POLICY,
-        idempotency_key="prepare-atomic-0001",
-        initial_opening_cutover=cutover,
-    )
-    assert prepared["error"] is False, prepared
+    prepared = None
+    if prepare:
+        prepared = repository.prepare_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku, expected_case_revision=3,
+            effective_date="2026-11-07", cutoff_bridge=bridge,
+            impact_preview=impact, tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-atomic-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert prepared["error"] is False, prepared
     return repository, tenant, stock, bridge, impact, cutover, prepared, clock
 
 
@@ -255,6 +265,298 @@ def _table_counts(repository):
         }
     finally:
         connection.close()
+
+
+def _transition_no_write_snapshot(repository):
+    connection = repository.get_connection()
+    try:
+        preview_count = connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_transition_previews",
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    case = repository.read_transition_case(
+        case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+        offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+    )
+    return {
+        "fifo_counts": _table_counts(repository),
+        "preview_count": preview_count,
+        "case_state": case.get("state"),
+        "case_revision": case.get("case_revision"),
+    }
+
+
+def test_read_only_reconstruction_can_run_before_impact_without_business_writes(
+    tmp_path,
+):
+    repository, tenant, _stock, bridge, _impact_preview, cutover, _prepared, _clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        before = _transition_no_write_snapshot(repository)
+        reconstruction = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-no-impact-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert reconstruction["error"] is False, reconstruction
+        assert reconstruction["code"] == "FIFO_TRANSITION_RECONSTRUCTION_READY"
+        assert reconstruction["candidate_total_cogs_rub"] == "92.30"
+        assert len(reconstruction["candidate_allocations"]) == 1
+        assert len(reconstruction["sale_effective_dates"]) == 1
+        assert set(reconstruction["sale_identity_digests_by_event"]) == set(
+            reconstruction["sale_effective_dates"]
+        )
+        assert _transition_no_write_snapshot(repository) == before
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_read_only_reconstruction_matches_prepare_seal_without_business_writes(
+    tmp_path,
+):
+    repository, tenant, _stock, bridge, impact, cutover, _prepared, _clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        before = _transition_no_write_snapshot(repository)
+        reconstruction = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, impact_preview=impact,
+            tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-atomic-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert reconstruction["error"] is False, reconstruction
+        assert reconstruction["code"] == "FIFO_TRANSITION_RECONSTRUCTION_READY"
+        assert reconstruction["read_only"] is True
+        assert reconstruction["business_writes"] is False
+        assert reconstruction["identity"] == {
+            "store_id": STORE,
+            "product_id": SCOPE.product_id,
+            "offer_id": SCOPE.offer_id,
+            "sku": SCOPE.sku,
+            "policy_version": 1,
+        }
+        assert reconstruction["revisions"] == {"fifo": 1, "allocation": 0}
+        assert FifoCostRepository._valid_digest(
+            reconstruction["reconstruction_fingerprint"],
+        )
+        assert reconstruction["coverage"] == {
+            "complete": True,
+            "baseline_allocations": 1,
+            "candidate_allocations": 1,
+            "complete_through": COMPLETE_THROUGH,
+        }
+        assert _transition_no_write_snapshot(repository) == before
+        repeated_reconstruction = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, impact_preview=impact,
+            tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-atomic-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert repeated_reconstruction["error"] is False
+        assert repeated_reconstruction["reconstruction_fingerprint"] == (
+            reconstruction["reconstruction_fingerprint"]
+        )
+
+        prepared = repository.prepare_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku, expected_case_revision=3,
+            effective_date="2026-11-07", cutoff_bridge=bridge,
+            impact_preview=impact, tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-atomic-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert prepared["error"] is False, prepared
+        sealed = repository.read_transition_preview(
+            case_id=CASE_ID, preview_id=prepared["preview_id"],
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert sealed["error"] is False, sealed
+        payload = sealed["preview"]
+        assert reconstruction["baseline"]["preview_fingerprint"] == payload[
+            "baseline_preview_fingerprint"
+        ]
+        assert reconstruction["candidate"]["preview_fingerprint"] == payload[
+            "allocation_preview"
+        ]["preview_fingerprint"]
+        normalized_sealed_candidate = repository._normalize_allocation_preview(
+            payload["allocation_preview"], "transition-candidate-0001",
+        )
+        assert reconstruction["candidate"]["payload_fingerprint"] == (
+            normalized_sealed_candidate["payload_fingerprint"]
+        )
+        assert reconstruction["candidate"]["total_cogs_rub"] == payload[
+            "allocation_preview"
+        ]["total_cogs_rub"] == "92.30"
+        assert reconstruction["lineage"]["candidate_source_fingerprint"] == payload[
+            "candidate_source_fingerprint"
+        ]
+
+        applied = _commit(repository, bridge, impact, prepared)
+        assert applied["error"] is False, applied
+        stream_id = "fifo_" + FifoCostRepository._sha256(
+            reconstruction["identity"],
+        )[:40]
+        connection = repository.get_connection()
+        try:
+            allocation_id = connection.execute(
+                "SELECT allocation_id FROM fifo_cost_allocations "
+                "WHERE stream_id=? ORDER BY revision DESC LIMIT 1",
+                (stream_id,),
+            ).fetchone()["allocation_id"]
+            committed_lines = connection.execute(
+                """SELECT event_id, layer_id, NULL AS rate_change_id,
+                          quantity, unit_cost_rub, total_cost_rub
+                   FROM fifo_cost_allocation_lines WHERE allocation_id=?
+                   UNION ALL
+                   SELECT event_id, NULL AS layer_id, rate_change_id,
+                          quantity, unit_cost_rub, total_cost_rub
+                   FROM fifo_cost_allocation_rate_lines WHERE allocation_id=?
+                   ORDER BY event_id, layer_id, rate_change_id""",
+                (allocation_id, allocation_id),
+            ).fetchall()
+        finally:
+            connection.close()
+        expected_lines = [
+            {
+                "event_id": allocation["event_id"],
+                "layer_id": line["layer_id"],
+                "rate_change_id": line["rate_change_id"],
+                "quantity": line["quantity"],
+                "unit_cost_rub": line["unit_cost_rub"],
+                "total_cost_rub": line["total_cost_rub"],
+            }
+            for allocation in reconstruction["candidate"]["allocation_preview"][
+                "allocations"
+            ]
+            for line in allocation["lines"]
+        ]
+        assert [dict(row) for row in committed_lines] == sorted(
+            expected_lines,
+            key=lambda row: (
+                row["event_id"], row["layer_id"] or "", row["rate_change_id"] or "",
+            ),
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_period_summary_append_does_not_change_reconstruction_fingerprint(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
+    repository, tenant, stock, bridge, _impact, cutover, _prepared, _clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        first = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="period-summary-fingerprint-stable",
+            initial_opening_cutover=cutover,
+        )
+        assert first["error"] is False, first
+
+        case = repository.read_transition_case(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        summary = FifoFinancialPeriodSummary(
+            period_from="2026-11-01", period_to="2026-11-30",
+            source_fingerprint=source_fingerprint("period-summary-fingerprint"),
+            reconstruction_fingerprint=first["reconstruction_fingerprint"],
+            tax_policy_fingerprint=TAX_POLICY,
+            sale_identity_digests=tuple(
+                first["sale_identity_digests_by_event"].values()
+            ),
+            revenue_rub="1000.00", discount_points_rub="0.00",
+            net_accrual_rub="750.00", current_total_product_cost_rub="100.00",
+            current_sku_product_cost_rub="42.00",
+        )
+        evidence_service = FifoCostTransitionEvidenceService(
+            FifoCostTransitionService(repository)
+        )
+        saved = evidence_service.record_period_profit_summary(
+            case_id=CASE_ID, identity={
+                "store_id": STORE, "product_id": SCOPE.product_id,
+                "offer_id": SCOPE.offer_id, "sku": SCOPE.sku,
+            }, summary=summary, expected_case_revision=case["case_revision"],
+            idempotency_key="period-summary-fingerprint-stable",
+        )
+        assert saved["error"] is False, saved
+
+        template_case = _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE)
+        refreshed_case = replace(
+            template_case,
+            metadata=replace(template_case.metadata, scope=SCOPE),
+            case_revision=saved["case_revision"],
+            state=TransitionState.AWAITING_EVIDENCE,
+        )
+        refreshed_bridge = _bridge_inputs(refreshed_case, stock)
+        refreshed_cutover = {**cutover, "case_revision": saved["case_revision"]}
+        second = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=saved["case_revision"],
+            effective_date="2026-11-07", cutoff_bridge=refreshed_bridge,
+            tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="period-summary-fingerprint-stable",
+            initial_opening_cutover=refreshed_cutover,
+        )
+        assert second["error"] is False, second
+        assert second["lineage"] == first["lineage"]
+        assert second["reconstruction_fingerprint"] == first[
+            "reconstruction_fingerprint"
+        ]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_read_only_reconstruction_rolls_back_staged_opening_after_exception(
+    tmp_path,
+):
+    repository, tenant, _stock, bridge, impact, cutover, _prepared, _clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    original_replay = repository._preview_allocation_from_connection
+    try:
+        before = _transition_no_write_snapshot(repository)
+
+        def raise_during_replay(*_args, **_kwargs):
+            raise RuntimeError("injected reconstruction failure")
+
+        repository._preview_allocation_from_connection = raise_during_replay
+        result = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_case_revision=3, effective_date="2026-11-07",
+            cutoff_bridge=bridge, impact_preview=impact,
+            tax_policy_fingerprint=TAX_POLICY,
+            idempotency_key="prepare-atomic-0001",
+            initial_opening_cutover=cutover,
+        )
+        assert result == {
+            "error": True,
+            "code": "FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE",
+        }
+        assert _transition_no_write_snapshot(repository) == before
+    finally:
+        repository._preview_allocation_from_connection = original_replay
+        reset_current_tenant_user_id(tenant)
 
 
 def _commit(
@@ -1120,6 +1422,53 @@ def test_initial_cutover_rejects_unrelated_or_reversed_cost_layers(
         finally:
             connection.close()
         assert result == expected_code
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_initial_cutover_keeps_new_lot_transit_out_of_fifo_and_accepts_known_home_units(
+    tmp_path,
+):
+    repository = FifoCostRepository(db_path=tmp_path / "new-lot-zones.sqlite")
+    tenant = set_current_tenant_user_id(TENANT)
+    try:
+        stock = _stock_report()
+        case = _open_case(repository, stock)
+        bridge = _bridge_inputs(case, stock)
+        cutover = _initial_cutover(stock)
+        cutover["layers"][1]["home_units"] = 2
+        cutover["new_home_quantity"] = 2
+        cutover["new_party_transit_units"] = 7
+        case_payload = {
+            "old_unit_cost_rub": case.old_unit_cost_rub,
+            "new_unit_cost_rub": case.new_unit_cost_rub,
+            "owner_old_home_units": case.owner_old_home_units,
+            "owner_old_transit_units": case.owner_old_transit_units,
+            "new_home_quantity": None,
+        }
+        connection = repository.get_connection()
+        try:
+            normalized = repository._normalize_transition_initial_cutover(
+                connection, cutover, bridge, case_payload,
+                recorded_at="2026-11-08T12:00:00+00:00",
+            )
+            conflicting_home = {
+                **cutover, "new_home_quantity": 3,
+                "layers": [dict(layer) for layer in cutover["layers"]],
+            }
+            rejected = repository._normalize_transition_initial_cutover(
+                connection, conflicting_home, bridge, case_payload,
+                recorded_at="2026-11-08T12:00:00+00:00",
+            )
+        finally:
+            connection.close()
+
+        assert isinstance(normalized, dict), normalized
+        assert normalized["new_home_quantity"] == 2
+        assert normalized["new_party_transit_units"] == 7
+        assert sum(layer["transit_units"] for layer in normalized["layers"]) == 0
+        assert sum(layer["home_units"] for layer in normalized["layers"]) == 2
+        assert rejected == "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
     finally:
         reset_current_tenant_user_id(tenant)
 

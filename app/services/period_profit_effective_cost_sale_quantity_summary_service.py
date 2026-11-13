@@ -452,6 +452,9 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                             "fifo_cutoff_mapping_revision": fifo.get(
                                 "cutoff_mapping_revision",
                             ),
+                            "fifo_cutoff_mapping_complete_through": fifo.get(
+                                "cutoff_mapping_complete_through",
+                            ),
                             "fifo_cutoff_bridge_fingerprint": fifo.get(
                                 "cutoff_bridge_fingerprint",
                             ),
@@ -518,6 +521,12 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                         "allocation_revision"
                     )
                     next_row["fifo_cutoff_date"] = fifo.get("cutoff_date")
+                    next_row["fifo_cutoff_mapping_revision"] = fifo.get(
+                        "cutoff_mapping_revision",
+                    )
+                    next_row["fifo_cutoff_mapping_complete_through"] = fifo.get(
+                        "cutoff_mapping_complete_through",
+                    )
                     if isinstance(fifo.get("fifo_cost_explanation"), dict):
                         next_row["fifo_cost_explanation"] = fifo[
                             "fifo_cost_explanation"

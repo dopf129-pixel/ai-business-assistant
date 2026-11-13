@@ -28,14 +28,21 @@ from services.fifo_cost_replay_service import (
 from services.fifo_cost_transition_contracts import (
     CostInputMode,
     DEFAULT_STORE_TIMEZONE,
+    EvidenceCompleteness,
+    EvidenceSourceKind,
     ReportEvidence,
     SupplyDeclaration,
     SupplyObservation,
+    TransitionBridgeEvidence,
+    TransitionBridgeEvidenceKind,
     TransitionCase,
+    TransitionEvidenceConfirmation,
+    TransitionEvidenceConfirmationKind,
     TransitionMetadata,
     TransitionState,
 )
 from services.fifo_cost_transition_store import FifoCostTransitionStore
+from services.tenant_cipher_provider import decrypt_tenant_value, encrypt_tenant_value
 from services.tenant_context import get_current_tenant_user_id
 from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
@@ -50,6 +57,20 @@ class FifoCostRepository:
     MAX_PAYLOAD_BYTES = 64 * 1024
     PREVIEW_TTL_SECONDS = 600
     MAX_PREVIEWS = 5000
+    MAX_TRANSITION_EVIDENCE_METADATA_BYTES = 256 * 1024
+    MAX_TRANSITION_EVIDENCE_CONFIRMATION_BYTES = 64 * 1024
+    MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE = 64 * 1024 * 1024
+    MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES = 16 * 1024 * 1024
+    _TRANSITION_CONFIRMATIONS_BY_EVIDENCE = {
+        "PHYSICAL_SALES_DOCUMENT": frozenset({"PHYSICAL_SALES", "PERIOD"}),
+        "FINANCE_IDENTITY_SNAPSHOT": frozenset({"SOURCE_SELECTION", "EVIDENCE_REVIEW"}),
+        "MOVEMENT_COVERAGE": frozenset({"MOVEMENT_COVERAGE", "EVIDENCE_REVIEW"}),
+        "CUTOFF_SELECTION": frozenset({"CUTOFF_SELECTION", "EVIDENCE_REVIEW"}),
+        "OPENING_COMPOSITION": frozenset({"OPENING_COMPOSITION", "EVIDENCE_REVIEW"}),
+        "RATE_BOUNDARY_PROOF": frozenset({"RATE_BOUNDARY", "EVIDENCE_REVIEW"}),
+        "PERIOD_SUMMARY_SNAPSHOT": frozenset({"PERIOD", "EVIDENCE_REVIEW"}),
+        "TAX_POLICY_SNAPSHOT": frozenset({"TAX_POLICY", "EVIDENCE_REVIEW"}),
+    }
     _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
     _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
     _EVENT_KINDS = frozenset({
@@ -242,6 +263,35 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def read_transition_case_revision(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        case_revision,
+    ):
+        """Read one exact immutable case basis for a sealed preview check."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        if type(case_revision) is not int or case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_case_revision(
+                connection, case_id, case_revision, scope, identity,
+            )
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
     def list_transition_cases(
         self, *, store_id, sku=None,
         states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
@@ -400,12 +450,627 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def append_transition_bridge_evidence(
+        self, *, case_id, evidence, expected_case_revision, idempotency_key,
+    ):
+        """Persist one typed bridge snapshot without exposing raw source data."""
+        if not isinstance(evidence, TransitionBridgeEvidence):
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if (
+            not self._valid_transition_idempotency_key(idempotency_key)
+            or len(idempotency_key) > 80
+        ):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        scope, identity = self._transition_metadata_scope(evidence.metadata)
+        if scope.get("error"):
+            return scope
+        try:
+            source_kind = self._transition_evidence_source_kind(evidence.metadata.source_kind)
+            raw_bytes = evidence.sensitive_payload.encode("utf-8")
+            cipher_text = encrypt_tenant_value(evidence.sensitive_payload)
+            if cipher_text is None:
+                return self._error("FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE")
+            encrypted_payload = cipher_text.encode("ascii")
+            cipher_limit = (
+                self.MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES
+                if evidence.evidence_kind is TransitionBridgeEvidenceKind.PHYSICAL_SALES_DOCUMENT
+                else self.MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE
+            )
+            if len(encrypted_payload) > cipher_limit:
+                return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+            if len(raw_bytes) > self.MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE:
+                return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+            identity_fingerprint = self._sha256(identity)
+            scope_fingerprint = self._sha256({
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "store_id": identity["store_id"],
+            })
+            safe_payload = dict(evidence.payload)
+            envelope = {
+                "schema_version": evidence.schema_version,
+                "evidence_kind": evidence.evidence_kind.value,
+                "source_kind": source_kind,
+                "source_fingerprint": evidence.metadata.source_fingerprint,
+                "scope_fingerprint": scope_fingerprint,
+                "identity_fingerprint": identity_fingerprint,
+                "captured_at": evidence.captured_at,
+                "period_from": evidence.period_from,
+                "period_to": evidence.period_to,
+                "as_of": evidence.as_of,
+                "complete_through": evidence.complete_through,
+                "completeness": evidence.metadata.completeness.value,
+                "row_count": evidence.row_count,
+                "payload": safe_payload,
+                "sensitive_payload_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            }
+            payload_json = self._canonical_json(envelope)
+            if len(payload_json.encode("utf-8")) > self.MAX_TRANSITION_EVIDENCE_METADATA_BYTES:
+                return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+            payload_fingerprint = self._sha256(envelope)
+            recorded_at = self._iso(self._now())
+            row = {
+                "store_id": identity["store_id"],
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "scope_fingerprint": scope_fingerprint,
+                "identity_fingerprint": identity_fingerprint,
+                "evidence_kind": evidence.evidence_kind.value,
+                "schema_version": evidence.schema_version,
+                "source_kind": source_kind,
+                "source_fingerprint": evidence.metadata.source_fingerprint,
+                "period_from": evidence.period_from,
+                "period_to": evidence.period_to,
+                "as_of": evidence.as_of,
+                "captured_at": evidence.captured_at,
+                "complete_through": evidence.complete_through,
+                "completeness": evidence.metadata.completeness.value,
+                "row_count": evidence.row_count,
+                "payload_json": payload_json,
+                "encrypted_payload": encrypted_payload,
+                "payload_fingerprint": payload_fingerprint,
+            }
+        except (TypeError, ValueError, UnicodeError, OverflowError):
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_bridge_evidence(
+                connection, case_id=case_id, metadata=evidence.metadata,
+                scope=scope, identity=identity,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key, row=row,
+                recorded_at=recorded_at,
+            )
+        )
+
+    def confirm_transition_evidence(
+        self, *, case_id, metadata, evidence_id, expected_evidence_fingerprint,
+        confirmation, expected_case_revision, idempotency_key,
+    ):
+        """Append an owner confirmation bound to an exact encrypted snapshot."""
+        if not isinstance(metadata, TransitionMetadata):
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+        if not isinstance(confirmation, TransitionEvidenceConfirmation):
+            return self._error("FIFO_TRANSITION_CONFIRMATION_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if (
+            not self._valid_transition_idempotency_key(idempotency_key)
+            or len(idempotency_key) > 80
+        ):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        if (
+            not self._valid_transition_case_id(case_id)
+            or not isinstance(evidence_id, str)
+            or re.fullmatch(r"bridge_[a-f0-9]{40}", evidence_id) is None
+            or not self._valid_digest(expected_evidence_fingerprint)
+        ):
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        scope, identity = self._transition_metadata_scope(metadata)
+        if scope.get("error"):
+            return scope
+        fields_json = self._canonical_json(dict(confirmation.confirmed_fields))
+        if len(fields_json.encode("utf-8")) > self.MAX_TRANSITION_EVIDENCE_CONFIRMATION_BYTES:
+            return self._error("FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED")
+        fingerprint_payload = {
+            "case_id": case_id,
+            "evidence_id": evidence_id,
+            "evidence_fingerprint": expected_evidence_fingerprint,
+            "owner_fingerprint": scope["owner_fingerprint"],
+            "scope_fingerprint": self._sha256({
+                "owner_fingerprint": scope["owner_fingerprint"],
+                "tenant_fingerprint": scope["tenant_fingerprint"],
+                "store_id": identity["store_id"],
+            }),
+            "confirmation_kind": confirmation.confirmation_kind.value,
+            "confirmed_fields": dict(confirmation.confirmed_fields),
+            "expected_case_revision": expected_case_revision,
+        }
+        confirmation_fingerprint = self._sha256(fingerprint_payload)
+        connection = None
+        try:
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            rows = FifoCostTransitionStore.read_bridge_evidence(
+                connection, case_id, scope, identity, limit=100,
+            )
+            if rows.get("error"):
+                connection.rollback()
+                return rows
+            evidence_row = next(
+                (item for item in rows["items"] if item["evidence_id"] == evidence_id),
+                None,
+            )
+            if (
+                evidence_row is None
+                or evidence_row["payload_fingerprint"] != expected_evidence_fingerprint
+            ):
+                connection.rollback()
+                return self._error("FIFO_TRANSITION_EVIDENCE_MISMATCH")
+            if confirmation.confirmation_kind.value not in (
+                self._TRANSITION_CONFIRMATIONS_BY_EVIDENCE.get(
+                    evidence_row["evidence_kind"], frozenset(),
+                )
+            ):
+                connection.rollback()
+                return self._error("FIFO_TRANSITION_CONFIRMATION_INVALID")
+            verified = self._verify_transition_evidence_row(
+                evidence_row, decrypt=True, expected_scope=scope,
+                expected_identity=identity,
+            )
+            if (
+                verified.get("error")
+                or verified.get("item", {}).get("sensitive_payload_available") is not True
+            ):
+                connection.rollback()
+                return verified if verified.get("error") else self._error(
+                    "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE",
+                )
+            confirmation_row = {
+                "confirmation_kind": confirmation.confirmation_kind.value,
+                "confirmed_fields_json": fields_json,
+                "payload_fingerprint": confirmation_fingerprint,
+            }
+            result = FifoCostTransitionStore.confirm_bridge_evidence(
+                connection, case_id=case_id, metadata=metadata,
+                scope=scope, expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                evidence=evidence_row, confirmation=confirmation_row,
+                recorded_at=self._iso(self._now()),
+            )
+            if result.get("error"):
+                connection.rollback()
+                return result
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+        except (sqlite3.Error, OSError, TypeError, ValueError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_transition_bridge_evidence(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        evidence_kind=None, evidence_id=None, limit=100,
+        include_sensitive_payload=False,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        if type(include_sensitive_payload) is not bool:
+            return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            result = FifoCostTransitionStore.read_bridge_evidence(
+                connection, case_id, scope, identity,
+                evidence_kind=(
+                    evidence_kind.value
+                    if isinstance(evidence_kind, TransitionBridgeEvidenceKind)
+                    else evidence_kind
+                ), evidence_id=evidence_id, limit=limit,
+            )
+            if result.get("error"):
+                return result
+            safe_items = []
+            for row in result["items"]:
+                verified = self._verify_transition_evidence_row(
+                    row, decrypt=include_sensitive_payload,
+                    expected_scope=scope, expected_identity=identity,
+                )
+                if verified.get("error"):
+                    return verified
+                safe_items.append(verified["item"])
+            return {**result, "items": safe_items}
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def read_transition_preview(
+        self, *, case_id, preview_id, store_id, product_id=None, offer_id=None, sku,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not self._valid_transition_case_id(case_id)
+            or not isinstance(preview_id, str)
+            or re.fullmatch(r"transpreview_[a-f0-9]{40}", preview_id) is None
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_INPUT_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            result = FifoCostTransitionStore.read_preview(
+                connection, preview_id, case_id, scope, identity,
+            )
+            if result.get("error"):
+                return result
+            preview_row = result.pop("preview")
+            try:
+                payload = json.loads(preview_row["payload_json"])
+            except (TypeError, ValueError):
+                return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+            if (
+                not isinstance(payload, dict)
+                or payload.get("case_id") != case_id
+                or self._sha256(payload) != preview_row["preview_fingerprint"]
+                or preview_id != "transpreview_" + preview_row["preview_fingerprint"][:40]
+                or type(payload.get("case_revision")) is not int
+                or preview_row["case_revision"] != payload["case_revision"] + 1
+                or payload.get("base_fifo_revision") != preview_row["fifo_revision"]
+                or payload.get("base_allocation_revision") != preview_row["allocation_revision"]
+                or payload.get("evidence_set_fingerprint")
+                    != preview_row["evidence_set_fingerprint"]
+                or payload.get("tax_policy_fingerprint")
+                    != preview_row["tax_policy_fingerprint"]
+            ):
+                return self._error("FIFO_TRANSITION_PREVIEW_CORRUPT")
+            now_text = self._iso(self._now())
+            row_metadata = {
+                key: preview_row[key]
+                for key in preview_row
+                if key != "payload_json"
+            }
+            return {
+                **result,
+                "preview": payload,
+                "sealed_preview": row_metadata,
+                "is_current": (
+                    result["current_case_state"] == "READY_TO_CONFIRM"
+                    and result["current_case_revision"] == preview_row["case_revision"]
+                ),
+                "expired": preview_row["expires_at"] <= now_text,
+            }
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def reopen_expired_transition_preview(
+        self, *, case_id, preview_id, preview_fingerprint, store_id,
+        product_id=None, offer_id=None, sku, expected_case_revision,
+        idempotency_key,
+    ):
+        """CAS-reopen only the exact expired preview on the current READY case."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (
+            not self._valid_transition_case_id(case_id)
+            or not isinstance(preview_id, str)
+            or re.fullmatch(r"transpreview_[a-f0-9]{40}", preview_id) is None
+            or not self._valid_digest(preview_fingerprint)
+            or preview_id != "transpreview_" + preview_fingerprint[:40]
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+            or not self._valid_transition_idempotency_key(idempotency_key)
+        ):
+            return self._error("FIFO_TRANSITION_PREVIEW_REOPEN_INPUT_INVALID")
+        try:
+            reopened_at = self._iso(self._now())
+        except (TypeError, ValueError, OverflowError):
+            return self._error("FIFO_CLOCK_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.reopen_expired_case_preview(
+                connection, case_id=case_id, scope=scope, identity=identity,
+                expected_case_revision=expected_case_revision,
+                preview_id=preview_id, preview_fingerprint=preview_fingerprint,
+                idempotency_key=idempotency_key, reopened_at=reopened_at,
+            )
+        )
+
+    def read_transition_commit(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, preview_id, preview_fingerprint,
+        idempotency_key,
+    ):
+        """Return an exact committed retry before checking mutable evidence or TTL."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        if (
+            type(expected_case_revision) is not int
+            or expected_case_revision < 2
+            or not self._valid_transition_idempotency_key(idempotency_key)
+            or not self._valid_digest(preview_fingerprint)
+        ):
+            return self._error("FIFO_TRANSITION_COMMIT_INPUT_INVALID")
+        sealed = self.read_transition_preview(
+            case_id=case_id, preview_id=preview_id,
+            store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if not isinstance(sealed, dict) or sealed.get("error") is not False:
+            return sealed if isinstance(sealed, dict) else self._error(
+                "FIFO_TRANSITION_PREVIEW_UNAVAILABLE",
+            )
+        preview = sealed.get("preview")
+        row = sealed.get("sealed_preview")
+        if (
+            not isinstance(preview, dict)
+            or not isinstance(row, dict)
+            or row.get("case_revision") != expected_case_revision
+            or row.get("preview_fingerprint") != preview_fingerprint
+            or preview.get("case_revision") != expected_case_revision - 1
+        ):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            connection = self.get_connection()
+            case = FifoCostTransitionStore.read_case(
+                connection, case_id, scope, identity,
+            )
+            if case.get("error"):
+                return case
+            prior = connection.execute(
+                """SELECT commit_id, payload_fingerprint, preview_id,
+                          case_revision, complete_through, committed_at
+                   FROM fifo_cost_transition_commits
+                   WHERE case_id=? AND idempotency_key=?""",
+                (case_id, idempotency_key),
+            ).fetchone()
+            if prior is None:
+                return {"error": False, "found": False}
+            expected_commit_fingerprint = self._sha256({
+                "case_id": case_id,
+                "preview_id": preview_id,
+                "preview_fingerprint": preview_fingerprint,
+                "impact_fingerprint": (
+                    preview.get("impact_preview", {}).get("preview_fingerprint")
+                    if isinstance(preview.get("impact_preview"), dict) else None
+                ),
+                "tax_policy_fingerprint": preview.get("tax_policy_fingerprint"),
+                "bridge_fingerprint": preview.get("bridge_fingerprint"),
+            })
+            if (
+                prior["preview_id"] != preview_id
+                or prior["case_revision"] != expected_case_revision + 1
+                or prior["payload_fingerprint"] != expected_commit_fingerprint
+            ):
+                return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+            return {
+                "error": False, "found": True,
+                "result": {
+                    "error": False, "code": "FIFO_TRANSITION_APPLIED",
+                    "commit_id": prior["commit_id"],
+                    "case_revision": prior["case_revision"],
+                    "preview_id": prior["preview_id"],
+                    "complete_through": prior["complete_through"],
+                    "committed_at": prior["committed_at"],
+                    "replayed": True,
+                },
+            }
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    @staticmethod
+    def _transition_evidence_source_kind(source_kind):
+        return {
+            EvidenceSourceKind.OWNER_INPUT: "OWNER_CONFIRMED",
+            EvidenceSourceKind.OWNER_IMPORTED: "OWNER_IMPORTED",
+            EvidenceSourceKind.OZON_API: "OZON_API",
+            EvidenceSourceKind.LOCAL_DERIVED: "DERIVED",
+        }[source_kind]
+
+    def _verify_transition_evidence_row(
+        self, row, *, decrypt=False, expected_scope=None, expected_identity=None,
+    ):
+        try:
+            payload_json = row["payload_json"]
+            if len(payload_json.encode("utf-8")) > self.MAX_TRANSITION_EVIDENCE_METADATA_BYTES:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            envelope = json.loads(payload_json)
+            required_keys = {
+                "schema_version", "evidence_kind", "source_kind",
+                "source_fingerprint", "scope_fingerprint", "identity_fingerprint",
+                "captured_at", "period_from", "period_to", "as_of",
+                "complete_through", "completeness", "row_count", "payload",
+                "sensitive_payload_sha256",
+            }
+            if not isinstance(envelope, dict) or set(envelope) != required_keys:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            for column in (
+                "evidence_kind", "source_kind", "source_fingerprint",
+                "scope_fingerprint", "identity_fingerprint", "captured_at",
+                "period_from", "period_to", "as_of", "complete_through",
+                "completeness", "row_count", "schema_version",
+            ):
+                if envelope[column] != row[column]:
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            if self._sha256(envelope) != row["payload_fingerprint"]:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            if expected_scope is not None and (
+                row["owner_fingerprint"] != expected_scope["owner_fingerprint"]
+                or row["tenant_fingerprint"] != expected_scope["tenant_fingerprint"]
+            ):
+                return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            if expected_identity is not None:
+                expected_identity_fingerprint = self._sha256(expected_identity)
+                expected_scope_fingerprint = self._sha256({
+                    "owner_fingerprint": expected_scope["owner_fingerprint"],
+                    "tenant_fingerprint": expected_scope["tenant_fingerprint"],
+                    "store_id": expected_identity["store_id"],
+                })
+                if (
+                    row["identity_fingerprint"] != expected_identity_fingerprint
+                    or row["scope_fingerprint"] != expected_scope_fingerprint
+                    or row["store_id"] != expected_identity["store_id"]
+                ):
+                    return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+            item = {
+                key: row[key] for key in (
+                    "evidence_id", "case_id", "store_id", "evidence_kind",
+                    "schema_version", "source_kind", "source_fingerprint",
+                    "evidence_revision", "period_from", "period_to", "as_of",
+                    "captured_at", "complete_through", "completeness", "row_count",
+                    "payload_fingerprint", "recorded_at",
+                )
+            }
+            item["payload"] = envelope["payload"]
+            verified_confirmations = []
+            for confirmation_row in row.get("confirmations", []):
+                try:
+                    confirmed_fields = json.loads(
+                        confirmation_row["confirmed_fields_json"],
+                    )
+                    confirmation_kind = TransitionEvidenceConfirmationKind(
+                        confirmation_row["confirmation_kind"],
+                    )
+                    if confirmation_kind.value not in (
+                        self._TRANSITION_CONFIRMATIONS_BY_EVIDENCE.get(
+                            row["evidence_kind"], frozenset(),
+                        )
+                    ):
+                        return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                    typed_confirmation = TransitionEvidenceConfirmation(
+                        confirmation_kind=confirmation_kind,
+                        confirmed_fields=confirmed_fields,
+                    )
+                    canonical_fields = self._canonical_json(
+                        dict(typed_confirmation.confirmed_fields),
+                    )
+                except (TypeError, ValueError):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                expected_confirmation = self._sha256({
+                    "case_id": row["case_id"],
+                    "evidence_id": row["evidence_id"],
+                    "evidence_fingerprint": row["payload_fingerprint"],
+                    "owner_fingerprint": row["owner_fingerprint"],
+                    "scope_fingerprint": row["scope_fingerprint"],
+                    "confirmation_kind": confirmation_kind.value,
+                    "confirmed_fields": dict(typed_confirmation.confirmed_fields),
+                    "expected_case_revision": confirmation_row[
+                        "expected_case_revision"
+                    ],
+                })
+                if (
+                    confirmation_row["evidence_fingerprint"]
+                        != row["payload_fingerprint"]
+                    or confirmation_row["owner_fingerprint"]
+                        != row["owner_fingerprint"]
+                    or confirmation_row["scope_fingerprint"]
+                        != row["scope_fingerprint"]
+                    or canonical_fields != confirmation_row["confirmed_fields_json"]
+                    or expected_confirmation != confirmation_row["payload_fingerprint"]
+                ):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                safe_confirmation = {
+                    key: confirmation_row[key]
+                    for key in (
+                        "confirmation_id", "confirmation_kind", "confirmed_at",
+                        "expected_case_revision", "payload_fingerprint",
+                    )
+                }
+                safe_confirmation["confirmed_fields"] = dict(
+                    typed_confirmation.confirmed_fields,
+                )
+                verified_confirmations.append(safe_confirmation)
+            item["confirmations"] = verified_confirmations
+            cipher_value = row["encrypted_payload"]
+            if isinstance(cipher_value, bytes):
+                cipher_value = cipher_value.decode("ascii")
+            sensitive_plaintext = decrypt_tenant_value(cipher_value)
+            if sensitive_plaintext is None:
+                item["sensitive_payload_available"] = False
+                item["blocker"] = "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE"
+                if decrypt:
+                    return {"error": False, "code": "FIFO_TRANSITION_ENCRYPTION_UNAVAILABLE",
+                            "item": item}
+            else:
+                if hashlib.sha256(sensitive_plaintext.encode("utf-8")).hexdigest() != (
+                    envelope["sensitive_payload_sha256"]
+                ):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+                item["sensitive_payload_available"] = True
+                if decrypt:
+                    item["sensitive_payload"] = sensitive_plaintext
+            return {"error": False, "item": item}
+        except (KeyError, TypeError, ValueError, UnicodeError):
+            return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+
     def prepare_transition_preview(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         expected_case_revision, effective_date, cutoff_bridge, impact_preview,
         tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
     ):
-        """Seal a complete, scope-bound replay for later atomic confirmation.
+        """Persist a complete, scope-bound replay for later confirmation."""
+        return self._build_transition_preview(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+            expected_case_revision=expected_case_revision,
+            effective_date=effective_date, cutoff_bridge=cutoff_bridge,
+            impact_preview=impact_preview,
+            tax_policy_fingerprint=tax_policy_fingerprint,
+            idempotency_key=idempotency_key,
+            initial_opening_cutover=initial_opening_cutover,
+            read_only_reconstruction=False,
+        )
+
+    def _build_transition_preview(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, effective_date, cutoff_bridge, impact_preview,
+        tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
+        read_only_reconstruction=False,
+    ):
+        """Build baseline/candidate replays and optionally seal the candidate.
 
         The bridge and impact are rebuilt by the caller immediately before this
         call. The repository independently rebuilds the allocation from its
@@ -442,13 +1107,18 @@ class FifoCostRepository:
             )
             if bridge_error:
                 return self._error(bridge_error)
-            impact_error = self._validate_transition_impact(
-                impact_preview, tax_policy_fingerprint=tax_policy_fingerprint,
-            )
-            if impact_error:
-                return self._error(impact_error)
+            if impact_preview is None:
+                if not read_only_reconstruction:
+                    return self._error("FIFO_TRANSITION_IMPACT_UNAVAILABLE")
+            else:
+                impact_error = self._validate_transition_impact(
+                    impact_preview, tax_policy_fingerprint=tax_policy_fingerprint,
+                )
+                if impact_error:
+                    return self._error(impact_error)
             if (
-                impact_preview.get("complete_through") is not None
+                impact_preview is not None
+                and impact_preview.get("complete_through") is not None
                 and impact_preview.get("complete_through") != cutoff_bridge.complete_through
             ):
                 return self._error("FIFO_TRANSITION_EVIDENCE_MISMATCH")
@@ -537,6 +1207,7 @@ class FifoCostRepository:
                     staged_initial_cutover = self._normalize_transition_initial_cutover(
                         connection, initial_opening_cutover, cutoff_bridge,
                         case, recorded_at=cutover_recorded_at,
+                        identity=identity,
                     )
                     if isinstance(staged_initial_cutover, str):
                         connection.rollback()
@@ -651,7 +1322,7 @@ class FifoCostRepository:
                         (stream_id,),
                     ).fetchall()
                 }
-                if (
+                if impact_preview is not None and (
                     impact_preview.get("related_return_count")
                     != event_counts.get("SALEABLE_RETURN_RESTOCK", 0)
                     or impact_preview.get("non_sale_outflow_count")
@@ -670,7 +1341,6 @@ class FifoCostRepository:
                 baseline_rate_date = effective_date
                 baseline_rate_id = "transition-baseline_" + self._sha256({
                     "case_id": case_id,
-                    "case_revision": expected_case_revision,
                     "unit_cost_rub": old_unit_cost,
                     "cutoff": projection["inventory_cutoff"],
                 })[:40]
@@ -690,10 +1360,17 @@ class FifoCostRepository:
                         old_unit_cost,
                     ) if initial_cutover_staged else None,
                 )
+                baseline_complete = bool(
+                    isinstance(baseline_preview, dict)
+                    and baseline_preview.get("complete") is True
+                )
                 if (
-                    not baseline_preview
-                    or baseline_preview.get("complete") is not True
-                    or not self._transition_impact_matches_replay(
+                    not baseline_complete
+                    and not (read_only_reconstruction and impact_preview is None)
+                ) or (
+                    impact_preview is not None
+                    and baseline_complete
+                    and not self._transition_impact_matches_replay(
                         impact_preview, baseline_preview,
                         expected_before_cogs=baseline_preview.get("total_cogs_rub"),
                         check_after=False,
@@ -704,7 +1381,6 @@ class FifoCostRepository:
 
                 candidate_rate_id = "rate_transition_" + self._sha256({
                     "case_id": case_id,
-                    "case_revision": expected_case_revision,
                     "effective_date": effective_date,
                     "unit_cost_rub": case["new_unit_cost_rub"],
                     "bridge": cutoff_bridge.source_set_fingerprint,
@@ -741,14 +1417,16 @@ class FifoCostRepository:
                 source_fingerprint = self._sha256({
                     "source": "OWNER_CONFIRMED_FIFO_TRANSITION",
                     "case_id": case_id,
-                    "case_revision": expected_case_revision,
                     "case_fingerprint": evidence_fingerprint,
                     "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     "tax_policy_fingerprint": tax_policy_fingerprint,
-                    "impact_fingerprint": impact_preview["preview_fingerprint"],
+                    "impact_fingerprint": (
+                        impact_preview.get("preview_fingerprint")
+                        if impact_preview is not None else None
+                    ),
                     "financial_period_mapping_fingerprint": impact_preview.get(
                         "financial_period_mapping_fingerprint",
-                    ),
+                    ) if impact_preview is not None else None,
                 })
                 rate_payload = {
                     "rate_change_id": candidate_rate_id,
@@ -760,7 +1438,9 @@ class FifoCostRepository:
                     "owner_old_home_units": case["owner_old_home_units"],
                     "source_fingerprint": source_fingerprint,
                     "idempotency_key": "transition-" + self._sha256({
-                        "case_id": case_id, "revision": expected_case_revision,
+                        "case_id": case_id,
+                        "case_fingerprint": evidence_fingerprint,
+                        "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     })[:40],
                 }
                 rate_payload_fingerprint = self._sha256(rate_payload)
@@ -798,9 +1478,12 @@ class FifoCostRepository:
                 if candidate_replay["complete"] is not True:
                     connection.rollback()
                     return self._error(candidate_replay.get("reason_code") or "FIFO_REPLAY_INCOMPLETE")
-                if not self._transition_impact_matches_replay(
+                if impact_preview is not None and not self._transition_impact_matches_replay(
                     impact_preview, candidate_replay,
-                    expected_before_cogs=baseline_preview["total_cogs_rub"],
+                    expected_before_cogs=(
+                        baseline_preview.get("total_cogs_rub")
+                        if isinstance(baseline_preview, dict) else None
+                    ),
                     expected_after_cogs=candidate_replay["total_cogs_rub"],
                 ):
                     connection.rollback()
@@ -819,10 +1502,14 @@ class FifoCostRepository:
                     "base_cogs_rub": current_preview["total_cogs_rub"],
                     "candidate_source_fingerprint": candidate_source_fingerprint,
                     "allocation_preview": candidate_replay,
-                    "baseline_preview_fingerprint": baseline_preview[
-                        "preview_fingerprint"
-                    ],
-                    "baseline_cogs_rub": baseline_preview["total_cogs_rub"],
+                    "baseline_preview_fingerprint": (
+                        baseline_preview.get("preview_fingerprint")
+                        if isinstance(baseline_preview, dict) else None
+                    ),
+                    "baseline_cogs_rub": (
+                        baseline_preview.get("total_cogs_rub")
+                        if isinstance(baseline_preview, dict) else None
+                    ),
                     "impact_preview": impact_preview,
                     "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                     "evidence_set_fingerprint": evidence_fingerprint,
@@ -837,13 +1524,155 @@ class FifoCostRepository:
                     connection.rollback()
                     return self._error("FIFO_TRANSITION_PREVIEW_TOO_LARGE")
                 preview_fingerprint = self._sha256(preview_payload)
+                if read_only_reconstruction:
+                    # The opening cutover is temporary in this path, so read
+                    # the sale identities while its staged ledger is visible.
+                    # The SAVEPOINT is rolled back immediately afterwards.
+                    sale_effective_dates = self._transition_sale_effective_dates(
+                        connection, stream_id,
+                    )
+                    sale_identity_digests = self._transition_sale_identity_digests(
+                        connection, stream_id,
+                    )
+                if initial_cutover_staged:
+                    connection.execute("ROLLBACK TO SAVEPOINT transition_initial_preview")
+                    connection.execute("RELEASE SAVEPOINT transition_initial_preview")
+                if read_only_reconstruction:
+                    reconstruction_material = {
+                        "schema_version": 2,
+                        "identity": identity,
+                        "case_id": case_id,
+                        "effective_date": effective_date,
+                        "revisions": {
+                            "fifo": stream["revision"],
+                            "allocation": allocation_revision,
+                        },
+                        "baseline_fingerprint": baseline_preview.get(
+                            "preview_fingerprint",
+                        ) if isinstance(baseline_preview, dict) else None,
+                        "candidate_fingerprint": candidate_replay[
+                            "preview_fingerprint"
+                        ],
+                        "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                        "evidence_set_fingerprint": evidence_fingerprint,
+                        "tax_policy_fingerprint": tax_policy_fingerprint,
+                        "complete_through": cutoff_bridge.complete_through,
+                    }
+                    connection.rollback()
+                    return {
+                        "error": False,
+                        "code": "FIFO_TRANSITION_RECONSTRUCTION_READY",
+                        "read_only": True,
+                        "business_writes": False,
+                        "complete": candidate_replay.get("complete") is True,
+                        "identity": dict(identity),
+                        "case_id": case_id,
+                        "case_revision": expected_case_revision,
+                        "revisions": {
+                            "fifo": stream["revision"],
+                            "allocation": allocation_revision,
+                        },
+                        "reconstruction_fingerprint": self._sha256(
+                            reconstruction_material,
+                        ),
+                        "baseline": {
+                            "complete": baseline_complete,
+                            "preview_fingerprint": (
+                                baseline_preview.get("preview_fingerprint")
+                                if isinstance(baseline_preview, dict) else None
+                            ),
+                            "total_cogs_rub": (
+                                baseline_preview.get("total_cogs_rub")
+                                if baseline_complete else None
+                            ),
+                            "allocation_preview": (
+                                baseline_preview if baseline_complete else None
+                            ),
+                        },
+                        "candidate": {
+                            "preview_fingerprint": candidate_replay[
+                                "preview_fingerprint"
+                            ],
+                            "payload_fingerprint": normalized_candidate[
+                                "payload_fingerprint"
+                            ],
+                            "total_cogs_rub": candidate_replay["total_cogs_rub"],
+                            "allocation_preview": candidate_replay,
+                        },
+                        "lineage": {
+                            "effective_date": effective_date,
+                            "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
+                            "evidence_set_fingerprint": evidence_fingerprint,
+                            "tax_policy_fingerprint": tax_policy_fingerprint,
+                            "base_source_fingerprint": base_source_fingerprint,
+                            "candidate_source_fingerprint": candidate_source_fingerprint,
+                            "baseline_fingerprint": (
+                                baseline_preview.get("preview_fingerprint")
+                                if isinstance(baseline_preview, dict) else None
+                            ),
+                            "candidate_fingerprint": candidate_replay[
+                                "preview_fingerprint"
+                            ],
+                            "complete_through": cutoff_bridge.complete_through,
+                        },
+                        "coverage": {
+                            "complete": baseline_complete and candidate_replay.get("complete") is True,
+                            "baseline_allocations": len(
+                                baseline_preview.get("allocations", ())
+                                if isinstance(baseline_preview, dict) else (),
+                            ),
+                            "candidate_allocations": len(
+                                candidate_replay.get("allocations", ()),
+                            ),
+                            "complete_through": cutoff_bridge.complete_through,
+                        },
+                        "candidate_only": not baseline_complete,
+                        "before_complete": baseline_complete,
+                        "before_reason_code": (
+                            None if baseline_complete else (
+                                baseline_preview.get("reason_code")
+                                if isinstance(baseline_preview, dict)
+                                else "FIFO_BASELINE_UNAVAILABLE"
+                            )
+                        ),
+                        "before_total_cogs_rub": (
+                            baseline_preview.get("total_cogs_rub")
+                            if baseline_complete else None
+                        ),
+                        "candidate_total_cogs_rub": candidate_replay["total_cogs_rub"],
+                        "before_allocations": (
+                            baseline_preview.get("allocations", ())
+                            if baseline_complete else []
+                        ),
+                        "candidate_allocations": candidate_replay.get("allocations", ()),
+                        "sale_effective_dates": sale_effective_dates,
+                        "sale_identity_digests_by_event": sale_identity_digests,
+                        "candidate_outflows": candidate_replay.get("outflows", ()),
+                        "candidate_non_sale_outflow_value_rub": candidate_replay.get(
+                            "non_sale_outflow_value_rub", "0.00",
+                        ),
+                        "related_return_count": event_counts.get(
+                            "SALEABLE_RETURN_RESTOCK", 0,
+                        ),
+                        "non_sale_outflow_count": event_counts.get(
+                            "NON_SALE_OUTFLOW", 0,
+                        ),
+                        "return_cogs_authorization_changed": False,
+                        "read_only": True,
+                        "period_profit_changed": False,
+                        "preview_fingerprint": self._sha256(reconstruction_material),
+                        "source_set_fingerprint": cutoff_bridge.source_set_fingerprint,
+                        "candidate_rate_units": sum(
+                            line.get("quantity", 0)
+                            for allocation in candidate_replay.get("allocations", ())
+                            for line in allocation.get("lines", ())
+                            if line.get("rate_change_id") == candidate_rate_id
+                        ),
+                    }
                 preview_id = "transpreview_" + preview_fingerprint[:40]
                 expires_at = self._iso(
                     now + timedelta(seconds=self.PREVIEW_TTL_SECONDS),
                 )
-                if initial_cutover_staged:
-                    connection.execute("ROLLBACK TO SAVEPOINT transition_initial_preview")
-                    connection.execute("RELEASE SAVEPOINT transition_initial_preview")
                 stored = FifoCostTransitionStore.prepare_case_preview(
                     connection, case_id=case_id, scope=scope, identity=identity,
                     expected_case_revision=expected_case_revision,
@@ -881,6 +1710,12 @@ class FifoCostRepository:
                 if connection.in_transaction:
                     connection.rollback()
                 return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                if read_only_reconstruction:
+                    return self._error("FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE")
+                raise
             finally:
                 connection.close()
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
@@ -888,6 +1723,67 @@ class FifoCostRepository:
             return self._error(code)
         except (sqlite3.Error, OSError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+
+    def reconstruct_transition_preview(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_case_revision, effective_date, cutoff_bridge, impact_preview=None,
+        tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
+    ):
+        """Rebuild baseline and candidate with prepare's exact replay path.
+
+        An uninitialized opening queue may be staged inside the repository
+        transaction, but this entry point always rolls it back and never seals
+        a preview or advances a case/FIFO revision.
+        """
+        try:
+            result = self._build_transition_preview(
+                case_id=case_id, store_id=store_id, product_id=product_id,
+                offer_id=offer_id, sku=sku,
+                expected_case_revision=expected_case_revision,
+                effective_date=effective_date, cutoff_bridge=cutoff_bridge,
+                impact_preview=impact_preview,
+                tax_policy_fingerprint=tax_policy_fingerprint,
+                idempotency_key=idempotency_key,
+                initial_opening_cutover=initial_opening_cutover,
+                read_only_reconstruction=True,
+            )
+        except Exception:
+            return self._error("FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE")
+        if not isinstance(result, dict):
+            return self._error("FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE")
+        if result.get("error") is False and (
+            result.get("code") != "FIFO_TRANSITION_RECONSTRUCTION_READY"
+            or result.get("read_only") is not True
+            or result.get("business_writes") is not False
+        ):
+            return self._error("FIFO_TRANSITION_RECONSTRUCTION_INVALID")
+        return result
+
+    @classmethod
+    def _transition_sale_effective_dates(cls, connection, stream_id):
+        rows = connection.execute(
+            """SELECT event_id, effective_date FROM fifo_cost_events
+               WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rows) > 100_000:
+            raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
+        return {row["event_id"]: row["effective_date"] for row in rows}
+
+    @classmethod
+    def _transition_sale_identity_digests(cls, connection, stream_id):
+        rows = connection.execute(
+            """SELECT event_id, source_identity_digest FROM fifo_cost_events
+               WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(rows) > 100_000:
+            raise ValueError("FIFO_REPLAY_INPUT_LIMIT")
+        return {
+            row["event_id"]: row["source_identity_digest"] for row in rows
+        }
 
     def commit_transition_case(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
@@ -1051,6 +1947,7 @@ class FifoCostRepository:
                     normalized_cutover = self._normalize_transition_initial_cutover(
                         connection, persisted_cutover, cutoff_bridge,
                         case_payload, recorded_at=persisted_cutover.get("recorded_at"),
+                        identity=identity,
                     )
                     if (
                         isinstance(normalized_cutover, str)
@@ -1114,7 +2011,6 @@ class FifoCostRepository:
                 if (
                     rate["rate_change_id"] != "rate_transition_" + self._sha256({
                         "case_id": case_id,
-                        "case_revision": expected_case_revision - 1,
                         "effective_date": payload["effective_date"],
                         "unit_cost_rub": case_payload.get("new_unit_cost_rub"),
                         "bridge": cutoff_bridge.source_set_fingerprint,
@@ -1186,7 +2082,7 @@ class FifoCostRepository:
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
 
     def _normalize_transition_initial_cutover(
-        self, connection, cutover, bridge, case, *, recorded_at,
+        self, connection, cutover, bridge, case, *, recorded_at, identity=None,
     ):
         """Validate an explicit owner-reviewed opening queue against the bridge.
 
@@ -1201,7 +2097,15 @@ class FifoCostRepository:
             "transit_not_in_ozon_confirmed",
         }
         extended = required | {"cutover_fingerprint", "recorded_at"}
-        if not isinstance(cutover, dict) or frozenset(cutover) not in {frozenset(required), frozenset(extended)}:
+        optional = {"new_party_transit_units", "new_home_quantity"}
+        allowed_keys = {
+            frozenset(base | additions)
+            for base in (required, extended)
+            for additions in (
+                set(), {"new_party_transit_units"}, {"new_home_quantity"}, optional,
+            )
+        }
+        if not isinstance(cutover, dict) or frozenset(cutover) not in allowed_keys:
             return "FIFO_INITIAL_CUTOVER_INVALID"
         if (
             cutover.get("schema_version") != 1
@@ -1220,7 +2124,8 @@ class FifoCostRepository:
         normalized_at = self._normalize_timestamp(recorded_at)
         if normalized_at is None:
             return "FIFO_CLOCK_INVALID"
-        if set(cutover) == set(extended):
+        is_extended = "cutover_fingerprint" in cutover
+        if is_extended:
             if (
                 cutover.get("recorded_at") != normalized_at
                 or not self._valid_digest(cutover.get("cutover_fingerprint"))
@@ -1249,8 +2154,18 @@ class FifoCostRepository:
         buckets = stock_fields.get("stock_buckets")
         if not isinstance(buckets, dict):
             return "FIFO_INITIAL_CUTOVER_STOCK_EVIDENCE_UNAVAILABLE"
+        buckets = dict(buckets)
         available = buckets.get("available")
         reserved = buckets.get("reserved")
+        if reserved is None:
+            owner_reserved = self._owner_confirmed_reserved_bucket_matches(
+                connection, bridge=bridge, identity=identity, case=case,
+                stock_report_fingerprint=cutover["stock_report_fingerprint"],
+                layers=cutover["layers"], available=available,
+            )
+            if owner_reserved is not None:
+                buckets["reserved"] = owner_reserved
+                reserved = owner_reserved
         if (
             type(available) is not int or available < 0
             or type(reserved) is not int or reserved < 0
@@ -1266,11 +2181,18 @@ class FifoCostRepository:
         if fbs_return_units != 0:
             return "FIFO_INITIAL_CUTOVER_RETURN_BASIS_UNAVAILABLE"
         confirmed_buckets = dict(bridge.confirmed_stock_buckets)
-        if not confirmed_buckets or any(
-            buckets.get(name) != quantity
-            for name, quantity in confirmed_buckets.items()
-        ):
+        if not confirmed_buckets:
             return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
+        for name, quantity in confirmed_buckets.items():
+            if name == "supplier_receiving" and buckets.get(name) is None:
+                if not self._owner_supplier_receiving_confirmation_matches(
+                    connection, bridge=bridge, identity=identity,
+                    stock_report_fingerprint=cutover["stock_report_fingerprint"],
+                    expected_units=quantity,
+                ):
+                    return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
+            elif buckets.get(name) != quantity:
+                return "FIFO_INITIAL_CUTOVER_STOCK_SCOPE_UNPROVEN"
         if any(
             buckets.get(name) not in (0, None)
             for name in ("preparing", "checking")
@@ -1290,10 +2212,28 @@ class FifoCostRepository:
             name: sum(layer[name] for layer in layers)
             for name in ("ozon_units", "transit_units", "home_units")
         }
+        new_party_transit_units = cutover.get("new_party_transit_units", 0)
+        old_home_units = case.get("owner_old_home_units")
+        case_new_home_units = case.get("new_home_quantity")
+        new_home_units = cutover.get("new_home_quantity", case_new_home_units)
         if (
-            totals["ozon_units"] != available + reserved
+            type(new_party_transit_units) is not int
+            or not 0 <= new_party_transit_units <= self.MAX_COMMAND_UNITS
+            or type(old_home_units) is not int or old_home_units < 0
+            or (case_new_home_units is not None and (
+                type(case_new_home_units) is not int or case_new_home_units < 0
+            ))
+            or (new_home_units is not None and (
+                type(new_home_units) is not int
+                or not 0 <= new_home_units <= self.MAX_COMMAND_UNITS
+            ))
+            or (case_new_home_units is not None
+                and new_home_units != case_new_home_units)
+            or totals["ozon_units"] != available + reserved
             or totals["transit_units"] != case.get("owner_old_transit_units")
-            or totals["home_units"] != case.get("owner_old_home_units")
+            or totals["home_units"] != (
+                old_home_units + (new_home_units or 0)
+            )
             or sum(totals.values()) <= 0
         ):
             return "FIFO_INITIAL_CUTOVER_QUANTITY_MISMATCH"
@@ -1324,13 +2264,291 @@ class FifoCostRepository:
             "transit_not_in_ozon_confirmed": True,
             "recorded_at": normalized_at,
         }
+        if "new_home_quantity" in cutover:
+            normalized["new_home_quantity"] = new_home_units
+        if "new_party_transit_units" in cutover:
+            normalized["new_party_transit_units"] = new_party_transit_units
         fingerprint = self._sha256({
-            key: value for key, value in normalized.items() if key != "recorded_at"
+            key: value for key, value in normalized.items()
+            if key not in {"recorded_at", "case_revision"}
         })
-        if set(cutover) == set(extended) and cutover["cutover_fingerprint"] != fingerprint:
+        if is_extended and cutover["cutover_fingerprint"] != fingerprint:
             return "FIFO_INITIAL_CUTOVER_FINGERPRINT_INVALID"
         normalized["cutover_fingerprint"] = fingerprint
         return normalized
+
+    def _owner_supplier_receiving_confirmation_matches(
+        self, connection, *, bridge, identity, stock_report_fingerprint,
+        expected_units,
+    ):
+        """Verify the exact durable owner confirmation for a missing report bucket."""
+        fingerprints = bridge.provenance_by_basis.get(
+            "owner_supplier_receiving_confirmation", (),
+        )
+        if (
+            identity is None
+            or len(fingerprints) != 1
+            or not self._valid_digest(fingerprints[0])
+            or type(expected_units) is not int
+            or expected_units < 0
+            or expected_units > 1_000_000
+        ):
+            return False
+        scope = self._tenant_scope(bridge.scope.store_id)
+        if scope.get("error"):
+            return False
+        try:
+            normalized_identity = self._normalize_identity(
+                bridge.scope.store_id,
+                bridge.scope.product_id,
+                bridge.scope.offer_id,
+                bridge.scope.sku,
+                1,
+            )
+            if normalized_identity != identity:
+                return False
+            result = FifoCostTransitionStore.read_bridge_evidence(
+                connection,
+                bridge.case_id,
+                scope,
+                normalized_identity,
+                evidence_kind="CUTOFF_SELECTION",
+                limit=100,
+            )
+            if result.get("error"):
+                return False
+            matches = [
+                row for row in result.get("items", ())
+                if row.get("payload_fingerprint") == fingerprints[0]
+            ]
+            if len(matches) != 1:
+                return False
+            verified = self._verify_transition_evidence_row(
+                matches[0], decrypt=False,
+                expected_scope=scope,
+                expected_identity=normalized_identity,
+            )
+            if verified.get("error"):
+                return False
+            item = verified.get("item")
+            payload = item.get("payload") if isinstance(item, dict) else None
+            if (
+                not isinstance(item, dict)
+                or item.get("evidence_kind") != "CUTOFF_SELECTION"
+                or item.get("case_id") != bridge.case_id
+                or not isinstance(payload, dict)
+                or payload.get("cutoff_date") != bridge.cutoff_date
+                or payload.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or payload.get("bridge_fingerprint") is None
+            ):
+                return False
+            confirmed = any(
+                confirmation.get("confirmation_kind") == "CUTOFF_SELECTION"
+                and confirmation.get("confirmed_fields") == {
+                    "cutoff_date": bridge.cutoff_date,
+                    "bridge_fingerprint": payload["bridge_fingerprint"],
+                    "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+                    "supplier_receiving_units": expected_units,
+                }
+                for confirmation in item.get("confirmations", ())
+            )
+            return confirmed
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return False
+
+    def _owner_confirmed_reserved_bucket_matches(
+        self, connection, *, bridge, identity, case,
+        stock_report_fingerprint, layers, available,
+    ):
+        """Resolve an absent reserved bucket only from the bound confirmed opening."""
+        if (
+            identity is None
+            or type(available) is not int or available < 0
+            or not isinstance(layers, list)
+        ):
+            return None
+        try:
+            from services.fifo_cost_transition_service import FifoCostTransitionService
+
+            normalized_identity = self._normalize_identity(
+                bridge.scope.store_id,
+                bridge.scope.product_id,
+                bridge.scope.offer_id,
+                bridge.scope.sku,
+                1,
+            )
+            if normalized_identity != identity:
+                return None
+            scope = self._tenant_scope(bridge.scope.store_id)
+            if scope.get("error"):
+                return None
+            result = FifoCostTransitionStore.read_bridge_evidence(
+                connection, bridge.case_id, scope, normalized_identity,
+                evidence_kind="OPENING_COMPOSITION", limit=100,
+            )
+            items = result.get("items") if not result.get("error") else None
+            if not isinstance(items, list) or not items or len(items) >= 100:
+                return None
+            row = max(items, key=lambda item: item.get("evidence_revision", 0))
+            verified = self._verify_transition_evidence_row(
+                row, decrypt=True, expected_scope=scope,
+                expected_identity=normalized_identity,
+            )
+            item = verified.get("item") if not verified.get("error") else None
+            if not isinstance(item, dict) or item.get("case_id") != bridge.case_id:
+                return None
+            safe = item.get("payload")
+            if not isinstance(safe, dict):
+                return None
+            try:
+                composition = json.loads(item.get("sensitive_payload", ""))
+            except (TypeError, ValueError):
+                return None
+            if not isinstance(composition, dict):
+                return None
+            typed_case = FifoCostTransitionService._case_from_payload(case)
+            case_basis = FifoCostTransitionService._transition_case_basis_fingerprint(
+                typed_case,
+            )
+            expected_confirmation = {
+                "composition_fingerprint": safe.get("composition_fingerprint"),
+                "opening_date": safe.get("opening_date"),
+                "total_units": safe.get("total_units"),
+            }
+            unknown_new_home = composition.get(
+                "unknown_new_home_quantity", False,
+            )
+            quantity_status = safe.get("new_home_quantity_status")
+            if quantity_status is not None:
+                expected_confirmation["new_home_quantity_status"] = quantity_status
+            reserved = composition.get("owner_confirmed_reserved_units")
+            total_ozon = composition.get("owner_confirmed_total_ozon_units")
+            if (
+                not any(
+                    confirmation.get("confirmation_kind") == "OPENING_COMPOSITION"
+                    and confirmation.get("confirmed_fields") == expected_confirmation
+                    for confirmation in item.get("confirmations", ())
+                )
+                or composition.get("case_id") != bridge.case_id
+                or composition.get("case_basis_fingerprint") != case_basis
+                or composition.get("opening_date") != bridge.cutoff_date
+                or composition.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or composition.get("layers") != layers
+                or type(unknown_new_home) is not bool
+                or (
+                    quantity_status is not None
+                    and quantity_status != (
+                        "UNKNOWN_OPEN_RATE" if unknown_new_home else "CONFIRMED"
+                    )
+                )
+                or not self._valid_digest(safe.get("composition_fingerprint"))
+                or type(safe.get("total_units")) is not int
+                or not 0 <= safe.get("total_units") <= self.MAX_COMMAND_UNITS
+                or type(reserved) is not int
+                or not 0 <= reserved <= self.MAX_COMMAND_UNITS
+                or type(total_ozon) is not int
+                or not 0 <= total_ozon <= self.MAX_COMMAND_UNITS
+                or total_ozon != available + reserved
+                or bridge.confirmed_stock_buckets.get("reserved") != reserved
+                or composition.get("reserved_source")
+                != "OWNER_CONFIRMED_OPENING_COMPOSITION"
+                or safe.get("opening_date") != bridge.cutoff_date
+                or safe.get("total_units") != sum(
+                    layer.get("ozon_units", 0)
+                    + layer.get("transit_units", 0)
+                    + layer.get("home_units", 0)
+                    for layer in layers if isinstance(layer, dict)
+                )
+            ):
+                return None
+            cutoff_id = composition.get("cutoff_evidence_id")
+            cutoff_fingerprint = composition.get("cutoff_evidence_fingerprint")
+            latest_cutoffs = FifoCostTransitionStore.read_bridge_evidence(
+                connection, bridge.case_id, scope, normalized_identity,
+                evidence_kind="CUTOFF_SELECTION", limit=100,
+            )
+            latest_cutoff_items = (
+                latest_cutoffs.get("items")
+                if not latest_cutoffs.get("error") else None
+            )
+            if (
+                not isinstance(latest_cutoff_items, list)
+                or not latest_cutoff_items or len(latest_cutoff_items) >= 100
+                or max(
+                    latest_cutoff_items,
+                    key=lambda value: value.get("evidence_revision", 0),
+                ).get("evidence_id") != cutoff_id
+            ):
+                return None
+            cutoff_result = FifoCostTransitionStore.read_bridge_evidence(
+                connection, bridge.case_id, scope, normalized_identity,
+                evidence_kind="CUTOFF_SELECTION", evidence_id=cutoff_id,
+                limit=1,
+            )
+            cutoff_items = (
+                cutoff_result.get("items")
+                if not cutoff_result.get("error") else None
+            )
+            if not isinstance(cutoff_items, list) or len(cutoff_items) != 1:
+                return None
+            cutoff_verified = self._verify_transition_evidence_row(
+                cutoff_items[0], decrypt=True, expected_scope=scope,
+                expected_identity=normalized_identity,
+            )
+            cutoff_item = (
+                cutoff_verified.get("item")
+                if not cutoff_verified.get("error") else None
+            )
+            if (
+                not isinstance(cutoff_item, dict)
+                or cutoff_item.get("payload_fingerprint") != cutoff_fingerprint
+                or cutoff_item.get("case_id") != bridge.case_id
+            ):
+                return None
+            cutoff_safe = cutoff_item.get("payload")
+            cutoff_sensitive = json.loads(cutoff_item.get("sensitive_payload", ""))
+            descriptor = (
+                cutoff_sensitive.get("descriptor")
+                if isinstance(cutoff_sensitive, dict) else None
+            )
+            cutoff_confirmation = {
+                "cutoff_date": descriptor.get("cutoff_date") if isinstance(descriptor, dict) else None,
+                "bridge_fingerprint": cutoff_safe.get("bridge_fingerprint") if isinstance(cutoff_safe, dict) else None,
+                "stock_semantics": "AVAILABLE_PLUS_RESERVED_TRANSIT_EXCLUDED",
+            }
+            supplier_receiving = cutoff_sensitive.get(
+                "owner_confirmed_supplier_receiving_units",
+            ) if isinstance(cutoff_sensitive, dict) else None
+            if supplier_receiving is not None:
+                if (
+                    type(supplier_receiving) is not int
+                    or not 0 <= supplier_receiving <= self.MAX_COMMAND_UNITS
+                ):
+                    return None
+                cutoff_confirmation["supplier_receiving_units"] = supplier_receiving
+            if (
+                not isinstance(cutoff_safe, dict)
+                or cutoff_sensitive.get("case_basis_fingerprint") != case_basis
+                or cutoff_sensitive.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or cutoff_safe.get("stock_report_fingerprint")
+                != stock_report_fingerprint
+                or cutoff_safe.get("cutoff_date") != bridge.cutoff_date
+                or descriptor is None
+                or descriptor.get("cutoff_date") != bridge.cutoff_date
+                or not self._valid_digest(cutoff_confirmation["bridge_fingerprint"])
+                or not any(
+                    confirmation.get("confirmation_kind") == "CUTOFF_SELECTION"
+                    and confirmation.get("confirmed_fields") == cutoff_confirmation
+                    for confirmation in cutoff_item.get("confirmations", ())
+                )
+            ):
+                return None
+            return reserved
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return None
 
     def _insert_transition_initial_cutover(
         self, connection, *, identity, bridge, cutover,
@@ -1743,6 +2961,7 @@ class FifoCostRepository:
             if key not in {
                 "case_revision", "state", "updated_at", "_command_fingerprint",
                 "last_preview", "last_commit", "last_evidence",
+                "last_expired_preview_reopen",
             }
         }
         rows = {}
@@ -2010,7 +3229,7 @@ class FifoCostRepository:
             if identity_conflict is not None:
                 return identity_conflict
             stream = connection.execute(
-                """SELECT state, revision FROM fifo_cost_streams
+                """SELECT state, revision, policy_version FROM fifo_cost_streams
                    WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
                 (stream_id, identity["store_id"], identity_fingerprint),
             ).fetchone()
@@ -2029,12 +3248,13 @@ class FifoCostRepository:
                     "movement_count": 0,
                     "latest_allocation": None,
                     "cutoff_date": None,
+                    "cutoff_mapping": None,
                 }
 
             projection_row = connection.execute(
                 """SELECT revision, state, known_quantity, known_cost_rub,
                           next_unit_cost_rub, queue_complete, cutoff_status,
-                          updated_at, inventory_cutoff
+                          updated_at, inventory_cutoff, source_set_fingerprint
                    FROM fifo_cost_projections WHERE stream_id=?""",
                 (stream_id,),
             ).fetchone()
@@ -2048,6 +3268,7 @@ class FifoCostRepository:
                 "cutoff_status": projection_row["cutoff_status"],
                 "updated_at": projection_row["updated_at"],
                 "inventory_cutoff": projection_row["inventory_cutoff"],
+                "source_set_fingerprint": projection_row["source_set_fingerprint"],
             }
             layer_rows = connection.execute(
                 """SELECT l.layer_sequence, l.quantity, l.unit_cost_rub,
@@ -2157,7 +3378,8 @@ class FifoCostRepository:
                 if kind not in {"OPENING_FIFO_ANCHOR", "COST_LAYER_RECEIPT"}
             )
             allocation = connection.execute(
-                """SELECT revision, stream_revision, status, cutoff_status, created_at
+                """SELECT revision, stream_revision, status, cutoff_status,
+                          source_set_fingerprint, created_at
                    FROM fifo_cost_allocations WHERE stream_id=?
                    ORDER BY revision DESC LIMIT 1""",
                 (stream_id,),
@@ -2196,6 +3418,65 @@ class FifoCostRepository:
                                 connection, stream_id, allocation["revision"],
                             )
                         )
+                    current_replay_source = (
+                        self._allocation_source_fingerprint(
+                            connection, stream_id, stream["revision"],
+                            stream["policy_version"], projection["cutoff_status"],
+                        ) if projection is not None else None
+                    )
+                    if current_replay_source == allocation["source_set_fingerprint"]:
+                        exact_replay = self._preview_allocation_from_connection(
+                            connection, stream_id,
+                            stream_revision=stream["revision"],
+                            allocation_revision=allocation["revision"] - 1,
+                            source_fingerprint=allocation["source_set_fingerprint"],
+                            cutoff_status=projection["cutoff_status"],
+                            anchor_cutoff_date=projection["inventory_cutoff"],
+                        )
+                        if (
+                            isinstance(exact_replay, dict)
+                            and exact_replay.get("error") is False
+                            and exact_replay.get("complete") is True
+                            and exact_replay.get("status") == "COMPLETE"
+                            and exact_replay.get("stream_revision") == stream["revision"]
+                            and exact_replay.get("expected_allocation_revision")
+                            == allocation["revision"] - 1
+                            and exact_replay.get("source_set_fingerprint")
+                            == allocation["source_set_fingerprint"]
+                            and self._valid_digest(
+                                exact_replay.get("preview_fingerprint"),
+                            )
+                            and exact_replay.get("next_unit_cost_status") in {
+                                "CONFIRMED_FINITE_LAYER",
+                                "RATE_ONLY_QUANTITY_UNKNOWN",
+                                "NO_CONFIRMED_UNIT",
+                            }
+                            and exact_replay.get("next_unit_cost_basis") in {
+                                "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                                "OPEN_RATE_QUANTITY_UNKNOWN", "UNAVAILABLE",
+                            }
+                            and (
+                                exact_replay.get("next_unit_cost_status")
+                                == "NO_CONFIRMED_UNIT"
+                                and exact_replay.get("next_unit_cost_rub") is None
+                                or exact_replay.get("next_unit_cost_status")
+                                != "NO_CONFIRMED_UNIT"
+                                and self._normalize_money(
+                                    exact_replay.get("next_unit_cost_rub"),
+                                ) is not None
+                            )
+                        ):
+                            latest_allocation["exact_next_unit_cost_rub"] = (
+                                self._normalize_money(
+                                    exact_replay.get("next_unit_cost_rub"),
+                                )
+                            )
+                            latest_allocation["exact_next_unit_cost_status"] = (
+                                exact_replay["next_unit_cost_status"]
+                            )
+                            latest_allocation["exact_next_unit_cost_basis"] = (
+                                exact_replay["next_unit_cost_basis"]
+                            )
                 else:
                     latest_allocation["replayed_remaining_layers"] = None
             cutoff_date = connection.execute(
@@ -2205,6 +3486,10 @@ class FifoCostRepository:
             ).fetchone()[0]
             cutoff_date = cutoff_date or (
                 projection["inventory_cutoff"] if projection else None
+            )
+            cutoff_mapping = self._read_history_cutoff_mapping(
+                connection, stream_id=stream_id, cutoff_date=cutoff_date,
+                projection=projection,
             )
             return {
                 "error": False,
@@ -2220,6 +3505,7 @@ class FifoCostRepository:
                 "movement_count": movement_count,
                 "latest_allocation": latest_allocation,
                 "cutoff_date": cutoff_date,
+                "cutoff_mapping": cutoff_mapping,
             }
         except (TypeError, ValueError, InvalidOperation, OverflowError) as exc:
             code = str(exc) if str(exc).startswith("FIFO_") else "FIFO_IDENTITY_INVALID"
@@ -2229,6 +3515,91 @@ class FifoCostRepository:
         finally:
             if connection is not None:
                 connection.close()
+
+    @classmethod
+    def _read_history_cutoff_mapping(
+        cls, connection, *, stream_id, cutoff_date, projection,
+    ):
+        """Return only a mapping boundary that still covers current FIFO sales."""
+        if not isinstance(projection, dict) or projection.get("cutoff_status") != "RECONCILED":
+            return None
+        cutoff = cls._normalize_date(cutoff_date)
+        mapping = connection.execute(
+            """SELECT mapping_set_id, mapping_revision, cutoff_date,
+                      complete_through, bridge_fingerprint, mapping_count
+               FROM fifo_cost_cutoff_sale_mapping_sets
+               WHERE stream_id=? ORDER BY mapping_revision DESC LIMIT 1""",
+            (stream_id,),
+        ).fetchone()
+        if mapping is None:
+            return None
+        through = cls._normalize_date(mapping["complete_through"])
+        stored_cutoff = cls._normalize_date(mapping["cutoff_date"])
+        if (
+            cutoff is None or stored_cutoff != cutoff or through is None
+            or through < cutoff
+            or projection.get("inventory_cutoff") != cutoff
+            or type(mapping["mapping_revision"]) is not int
+            or mapping["mapping_revision"] < 1
+            or type(mapping["mapping_count"]) is not int
+            or not 0 <= mapping["mapping_count"] <= 100_000
+            or not cls._valid_digest(mapping["bridge_fingerprint"])
+        ):
+            return None
+        rows = connection.execute(
+            """SELECT source_identity_digest, quantity,
+                      physical_effective_date, partition
+               FROM fifo_cost_cutoff_sale_mappings
+               WHERE mapping_set_id=? ORDER BY source_identity_digest LIMIT 100001""",
+            (mapping["mapping_set_id"],),
+        ).fetchall()
+        if len(rows) != mapping["mapping_count"] or len(rows) > 100_000:
+            return None
+        post_cutoff = {}
+        seen = set()
+        for row in rows:
+            digest = row["source_identity_digest"]
+            event_date = cls._normalize_date(row["physical_effective_date"])
+            partition = row["partition"]
+            if (
+                not cls._valid_digest(digest) or digest in seen
+                or type(row["quantity"]) is not int or row["quantity"] < 1
+                or event_date is None or event_date > through
+                or partition not in {"PRE_CUTOFF", "POST_CUTOFF"}
+                or (partition == "PRE_CUTOFF" and event_date > cutoff)
+                or (partition == "POST_CUTOFF" and event_date <= cutoff)
+            ):
+                return None
+            seen.add(digest)
+            if partition == "POST_CUTOFF":
+                post_cutoff[digest] = (row["quantity"], event_date)
+        sales = connection.execute(
+            """SELECT source_identity_digest, quantity, effective_date
+               FROM fifo_cost_events WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+               ORDER BY event_id LIMIT 100001""",
+            (stream_id,),
+        ).fetchall()
+        if len(sales) > 100_000:
+            return None
+        current_sales = {}
+        for row in sales:
+            digest = row["source_identity_digest"]
+            event_date = cls._normalize_date(row["effective_date"])
+            if (
+                not cls._valid_digest(digest) or digest in current_sales
+                or type(row["quantity"]) is not int or row["quantity"] < 1
+                or event_date is None
+            ):
+                return None
+            current_sales[digest] = (row["quantity"], event_date)
+        if current_sales != post_cutoff:
+            return None
+        return {
+            "mapping_revision": mapping["mapping_revision"],
+            "cutoff_date": cutoff,
+            "complete_through": through,
+            "bridge_fingerprint": mapping["bridge_fingerprint"],
+        }
 
     @staticmethod
     def _replayed_remaining_layers(connection, stream_id, allocation_revision):
@@ -6920,10 +8291,21 @@ class FifoCostRepository:
             raise ValueError("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN")
 
         prior_basis_rows = connection.execute(
-            """SELECT layer_id, rate_change_id, SUM(quantity) AS quantity
+            """SELECT allocation_id, allocation_line_number,
+                      layer_id, rate_change_id, SUM(quantity) AS quantity,
+                      (SELECT COUNT(*) FROM fifo_cost_allocation_lines AS x
+                       WHERE x.allocation_id=fifo_cost_return_basis.allocation_id
+                         AND x.event_id=fifo_cost_return_basis.origin_sale_event_id
+                         AND x.line_number<=fifo_cost_return_basis.allocation_line_number)
+                      + (SELECT COUNT(*) FROM fifo_cost_allocation_rate_lines AS y
+                         WHERE y.allocation_id=fifo_cost_return_basis.allocation_id
+                           AND y.event_id=fifo_cost_return_basis.origin_sale_event_id
+                           AND y.line_number<=fifo_cost_return_basis.allocation_line_number)
+                      AS sale_line_ordinal
                FROM fifo_cost_return_basis
                WHERE origin_sale_event_id=?
-               GROUP BY layer_id, rate_change_id""",
+               GROUP BY allocation_id, allocation_line_number,
+                        layer_id, rate_change_id""",
             (sale["event_id"],),
         ).fetchall()
         if sum(row["quantity"] for row in prior_basis_rows) != prior:
@@ -6931,28 +8313,22 @@ class FifoCostRepository:
         remaining_by_line = {
             row["line_number"]: row["quantity"] for row in basis_rows
         }
+        current_line_by_ordinal = {
+            ordinal: row["line_number"]
+            for ordinal, row in enumerate(basis_rows, start=1)
+        }
         for previous in prior_basis_rows:
-            key = (
-                ("LAYER", previous["layer_id"])
-                if previous["layer_id"] is not None
-                else ("RATE", previous["rate_change_id"])
+            line_number = current_line_by_ordinal.get(
+                previous["sale_line_ordinal"],
             )
-            to_match = previous["quantity"]
-            for row in reversed(basis_rows):
-                row_key = (
-                    ("LAYER", row["layer_id"])
-                    if row["layer_id"] is not None
-                    else ("RATE", row["rate_change_id"])
-                )
-                if row_key != key:
-                    continue
-                take = min(remaining_by_line[row["line_number"]], to_match)
-                remaining_by_line[row["line_number"]] -= take
-                to_match -= take
-                if to_match == 0:
-                    break
-            if to_match:
+            if (
+                type(previous["sale_line_ordinal"]) is not int
+                or previous["sale_line_ordinal"] < 1
+                or line_number not in remaining_by_line
+                or previous["quantity"] > remaining_by_line[line_number]
+            ):
                 raise ValueError("FIFO_RETURN_ORIGIN_ALLOCATION_INVALID")
+            remaining_by_line[line_number] -= previous["quantity"]
 
         remaining = event["quantity"]
         prepared = []
@@ -6961,6 +8337,10 @@ class FifoCostRepository:
             # The owner-approved rule assigns partial returns to the latest
             # units consumed by the original FIFO sale first.
             selection_rows.reverse()
+        line_ordinal_by_number = {
+            row["line_number"]: ordinal
+            for ordinal, row in enumerate(basis_rows, start=1)
+        }
         for row in selection_rows:
             available = remaining_by_line[row["line_number"]]
             take = min(available, remaining)
@@ -6972,6 +8352,7 @@ class FifoCostRepository:
                 prepared.append({
                     "allocation_id": allocation["allocation_id"],
                     "allocation_line_number": row["line_number"],
+                    "sale_line_ordinal": line_ordinal_by_number[row["line_number"]],
                     "layer_id": row["layer_id"],
                     "rate_change_id": row["rate_change_id"],
                     "quantity": take,
@@ -7558,7 +8939,9 @@ class FifoCostRepository:
             "error", "complete", "status", "reason_code", "cutoff_status",
             "anchor_cutoff_date", "open_rate_effective_date", "stream_revision",
             "expected_allocation_revision", "source_set_fingerprint",
-            "total_cogs_rub", "non_sale_outflow_value_rub",
+            "total_cogs_rub", "next_unit_cost_rub", "next_unit_cost_status",
+            "next_unit_cost_basis",
+            "non_sale_outflow_value_rub",
             "remaining_confirmed_units", "restored_units",
             "allocations", "outflows", "preview_fingerprint",
         }
@@ -7596,6 +8979,36 @@ class FifoCostRepository:
         if type(allocation_revision) is not int or allocation_revision < 0:
             return "FIFO_REVISION_CONFLICT"
         if not cls._valid_digest(source_fingerprint) or not cls._valid_digest(preview_fingerprint):
+            return "FIFO_ALLOCATION_PREVIEW_INVALID"
+        next_unit_cost = cls._normalize_money(preview.get("next_unit_cost_rub"))
+        next_unit_status = preview.get("next_unit_cost_status")
+        next_unit_basis = preview.get("next_unit_cost_basis")
+        if (
+            next_unit_status not in {
+                "CONFIRMED_FINITE_LAYER", "RATE_ONLY_QUANTITY_UNKNOWN",
+                "NO_CONFIRMED_UNIT",
+            }
+            or (next_unit_status == "NO_CONFIRMED_UNIT" and next_unit_cost is not None)
+            or (next_unit_status != "NO_CONFIRMED_UNIT" and next_unit_cost is None)
+            or next_unit_basis not in {
+                "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                "OPEN_RATE_QUANTITY_UNKNOWN", "UNAVAILABLE",
+            }
+            or (
+                next_unit_status == "CONFIRMED_FINITE_LAYER"
+                and next_unit_basis not in {
+                    "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                }
+            )
+            or (
+                next_unit_status == "RATE_ONLY_QUANTITY_UNKNOWN"
+                and next_unit_basis != "OPEN_RATE_QUANTITY_UNKNOWN"
+            )
+            or (
+                next_unit_status == "NO_CONFIRMED_UNIT"
+                and next_unit_basis != "UNAVAILABLE"
+            )
+        ):
             return "FIFO_ALLOCATION_PREVIEW_INVALID"
         material = {
             key: value for key, value in preview.items()
@@ -7717,14 +9130,16 @@ class FifoCostRepository:
                         not isinstance(rate_change_id, str) or not rate_change_id
                         or len(rate_change_id) > 160
                     ))
-                    or basis_key in seen_layers or type(line_quantity) is not int
+                    or (layer_id is not None and basis_key in seen_layers)
+                    or type(line_quantity) is not int
                     or line_quantity < 1 or unit_cost is None or line_total is None
                     or (origin is not None and (
                         not isinstance(origin, str) or not origin or len(origin) > 160
                     ))
                 ):
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
-                seen_layers.add(basis_key)
+                if layer_id is not None:
+                    seen_layers.add(basis_key)
                 calculated = (Decimal(unit_cost) * line_quantity).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 )
@@ -7816,7 +9231,11 @@ class FifoCostRepository:
                             or not rate_change_id or len(rate_change_id) > 160
                         ))
                     )
-                    or (layer_id if rate_change_id is None else rate_change_id) in seen_layers
+                    or (
+                        layer_id is not None
+                        and (layer_id if rate_change_id is None else rate_change_id)
+                        in seen_layers
+                    )
                     or type(line_quantity) is not int
                     or line_quantity < 1 or unit_cost is None or line_total is None
                     or (origin is not None and (
@@ -7824,7 +9243,8 @@ class FifoCostRepository:
                     ))
                 ):
                     return "FIFO_ALLOCATION_PREVIEW_INVALID"
-                seen_layers.add(layer_id if rate_change_id is None else rate_change_id)
+                if layer_id is not None:
+                    seen_layers.add(layer_id if rate_change_id is None else rate_change_id)
                 if (Decimal(unit_cost) * line_quantity).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 ) != Decimal(line_total):
@@ -7868,6 +9288,9 @@ class FifoCostRepository:
             "allocations": normalized,
             "outflows": normalized_outflows,
             "total_cogs_rub": grand_total,
+            "next_unit_cost_rub": next_unit_cost,
+            "next_unit_cost_status": next_unit_status,
+            "next_unit_cost_basis": next_unit_basis,
             "non_sale_outflow_value_rub": normalized_outflow_total,
         }
         if has_multirate:
@@ -8537,6 +9960,15 @@ class FifoCostRepository:
                       b.allocation_line_number, b.origin_sale_event_id,
                       b.layer_id, b.rate_change_id, b.quantity,
                       b.unit_cost_rub, b.total_cost_rub,
+                      (SELECT COUNT(*) FROM fifo_cost_allocation_lines AS x
+                       WHERE x.allocation_id=b.allocation_id
+                         AND x.event_id=b.origin_sale_event_id
+                         AND x.line_number<=b.allocation_line_number)
+                      + (SELECT COUNT(*) FROM fifo_cost_allocation_rate_lines AS y
+                         WHERE y.allocation_id=b.allocation_id
+                           AND y.event_id=b.origin_sale_event_id
+                           AND y.line_number<=b.allocation_line_number)
+                      AS sale_line_ordinal,
                       a.stream_revision, a.status, a.cutoff_status,
                       l.event_id AS allocated_event_id, l.layer_id AS allocated_layer_id,
                       l.quantity AS allocated_quantity,
@@ -8599,8 +10031,11 @@ class FifoCostRepository:
             if (
                 not bases or command_revision is None
                 or sum(base["quantity"] for base in bases) != row["quantity"]
+                or len({base["sale_line_ordinal"] for base in bases}) != len(bases)
                 or any(
                     base["origin_sale_event_id"] != row["supersedes_event_id"]
+                    or type(base["sale_line_ordinal"]) is not int
+                    or base["sale_line_ordinal"] < 1
                     or ((base["layer_id"] is None) == (base["rate_change_id"] is None))
                     or (
                         base["layer_id"] is not None and (
@@ -8637,6 +10072,7 @@ class FifoCostRepository:
                             row["supersedes_event_id"],
                             base["layer_id"] or base["rate_change_id"],
                             base["quantity"],
+                            base["sale_line_ordinal"],
                         ) for base in bases
                     ),
                 ),

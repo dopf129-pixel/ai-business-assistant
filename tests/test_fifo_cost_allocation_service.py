@@ -8,6 +8,7 @@ from services.fifo_cost_allocation_service import (
     FifoCostLayer,
     FifoOpenCostRate,
     FifoOutflowEvent,
+    FifoRateBoundaryEvent,
     FifoRestoreSlice,
     FifoRestockEvent,
     FifoSaleEvent,
@@ -130,6 +131,42 @@ def test_n08_exact_return_basis_restores_inventory_value_without_rewriting_sale_
     assert result.next_unit_cost_rub == Decimal("20.00")
 
 
+def test_fc_review_same_rate_lines_keep_distinct_return_basis_until_full_return(service):
+    result = _allocate(
+        service,
+        anchor_status="CONFIRMED_ZERO",
+        events=[
+            FifoRateBoundaryEvent(
+                "rate-start", "rate-1", "10.00", None, None, None, "a" * 64,
+            ),
+            FifoSaleEvent("sale-1", 1),
+            FifoSaleEvent("sale-2", 1),
+            FifoRestockEvent("return-1", 1, (
+                FifoRestoreSlice("sale-1", "rate-1", 1, 1),
+            )),
+            FifoRestockEvent("return-2", 1, (
+                FifoRestoreSlice("sale-2", "rate-1", 1, 1),
+            )),
+            FifoRateBoundaryEvent(
+                "rate-close", "rate-2", "20.00", "rate-1", 0, 2, "b" * 64,
+            ),
+            FifoSaleEvent("sale-3", 2),
+            FifoRestockEvent("return-3", 2, (
+                FifoRestoreSlice("sale-3", "rate-1", 1, 1),
+                FifoRestoreSlice("sale-3", "rate-1", 1, 2),
+            )),
+        ],
+    )
+
+    assert result.complete is True
+    sale_lines = result.sale_allocations[-1].lines
+    assert len(sale_lines) == 2
+    assert [line.rate_change_id for line in sale_lines] == ["rate-1", "rate-1"]
+    assert [line.quantity for line in sale_lines] == [1, 1]
+    assert result.restored_units == 4
+    assert result.remaining_confirmed_units == 2
+
+
 def test_fc19_non_sale_outflow_reduces_fifo_stock_and_is_valued_outside_sales_cogs(service):
     result = _allocate(
         service,
@@ -190,6 +227,29 @@ def test_unknown_partial_return_basis_and_duplicate_restoration_do_not_publish_p
     assert duplicate_return.reason_code == "FIFO_EVENT_ID_DUPLICATE"
     assert duplicate_return.sale_allocations == ()
     assert excessive_return.reason_code == "FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN"
+
+
+def test_fc_review_mixed_return_basis_formats_share_one_origin_quantity_limit(service):
+    result = _allocate(
+        service,
+        layers=[FifoCostLayer("layer", "20.00", 1)],
+        events=[
+            FifoSaleEvent("sale", 1),
+            FifoRestockEvent(
+                "return-legacy", 1,
+                (FifoRestoreSlice("sale", "layer", 1),),
+            ),
+            FifoRestockEvent(
+                "return-line", 1,
+                (FifoRestoreSlice("sale", "layer", 1, 1),),
+            ),
+        ],
+    )
+
+    assert result.complete is False
+    assert result.reason_code == "FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN"
+    assert result.total_cogs_rub is None
+    assert result.sale_allocations == ()
 
 
 @pytest.mark.parametrize(

@@ -86,6 +86,14 @@ class FifoCostHistoryService:
             and replayed_layers is not None
             and replayed_rate_balances is not None
         )
+        latest_allocation = snapshot.get("latest_allocation")
+        allocation_revision = (
+            latest_allocation.get("revision")
+            if replay_complete and isinstance(latest_allocation, dict) else None
+        )
+        cutoff_mapping = snapshot.get("cutoff_mapping")
+        if not isinstance(cutoff_mapping, dict):
+            cutoff_mapping = None
         movements_need_replay = snapshot["movement_count"] > 0 and not replay_complete
         layers = []
         for row in snapshot["layers"]:
@@ -171,7 +179,41 @@ class FifoCostHistoryService:
 
         next_unit_cost = None
         next_unit_cost_basis = "UNAVAILABLE"
-        if not movements_need_replay:
+        if replay_complete:
+            exact_status = latest_allocation.get(
+                "exact_next_unit_cost_status",
+            ) if isinstance(latest_allocation, dict) else None
+            exact_basis = latest_allocation.get(
+                "exact_next_unit_cost_basis",
+            ) if isinstance(latest_allocation, dict) else None
+            exact_cost = FifoCostRepository._normalize_money(
+                latest_allocation.get("exact_next_unit_cost_rub"),
+            ) if isinstance(latest_allocation, dict) else None
+            if (
+                exact_status in {
+                    "CONFIRMED_FINITE_LAYER", "RATE_ONLY_QUANTITY_UNKNOWN",
+                    "NO_CONFIRMED_UNIT",
+                }
+                and exact_basis in {
+                    "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                    "OPEN_RATE_QUANTITY_UNKNOWN", "UNAVAILABLE",
+                }
+                and (
+                    exact_status == "NO_CONFIRMED_UNIT"
+                    and exact_cost is None and exact_basis == "UNAVAILABLE"
+                    or exact_status == "CONFIRMED_FINITE_LAYER"
+                    and exact_cost is not None
+                    and exact_basis in {
+                        "FINITE_FIFO_LAYER", "RECONCILED_RATE_LAYER",
+                    }
+                    or exact_status == "RATE_ONLY_QUANTITY_UNKNOWN"
+                    and exact_cost is not None
+                    and exact_basis == "OPEN_RATE_QUANTITY_UNKNOWN"
+                )
+            ):
+                next_unit_cost = exact_cost
+                next_unit_cost_basis = exact_basis
+        elif not movements_need_replay:
             first_finite_layer = next(
                 (item for item in layers if item["remaining_units"] > 0), None,
             ) or next(
@@ -188,18 +230,20 @@ class FifoCostHistoryService:
             elif active_rate is not None:
                 next_unit_cost = active_rate["unit_cost_rub"]
                 next_unit_cost_basis = "OPEN_RATE_QUANTITY_UNKNOWN"
-        elif replay_complete:
-            first_finite_layer = next(
-                (item for item in layers if item["remaining_units"] > 0), None,
-            )
-            if first_finite_layer is not None:
-                next_unit_cost = first_finite_layer["unit_cost_rub"]
-                next_unit_cost_basis = "FINITE_FIFO_LAYER"
-
         return {
             "error": False,
             "code": snapshot["code"],
             "revision": snapshot["revision"],
+            "allocation_revision": allocation_revision,
+            "cutoff_mapping_revision": (
+                cutoff_mapping.get("mapping_revision") if cutoff_mapping else None
+            ),
+            "complete_through": (
+                cutoff_mapping.get("complete_through") if cutoff_mapping else None
+            ),
+            "cutoff_mapping_status": (
+                "CONFIRMED" if cutoff_mapping else "UNAVAILABLE"
+            ),
             "as_of_date": as_of.isoformat(),
             "queue_initialized": snapshot["code"] == "FIFO_HISTORY_READY",
             "stream_state": snapshot["stream_state"],
@@ -221,6 +265,7 @@ class FifoCostHistoryService:
                 "AT_CONFIRMED_SNAPSHOT"
             ),
             "latest_allocation": snapshot["latest_allocation"],
+            "cutoff_mapping": cutoff_mapping,
         }
 
     @staticmethod
@@ -230,6 +275,8 @@ class FifoCostHistoryService:
         allocation = snapshot.get("latest_allocation")
         if (
             not isinstance(allocation, dict)
+            or type(allocation.get("revision")) is not int
+            or allocation.get("revision") < 1
             or allocation.get("status") != "COMPLETE"
             or allocation.get("cutoff_status") != "RECONCILED"
             or allocation.get("stale") is not False
@@ -255,6 +302,8 @@ class FifoCostHistoryService:
         allocation = snapshot.get("latest_allocation")
         if (
             not isinstance(allocation, dict)
+            or type(allocation.get("revision")) is not int
+            or allocation.get("revision") < 1
             or allocation.get("status") != "COMPLETE"
             or allocation.get("cutoff_status") != "RECONCILED"
             or allocation.get("stale") is not False
@@ -286,7 +335,7 @@ class FifoCostHistoryService:
                 # A first/open rate has no finite quantity to persist in the
                 # allocation balance table. Its quantity is unknown by design;
                 # the complete replay still proves the exact rate and all finite
-                # physical layers. Missing balances for later/multiple rates
+                # physical layers. Missing balances for any later/multiple rate
                 # remain incomplete and must fail closed below.
                 return {
                     1: {

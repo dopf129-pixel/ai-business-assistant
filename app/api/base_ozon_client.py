@@ -476,7 +476,10 @@ class OzonClient:
             max_attempts=3
         )
 
-    def get_realization_posting(self, year, month):
+    def get_realization_posting(
+        self, year, month, timeout=30, max_attempts=3, total_timeout=75,
+        request_attempt_observer=None,
+    ):
 
         return self._post(
             "/v1/finance/realization/posting",
@@ -484,8 +487,10 @@ class OzonClient:
                 "year": int(year),
                 "month": int(month)
             },
-            timeout=30,
-            max_attempts=3
+            timeout=timeout,
+            max_attempts=max_attempts,
+            total_timeout=total_timeout,
+            request_attempt_observer=request_attempt_observer,
         )
 
     def get_monthly_realization_report(self, year, month):

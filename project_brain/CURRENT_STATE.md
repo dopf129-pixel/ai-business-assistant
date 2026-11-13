@@ -1,7 +1,110 @@
-# 2026-11-10 — FIFO review-blocker execution FR00–FR11
+# 2026-11-13 — FIFO review fixes R18–R20
 
-- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR11 are complete. A single proven open rate remains a next-unit cost when its quantity is unknown and no finite rate-balance row is expected; incomplete multi-rate projections still fail closed. History, exports and Period Profit use the same complete replay revision. FR10 retains exact mixed-rate return basis and the owner-approved latest-allocation-first partial-return convention.
-- The first hosted PR #731 run exposed this FR11 edge and three FR24 production-builder regressions staged too early. The open-rate behavior is fixed; production-builder regressions are kept with their implementation in dependent PR #732. Current-head hosted reruns are recorded in the progress journal. Owner case remains unvalidated; no owner data, live API or bot launch was used.
+- Physical-sales owner confirmation keys now bind the exact saved case revision, so a deliberate re-selection of an identical document is a new confirmation operation; document evidence itself remains append-only and reused.
+- Financial-period evidence bundles retain validated snapshot history and evidence revisions. Preview, confirm, and monthly collection choose the newest snapshot whose reconstruction and tax-policy fingerprints match current inputs. Stale months from corrected reconstructions are excluded, while a prior matching snapshot remains available when settings are restored.
+- Local changed-service profile: **81 passed**. Verify run [#43414761340](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43414761340) passed on code SHA `7b1c9aeb02dfae3958ba2134c914b0183611903a` (Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, SHA-bound report). Tracked `data/` is unchanged. The separate owner-case movement-source blocker remains open; no real API request, bot launch, merge, or deployment was performed.
+
+# 2026-11-13 — FIFO review fixes R15–R17
+
+- The same physical-sales CSV can now be uploaded again after a preview expires or the process restarts: the service verifies and reuses the exact encrypted evidence instead of making a timestamp-only append or returning an idempotency conflict.
+- When reconstruction, tax policy, or the sale-identity set changes, stale monthly snapshots stay immutable in history and are excluded from the new collection. The collector re-reads and appends a current snapshot; evidence loading selects the highest valid evidence revision per financial month.
+- A transient failure while reading older confirmed CSV versions no longer leaves the Telegram session at an obsolete case revision. The retry action refreshes the session and can continue the explicit owner selection flow.
+- Verification: linked FIFO workflow profile **102 passed**; `git diff --check` and tracked `data/` equality pass. Verify run [#43408293179](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43408293179) passed on implementation SHA `6e629c9fe06d1063c999019e8d3ca81fe0d03b71` (Linux/Windows full suites, compile, Linux Docker build/runtime smoke, SHA-bound report). `.fl12-deps/` remains untouched and untracked.
+
+# 2026-11-13 — FIFO review corrections R12–R14
+
+- Monthly snapshot source fingerprints are independent of request chunking; they bind each daily finance-cache value by date together with monthly Period Profit totals. Pre-v2 freezes are accepted only when their legacy chunk-bound digest is reproduced exactly.
+- Owner-imported physical-sales evidence keeps every confirmed CSV immutable. Replacing the active version requires an explicit confirmation that binds the full prior fingerprint set; old multi-version evidence without an owner selection fails closed.
+- CSV coverage is entered as a full date interval before upload, so periods with no sale rows at the first/last day remain represented. The preview distinguishes declared coverage from dates actually present in rows.
+- Verification: linked FIFO profile **116 passed**; full isolated pytest **5,288 passed in 73.96s**; compileall, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702) on Windows/Linux and Docker smoke. R1 remains a hard blocker; no owner case, real API, Telegram bot, merge or deployment was verified/performed.
+
+# 2026-11-13 — FIFO review corrections R9–R11
+
+- Impact calculation refuses to turn a monthly SKU aggregate mismatch into an invented “unaffected same-SKU cost”; it returns candidate-only until COGS for the exact affected identities is proven. The complete finance export is bound to a typed ready cutoff bridge and only exact post-cutoff identities enter monthly snapshots. The expired-preview audit marker is excluded from source-evidence fingerprinting, so a fresh prepare can reuse unchanged frozen evidence.
+- Regressions cover unsafe COGS attribution, exact pre/post cutoff partition and rejection of an incomplete bridge mapping, plus repository-backed prepare/expire/reopen/prepare using the same saved summary.
+- Verification: targeted profile **59 passed**; full isolated pytest **5,287 passed in 92.32s**; `compileall`, `git diff --check`, and tracked `data/` equality passed. The full-suite copy excluded owner data and used a synthetic tax policy. Hosted status is tracked on PR #732. R1 remains a hard source blocker; no owner case, live API, bot launch, merge or deployment is claimed.
+
+# 2026-11-11 — FIFO follow-up review R6–R8 fixed locally
+
+- Initial FIFO composition accepts a confirmed finite count of new-party units at home and creates the matching new-cost home layer. New-party transit quantity is retained separately in encrypted composition metadata, shown to the owner, and never counted as FIFO transit or stock before accepted receipt.
+- A frozen Period Profit snapshot keeps full-month SKU COGS even if the FIFO reconstruction covers only some sale identities. Impact replaces only those reconstructed sales and preserves the remainder of the store COGS.
+- An expired current READY seal can return to evidence review only through exact preview ID/fingerprint + revision CAS; this appends a revision and performs no FIFO write. Runtime then rechecks current evidence and creates a fresh preview. Applying remains a separate confirmation.
+- Verification: **107 linked tests**, **38 cutoff/report-worker tests**, **5,285 full isolated tests**; compileall, `git diff --check`, and `git diff --exit-code -- data` passed. Full-suite copy excluded owner data and used a synthetic tax policy. Exact-head Verify run **43009830700** passed for code SHA `2ed94ed124cf4d09b604cad9d9e1200f22908ff9` on Windows/Linux and Docker build/runtime smoke, with a SHA-bound report. This follow-up records that result; no code changed after the verified code SHA.
+- Full movement coverage remains blocked under R1. No owner case, live Ozon/Telegram calls, bot launch, merge, or deployment was verified or performed.
+
+# 2026-11-11 — FIFO review regressions R2–R5 fixed locally
+
+- Bound opening-composition save tickets to the exact draft fingerprint and clear all draft/preview state on cancellation. The new-party home count can remain explicitly unknown; it is not converted into confirmed stock and is retained as `UNKNOWN_OPEN_RATE` through encrypted evidence and owner confirmation. Optional evidence/confirmation fields preserve compatibility with earlier records.
+- Period Profit collection now receives already-persisted month snapshots, re-reads and fingerprint-checks them after a collector restart, and advances the case revision only for a new month. Return allocations use one canonical sale-line key so legacy layer references cannot bypass a line's remaining return quantity.
+- Linked FIFO tests: **730 passed in 43.69s**. Full isolated pytest: **5,279 passed in 81.93s**. `compileall`, `git diff --check`, and tracked `data/` equality passed. The disposable test copy excluded live data and credentials.
+- R1 remains a hard blocker: no supported complete inventory-movement ledger is available. Owner-case readiness, current-SHA hosted CI, merge, deployment, live APIs and bot startup remain unverified. Changes are local and uncommitted.
+
+# 2026-11-10 — FIFO review corrections in progress
+
+- Fixed the reviewed FIFO return-basis and monthly-collection regressions, and added Telegram actions that expose initial opening composition, bounded finance identities, and canonical Period Profit monthly snapshots through the production workflow. Catalog refresh and daily finance collection share one 20-second/10-request root trace.
+- Added regressions for omitted-old-layer labeling, no-write behavior on unavailable finance sources, Telegram action routing, production dependency wiring, and exact shared-budget accounting. The linked FIFO review profile passes **99 tests**; focused apply/production/runtime profile passes **28 tests**; full isolated pytest passes **5,275 tests**. `compileall`, `git diff --check`, and tracked `data/` equality pass.
+- R1 is only partially closed: no supported complete movement-ledger source was found. Full movement coverage remains a hard blocker and is not inferred from the Returns API. Owner case and hosted current-SHA CI remain unverified; no merge or deployment was performed.
+
+# 2026-11-10 — FIFO dependent PR delivery
+
+- PR #731 delivers FR02–FR11 on PR #730. It fixes the single-open-rate reader edge; the isolated full suite passed **5,170 tests**. Verify run `42790983173` on head `af7d93324eea9952d60fc26553d8ed673bd8834f` passed Windows/Linux and production Docker build/runtime smoke.
+- PR #732 delivers FR12–FR31 atop #731. Merge commit `0ae37298b832775c1f6431a97924420b311ec358` passed exact-head Verify run `42793814822` on Windows/Linux full suites and Docker build/runtime smoke. This status-sync is documentation-only; its exact-head Verify is linked from PR #732 Checks.
+- The historical cutoff count for the owner's case remains unentered. Manual owner input is explicit, separately labelled, and never merged into accepted FIFO opening stock. No real case is claimed verified.
+
+# 2026-11-10 — FIFO owner-confirmed cutoff receiving quantity
+
+- The user approved a manual owner confirmation for `supplier_receiving` when the saved cutoff stock report does not expose that bucket. The Telegram flow selects an exact one-day report, accepts an explicit whole-number quantity (including explicit zero), previews the report/SKU/cutoff binding, and stores the confirmation append-only. It is labelled owner input, not Ozon fact.
+- The cutoff bridge includes the owner-confirmed quantity as a separate bucket. Initial cutover rechecks the durable cutoff confirmation and confirmed opening composition; the receiving quantity cannot be folded into accepted opening FIFO layers. A missing reserved count can be resolved only through that matching opening composition.
+- Focused workflow/service/bridge/atomic/runtime verification: **77 passed**; targeted positive/negative FR27 flow plus atomic apply: **21 passed**. Isolated full pytest: **5,264 passed in 89.34s**. `compileall`, `git diff --check`, tracked-data diff and the five-file FR00 SHA-256 manifest pass. Hosted current-SHA CI is still pending until the changes are published. No live API/bot, owner database, merge or deployment was used. The owner's actual historical cutoff count remains unconfirmed.
+
+# 2026-11-10 — FIFO FR27/FR30 integration checkpoint
+
+- The production workflow now has a regression showing that an imported Ozon stock-management report does not prove `supplier_receiving`: the bridge stays `SOURCE_BLOCKED` and does not issue a READY/apply state. The report importer now projects source sub-buckets into canonical `defective` and `seller_withdrawal` totals; missing receiving stays `None`, never zero.
+- FR27 positive prepare/apply/restart E2E remains blocked by the fixed cutoff contract: stock XLSX omits a receiving bucket and current supply status/act observations do not provide a historical bucket at the confirmed cutoff. No historical receipt or cutoff was inferred.
+- Fixed the production factory's missing `TaxService` import while retaining optional degraded factory construction. Updated stale late-entry/backup fixtures to provide exact full-month, reconstruction and tax-policy fingerprints.
+- Linked FR27/FR28 correction profile: **67 passed**. Full pytest in an isolated disposable copy: **5,258 passed in 86.19s** with a synthetic tax configuration; `compileall`, `git diff --check`, five owner-data SHA-256 values and empty `git diff -- data` passed. No owner database, credentials, live API, bot launch, merge, or deployment was used.
+- Current-head hosted CI remains unavailable because these changes are local and not committed/published. Owner case remains unverified; positive FR27 production apply and dependent FR28–FR31 closure are not claimed.
+
+# 2026-11-10 — FIFO FR26 downstream consumer integration
+
+- Commit `1c2e4480` carries the current FIFO stream/allocation/cutoff-mapping revisions and `complete_through` through current unit cost, history, Period Profit explanations, and exports. Mapping metadata is read only after validating the saved cutoff bridge against current physical-sale identities.
+- Replayed finite residuals from closed rates now precede the current open rate. A missing persisted rate-balance row is accepted only for the first sole open rate (`sequence=1`) with no reconciliations; otherwise incomplete replay still hides current FIFO quantity/cost.
+- Linked FR26 profile: **177 passed in 7.82s**, including MR18 outflow separation and saved-plan restart/copy/new-revision/export coverage; compile and preserved-data checks pass. Full suite and exact-head CI remain FR30; owner case is still unverified. No live Ozon/Telegram calls or bot launch.
+
+# 2026-11-10 — FIFO FR25 exact preview confirmation
+
+- Implementation commit `b86d54d0` (`Bind FIFO confirmation to exact preview`). «Проверить готовность» only reads; «Посмотреть пересчёт» now calls prepare and either shows the exact persisted READY seal or candidate/missing requirements. READY after restart reloads the saved seal; the final opaque ticket binds preview ID/fingerprint, case revision and stable idempotency key. Apply revalidates this exact binding. Expired seals remain inspectable but cannot be applied. APPLIED receipt restores commit ID and complete-through after restart.
+- Linked production workflow/apply/evidence/review/Telegram/runtime/atomic-apply profile: **48 passed in 8.60s**; compile, diff check, and FR00 data manifest pass. Full pytest/current-head CI remain FR30. The real owner case remains source-blocked; no live calls, bot launch, merge or deployment.
+
+# 2026-11-10 — FIFO FR24 shared production workflow
+
+- Added `create_fifo_cost_transition_workflow` and switched `create_telegram_assistant` to use it. Production assembly shares one repository/history/transition, durable evidence, review, apply, impact and runtime graph; it also carries source, tax, Period Profit and report/document dependencies. The runner exposes the workflow, runtime and apply service. The compatibility transition-service factory remains unchanged.
+- Implementation commit `3927f270` (`Wire shared FIFO transition production workflow`). Cache invalidation is attached to ApplyService with committed identity/revision metadata; Telegram runtime no longer performs a second broad invalidation. FR24 linked verification: **17 passed in 4.09s**; factory compile and FR00 user-data manifest pass. FR25 exact preview ticket/confirmation UI is next. Owner case remains source-blocked; full pytest/current-head CI remain FR30. No live calls, bot launch, merge or deployment.
+
+# 2026-11-10 — FIFO FR23 apply and restart recovery
+
+- FR23 now reads the exact persisted READY seal without recalculation and applies only that preview ID/fingerprint at its expected case revision. It revalidates the sealed basis and current evidence/tax before the atomic repository write. An exact retry after APPLIED/restart returns the same durable commit; same-key concurrent requests recover the winner's result. Cache invalidation occurs after commit and cannot duplicate FIFO writes.
+- Implementation commit `9f42f143` (`Apply exact FIFO transition preview safely`). Linked FR22–FR23 profile: **34 passed in 5.80s**; concurrent same-key regression passed five consecutive runs. Python compile and `git diff --check` passed; the FR00 five-file owner-data manifest is unchanged. FR24 production assembly is next; owner case remains unverified and source-blocked. Full suite/current-head CI remain FR30; no merge/deploy/live call/bot launch.
+
+# 2026-11-10 — FIFO FR22 prepare and READY seal
+
+- FR22 adds `FifoCostTransitionApplyService.prepare`: readiness is independently rebuilt from durable evidence; an exact complete impact is required before the repository seals READY at revision N+1. Candidate-only stays read-only and does not change FIFO history or Period Profit. Exact idempotent retry, expiry, changed tax/evidence, and existing-initialized-stream behavior are covered by targeted tests.
+- Verification: 31 linked tests passed in 5.24s; one focused existing-stream review regression passed; changed modules compile; the FR00 five-file owner-data manifest matches. No live API or bot was used. Next: FR23 persisted preview read, apply, and restart safety.
+
+# 2026-11-10 — FIFO review-blocker execution FR00–FR21
+
+- FR21 canonical impact now accepts only complete calendar-month Period Profit snapshots bound to the exact public FIFO reconstruction and current normalized tax policy. Missing, stale or mismatched evidence stays candidate-only, with no profit/tax deltas. TaxService and Period Profit formulas are unchanged.
+- Exact MR12–MR15 numeric regressions, dependent-month/other-SKU preservation, separate outflow handling, and a public reconstruction-to-impact integration path are covered. Linked synthetic checks and remaining limitations are in the progress journal; full suite/current-head CI remain FR30. Production assembly/action remain FR24–FR25. The owner's case is still unverified.
+
+# 2026-11-10 — FIFO review-blocker execution FR00–FR20
+
+- FR20 freezes whole-store financial amounts from the existing Period Profit chain per financial recognition month and binds them to exact reconstruction COGS, sale-identity digests, daily finance data, and the tax-policy fingerprint. Collection is resumable, capped at four days per call, 20 seconds and 10 shared HTTP attempts; a partial month is never persisted. Retry after a failed snapshot write resumes from before the final chunk, avoiding double counting.
+- Finance identity snapshots now preserve each sale's financial month. Mismatched store/product scope, missing month, incomplete source, or missing historical before-cost blocks the freeze. Other-SKU cost and whole-store amounts remain unchanged. Collection does not run in prepare/confirm. Linked profile: **88 passed in 3.96s**; changed Python modules compile. FR24–FR25 remain responsible for production assembly and the explicit user action. No real owner case, live API, bot, or deployment was used. Next: FR21 canonical impact.
+
+# 2026-11-09 — FIFO review-blocker execution FR00–FR19
+
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR19 are complete. FR13 provides the strict owner-imported physical-sales CSV parser; FR14 stores and separately confirms its exact encrypted source; FR15 routes selected physical-sales CSV through Telegram; FR16 adds bounded finance identity and return-status snapshots without treating status changes as physical movement.
+- FR17 adds durable cutoff and opening-composition owner confirmations. FR18 restores those confirmations with finance, physical-sales and movement evidence and rebuilds the actual cutoff bridge. FR19 adds public read-only baseline/candidate reconstruction through the same repository replay used by prepare; it returns exact identity, revisions, lineage, COGS and coverage while rolling back staged opening state, including on exceptions. FR19 linked profile: **372 passed in 25.57s**; `py_compile`, `git diff --check`, and `git diff --exit-code -- data` pass. Schema v16 and owner data are unchanged. Full suite/current-head CI remain for FR30. The owner's real case remains `SOURCE_BLOCKED`; no live API was used. Next: FR20 frozen financial-period baselines.
 
 # 2026-11-08 — FIFO review corrections in progress
 

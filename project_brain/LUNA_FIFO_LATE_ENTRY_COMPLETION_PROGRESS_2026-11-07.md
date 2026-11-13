@@ -1,5 +1,15 @@
 # Luna FIFO late entry — журнал
 
+## 2026-11-10 — owner-approved manual cutoff bucket
+
+Владелец разрешил вручную подтвердить отсутствующее в Ozon XLSX количество `supplier_receiving`. Реализован выбор сохранённого однодневного отчёта, ввод целого числа и отдельное подтверждение; число связано с tenant/store/SKU/case, fingerprint отчёта и cutoff, сохраняется как owner input и не добавляется в начальные FIFO accepted layers. Opening composition отдельно доказывает начальный состав и, если надо, reserved; смешение receiving с opening отвергается.
+
+Профиль workflow/service/bridge/atomic/runtime: **77 passed**; FR27 workflow + atomic apply: **21 passed**; isolated full suite: **5,264 passed in 87.28s**; compile/data/diff checks PASS. Hosted CI текущей головы ещё не запускался. Нужны exact owner input для реального cutoff и проверка полного prepare/apply/restart; live calls, запуск и merge не выполнялись. Детальный актуальный Resume — в [FR00–FR31 журнале](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md).
+
+## 2026-11-10 — dependent FR27 source-gate checkpoint
+
+Исполнение продолжается по зависимому FR00–FR31 заданию и его актуальному Resume; нижележащий status от 09.11 сохранён как история, а не текущий статус. Текущий production workflow подтверждённо остаётся `SOURCE_BLOCKED`, если Ozon stock-management workbook не содержит точного исторического `supplier_receiving` на cutoff. Статус поставки и дата/количество в акте не заменяют снимок на cutoff. Регрессия на fail-closed path проходит; положительный apply остаётся незакрытым. Связанный профиль: **67 passed**; полный изолированный pytest: **5,258 passed in 86.19s** с синтетической налоговой конфигурацией; пользовательские data hashes и diff checks PASS. Hosted CI нового SHA не запускался, PR #730 не готов к слиянию; `OWNER_CASE_VERIFIED=false`. Подробности и следующие зависимости — в [актуальном FR журнале](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md).
+
 ## 2026-11-09 — follow-up specification for the open review blockers
 
 Continuation is prescribed in [FR00–FR31](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md) with a separate [progress/Resume](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). Start with FR00 to preserve the existing local corrections, then implement temporal multi-rate replay and the production evidence/preview/commit path in the new task's dependency order. This supersedes the earlier Resume order below. The specification does not mark either blocker fixed or authorize merge/deployment/live API/bot launch. Owner acceptance remains separate.

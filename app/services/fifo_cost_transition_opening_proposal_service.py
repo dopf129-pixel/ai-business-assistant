@@ -42,6 +42,11 @@ class FifoOpeningStockEvidenceView:
     fbs_return_is_subset_of_available: bool | None
     warehouse_control_status: str | None
     eligible_as_cutoff_snapshot: bool
+    owner_confirmed_reserved_units: int | None = None
+    owner_confirmed_total_ozon_units: int | None = None
+    opening_composition_fingerprint: str | None = None
+    opening_composition_report_fingerprint: str | None = None
+    opening_composition_date: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +120,7 @@ class FifoCostTransitionOpeningProposalService:
         case: TransitionCase,
         fifo_initialized: bool,
         owner_confirmed_cutoff_date: str | None,
+        confirmed_opening_composition: Mapping | None = None,
         stock_reports: tuple[ReportEvidence, ...],
         turnover_reports: tuple[ReportEvidence, ...],
         supply_reconciliation: FifoCostTransitionSupplyReconciliation | None,
@@ -145,6 +151,12 @@ class FifoCostTransitionOpeningProposalService:
         scope = case.metadata.scope
         if fifo_initialized:
             issues.add("FIFO_ALREADY_INITIALIZED")
+
+        opening_composition = self._verified_opening_composition(
+            confirmed_opening_composition,
+            case=case,
+            cutoff_date=cutoff_date,
+        )
 
         supply_owner_total = None
         supply_unassigned = None
@@ -198,6 +210,29 @@ class FifoCostTransitionOpeningProposalService:
                 accepted_stock_fingerprints.add(report.file_sha256)
             if report.metadata.completeness is not EvidenceCompleteness.COMPLETE:
                 issues.add("STOCK_REPORT_PARTIAL")
+            owner_reserved = None
+            owner_ozon_total = None
+            composition_fingerprint = None
+            if (
+                eligible
+                and opening_composition is not None
+                and opening_composition["stock_report_fingerprint"] == report.file_sha256
+            ):
+                available = buckets.get("available")
+                owner_ozon_total = opening_composition["total_ozon_units"]
+                owner_reserved = owner_ozon_total - available if type(available) is int else None
+                reported_reserved = buckets.get("reserved")
+                if (
+                    owner_reserved is not None
+                    and owner_reserved >= 0
+                    and owner_reserved == opening_composition["reserved_units"]
+                    and (reported_reserved is None or reported_reserved == owner_reserved)
+                ):
+                    buckets["reserved"] = owner_reserved
+                    composition_fingerprint = opening_composition["composition_fingerprint"]
+                else:
+                    owner_reserved = None
+                    owner_ozon_total = None
             if buckets.get("reserved") is None:
                 issues.add("RESERVED_BUCKET_UNKNOWN")
             if fields.get("fbs_return_is_subset_of_available") is not True:
@@ -224,6 +259,15 @@ class FifoCostTransitionOpeningProposalService:
                     else None
                 ),
                 eligible_as_cutoff_snapshot=eligible,
+                owner_confirmed_reserved_units=owner_reserved,
+                owner_confirmed_total_ozon_units=owner_ozon_total,
+                opening_composition_fingerprint=composition_fingerprint,
+                opening_composition_report_fingerprint=(
+                    report.file_sha256 if composition_fingerprint is not None else None
+                ),
+                opening_composition_date=(
+                    cutoff_date if composition_fingerprint is not None else None
+                ),
             ))
         if not stock_views:
             issues.add("STOCK_REPORT_REQUIRED")
@@ -355,7 +399,12 @@ class FifoCostTransitionOpeningProposalService:
             issues.add("OLD_HOME_QUANTITY_UNKNOWN")
         if case.owner_old_transit_units is None:
             issues.add("OLD_TRANSIT_QUANTITY_UNKNOWN")
-        if case.new_home_quantity is None:
+        confirmed_new_home = (
+            opening_composition.get("new_home_quantity")
+            if opening_composition is not None
+            else case.new_home_quantity
+        )
+        if confirmed_new_home is None:
             issues.add("NEW_HOME_QUANTITY_UNKNOWN")
         if not turnover_views or not stock_views:
             issues.add("OPENING_EVIDENCE_INCOMPLETE")
@@ -370,7 +419,7 @@ class FifoCostTransitionOpeningProposalService:
             confirmed_cutoff_date=cutoff_date,
             old_home_units=case.owner_old_home_units,
             old_transit_units=case.owner_old_transit_units,
-            new_home_units=case.new_home_quantity,
+            new_home_units=confirmed_new_home,
             owner_declared_shipped_total=supply_owner_total,
             owner_unassigned_shipped_units=supply_unassigned,
             supply_declarations=supply_declarations,
@@ -422,3 +471,87 @@ class FifoCostTransitionOpeningProposalService:
                 continue
             normalized[key] = cls._optional_quantity(value)
         return normalized
+
+    @staticmethod
+    def _verified_opening_composition(value, *, case, cutoff_date):
+        """Accept only a durable, separately confirmed composition from the review path."""
+        if not isinstance(value, Mapping) or value.get("confirmed") is not True:
+            return None
+        if (
+            value.get("case_id") != case.case_id
+            or value.get("opening_date") != cutoff_date
+            or value.get("scope") != {
+                "owner_id": case.metadata.scope.owner_id,
+                "store_id": case.metadata.scope.store_id,
+                "product_id": case.metadata.scope.product_id,
+                "offer_id": case.metadata.scope.offer_id,
+                "sku": case.metadata.scope.sku,
+            }
+            or value.get("stock_report_fingerprint") is None
+            or not isinstance(value.get("composition_fingerprint"), str)
+            or len(value["composition_fingerprint"]) != 64
+            or any(char not in "0123456789abcdef" for char in value["composition_fingerprint"].lower())
+            or type(value.get("owner_confirmed_total_ozon_units")) is not int
+            or value["owner_confirmed_total_ozon_units"] < 0
+            or type(value.get("owner_confirmed_reserved_units")) is not int
+            or value["owner_confirmed_reserved_units"] < 0
+            or not isinstance(value.get("layers"), (list, tuple))
+            or not value.get("layers")
+            or any(not isinstance(layer, Mapping) for layer in value["layers"])
+        ):
+            return None
+        try:
+            total = sum(
+                normalize_quantity(layer["ozon_units"])
+                for layer in value["layers"]
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            total != value["owner_confirmed_total_ozon_units"]
+            or not isinstance(value.get("case_id"), str)
+            or not isinstance(value.get("stock_report_fingerprint"), str)
+        ):
+            return None
+        has_new_home_quantity = "new_home_quantity" in value
+        raw_new_home = value.get("new_home_quantity", case.new_home_quantity)
+        unknown_new_home = value.get(
+            "unknown_new_home_quantity", raw_new_home is None,
+        )
+        new_party_transit = value.get("new_party_transit_units", 0)
+        if (
+            type(unknown_new_home) is not bool
+            or type(new_party_transit) is not int
+            or not 0 <= new_party_transit <= 1_000_000
+            or (raw_new_home is not None and (
+                type(raw_new_home) is not int
+                or not 0 <= raw_new_home <= 1_000_000
+            ))
+            or (has_new_home_quantity
+                and unknown_new_home != (raw_new_home is None))
+            or (case.new_home_quantity is not None
+                and raw_new_home != case.new_home_quantity)
+        ):
+            return None
+        try:
+            home_total = sum(normalize_quantity(layer["home_units"]) for layer in value["layers"])
+            transit_total = sum(normalize_quantity(layer["transit_units"]) for layer in value["layers"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            case.owner_old_home_units is None
+            or case.owner_old_transit_units is None
+            or home_total != case.owner_old_home_units + (raw_new_home or 0)
+            or transit_total != case.owner_old_transit_units
+        ):
+            return None
+        return MappingProxyType({
+            "case_id": value["case_id"],
+            "opening_date": value["opening_date"],
+            "stock_report_fingerprint": value["stock_report_fingerprint"],
+            "composition_fingerprint": value["composition_fingerprint"].lower(),
+            "total_ozon_units": total,
+            "reserved_units": value["owner_confirmed_reserved_units"],
+            "new_home_quantity": raw_new_home,
+            "new_party_transit_units": new_party_transit,
+        })

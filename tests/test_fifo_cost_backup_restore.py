@@ -288,16 +288,31 @@ def _seed_correction(repository):
     tax_policy = {"error": False, "configured": True, "policy": {
         "mode": "NONE", "tax_rate": 0, "minimum_tax_rate": 1,
     }}
+    reconstruction = service.reconstruction_service.preview(
+        store_id=STORE, **CORRECTION_IDENTITY, draft_id=draft["draft_id"],
+    )
+    assert reconstruction["code"] == "FIFO_LATE_ENTRY_RECONSTRUCTION_READY"
+    from services.fifo_cost_late_entry_impact_service import FifoCostLateEntryImpactService
+
+    normalized_policy = FifoCostLateEntryImpactService()._normalize_policy(tax_policy)
+    summary_rows = [{
+        **periods[0],
+        "period_from": "2026-11-01",
+        "period_to": "2026-11-30",
+        "reconstruction_fingerprint": reconstruction["preview_fingerprint"],
+        "tax_policy_fingerprint": normalized_policy["fingerprint"],
+    }]
     preview = service.preview(
         store_id=STORE, **CORRECTION_IDENTITY, draft_id=draft["draft_id"],
-        period_summaries=periods, tax_policy_result=tax_policy,
+        period_summaries=summary_rows,
+        tax_policy_result=tax_policy,
     )
     assert preview["code"] == "FIFO_LATE_ENTRY_CORRECTION_PREVIEW_READY", preview
     committed = service.confirm(
         preview_id=preview["preview_id"], active_preview_id=preview["active_preview_id"],
         idempotency_key="fc31-late-correction-commit", store_id=STORE,
         **CORRECTION_IDENTITY, draft_id=draft["draft_id"],
-        period_summaries=periods, tax_policy_result=tax_policy,
+        period_summaries=summary_rows, tax_policy_result=tax_policy,
     )
     assert committed["code"] == "FIFO_LATE_ENTRY_CORRECTION_COMMITTED", committed
     return draft["draft_id"], committed

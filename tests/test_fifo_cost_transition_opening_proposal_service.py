@@ -184,13 +184,15 @@ def _supply_reconciliation(stock_reports=(), declarations=None, observations=Non
     )
 
 
-def _propose(*, stock=None, turnover=None, cutoff="2026-11-07", initialized=False, case=None):
+def _propose(*, stock=None, turnover=None, cutoff="2026-11-07", initialized=False,
+             case=None, composition=None):
     stock_rows = (stock,) if stock is not None else (_stock_report(),)
     turnover_rows = (turnover,) if turnover is not None else (_turnover_report(),)
     return FifoCostTransitionOpeningProposalService().propose(
         case=case or _case(),
         fifo_initialized=initialized,
         owner_confirmed_cutoff_date=cutoff,
+        confirmed_opening_composition=composition,
         stock_reports=stock_rows,
         turnover_reports=turnover_rows,
         supply_reconciliation=_supply_reconciliation(
@@ -198,6 +200,55 @@ def _propose(*, stock=None, turnover=None, cutoff="2026-11-07", initialized=Fals
             observations=(_supply_observation(),),
         ),
     )
+
+
+def test_confirmed_opening_composition_resolves_only_the_bound_reserved_unknown():
+    stock = _stock_report()
+    composition = {
+        "confirmed": True,
+        "case_id": CASE_ID,
+        "scope": {
+            "owner_id": SCOPE.owner_id,
+            "store_id": SCOPE.store_id,
+            "product_id": SCOPE.product_id,
+            "offer_id": SCOPE.offer_id,
+            "sku": SCOPE.sku,
+        },
+        "opening_date": "2026-11-07",
+        "stock_report_fingerprint": stock.file_sha256,
+        "composition_fingerprint": "a" * 64,
+        "owner_confirmed_total_ozon_units": 1200,
+        "owner_confirmed_reserved_units": 9,
+        "unknown_new_home_quantity": True,
+        "new_home_quantity": None,
+        "new_party_transit_units": 0,
+        "layers": ({
+            "ozon_units": 1200, "transit_units": 0, "home_units": 0,
+        },),
+    }
+
+    proposal = _propose(stock=stock, composition=composition)
+    resolved = proposal.stock_snapshots[0]
+
+    assert resolved.stock_buckets["reserved"] == 9
+    assert resolved.owner_confirmed_reserved_units == 9
+    assert resolved.owner_confirmed_total_ozon_units == 1200
+    assert resolved.opening_composition_fingerprint == "a" * 64
+    assert resolved.opening_composition_report_fingerprint == stock.file_sha256
+    assert resolved.opening_composition_date == "2026-11-07"
+    assert "RESERVED_BUCKET_UNKNOWN" not in proposal.requirements
+    assert stock.normalized_fields["stock_buckets"]["reserved"] is None
+
+    unconfirmed = _propose(stock=stock)
+    assert unconfirmed.stock_snapshots[0].stock_buckets["reserved"] is None
+    assert "RESERVED_BUCKET_UNKNOWN" in unconfirmed.requirements
+
+    stale = _propose(
+        stock=stock,
+        composition={**composition, "stock_report_fingerprint": "b" * 64},
+    )
+    assert stale.stock_snapshots[0].stock_buckets["reserved"] is None
+    assert "RESERVED_BUCKET_UNKNOWN" in stale.requirements
 
 
 def test_control_numbers_are_separate_review_evidence_not_fifo_opening():

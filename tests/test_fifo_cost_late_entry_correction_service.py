@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from calendar import monthrange
 
 import pytest
 
@@ -117,17 +118,43 @@ def ready_correction(tmp_path):
 
 def _preview(repo_service, draft_id, summaries=SUMMARY):
     _, service, _ = repo_service
+    reconstruction = service.reconstruction_service.preview(
+        **IDENTITY, draft_id=draft_id,
+    )
+    assert reconstruction["code"] == "FIFO_LATE_ENTRY_RECONSTRUCTION_READY"
     return service.preview(
         **IDENTITY, draft_id=draft_id,
-        period_summaries=summaries, tax_policy_result=TAX,
+        period_summaries=_bound_summaries(
+            service, reconstruction["preview_fingerprint"], summaries,
+        ),
+        tax_policy_result=TAX,
     )
+
+
+def _bound_summaries(service, reconstruction_fingerprint, summaries):
+    policy = service.reconstruction_service.impact_service._normalize_policy(TAX)
+    bound = []
+    for summary in summaries:
+        period = summary["period"]
+        last_day = monthrange(int(period[:4]), int(period[5:7]))[1]
+        bound.append({
+            **summary,
+            "period_from": f"{period}-01",
+            "period_to": f"{period}-{last_day:02d}",
+            "reconstruction_fingerprint": reconstruction_fingerprint,
+            "tax_policy_fingerprint": policy["fingerprint"],
+        })
+    return bound
 
 
 def _confirm(service, preview, draft_id, *, key="late-correction-confirm-01", summaries=SUMMARY):
     return service.confirm(
         preview_id=preview["preview_id"], active_preview_id=preview["active_preview_id"],
         idempotency_key=key, **IDENTITY, draft_id=draft_id,
-        period_summaries=summaries, tax_policy_result=TAX,
+        period_summaries=_bound_summaries(
+            service, preview["reconstruction_fingerprint"], summaries,
+        ),
+        tax_policy_result=TAX,
     )
 
 
@@ -202,7 +229,12 @@ def test_fc22_changed_financial_recognition_period_invalidates_preview_without_w
 
 def test_fc22_cannot_prepare_confirmation_without_financial_sale_mapping(ready_correction):
     repository, service, draft_id = ready_correction
-    unassigned = [dict(SUMMARY[0])]
+    reconstruction = service.reconstruction_service.preview(
+        **IDENTITY, draft_id=draft_id,
+    )
+    unassigned = _bound_summaries(
+        service, reconstruction["preview_fingerprint"], [dict(SUMMARY[0])],
+    )
     unassigned[0].pop("sale_identity_digests")
 
     result = service.preview(

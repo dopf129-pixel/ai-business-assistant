@@ -1,5 +1,34 @@
 # FIFO late-entry completion — independent review packet
 
+## Independent follow-up review R12–R14 — 2026-11-13
+
+- **R12 / chunk-dependent monthly snapshot fingerprint:** new v2 fingerprints are date-keyed over daily finance-cache entries plus monthly Period Profit totals. A regression freezes two months using one-day chunks/request cap 1, then replays using four-day chunks/cap 10; frozen summaries are reused without duplicate writes or revision change. Legacy snapshots from the old chunk-bound format are accepted only if the exact old fingerprint is recreated; the implementation does not guess an unknown historical schedule.
+- **R13 / corrected owner CSV cannot replace current evidence:** every CSV remains immutable. The user receives a separate explicit “confirm and choose current” action; the confirmation is bound to the new document and the complete prior confirmed fingerprint set and revalidated against current case revision. Historical evidence remains stored. Legacy sets with multiple confirmed documents but no owner selection stay blocked.
+- **R14 / missing zero-sale edge dates:** the owner must enter the entire CSV coverage interval before upload. The importer no longer infers coverage from min/max sale-row dates and shows the declared interval separately from row dates. The window must cover the dispatch date.
+- Local verification: linked FIFO profile **116 passed**; the focused R12/R13/R14 paths **4 passed**; full isolated pytest **5,288 passed in 73.96s**. `compileall`, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702), including Windows/Linux suites and Docker build/runtime smoke. The integration failure from the first linked run was fixed before the green rerun.
+- **R1 stays open:** no complete supported movement ledger or owner-case proof has been established. These corrections do not make the owner's case READY/APPLIED and do not justify merge on their own.
+
+## Independent follow-up review R9–R11 — 2026-11-13
+
+- **R9 / baseline attribution:** Period Profit exposes full-month SKU COGS, not COGS attributed to each affected finance identity. The impact now stays candidate-only unless full-month SKU COGS exactly equals the reconstructed baseline subset; it no longer labels an unproven difference as earlier same-SKU cost. Exact per-identity attribution is not implemented, so incomplete attribution cannot produce a profit delta.
+- **R10 / cutoff mapping:** the production collector receives the exact typed READY `FifoCutoffBridgeResult`. It requires a complete bijection between the finance batch and pre/post cutoff bridge identities, exact reconstruction-to-post-cutoff equality, matching source fingerprint/scope/case revision, and valid physical dates. It aggregates only post-cutoff identities; it does not silently drop unknown finance rows.
+- **R11 / reopen marker:** the `last_expired_preview_reopen` audit marker is excluded from evidence fingerprints. A repository-backed regression covers a fresh prepare, TTL expiry, exact CAS reopen, and second prepare with the same immutable month snapshot and reconstruction fingerprint.
+- Local verification: linked FIFO profile **59 passed**, full isolated pytest **5,287 passed in 92.32s**, compileall and diff checks passed, and tracked `data/` is unchanged. Full-suite test copy excluded owner data and used a synthetic tax policy. PR #732 checks should be consulted for hosted exact-head status.
+- **R1 remains open:** no supported complete inventory movement ledger has been established; the owner's real cutoff case remains unverified. This packet does not claim factual FIFO COGS or readiness to apply the owner's case.
+
+## Owner-confirmed cutoff receiving follow-up — 2026-11-10
+
+- The owner approved manual entry only for the missing `supplier_receiving` bucket. The Telegram path binds the nonnegative whole-number entry to one tenant/store/SKU case, the exact saved one-day stock report and cutoff; explicit zero is preserved. It is not represented as Ozon data, and no current act/status date is backdated.
+- The typed cutoff bridge carries the owner input separately from accepted FIFO stock. Atomic initial-cutover validation rereads the encrypted, confirmed cutoff evidence and the latest matching opening composition; an unknown report `reserved` bucket is resolved only from that owner-confirmed composition. A regression proves receiving units cannot be added to FIFO opening layers.
+- Local linked verification after this follow-up: 77 focused tests passed; positive/negative workflow plus atomic-apply profile: 21 passed; isolated full pytest: **5,264 passed in 87.28s**; compile/data/diff checks passed. Current-SHA hosted CI remains pending until publication. No owner data, live seller calls, Telegram or bot process was used. The actual owner cutoff quantity and real-case apply remain unverified; not merge-ready until CI/review closes.
+
+## Follow-up FR27/FR30 checkpoint — 2026-11-10
+
+- The current local follow-up fixes the missing `TaxService` import in the production assistant factory and retains a supported degraded composition when Period Profit runtime is absent. Late-entry/backup test fixtures now supply the full-month bounds and exact reconstruction/tax-policy fingerprints required by the strict preview contract.
+- The stock-management importer maps known Ozon sub-buckets into canonical defective/seller-withdrawal totals and preserves the original source values. It leaves `supplier_receiving` unknown when the workbook omits it. A production-path regression verifies `SOURCE_BLOCKED`, `ready_to_apply=False`, and `AWAITING_EVIDENCE`; it does not fabricate readiness.
+- Linked correction/backup/production profile: **67 passed**. Isolated disposable-copy full pytest: **5,258 passed in 86.19s** with a synthetic tax configuration; compileall and preserved-data checks passed.
+- The positive FR27 prepare/apply/restart path remains blocked by the absence of authoritative historical `supplier_receiving` at cutoff. The worktree changes are not committed or published and have no current-head hosted CI result. PR #730 and the follow-up are **not ready to merge**; FR28–FR31 remain open by dependency. `OWNER_CASE_VERIFIED=false`.
+
 Date: 2026-11-08  
 Specification: [LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md](LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md), PR #727  
 Architecture contract: [DECISIONS_066.md](DECISIONS_066.md)  
@@ -20,8 +49,40 @@ These are three dependent PRs. Review and merge them in order; do not merge a de
 
 | PR | Scope | Base | Head | Hosted checks |
 |---|---|---|---|---|
-| [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | `66c1f0ebf955b57565c1924c3636c868bdbf3213` | Initial Linux run 42789021904 exposed a missing open-rate fallback and FR24 tests staged before implementation. The fallback is fixed; FR24 regressions move with production wiring to #732. Exact-head verification awaits publication of 66c1f0e. |
-| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 | `b7724261ac0b87dbfeddf5ac18c77753e0f03477` | Both Linux full verification and Windows full verification passed in run 42789118312; production Docker build and runtime smoke also passed. PR B must be updated to the new #731 base before its final CI run. |
+| [#731](https://github.com/dopf129-pixel/ai-business-assistant/pull/731) | FR02–FR11: temporal replay and multi-rate readers | PR #730 head `8e6b528c462c322b78b0c5e1d82fb782f4bbeab4` | `af7d93324eea9952d60fc26553d8ed673bd8834f` | Full isolated suite: 5,170 passed. Verify run [42790983173](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42790983173) passed Windows/Linux and production Docker build/runtime smoke. No B-scope production regressions remain in this PR. |
+| [#732](https://github.com/dopf129-pixel/ai-business-assistant/pull/732) | FR12–FR31: durable bridge, review/apply, production integration, owner cutoff evidence | PR #731 head `af7d93324eea9952d60fc26553d8ed673bd8834f` | Implementation integration checkpoint `0ae37298b832775c1f6431a97924420b311ec358` | Verify run [42793814822](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42793814822) passed Windows/Linux full suites, compile, Docker build/runtime smoke, and SHA-bound report. A documentation-only status-sync commit follows; use PR #732 Checks for the exact latest head. Owner cutoff and real-case apply remain unverified. |
+
+## R-A / R-B remediation map
+
+| Finding | Changed functions and scope | Regression evidence |
+|---|---|---|
+| R-A — no production path to READY/APPLIED | PR #732: `create_fifo_cost_transition_workflow` / `create_telegram_assistant`; `FifoCostTransitionEvidenceService.load/build_cutoff_bridge`; `FifoCostTransitionReviewService.assess`; `FifoCostTransitionApplyService.prepare/read_preview/apply`; repository preview/commit transaction; Telegram evidence and exact-preview callbacks. | `test_production_workflow_builder_wires_durable_evidence_review_apply_and_runtime`; `test_complete_saved_sources_rebuild_the_actual_cutoff_bridge_after_restart`; `test_prepare_seals_real_impact_without_changing_fifo_until_apply`; `test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl`; `test_ready_preview_ticket_binds_exact_persisted_seal_and_replays_commit`. Synthetic sources and temporary SQLite only. |
+| R-B — replay does not support multiple rates | PR #731: temporal replay kernel and `FifoCostReplayService.preview`; repository prefix replay and rate-change preview/commit; `FifoCostHistoryService` per-rate balance reader; return/outflow lineage; current unit-cost adapter. The single-open-rate exception is explicit and quantity remains unknown; missing multi-rate rows remain blocked. | `test_mr01_mr02_mr03_pure_kernel_replays_three_rates_without_inventing_receipts`; `test_fr09_replays_three_rates_from_prefix_and_publishes_atomically`; MR04–MR07 replay/return tests; `test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates`; current-consumer regression. |
+
+## MR01–MR22 numerical acceptance trace
+
+All rows are synthetic; no owner business values are used to construct a passing fixture. Implementation integration SHA `0ae37298b832775c1f6431a97924420b311ec358` passed Windows/Linux/Docker Verify; this packet is then updated by a documentation-only status sync, whose current-head result is linked from PR #732 Checks. MR01–MR11 are also covered by PR #731's exact-head Verify. Owner-case verification remains false.
+
+| Matrix | Test evidence | Result basis |
+|---|---|---|
+| MR01–MR03 | `test_mr01_mr02_mr03_pure_kernel_replays_three_rates_without_inventing_receipts`; `test_fr09_replays_three_rates_from_prefix_and_publishes_atomically` | Exact COGS 92.30 / 1614.20 / 166.00 ₽, aggregate 1,872.50 ₽, 10-unit predecessor residual, 7-unit residual, atomic publication. |
+| MR04–MR05 | `test_mr04_mr05_return_from_closed_rate_restores_cost_and_origin_before_current_rate`; `test_fr10_partial_return_restores_last_fifo_basis_for_mr04_mr05` | Return restores 16 ₽ lineage at return position; resale adds 16 ₽, aggregate 1,888.50 ₽, previous sale COGS unchanged. |
+| MR06 | `test_mr06_outflow_consumes_only_finite_fifo_layers_before_rate_sale` | Outflow 21 ₽ is separate; sales COGS 85.95 ₽. |
+| MR07 | `test_mr07_open_rate_values_sales_but_never_claims_known_quantity_or_values_outflow` | Sale COGS 58.60 ₽; known quantity stays unknown; unsupported outflow blocks. |
+| MR08 | `test_fr06_end_of_local_date_boundary_follows_same_day_sale`; `test_fr06_exact_timestamps_compare_in_store_timezone_not_utc_date` | Store-local end-of-day and UTC/local date crossing. |
+| MR09 | `test_fr06_exact_same_instant_boundary_and_sale_block_when_order_changes_basis`; `test_fr08_repository_blocks_missing_rate_reconciliation_and_keeps_no_write` | Ambiguous or unreconciled order blocks with no business write. |
+| MR10 | `test_fr06_duplicate_boundary_and_permuted_source_rows_keep_one_stable_fingerprint`; `test_fr06_exact_duplicate_sale_page_collapses_to_one_sale_but_conflicting_duplicate_blocks`; `test_apply_commits_exact_seal_and_recovers_same_commit_after_restart_and_ttl` | Duplicate/permuted inputs normalize deterministically; exact retry keeps one commit. |
+| MR11 | `test_late_entry_requires_complete_financial_sale_identity_mapping` | Missing/foreign historical alias mapping stays an explicit identity blocker. |
+| MR12–MR15 | `test_late_entry_matches_mr12_to_mr15_canonical_tax_and_profit_matrix` | Existing canonical TaxService; expected tax/profit deltas 12.70 / 12.70 / 10.79 / 12.70 ₽. |
+| MR16 | `test_missing_financial_baseline_returns_candidate_only_without_ready_seal`; `test_late_entry_without_before_baseline_returns_candidate_cost_only_by_financial_period` | Candidate-only; comparison/tax/profit delta is unknown; no READY/APPLIED. |
+| MR17 | `test_late_entry_never_treats_physical_date_as_financial_period`; `test_late_entry_impact_covers_every_financial_period_in_dependent_sale_horizon` | Physical sale date controls FIFO; each complete finance period controls profit/tax; complete horizon required. |
+| MR18 | `test_late_entry_impact_keeps_non_sale_outflow_out_of_sales_units_and_cogs`; `test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` | Outflow is separate from sales COGS; opening units are not consumed twice. |
+| MR19 | `test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without_fifo_writes`; `test_changed_tax_stock_bridge_and_return_coverage_never_partially_apply` | Changed evidence/tax/coverage makes seal stale; no partial apply. |
+| MR20 | `test_two_concurrent_confirms_apply_one_fifo_transition`; `test_apply_same_key_concurrent_services_commit_one_transition` | One durable transition; other caller receives exact idempotent result or CAS conflict. |
+| MR21 | `test_unconfirmed_value_and_cross_store_callback_never_write_transition_case`; `test_switching_fifo_case_invalidates_old_physical_preview_without_closing_either_case`; `test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply` | Wrong scope, stale callback or wrong key does not apply, leak, or erase saved evidence. |
+| MR22 | `test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket`; owner acceptance guide | Missing value blocks; explicit owner input remains separate from Ozon and opening FIFO stock. No actual historical count was provided or asserted; `OWNER_CASE_VERIFIED=false`. |
+
+Exact test commits and Verify run URLs are listed in the current PR table above and the PR checks. Do not use the owner-specific 1,191/1,192/148 quantities as synthetic expected output.
 
 ## Follow-up review corrections — 2026-11-08
 
