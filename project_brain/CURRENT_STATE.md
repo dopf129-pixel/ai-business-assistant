@@ -2,7 +2,7 @@
 
 - Physical-sales owner confirmation keys now bind the exact saved case revision, so a deliberate re-selection of an identical document is a new confirmation operation; document evidence itself remains append-only and reused.
 - Financial-period evidence bundles retain validated snapshot history and evidence revisions. Preview, confirm, and monthly collection choose the newest snapshot whose reconstruction and tax-policy fingerprints match current inputs. Stale months from corrected reconstructions are excluded, while a prior matching snapshot remains available when settings are restored.
-- Local changed-service profile: **81 passed**. `data/` remains unchanged; exact-head Windows/Linux CI is pending publication. The separate owner-case movement-source blocker remains open; no real API request, bot launch, merge, or deployment was performed.
+- Local changed-service profile: **81 passed**. Verify run [#43414761340](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43414761340) passed on code SHA `7b1c9aeb02dfae3958ba2134c914b0183611903a` (Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, SHA-bound report). Tracked `data/` is unchanged. The separate owner-case movement-source blocker remains open; no real API request, bot launch, merge, or deployment was performed.
 
 # 2026-11-13 — FIFO review fixes R15–R17
 

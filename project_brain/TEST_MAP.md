@@ -4,7 +4,7 @@
 - `tests/test_fifo_cost_transition_period_summary_evidence.py::test_latest_corrected_frozen_summary_is_selected_and_history_is_retained` verifies SQLite rehydration retains historical bound versions with durable revisions and makes each exact reconstruction/tax binding selectable.
 - `tests/test_fifo_cost_transition_apply_service.py::test_period_summary_selection_uses_current_reconstruction_and_restored_tax_binding` verifies stale October evidence is removed after correction and historical monthly snapshots can be selected again for their matching prior binding.
 - `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_restoring_prior_tax_and_reconstruction_reuses_matching_snapshot` verifies a 6%→5%→6% cycle reuses the original immutable summary without a duplicate append or idempotency conflict.
-- Changed-service profile: **81 passed**. Exact-head CI is pending publication.
+- Changed-service profile: **81 passed**. Verify run [#43414761340](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43414761340) passed on code SHA `7b1c9aeb02dfae3958ba2134c914b0183611903a`: Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report.
 
 # 2026-11-13 — FIFO review fixes R15–R17
 
