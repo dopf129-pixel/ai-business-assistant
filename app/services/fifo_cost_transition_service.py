@@ -47,6 +47,7 @@ from services.fifo_cost_transition_contracts import (
     EvidenceSourceKind,
     NormalizedSupplyStatus,
     ScopeIdentity,
+    SupplyTotalMode,
     TransitionCase,
     TransitionMetadata,
     TransitionReasonCode,
@@ -1847,6 +1848,9 @@ class FifoCostTransitionService:
             owner_old_transit_units=payload.get("owner_old_transit_units"),
             new_home_quantity=payload.get("new_home_quantity"),
             declared_shipped_units=payload.get("declared_shipped_units"),
+            supply_total_mode=SupplyTotalMode(
+                payload.get("supply_total_mode", "LEGACY_OWNER_TOTAL")
+            ),
             opening_evidence_ref=payload.get("opening_evidence_ref"),
             source_watermark=payload.get("source_watermark"),
             reason_codes=tuple(

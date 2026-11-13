@@ -113,12 +113,13 @@ class FifoCostTransitionStore:
                 """INSERT INTO fifo_cost_transition_cases (
                     case_id, schema_version, owner_fingerprint, tenant_fingerprint,
                     store_id, product_id, offer_id, sku, current_revision,
-                    current_state, created_at, updated_at
-                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                    current_state, supply_total_mode, created_at, updated_at
+                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)""",
                 (case_id, scope["owner_fingerprint"], scope["tenant_fingerprint"],
                  case.metadata.scope.store_id, case.metadata.scope.product_id,
                  case.metadata.scope.offer_id, case.metadata.scope.sku,
-                 case.state.value, case.created_at, case.updated_at),
+                 case.state.value, case.supply_total_mode.value,
+                 case.created_at, case.updated_at),
             )
         else:
             if row is None:
@@ -149,10 +150,11 @@ class FifoCostTransitionStore:
         if expected_revision > 0:
             result = connection.execute(
                 """UPDATE fifo_cost_transition_cases
-                   SET current_revision=?, current_state=?, updated_at=?
+                   SET current_revision=?, current_state=?, supply_total_mode=?, updated_at=?
                    WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
                      AND store_id=? AND sku=? AND current_revision=?""",
-                (case.case_revision, case.state.value, case.updated_at, case_id,
+                (case.case_revision, case.state.value, case.supply_total_mode.value,
+                 case.updated_at, case_id,
                  scope["owner_fingerprint"], scope["tenant_fingerprint"],
                  case.metadata.scope.store_id, case.metadata.scope.sku,
                  expected_revision),

@@ -1,6 +1,7 @@
 # 2026-11-13 — FIFO automatic batch rule implementation in progress
 
-- Implementation PR A is being developed from spec PR #733 on `codex/fifo-auto-batch-foundation-20261113`. FB00–FB02 are complete; FB03 adds typed immutable contracts. This is not a complete or deployable feature: v17 persistence, optional-total UI, source adapter, and production wiring remain outstanding.
+- Implementation PR A is being developed from spec PR #733 on `codex/fifo-auto-batch-foundation-20261113`. FB00–FB04 are complete: source boundaries and typed contracts are recorded; additive SQLite v17 stores scoped rule/observation/decision/control evidence and CAS scan checkpoints. `supply_total_mode` round-trips through case payloads; legacy payloads and rows default to `LEGACY_OWNER_TOTAL`; no case auto-switches.
+- This remains an incomplete, non-deployable feature: rule preview/confirmation, optional-total UI, source adapter, manifest, and production wiring are outstanding. FB01's baseline regression remains intentionally red until FB08.
 - The official-source contract marks raw bundle schema, complete state enum, and dispatch-date proof as unverified. Synthetic adapter fixtures are not raw Ozon payloads.
 - R1 inventory movement coverage remains a separate hard gate. No live API, owner data, Desktop bot, merge, or deployment has been used.
 

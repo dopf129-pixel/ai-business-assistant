@@ -19,6 +19,7 @@ from services.fifo_cost_transition_contracts import (
     EvidenceSourceKind,
     NormalizedSupplyStatus,
     ScopeIdentity,
+    SupplyTotalMode,
     TransitionContractError,
     TransitionReasonCode,
     normalize_date_only,
@@ -41,12 +42,6 @@ MAX_DECISION_ROWS = 50
 _SAFE_ENUM = re.compile(r"^[A-Z0-9_]{1,64}$")
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9_-]{8,96}$")
 _FERNET_TOKEN = re.compile(r"^gAAAA[A-Za-z0-9_-]+={0,2}$")
-
-
-class SupplyTotalMode(str, Enum):
-    LEGACY_OWNER_TOTAL = "LEGACY_OWNER_TOTAL"
-    AUTO_FROM_SUPPLIES = "AUTO_FROM_SUPPLIES"
-    OWNER_CONTROL = "OWNER_CONTROL"
 
 
 class BatchStartDayPolicy(str, Enum):

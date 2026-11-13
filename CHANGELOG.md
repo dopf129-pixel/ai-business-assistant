@@ -1,3 +1,9 @@
+# 2026-11-13 — FIFO automatic batch rule persistence (PR A, FB04)
+
+- Additive FIFO SQLite schema v17 stores immutable scoped batch-rule revisions, SKU-level supply observations, exact membership decisions, optional dated total controls, and a mutable CAS scan checkpoint. FIFO business tables use immutable triggers; encrypted lookup and continuation payloads stay separate from searchable digests.
+- Transition cases gain `supply_total_mode` with the `LEGACY_OWNER_TOTAL` default across typed payload readers/writers, preserving existing cases and avoiding implicit auto mode. Planning `PRAGMA user_version` and existing FIFO events/rates are unchanged.
+- Added transaction-bound scoped store helpers and migration/rollback/future-version tests. The combined repository/transition/schema/store/contracts profile: **121 passed**; compileall, `git diff --check`, and tracked `data/` unchanged.
+
 # 2026-11-13 — FIFO automatic batch rule contracts (PR A)
 
 - FB03 adds immutable, scoped contracts for batch rules, SKU observations, membership decisions, coverage and read-only manifests, with independent coverage flags, exact-zero/unknown distinction, encrypted lookups and stable manifest fingerprints.
