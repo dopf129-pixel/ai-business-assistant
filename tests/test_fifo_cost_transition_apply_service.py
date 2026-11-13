@@ -16,6 +16,7 @@ from services.fifo_cost_transition_contracts import FifoFinancialPeriodSummary
 from services.fifo_cost_transition_evidence_service import (
     FifoCostTransitionEvidenceBundle,
     FifoCostTransitionEvidenceService,
+    FifoFinancialPeriodSummaryVersion,
 )
 from services.fifo_cost_transition_review_service import (
     FifoCostTransitionReviewService,
@@ -156,7 +157,7 @@ def _service(
     )
 
 
-def _bundle(period_summaries=(), *, case_revision=3):
+def _bundle(period_summaries=(), *, period_summary_versions=(), case_revision=3):
     case = _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE)
     case = replace(
         case, metadata=replace(case.metadata, scope=SCOPE),
@@ -165,7 +166,55 @@ def _bundle(period_summaries=(), *, case_revision=3):
     return FifoCostTransitionEvidenceBundle(
         case=case,
         period_summaries=tuple(period_summaries),
+        period_summary_versions=tuple(period_summary_versions),
     )
+
+
+def test_period_summary_selection_uses_current_reconstruction_and_restored_tax_binding():
+    def summary(period, source, reconstruction, tax):
+        month = period[5:]
+        last_day = "31" if month in {"10", "12"} else "30"
+        return FifoFinancialPeriodSummary(
+            period_from=f"{period}-01", period_to=f"{period}-{last_day}",
+            source_fingerprint=source * 64,
+            reconstruction_fingerprint=reconstruction * 64,
+            tax_policy_fingerprint=tax * 64,
+            sale_identity_digests=((source.lower()) * 64,),
+            revenue_rub="100.00", discount_points_rub="1.00",
+            net_accrual_rub="75.00", current_total_product_cost_rub="10.00",
+            current_sku_product_cost_rub="5.00",
+        )
+
+    versions = (
+        # Original binding covers October and November.
+        FifoFinancialPeriodSummaryVersion(
+            2, summary("2026-10", "a", "b", "c"),
+        ),
+        FifoFinancialPeriodSummaryVersion(
+            3, summary("2026-11", "d", "b", "c"),
+        ),
+        # Corrected reconstruction omits October and uses a changed tax policy.
+        FifoFinancialPeriodSummaryVersion(
+            4, summary("2026-11", "e", "f", "9"),
+        ),
+    )
+    bundle = _bundle(period_summary_versions=versions)
+
+    corrected = FifoCostTransitionApplyService._select_period_summaries(
+        bundle, reconstruction={"preview_fingerprint": "f" * 64},
+        tax_policy_fingerprint="9" * 64,
+    )
+    assert [item.period for item in corrected] == ["2026-11"]
+    assert corrected[0].source_fingerprint == "e" * 64
+
+    restored = FifoCostTransitionApplyService._select_period_summaries(
+        bundle, reconstruction={"preview_fingerprint": "b" * 64},
+        tax_policy_fingerprint="c" * 64,
+    )
+    assert [item.period for item in restored] == ["2026-10", "2026-11"]
+    assert [item.source_fingerprint for item in restored] == [
+        "a" * 64, "d" * 64,
+    ]
 
 
 def _reconstruct(repository, bridge, cutover):

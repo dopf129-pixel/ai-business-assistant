@@ -1,3 +1,9 @@
+# 2026-11-13 — FIFO review fixes R18–R20
+
+- Physical-sales owner confirmation keys now bind the exact saved case revision, so a deliberate re-selection of an identical document is a new confirmation operation; document evidence itself remains append-only and reused.
+- Financial-period evidence bundles retain validated snapshot history and evidence revisions. Preview, confirm, and monthly collection choose the newest snapshot whose reconstruction and tax-policy fingerprints match current inputs. Stale months from corrected reconstructions are excluded, while a prior matching snapshot remains available when settings are restored.
+- Local changed-service profile: **81 passed**. `data/` remains unchanged; exact-head Windows/Linux CI is pending publication. The separate owner-case movement-source blocker remains open; no real API request, bot launch, merge, or deployment was performed.
+
 # 2026-11-13 — FIFO review fixes R15–R17
 
 - The same physical-sales CSV can now be uploaded again after a preview expires or the process restarts: the service verifies and reuses the exact encrypted evidence instead of making a timestamp-only append or returning an idempotency conflict.

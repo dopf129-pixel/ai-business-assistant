@@ -733,6 +733,7 @@ class TelegramFifoCostPhysicalSalesImportService:
                 saved["evidence_fingerprint"], saved["document_fingerprint"],
                 saved["rows_fingerprint"], preview["preview"]["period_from"],
                 preview["preview"]["period_to"], preview["timezone"],
+                str(saved["case_revision"]),
                 *superseded,
             )).encode("utf-8")
         ).hexdigest()

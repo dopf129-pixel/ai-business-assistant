@@ -309,8 +309,8 @@ def _reader(start, end, products):
 
 def _collect(service, evidence, *, token=None, reader=_reader, reconstruction=None,
              finance=None, products=None, expected_case_revision=None,
-             existing_summaries=()):
-    default_reconstruction, policy, default_products = _inputs()
+             existing_summaries=(), policy=None):
+    default_reconstruction, default_policy, default_products = _inputs()
     return service.collect(
         case_id="case-fr20-1", identity=IDENTITY,
         expected_case_revision=(
@@ -320,12 +320,26 @@ def _collect(service, evidence, *, token=None, reader=_reader, reconstruction=No
         reconstruction=reconstruction or default_reconstruction,
         finance_batch=finance or _finance_batch(),
         products=products or default_products,
-        tax_policy_result=policy,
+        tax_policy_result=policy or default_policy,
         summary_reader=reader,
         finance_service=_FinanceCache(), evidence_service=evidence,
         continuation_token=token,
         existing_summaries=existing_summaries,
     )
+
+
+def _collect_to_completion(service, evidence, **kwargs):
+    token = None
+    for _ in range(40):
+        result = _collect(
+            service, evidence, token=token, **kwargs,
+        )
+        assert result["error"] is False, result
+        token = result["continuation_token"]
+        if token is None:
+            break
+    assert result["status"] == "COMPLETE", result
+    return result
 
 
 def test_complete_month_is_persisted_only_after_all_bounded_chunks():
@@ -718,6 +732,44 @@ def test_corrected_reconstruction_appends_new_month_snapshot_version():
     assert len(evidence.saved) == 2
     assert evidence.case_revision == revision_after_old_snapshot + 1
     assert evidence.saved[-1]["summary"].reconstruction_fingerprint == "f" * 64
+
+
+def test_restoring_prior_tax_and_reconstruction_reuses_matching_snapshot():
+    reconstruction, policy, _products = _inputs()
+    evidence = _Evidence()
+    collector = FifoCostFinancialPeriodSummaryCollectionService()
+
+    initial = _collect_to_completion(
+        collector, evidence, reconstruction=reconstruction, policy=policy,
+    )
+    assert initial["issue_code"] is None
+    original_snapshot = evidence.saved[-1]["summary"]
+    revision_after_original = evidence.case_revision
+
+    changed_reconstruction = {
+        **reconstruction, "preview_fingerprint": "f" * 64,
+    }
+    changed_policy = {
+        **policy, "policy": {**policy["policy"], "tax_rate": 5.0},
+    }
+    changed = _collect_to_completion(
+        FifoCostFinancialPeriodSummaryCollectionService(), evidence,
+        reconstruction=changed_reconstruction, policy=changed_policy,
+        existing_summaries=(original_snapshot,),
+    )
+    assert changed["issue_code"] is None
+    assert len(evidence.saved) == 2
+    changed_snapshot = evidence.saved[-1]["summary"]
+    assert changed_snapshot.source_fingerprint != original_snapshot.source_fingerprint
+
+    restored = _collect_to_completion(
+        FifoCostFinancialPeriodSummaryCollectionService(), evidence,
+        reconstruction=reconstruction, policy=policy,
+        existing_summaries=(original_snapshot, changed_snapshot),
+    )
+    assert restored["issue_code"] is None
+    assert len(evidence.saved) == 2
+    assert evidence.case_revision == revision_after_original + 1
 
 
 def test_collection_rejects_non_month_finance_identity_rows():

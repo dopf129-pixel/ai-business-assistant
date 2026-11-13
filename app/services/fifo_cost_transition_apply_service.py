@@ -13,7 +13,9 @@ from services.fifo_cost_late_entry_impact_service import (
 from services.fifo_cost_transition_evidence_service import (
     FifoCostTransitionEvidenceBundle,
     FifoCostTransitionEvidenceService,
+    FifoFinancialPeriodSummaryVersion,
 )
+from services.fifo_cost_transition_contracts import FifoFinancialPeriodSummary
 from services.fifo_cost_transition_review_service import (
     FifoCostTransitionReviewService,
 )
@@ -51,6 +53,59 @@ class FifoCostTransitionApplyService:
         )
         self.impact_service = impact_service or FifoCostLateEntryImpactService()
         self.cache_invalidator = cache_invalidator
+
+    @staticmethod
+    def _select_period_summaries(bundle, *, reconstruction, tax_policy_fingerprint):
+        """Select the newest immutable month version for the exact current binding.
+
+        Historical snapshots remain available for a later return to an earlier
+        reconstruction or tax policy. Snapshots from another binding are not
+        passed to impact calculation, where an obsolete month could otherwise
+        make the current complete set look inconsistent.
+        """
+        reconstruction_fingerprint = reconstruction.get("preview_fingerprint")
+        versions = getattr(bundle, "period_summary_versions", ())
+        if versions:
+            if (
+                not isinstance(versions, tuple) or len(versions) > 100
+                or any(
+                    not isinstance(version, FifoFinancialPeriodSummaryVersion)
+                    for version in versions
+                )
+            ):
+                return None
+            candidates = tuple(
+                (version.evidence_revision, version.summary)
+                for version in versions
+            )
+        else:
+            summaries = getattr(bundle, "period_summaries", ())
+            if (
+                not isinstance(summaries, tuple) or len(summaries) > 200
+                or any(
+                    not isinstance(summary, FifoFinancialPeriodSummary)
+                    for summary in summaries
+                )
+            ):
+                return None
+            # Backward-compatible support for explicitly constructed bundles.
+            candidates = tuple((0, summary) for summary in summaries)
+
+        selected = {}
+        for revision, summary in candidates:
+            if (
+                summary.reconstruction_fingerprint != reconstruction_fingerprint
+                or summary.tax_policy_fingerprint != tax_policy_fingerprint
+            ):
+                continue
+            previous = selected.get(summary.period)
+            if previous is not None:
+                if revision == previous[0] and summary != previous[1]:
+                    return None
+                if revision < previous[0]:
+                    continue
+            selected[summary.period] = (revision, summary)
+        return tuple(selected[period][1] for period in sorted(selected))
 
     def prepare(
         self, *, case_id, identity, expected_case_revision, idempotency_key,
@@ -229,8 +284,11 @@ class FifoCostTransitionApplyService:
                 "FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE",
             )
 
-        summaries = getattr(bundle, "period_summaries", ())
-        if not isinstance(summaries, tuple) or len(summaries) > self._MAX_PERIODS:
+        summaries = self._select_period_summaries(
+            bundle, reconstruction=reconstruction,
+            tax_policy_fingerprint=tax_policy_fingerprint,
+        )
+        if summaries is None or len(summaries) > self._MAX_PERIODS:
             return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
         if any(
             getattr(summary, "complete", False) is not True
@@ -517,6 +575,12 @@ class FifoCostTransitionApplyService:
             return reconstruction if isinstance(reconstruction, dict) else self._error(
                 "FIFO_TRANSITION_RECONSTRUCTION_UNAVAILABLE",
             )
+        existing_summaries = self._select_period_summaries(
+            bundle, reconstruction=reconstruction,
+            tax_policy_fingerprint=tax_fingerprint,
+        )
+        if existing_summaries is None:
+            return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
         from services.period_profit_operation_diagnostics import (
             PeriodProfitOperationTrace,
             activate_period_profit_trace,
@@ -550,7 +614,7 @@ class FifoCostTransitionApplyService:
                     summary_reader=summary_reader,
                     finance_service=finance_service,
                     evidence_service=self.evidence_service,
-                    existing_summaries=bundle.period_summaries,
+                    existing_summaries=existing_summaries,
                     continuation_token=continuation_token,
                     parent_trace=operation_trace,
                 )
@@ -863,7 +927,12 @@ class FifoCostTransitionApplyService:
                 preview_fingerprint=expected_preview_fingerprint,
                 idempotency_key=idempotency_key, preview=preview,
             )
-        summaries = getattr(bundle, "period_summaries", ())
+        summaries = self._select_period_summaries(
+            bundle, reconstruction=reconstruction,
+            tax_policy_fingerprint=current_tax_fingerprint,
+        )
+        if summaries is None:
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
         impact = self.impact_service.preview(
             reconstruction=reconstruction,
             period_summaries=[summary.as_impact_summary() for summary in summaries],

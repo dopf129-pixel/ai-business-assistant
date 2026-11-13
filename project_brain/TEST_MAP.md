@@ -1,3 +1,11 @@
+# 2026-11-13 — FIFO review fixes R18–R20
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` now re-selects identical saved CSVs and runs A→B→A→B; it verifies the immutable documents are reused and every explicit confirmation succeeds at a distinct case revision.
+- `tests/test_fifo_cost_transition_period_summary_evidence.py::test_latest_corrected_frozen_summary_is_selected_and_history_is_retained` verifies SQLite rehydration retains historical bound versions with durable revisions and makes each exact reconstruction/tax binding selectable.
+- `tests/test_fifo_cost_transition_apply_service.py::test_period_summary_selection_uses_current_reconstruction_and_restored_tax_binding` verifies stale October evidence is removed after correction and historical monthly snapshots can be selected again for their matching prior binding.
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_restoring_prior_tax_and_reconstruction_reuses_matching_snapshot` verifies a 6%→5%→6% cycle reuses the original immutable summary without a duplicate append or idempotency conflict.
+- Changed-service profile: **81 passed**. Exact-head CI is pending publication.
+
 # 2026-11-13 — FIFO review fixes R15–R17
 
 - `tests/test_fifo_cost_physical_sales_evidence_service.py::test_physical_csv_is_encrypted_restartable_and_confirmed_separately` verifies re-uploading the same CSV with a new capture timestamp reuses the original immutable evidence row without increasing the case revision.

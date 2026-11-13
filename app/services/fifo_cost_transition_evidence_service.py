@@ -42,6 +42,22 @@ from services.fifo_cost_transition_service import FifoCostTransitionService
 
 
 @dataclass(frozen=True)
+class FifoFinancialPeriodSummaryVersion:
+    """One immutable monthly summary with its durable evidence revision."""
+
+    evidence_revision: int
+    summary: FifoFinancialPeriodSummary
+
+    def __post_init__(self):
+        if (
+            type(self.evidence_revision) is not int
+            or self.evidence_revision < 1
+            or not isinstance(self.summary, FifoFinancialPeriodSummary)
+        ):
+            raise ValueError("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
+
+
+@dataclass(frozen=True)
 class FifoCostTransitionEvidenceBundle:
     """Exact durable inputs for one read-only review at one case revision."""
 
@@ -49,6 +65,7 @@ class FifoCostTransitionEvidenceBundle:
     stock_evidence: object = None
     finance_batch: FifoFinanceSaleIdentityBatch | None = None
     period_summaries: tuple[FifoFinancialPeriodSummary, ...] = ()
+    period_summary_versions: tuple[FifoFinancialPeriodSummaryVersion, ...] = ()
     physical_sale_document: FifoDocumentedPhysicalSaleDocument | None = None
     owner_confirmation: FifoPhysicalSaleDocumentConfirmation | None = None
     movement_coverage: FifoCutoffMovementCoverage | None = None
@@ -640,6 +657,10 @@ class FifoCostTransitionEvidenceService:
                 period_summaries["summaries"]
                 if period_summaries.get("error") is False else ()
             ),
+            period_summary_versions=(
+                period_summaries["versions"]
+                if period_summaries.get("error") is False else ()
+            ),
             physical_sale_document=physical.get("document") if physical.get("error") is False else None,
             owner_confirmation=physical.get("confirmation") if physical.get("error") is False else None,
             movement_coverage=movement.get("coverage") if movement.get("error") is False else None,
@@ -738,6 +759,7 @@ class FifoCostTransitionEvidenceService:
 
         expected_identity = self.transition_service._transition_identity_fingerprint(scope)
         by_period = {}
+        versions = []
         for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("payload"), dict):
                 continue
@@ -794,6 +816,7 @@ class FifoCostTransitionEvidenceService:
                 return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
             existing = by_period.get(period)
             revision = item["evidence_revision"]
+            versions.append(FifoFinancialPeriodSummaryVersion(revision, summary))
             if existing is None or revision > existing[0]:
                 by_period[period] = (revision, summary)
             elif revision == existing[0] and summary != existing[1]:
@@ -808,6 +831,12 @@ class FifoCostTransitionEvidenceService:
             "error": False,
             "code": "FIFO_PERIOD_SUMMARY_SNAPSHOTS_READY",
             "summaries": summaries,
+            "versions": tuple(sorted(
+                versions,
+                key=lambda version: (
+                    version.summary.period, version.evidence_revision,
+                ),
+            )),
             "fingerprints": tuple(sorted({
                 summary.source_fingerprint for summary in summaries
             })),

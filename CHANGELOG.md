@@ -1,3 +1,10 @@
+# 2026-11-13 — FIFO review fixes R18–R20
+
+- Physical-sales confirmation idempotency now includes the saved case revision. Re-uploading and explicitly selecting an identical confirmed CSV, including A→B→A→B version changes, creates a distinct confirmation while reusing the immutable document row.
+- Evidence loading retains every validated financial-period summary version with its evidence revision. Prepare, confirm, and collection select the latest snapshot bound to the exact active reconstruction and tax policy; unrelated old months are excluded, and returning to an earlier binding reuses its existing snapshot.
+- Regressions cover repeated physical CSV confirmation, version re-selection, stale-month filtering, tax/reconstruction version selection, and restoring prior tax settings without appending a duplicate or colliding on an old idempotency key.
+- Local changed-service profile: **81 passed**. Full Windows/Linux CI and production build smoke are pending for the published SHA. R1 owner movement-source limitation remains unchanged; no owner FIFO case, live Ozon/Telegram calls, bot launch, merge, or deployment was used.
+
 # 2026-11-13 — FIFO review fixes R15–R17
 
 - Re-uploading an identical physical-sales CSV after its preview expires now reuses the verified immutable evidence row, even when the new upload has a different capture timestamp. Corrected financial-period snapshots append a new version; readers select the latest valid evidence revision for each month while retaining prior versions. Telegram refreshes its case revision after a save succeeds but version selection temporarily fails.

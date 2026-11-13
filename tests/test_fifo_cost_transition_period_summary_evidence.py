@@ -8,6 +8,9 @@ from services.fifo_cost_transition_contracts import (
     FifoFinancialPeriodSummary,
     TransitionBridgeEvidenceKind,
 )
+from services.fifo_cost_transition_apply_service import (
+    FifoCostTransitionApplyService,
+)
 from services.fifo_cost_transition_evidence_service import (
     FifoCostTransitionEvidenceService,
 )
@@ -28,13 +31,17 @@ IDENTITY = {
 TENANT = make_store_tenant_scope("owner-fr20-period", IDENTITY["store_id"])
 
 
-def _summary(*, fingerprint="a" * 64, revenue="1000.00"):
+def _summary(
+    *, fingerprint="a" * 64, revenue="1000.00",
+    reconstruction_fingerprint="b" * 64,
+    tax_policy_fingerprint="c" * 64,
+):
     return FifoFinancialPeriodSummary(
         period_from="2026-11-01",
         period_to="2026-11-30",
         source_fingerprint=fingerprint,
-        reconstruction_fingerprint="b" * 64,
-        tax_policy_fingerprint="c" * 64,
+        reconstruction_fingerprint=reconstruction_fingerprint,
+        tax_policy_fingerprint=tax_policy_fingerprint,
         sale_identity_digests=("d" * 64,),
         revenue_rub=revenue,
         discount_points_rub="25.00",
@@ -132,7 +139,11 @@ def test_latest_corrected_frozen_summary_is_selected_and_history_is_retained(
         assert first["error"] is False, first
         second = evidence.record_period_profit_summary(
             case_id=case_id, identity=IDENTITY,
-            summary=_summary(fingerprint="e" * 64, revenue="1001.00"),
+            summary=_summary(
+                fingerprint="e" * 64, revenue="1001.00",
+                reconstruction_fingerprint="f" * 64,
+                tax_policy_fingerprint="9" * 64,
+            ),
             expected_case_revision=_revision(transition, case_id),
             idempotency_key="fr20-period-summary-second",
         )
@@ -147,9 +158,26 @@ def test_latest_corrected_frozen_summary_is_selected_and_history_is_retained(
             loaded["missing_requirements"]
         )
         assert len(loaded["bundle"].period_summaries) == 1
+        assert len(loaded["bundle"].period_summary_versions) == 2
         selected = loaded["bundle"].period_summaries[0]
         assert selected.source_fingerprint == "e" * 64
         assert str(selected.revenue_rub) == "1001.00"
+        versions = loaded["bundle"].period_summary_versions
+        assert [item.evidence_revision for item in versions] == [1, 2]
+        original_binding = FifoCostTransitionApplyService._select_period_summaries(
+            loaded["bundle"],
+            reconstruction={"preview_fingerprint": "b" * 64},
+            tax_policy_fingerprint="c" * 64,
+        )
+        assert len(original_binding) == 1
+        assert original_binding[0].source_fingerprint == "a" * 64
+        changed_binding = FifoCostTransitionApplyService._select_period_summaries(
+            loaded["bundle"],
+            reconstruction={"preview_fingerprint": "f" * 64},
+            tax_policy_fingerprint="9" * 64,
+        )
+        assert len(changed_binding) == 1
+        assert changed_binding[0].source_fingerprint == "e" * 64
         history = repository.read_transition_bridge_evidence(
             case_id=case_id, **IDENTITY,
             evidence_kind=TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT,

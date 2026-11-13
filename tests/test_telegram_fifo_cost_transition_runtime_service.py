@@ -534,6 +534,52 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
         assert {row.quantity for row in active["document"].rows} == {1, 2}
         assert active["document"].period_from == "2026-11-05"
         assert active["document"].period_to == "2026-11-09"
+
+        def reselect_existing_csv(payload, filename):
+            documents_prompt = runtime._documents_prompt("101")
+            add_action = next(
+                button["callback"]
+                for button in documents_prompt["keyboard"]["buttons"]
+                if button["text"].startswith(
+                    "🧾 Добавить подтверждение физических продаж",
+                )
+            )
+            assert runtime.handle_callback(101, add_action)["error"] is False
+            assert runtime.handle_text(
+                101, "2026-11-05 — 2026-11-09",
+            )["code"] == "FIFO_PHYSICAL_SALES_PERIOD_SET"
+            file_preview = runtime.handle_physical_sales_document(
+                101, payload, filename,
+            )
+            assert file_preview["code"] == "FIFO_PHYSICAL_SALES_PREVIEW_READY"
+            file_saved = runtime.handle_physical_sales_callback(
+                101, file_preview["keyboard"]["buttons"][0]["callback"],
+            )
+            assert file_saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED"
+            result = runtime.handle_physical_sales_callback(
+                101, file_saved["keyboard"]["buttons"][0]["callback"],
+            )
+            assert result["code"] == "FIFO_PHYSICAL_SALES_CONFIRMED", result
+
+        # Re-select an identical document, then switch A -> B -> A -> B.
+        # Each explicit owner confirmation is a new revision-bound operation;
+        # it must not collide with the earlier confirmation's idempotency key.
+        reselect_existing_csv(corrected_content, "physical-sales-corrected.csv")
+        reselect_existing_csv(content, "physical-sales.csv")
+        reselect_existing_csv(corrected_content, "physical-sales-corrected.csv")
+        versions = repository.read_transition_bridge_evidence(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT", include_sensitive_payload=True,
+        )
+        assert versions["error"] is False and len(versions["items"]) == 2
+        confirmation_counts = sorted(
+            sum(
+                confirmation["confirmation_kind"] == "PHYSICAL_SALES"
+                for confirmation in item["confirmations"]
+            )
+            for item in versions["items"]
+        )
+        assert confirmation_counts == [2, 3]
     finally:
         reset_current_tenant_user_id(tenant)
 
