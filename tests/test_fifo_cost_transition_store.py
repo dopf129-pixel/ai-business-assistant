@@ -150,7 +150,7 @@ def _observation(declaration_id="decl-0001"):
     )
 
 
-def _report():
+def _report(*, period_provenance=PeriodProvenance.OWNER_CONFIRMED):
     return ReportEvidence(
         metadata=_metadata(
             EvidenceSourceKind.OWNER_IMPORTED, EvidenceCompleteness.COMPLETE,
@@ -159,7 +159,7 @@ def _report():
         report_type=ReportType.TURNOVER,
         period_from="2026-11-04",
         period_to="2026-11-05",
-        period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+        period_provenance=period_provenance,
         captured_at="2026-11-07T12:00:00Z",
         file_sha256="d" * 64,
         parser_version="1.0.0",
@@ -387,6 +387,59 @@ def test_observation_and_report_evidence_are_append_only_and_readable(tmp_path):
         )
         assert report_read["items"][0]["payload"]["normalized_fields"]["closing"] == 3712
         assert report_read["items"][0]["file_sha256"] == report.file_sha256
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_owner_period_confirmation_appends_revision_for_same_report_file(tmp_path):
+    tenant = set_current_tenant_user_id(TENANT)
+    try:
+        repository = _repository(tmp_path)
+        case = _case()
+        repository.save_transition_case(
+            case=case, expected_revision=0, idempotency_key="period-confirm-case",
+        )
+        candidate = _report(
+            period_provenance=PeriodProvenance.FILENAME_CANDIDATE,
+        )
+        imported = repository.append_report_evidence(
+            case_id=case.case_id, report=candidate,
+            expected_case_revision=1, idempotency_key="period-candidate-import",
+        )
+        assert imported["error"] is False
+
+        confirmed = _report(period_provenance=PeriodProvenance.OWNER_CONFIRMED)
+        result = repository.append_report_evidence(
+            case_id=case.case_id, report=confirmed,
+            expected_case_revision=imported["case_revision"],
+            idempotency_key="period-owner-confirmation",
+        )
+        assert result["error"] is False
+        reports = repository.read_transition_evidence(
+            case_id=case.case_id, store_id=STORE, product_id="product-1",
+            offer_id="offer-1", sku="sku-1", kind="REPORT_EVIDENCE",
+        )
+        assert len(reports["items"]) == 1
+        assert reports["items"][0]["period_from"] == "2026-11-04"
+        assert reports["items"][0]["period_to"] == "2026-11-05"
+        assert reports["items"][0]["period_provenance"] == "OWNER_CONFIRMED"
+
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT period_provenance FROM fifo_cost_report_evidence WHERE case_id=?",
+                (case.case_id,),
+            ).fetchone()[0] == "FILENAME_CANDIDATE"
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_report_period_confirmations WHERE case_id=?",
+                (case.case_id,),
+            ).fetchone()[0] == 1
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                connection.execute(
+                    "UPDATE fifo_cost_report_period_confirmations SET period_from='2026-01-01'",
+                )
+        finally:
+            connection.close()
     finally:
         reset_current_tenant_user_id(tenant)
 

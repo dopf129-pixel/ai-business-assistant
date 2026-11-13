@@ -10,6 +10,7 @@ from time import monotonic
 from uuid import uuid4
 
 from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
+from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
 from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.ozon_account_repository import split_store_tenant_scope
 from services.period_profit_operation_diagnostics import (
@@ -332,9 +333,19 @@ class FifoCostTransitionSupplyRefreshService:
                 case_id=case_id, store_id=store_id, product_id=product_id,
                 offer_id=offer_id, sku=sku, declaration_id=declaration_id,
                 reference_id=reference_id, snapshot=status_snapshot,
+                act_snapshot=act_snapshot,
                 expected_case_revision=expected_case_revision,
                 idempotency_key=self._observation_idempotency_key(
-                    case_id, declaration_id, status_snapshot.source_fingerprint,
+                    case_id,
+                    declaration_id,
+                    (
+                        FifoCostSourceNormalizer._fingerprint({
+                            "status": status_snapshot.source_fingerprint,
+                            "acts": act_snapshot.source_fingerprint,
+                        })
+                        if act_snapshot is not None
+                        else status_snapshot.source_fingerprint
+                    ),
                 ),
             )
             if update.get("error"):

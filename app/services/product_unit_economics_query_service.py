@@ -240,6 +240,17 @@ class ProductUnitEconomicsQueryService:
                 product
             )
 
+        if isinstance(cost_evidence, dict) and result.get("error") is False:
+            # The UI uses this private identity to validate a rendered detail
+            # snapshot against the exact current FIFO/cost revision. The
+            # Telegram handler removes it before returning the response.
+            result["_cost_cache_identity"] = {
+                "store_id": str(active_store or ""),
+                "product_id": str(product.get("product_id") or ""),
+                "offer_id": str(product.get("offer_id") or ""),
+                "sku": str(product.get("sku") or ""),
+            }
+
         result = self._attach_returns_impact(
             target_sku,
             result

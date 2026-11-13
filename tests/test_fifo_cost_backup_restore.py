@@ -3,6 +3,8 @@ import hashlib
 from types import SimpleNamespace
 import zipfile
 
+from cryptography.fernet import Fernet
+
 from services.bot_backup_service import BotBackupService
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.fifo_cost_history_service import FifoCostHistoryService
@@ -18,11 +20,22 @@ from services.fifo_cost_replay_service import (
 from services.fifo_cost_allocation_service import FifoCostLayer, FifoSaleEvent
 from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
 from services.fifo_cost_supply_evidence_service import FifoCostSupplyEvidenceService
+from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_transition_contracts import TransitionState
 from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
 from services.ozon_account_repository import make_store_tenant_scope
 from services.planning_workspace_repository import PlanningWorkspaceRepository
+from services.tenant_cipher_provider import decrypt_tenant_value
+from services.tenant_storage import tenant_storage_path
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from test_fifo_cost_transition_atomic_apply import (
+    CASE_ID,
+    _commit as _commit_late_entry,
+    _prepared_repository as _prepare_late_entry,
+    SCOPE as LATE_ENTRY_SCOPE,
+)
+from test_fifo_cost_transition_store import _case as _transition_case
 
 
 OWNER = "fifo-backup-owner"
@@ -566,4 +579,189 @@ def test_backup_restore_reopens_fifo_history_current_cost_export_and_plan(
         assert old_callback["callback"].rsplit(":", 1)[-1] not in export["file_content"]
     finally:
         reset_current_tenant_user_id(token)
+
+
+def test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply(
+    tmp_path, monkeypatch,
+):
+    project = tmp_path / "late-entry-project"
+    storage = tmp_path / "late-entry-storage"
+    project.mkdir()
+    storage.mkdir()
+    monkeypatch.setenv("AI_ASSISTANT_STORAGE_ROOT", str(storage))
+    master_key = Fernet.generate_key().decode("ascii")
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", master_key)
+
+    tenant = set_current_tenant_user_id(
+        make_store_tenant_scope(LATE_ENTRY_SCOPE.owner_id, LATE_ENTRY_SCOPE.store_id),
+    )
+    active_tenant = None
+    try:
+        tenant_database = tenant_storage_path("ozon_assistant.db")
+        (
+            repository, active_tenant, _stock, bridge, impact,
+            _cutover, prepared, _clock,
+        ) = _prepare_late_entry(tmp_path, db_path=tenant_database)
+        applied = _commit_late_entry(repository, bridge, impact, prepared)
+        assert applied["error"] is False, applied
+
+        transition_service = FifoCostTransitionService(repository)
+        draft = _transition_case(
+            case_id="backup-late-draft-01", sku="3921245628",
+            owner=LATE_ENTRY_SCOPE.owner_id, store=LATE_ENTRY_SCOPE.store_id,
+        )
+        draft_saved = transition_service.create_case(
+            case=draft, idempotency_key="backup-late-draft-create01",
+        )
+        assert draft_saved["error"] is False, draft_saved
+
+        awaiting = _transition_case(
+            case_id="backup-late-awaiting-01", sku="3921245629",
+            owner=LATE_ENTRY_SCOPE.owner_id, store=LATE_ENTRY_SCOPE.store_id,
+        )
+        awaiting_saved = transition_service.create_case(
+            case=awaiting, idempotency_key="backup-late-await-create01",
+        )
+        assert awaiting_saved["error"] is False, awaiting_saved
+        awaiting_identity = {
+            "product_id": awaiting.metadata.scope.product_id,
+            "offer_id": awaiting.metadata.scope.offer_id,
+            "sku": awaiting.metadata.scope.sku,
+        }
+        awaiting_updated = transition_service.update_owner_inputs(
+            case_id=awaiting.case_id, store_id=LATE_ENTRY_SCOPE.store_id,
+            **awaiting_identity,
+            expected_revision=1, updates={"dispatch_date": "2026-11-05"},
+            state=TransitionState.AWAITING_EVIDENCE,
+            idempotency_key="backup-late-await-update01",
+        )
+        assert awaiting_updated["error"] is False, awaiting_updated
+        declaration = transition_service.declare_supply(
+            case_id=awaiting.case_id,
+            store_id=awaiting.metadata.scope.store_id,
+            product_id=awaiting.metadata.scope.product_id,
+            offer_id=awaiting.metadata.scope.offer_id,
+            sku=awaiting.metadata.scope.sku,
+            reference_kind="SUPPLY", reference_id="987654321",
+            declared_shipped_units=148, dispatch_date="2026-11-05",
+            expected_case_revision=2,
+            idempotency_key="backup-late-supply-declare01",
+        )
+        assert declaration["error"] is False, declaration
+
+        before_declaration = repository.read_transition_evidence(
+            case_id=awaiting.case_id, store_id=LATE_ENTRY_SCOPE.store_id,
+            **awaiting_identity,
+            kind="SUPPLY_DECLARATION", limit=10,
+            include_encrypted_lookup_reference=True,
+        )
+        assert before_declaration["error"] is False
+        encrypted_reference = before_declaration["items"][0]["encrypted_lookup_reference"]
+        assert encrypted_reference and "987654321" not in encrypted_reference
+
+        def fifo_counts(repo):
+            connection = repo.get_connection()
+            try:
+                names = [
+                    row[0] for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' "
+                        "AND name LIKE 'fifo_cost_%' ORDER BY name",
+                    )
+                ]
+                return {
+                    name: connection.execute(
+                        f'SELECT COUNT(*) FROM "{name}"',
+                    ).fetchone()[0]
+                    for name in names
+                }
+            finally:
+                connection.close()
+
+        before_counts = fifo_counts(repository)
+        service = _backup_service(project, storage)
+        backup = service.backup()
+        assert backup["error"] is False, backup
+        tenant_folder = hashlib.sha256(
+            make_store_tenant_scope(
+                LATE_ENTRY_SCOPE.owner_id, LATE_ENTRY_SCOPE.store_id,
+            ).encode("utf-8"),
+        ).hexdigest()[:24]
+        archived_database = (
+            f"files/storage/data/tenants/{tenant_folder}/ozon_assistant.db"
+        )
+        with zipfile.ZipFile(backup["backup_path"]) as archive:
+            assert archived_database in archive.namelist()
+            archived_bytes = archive.read(archived_database)
+            assert b"987654321" not in archived_bytes
+            assert encrypted_reference.encode("ascii") in archived_bytes
+
+        target = tmp_path / "late-entry-restored"
+        assert service.restore_archive(
+            backup["backup_path"], target, dry_run=True,
+        )["status"] == "BOT_RESTORE_PLAN_READY"
+        restored = service.restore_archive(backup["backup_path"], target)
+        assert restored["status"] == "BOT_RESTORE_COMPLETE", restored
+        monkeypatch.setenv("AI_ASSISTANT_STORAGE_ROOT", str(target / "storage"))
+        reopened = FifoCostRepository(
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        reopened_service = FifoCostTransitionService(reopened)
+        for case_id, identity, state in (
+            (
+                draft.case_id,
+                {
+                    "product_id": draft.metadata.scope.product_id,
+                    "offer_id": draft.metadata.scope.offer_id,
+                    "sku": draft.metadata.scope.sku,
+                },
+                "DRAFT",
+            ),
+            (awaiting.case_id, awaiting_identity, "AWAITING_EVIDENCE"),
+            (
+                CASE_ID,
+                {
+                    "product_id": LATE_ENTRY_SCOPE.product_id,
+                    "offer_id": LATE_ENTRY_SCOPE.offer_id,
+                    "sku": LATE_ENTRY_SCOPE.sku,
+                },
+                "APPLIED",
+            ),
+        ):
+            case_read = reopened_service.get_case(
+                case_id=case_id, store_id=LATE_ENTRY_SCOPE.store_id, **identity,
+            )
+            assert case_read["error"] is False, case_read
+            assert case_read["state"] == state
+
+        restored_declaration = reopened.read_transition_evidence(
+            case_id=awaiting.case_id, store_id=LATE_ENTRY_SCOPE.store_id,
+            **awaiting_identity,
+            kind="SUPPLY_DECLARATION", limit=10,
+            include_encrypted_lookup_reference=True,
+        )
+        assert restored_declaration["error"] is False
+        assert restored_declaration["items"][0]["encrypted_lookup_reference"] == encrypted_reference
+        wrong_key = Fernet.generate_key().decode("ascii")
+        assert decrypt_tenant_value(
+            encrypted_reference, master_key=wrong_key,
+        ) is None
+        monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", wrong_key)
+        wrong_key_manifest = reopened_service.get_supply_manifest(
+            case_id=awaiting.case_id, store_id=LATE_ENTRY_SCOPE.store_id,
+            **awaiting_identity,
+        )
+        assert wrong_key_manifest["error"] is False
+        assert len(wrong_key_manifest["declarations"]) == 1
+        assert wrong_key_manifest["declarations"][0]["lookup_status"] == "AVAILABLE"
+
+        assert fifo_counts(reopened) == before_counts
+        replay = _commit_late_entry(reopened, bridge, impact, prepared)
+        assert replay["error"] is False, replay
+        assert replay["replayed"] is True
+        assert replay["commit_id"] == applied["commit_id"]
+        assert fifo_counts(reopened) == before_counts
+    finally:
+        if active_tenant is not None:
+            reset_current_tenant_user_id(active_tenant)
+        reset_current_tenant_user_id(tenant)
 

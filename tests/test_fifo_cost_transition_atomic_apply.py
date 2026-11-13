@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -172,10 +174,10 @@ def _initial_cutover(stock):
     }
 
 
-def _prepared_repository(tmp_path):
+def _prepared_repository(tmp_path, *, db_path=None):
     clock = [datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc)]
     repository = FifoCostRepository(
-        db_path=tmp_path / "transition-atomic.sqlite",
+        db_path=db_path or tmp_path / "transition-atomic.sqlite",
         now_provider=lambda: clock[0],
     )
     tenant = set_current_tenant_user_id(TENANT)
@@ -205,6 +207,8 @@ def _table_counts(repository):
             "fifo_cost_commands", "fifo_cost_rate_changes",
             "fifo_cost_allocations", "fifo_cost_allocation_lines",
             "fifo_cost_transition_commits",
+            "fifo_cost_cutoff_sale_mapping_sets",
+            "fifo_cost_cutoff_sale_mappings",
         )
         return {
             table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -216,13 +220,13 @@ def _table_counts(repository):
 
 def _commit(
     repository, bridge, impact, prepared, *, current_tax_policy_fingerprint=TAX_POLICY,
-    impact_preview=None,
+    impact_preview=None, idempotency_key="commit-atomic-0001",
 ):
     return repository.commit_transition_case(
         case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
         offer_id=SCOPE.offer_id, sku=SCOPE.sku,
         expected_case_revision=prepared["case_revision"],
-        preview_id=prepared["preview_id"], idempotency_key="commit-atomic-0001",
+        preview_id=prepared["preview_id"], idempotency_key=idempotency_key,
         cutoff_bridge=bridge, impact_preview=impact_preview or impact,
         current_tax_policy_fingerprint=current_tax_policy_fingerprint,
     )
@@ -267,7 +271,10 @@ def test_commit_rolls_back_at_every_write_boundary(tmp_path, failure_mode):
             if result["error"] is False:
                 successful_position = fail_at
                 break
-            assert result["code"] == "FIFO_TRANSITION_STORAGE_UNAVAILABLE"
+            assert result["code"] in {
+                "FIFO_TRANSITION_STORAGE_UNAVAILABLE",
+                "FIFO_CUTOFF_SALE_MAPPING_STORAGE_UNAVAILABLE",
+            }
             assert _table_counts(repository) == baseline
             case = repository.read_transition_case(
                 case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
@@ -287,6 +294,17 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
 ):
     repository, tenant, stock, bridge, impact, _cutover, prepared, _clock = _prepared_repository(tmp_path)
     try:
+        connection = repository.get_connection()
+        try:
+            preview_before = tuple(connection.execute(
+                """SELECT case_revision, fifo_revision, allocation_revision,
+                          evidence_set_fingerprint, tax_policy_fingerprint,
+                          preview_fingerprint, expires_at, payload_json
+                   FROM fifo_cost_transition_previews WHERE preview_id=?""",
+                (prepared["preview_id"],),
+            ).fetchone())
+        finally:
+            connection.close()
         changed_stock = replace(
             stock,
             file_sha256=source_fingerprint("atomic-initial-stock-updated"),
@@ -297,6 +315,18 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
             idempotency_key="stock-evidence-after-preview-1",
         )
         assert appended["error"] is False
+        connection = repository.get_connection()
+        try:
+            preview_after = tuple(connection.execute(
+                """SELECT case_revision, fifo_revision, allocation_revision,
+                          evidence_set_fingerprint, tax_policy_fingerprint,
+                          preview_fingerprint, expires_at, payload_json
+                   FROM fifo_cost_transition_previews WHERE preview_id=?""",
+                (prepared["preview_id"],),
+            ).fetchone())
+        finally:
+            connection.close()
+        assert preview_after == preview_before
         result = _commit(repository, bridge, impact, prepared)
         assert result["error"] is True
         assert result["code"] == "FIFO_TRANSITION_REVISION_CONFLICT"
@@ -308,6 +338,61 @@ def test_new_stock_evidence_after_ready_preview_invalidates_confirmation_without
         assert current["state"] == "AWAITING_EVIDENCE"
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_two_concurrent_confirms_apply_one_fifo_transition(tmp_path):
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, clock = _prepared_repository(tmp_path)
+    reset_current_tenant_user_id(tenant)
+    barrier = Barrier(2)
+
+    def confirm(idempotency_key):
+        request_tenant = set_current_tenant_user_id(TENANT)
+        try:
+            request_repository = FifoCostRepository(
+                db_path=tmp_path / "transition-atomic.sqlite",
+                now_provider=lambda: clock[0],
+            )
+            barrier.wait(timeout=5)
+            return _commit(
+                request_repository, bridge, impact, prepared,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            reset_current_tenant_user_id(request_tenant)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            confirm, ("commit-race-confirm-01", "commit-race-confirm-02"),
+        ))
+
+    assert sum(result["error"] is False for result in results) == 1, results
+    assert sum(
+        result.get("code") == "FIFO_TRANSITION_REVISION_CONFLICT"
+        for result in results
+    ) == 1, results
+    assert _table_counts(repository) == {
+        "fifo_cost_streams": 1,
+        # Two owner-confirmed opening layers plus one post-cutoff sale.
+        "fifo_cost_events": 3,
+        "fifo_cost_layers": 2,
+        "fifo_cost_commands": 1,
+        "fifo_cost_rate_changes": 1,
+        "fifo_cost_allocations": 1,
+        "fifo_cost_allocation_lines": 2,
+        "fifo_cost_transition_commits": 1,
+        "fifo_cost_cutoff_sale_mapping_sets": 1,
+        "fifo_cost_cutoff_sale_mappings": 2,
+    }
+    verification_tenant = set_current_tenant_user_id(TENANT)
+    try:
+        applied = repository.read_transition_case(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert applied["state"] == "APPLIED"
+        assert applied["case_revision"] == prepared["case_revision"] + 1
+    finally:
+        reset_current_tenant_user_id(verification_tenant)
 
 
 def test_changed_tax_stock_bridge_and_return_coverage_never_partially_apply(tmp_path):
@@ -341,6 +426,152 @@ def test_changed_tax_stock_bridge_and_return_coverage_never_partially_apply(tmp_
                 offer_id=SCOPE.offer_id, sku=SCOPE.sku,
             )
             assert current["state"] == "READY_TO_CONFIRM"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_transition_bridge_ledger_requires_exact_linked_return_event():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    base = build_cutoff_bridge()
+    sale = base.post_cutoff_events[0]
+    movement = FifoCutoffMovementReference(
+        movement_kind="RETURN",
+        movement_fingerprint=source_fingerprint("atomic-linked-return"),
+        source_identity_digest=source_fingerprint("atomic-linked-return-id"),
+        linked_sale_identity_digest=sale.source_identity_digest,
+        quantity=1,
+        effective_date="2026-11-09",
+    )
+    bridge = replace(
+        base, complete_through="2026-11-09",
+        linked_returns_non_sale_movements=(movement,),
+    )
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("""CREATE TABLE fifo_cost_events (
+            event_id TEXT, stream_id TEXT, event_kind TEXT,
+            source_identity_digest TEXT, quantity INTEGER, effective_date TEXT,
+            supersedes_event_id TEXT, reason_code TEXT
+        )""")
+        connection.execute(
+            """INSERT INTO fifo_cost_events VALUES
+               ('sale-event-1', 'stream-1', 'PHYSICAL_SALE', ?, ?, ?, NULL, NULL)""",
+            (sale.source_identity_digest, sale.quantity, sale.physical_effective_date),
+        )
+
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) == "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+
+        connection.execute(
+            """INSERT INTO fifo_cost_events VALUES
+               ('return-event-1', 'stream-1', 'SALEABLE_RETURN_RESTOCK', ?, ?, ?,
+                'sale-event-1', NULL)""",
+            (movement.source_identity_digest, movement.quantity, movement.effective_date),
+        )
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) is None
+
+        connection.execute(
+            "UPDATE fifo_cost_events SET quantity=2 WHERE event_id='return-event-1'",
+        )
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) == "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+    finally:
+        connection.close()
+
+
+def test_transition_bridge_ledger_rejects_return_without_proven_causal_order():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    base = build_cutoff_bridge()
+    sale = base.post_cutoff_events[0]
+    movement = FifoCutoffMovementReference(
+        movement_kind="RETURN",
+        movement_fingerprint=source_fingerprint("atomic-same-day-return"),
+        source_identity_digest=source_fingerprint("atomic-same-day-return-id"),
+        linked_sale_identity_digest=sale.source_identity_digest,
+        quantity=1,
+        effective_date=sale.physical_effective_date,
+    )
+    bridge = replace(base, linked_returns_non_sale_movements=(movement,))
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("""CREATE TABLE fifo_cost_events (
+            event_id TEXT, stream_id TEXT, event_kind TEXT,
+            source_identity_digest TEXT, quantity INTEGER, effective_date TEXT,
+            supersedes_event_id TEXT, reason_code TEXT
+        )""")
+        connection.execute(
+            """INSERT INTO fifo_cost_events VALUES
+               ('sale-event-1', 'stream-1', 'PHYSICAL_SALE', ?, ?, ?, NULL, NULL)""",
+            (sale.source_identity_digest, sale.quantity, sale.physical_effective_date),
+        )
+        assert FifoCostRepository._validate_transition_bridge_ledger(
+            connection, "stream-1", bridge,
+        ) == "FIFO_TRANSITION_MOVEMENT_ORDER_UNRESOLVED"
+    finally:
+        connection.close()
+
+
+def test_ordinary_fifo_rate_change_remains_available_after_one_late_transition(tmp_path):
+    from services.fifo_cost_rate_service import FifoCostRateService
+    from services.fifo_cost_source_normalizer import FifoStockSnapshot
+
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, clock = (
+        _prepared_repository(tmp_path)
+    )
+    try:
+        applied = _commit(repository, bridge, impact, prepared)
+        assert applied["error"] is False, applied
+        history = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert history["error"] is False
+        assert len(history["rates"]) == 1
+
+        repository._now_provider = lambda: datetime(
+            2026, 11, 10, 12, tzinfo=timezone.utc,
+        )
+        stock = FifoStockSnapshot(
+            status="COMPLETE", source_status="COMPLETE",
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            captured_at="2026-11-10T12:00:00Z", source_as_of=None,
+            pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=98, reserved_units=0, available_units=98,
+            transit_units=0, transit_status="DISJOINT_CONFIRMED",
+            source_fingerprint="e" * 64, issue_codes=(), anchor_eligible=False,
+        )
+        rate_service = FifoCostRateService(repository)
+        next_preview = rate_service.preview_new_cost(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            effective_date="2026-11-10", unit_cost_rub="9.50",
+            cost_input_mode="TOTAL_LANDED", old_home_units=0,
+            expected_revision=history["revision"], stock_snapshot=stock,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert next_preview["error"] is False, next_preview
+        committed = rate_service.confirm_new_cost(
+            preview_id=next_preview["preview_id"],
+            active_preview_id=next_preview["preview_id"],
+            idempotency_key="post-late-ordinary-rate-001",
+        )
+        assert committed["error"] is False, committed
+        updated = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert [item["unit_cost_rub"] for item in updated["rates"]] == [
+            "14.65", "9.50",
+        ]
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -388,8 +619,82 @@ def test_uninitialized_fifo_preview_is_read_only_and_atomic_cutover_applies_once
             offer_id=SCOPE.offer_id, sku=SCOPE.sku,
         )
         assert applied["state"] == "APPLIED"
+        applied_case = replace(
+            _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE),
+            metadata=replace(
+                _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE).metadata,
+                scope=SCOPE,
+            ),
+            case_revision=applied["case_revision"],
+            state=TransitionState.APPLIED,
+            updated_at="2026-11-08T12:00:00Z",
+        )
+        attempted_overwrite = replace(
+            applied_case, case_revision=applied["case_revision"] + 1,
+            state=TransitionState.AWAITING_EVIDENCE,
+            new_unit_cost_rub="15.00",
+            updated_at="2026-11-08T12:01:00Z",
+        )
+        rejected_overwrite = repository.save_transition_case(
+            case=attempted_overwrite,
+            expected_revision=applied["case_revision"],
+            idempotency_key="applied-case-overwrite-01",
+        )
+        assert rejected_overwrite["code"] == "FIFO_TRANSITION_CASE_NOT_READY"
+        correction = replace(
+            applied_case, case_id="transition-correction-0001", case_revision=1,
+            state=TransitionState.DRAFT,
+            created_at="2026-11-08T12:02:00Z",
+            updated_at="2026-11-08T12:02:00Z",
+            supersedes_case_id=CASE_ID,
+        )
+        correction_saved = repository.save_transition_case(
+            case=correction, expected_revision=0,
+            idempotency_key="applied-case-correction-01",
+        )
+        assert correction_saved["error"] is False, correction_saved
+        assert repository.read_transition_case(
+            case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )["state"] == "APPLIED"
         assert _table_counts(repository)["fifo_cost_allocations"] == 1
         assert _table_counts(repository)["fifo_cost_rate_changes"] == 1
+        mapping = repository.read_cutoff_sale_mapping_set(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert mapping["error"] is False
+        assert mapping["complete"] is True
+        assert mapping["mapping_revision"] == 1
+        assert mapping["cutoff_date"] == CUTOFF
+        assert mapping["complete_through"] == COMPLETE_THROUGH
+        assert sorted(
+            (row["partition"], row["quantity"], row["physical_effective_date"])
+            for row in mapping["mappings"]
+        ) == [
+            ("POST_CUTOFF", 5, "2026-11-08"),
+            ("PRE_CUTOFF", 2, "2026-11-05"),
+        ]
+        connection = repository.get_connection()
+        try:
+            for table in (
+                "fifo_cost_cutoff_sale_mapping_sets",
+                "fifo_cost_cutoff_sale_mappings",
+            ):
+                for operation in ("UPDATE", "DELETE"):
+                    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                        if operation == "UPDATE":
+                            column = (
+                                "created_at" if table.endswith("_sets")
+                                else "quantity"
+                            )
+                            connection.execute(
+                                f"UPDATE {table} SET {column}={column}"
+                            )
+                        else:
+                            connection.execute(f"DELETE FROM {table}")
+        finally:
+            connection.close()
         snapshot = repository.read_cost_history_snapshot(
             store_id=STORE, product_id=SCOPE.product_id,
             offer_id=SCOPE.offer_id, sku=SCOPE.sku,

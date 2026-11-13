@@ -115,7 +115,7 @@ def _proposal(*, case=None, stock=None, cutoff=CUTOFF):
     )
 
 
-def _finance_batch(*, response=None, scope=SCOPE, complete=True):
+def _finance_batch(*, response=None, scope=SCOPE, complete=True, period_to=COMPLETE_THROUGH):
     metadata = _metadata(EvidenceSourceKind.OZON_API, "finance-proof", scope=scope)
     proof = SourceProof(
         metadata=metadata,
@@ -137,12 +137,12 @@ def _finance_batch(*, response=None, scope=SCOPE, complete=True):
         scope=scope,
         proof=proof,
         period_from="2026-11-05",
-        period_to=COMPLETE_THROUGH,
+        period_to=period_to,
         source_as_of=proof.source_as_of,
     )
 
 
-def _document_payload(*, rows=None):
+def _document_payload(*, rows=None, period_to=COMPLETE_THROUGH, marker="owner-document"):
     rows = rows or [
         {
             "posting_number": "posting-before", "finance_sku": SCOPE.sku,
@@ -157,10 +157,10 @@ def _document_payload(*, rows=None):
     ]
     return {
         "document_kind": "OWNER_DOCUMENTED_PHYSICAL_SALES_V1",
-        "document_fingerprint": source_fingerprint("owner-document"),
+        "document_fingerprint": source_fingerprint(marker),
         "parser_version": "fifo-owner-physical-sales-v1",
         "period_from": "2026-11-05",
-        "period_to": COMPLETE_THROUGH,
+        "period_to": period_to,
         "rows": rows,
     }
 
@@ -192,7 +192,9 @@ def _confirmation(document, *, scope=SCOPE, case_id=CASE_ID, refs=None):
     )
 
 
-def _movement_coverage(*, scope=SCOPE, complete=True, movements=()):
+def _movement_coverage(
+    *, scope=SCOPE, complete=True, movements=(), complete_through=COMPLETE_THROUGH,
+):
     metadata = _metadata(EvidenceSourceKind.OZON_API, "movement-proof", scope=scope)
     proof = SourceProof(
         metadata=metadata,
@@ -203,7 +205,7 @@ def _movement_coverage(*, scope=SCOPE, complete=True, movements=()):
     return FifoCutoffMovementCoverage(
         scope=scope,
         period_from="2026-11-05",
-        complete_through=COMPLETE_THROUGH,
+        complete_through=complete_through,
         source_fingerprint=metadata.source_fingerprint,
         proof=proof,
         movements=tuple(movements),
@@ -444,22 +446,91 @@ def test_fl18_duplicate_document_identity_and_unrelated_sku_are_not_double_count
     assert "DOCUMENT_TO_FINANCE_IDENTITY_DUPLICATE" in result.unresolved_issues
 
 
-def test_fl18_any_return_or_non_sale_event_waits_for_fl21_authoritative_normalizers():
+def test_fl21_confirmed_non_sale_movement_is_preserved_by_the_cutoff_bridge():
     from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
 
     movement = FifoCutoffMovementReference(
+        movement_kind="SELLER_WITHDRAWAL",
+        movement_fingerprint=source_fingerprint("withdrawal"),
+        source_identity_digest=source_fingerprint("withdrawal-id"),
+        linked_sale_identity_digest=None,
+        quantity=1,
+        effective_date="2026-11-08",
+    )
+    result = _build(movement_coverage=_movement_coverage(movements=(movement,)))
+
+    assert result.status == "READY"
+    assert result.ready_for_fifo_event is True
+    assert result.linked_returns_non_sale_movements == (movement,)
+
+
+def test_fl21_return_must_link_to_a_later_sale_persisted_by_the_same_bridge():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    base = _build()
+    sale_digest = base.post_cutoff_events[0].source_identity_digest
+    movement = FifoCutoffMovementReference(
         movement_kind="RETURN",
-        movement_fingerprint=source_fingerprint("return"),
-        source_identity_digest=source_fingerprint("return-id"),
-        linked_sale_identity_digest=source_fingerprint("sale-id"),
+        movement_fingerprint=source_fingerprint("return-after-sale"),
+        source_identity_digest=source_fingerprint("return-after-sale-id"),
+        linked_sale_identity_digest=sale_digest,
+        quantity=1,
+        effective_date="2026-11-09",
+    )
+    payload = _document_payload(
+        period_to="2026-11-09", marker="owner-document-through-09",
+    )
+    document = _document(payload=payload)
+    result = _build(
+        finance_batch=_finance_batch(period_to="2026-11-09"),
+        physical_sale_document=document,
+        owner_confirmation=_confirmation(document),
+        movement_coverage=_movement_coverage(
+            movements=(movement,), complete_through="2026-11-09",
+        ),
+        requested_complete_through="2026-11-09",
+    )
+
+    assert result.status == "READY"
+    assert result.linked_returns_non_sale_movements == (movement,)
+
+
+def test_fl21_return_to_pre_cutoff_sale_stays_blocked_without_reconstructible_basis():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    base = _build()
+    movement = FifoCutoffMovementReference(
+        movement_kind="RETURN",
+        movement_fingerprint=source_fingerprint("return-old-sale"),
+        source_identity_digest=source_fingerprint("return-old-sale-id"),
+        linked_sale_identity_digest=base.pre_cutoff_outflows[0].source_identity_digest,
         quantity=1,
         effective_date="2026-11-08",
     )
     result = _build(movement_coverage=_movement_coverage(movements=(movement,)))
 
     assert result.status == "SOURCE_BLOCKED"
-    assert "RETURN_NONSALE_NORMALIZATION_PENDING_FL21" in result.unresolved_issues
-    assert result.linked_returns_non_sale_movements == (movement,)
+    assert "FIFO_RETURN_ORIGIN_SALE_NOT_IN_CUTOFF_BRIDGE" in result.unresolved_issues
+
+
+def test_fl21_transfer_and_unlinked_return_remain_explicit_blockers():
+    from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+    for kind, linked, expected in (
+        ("TRANSFER", None, "INVENTORY_TRANSFER_NORMALIZATION_UNAVAILABLE"),
+        ("RETURN", None, "FIFO_RETURN_IDENTITY_UNCONFIRMED"),
+    ):
+        movement = FifoCutoffMovementReference(
+            movement_kind=kind,
+            movement_fingerprint=source_fingerprint(f"movement-{kind}"),
+            source_identity_digest=source_fingerprint(f"movement-id-{kind}"),
+            linked_sale_identity_digest=linked,
+            quantity=1,
+            effective_date="2026-11-08",
+        )
+        result = _build(movement_coverage=_movement_coverage(movements=(movement,)))
+        assert result.status == "SOURCE_BLOCKED"
+        assert expected in result.unresolved_issues
 
 
 def test_fl18_cutoff_date_uses_owner_store_local_calendar_not_utc_timestamp():
@@ -687,3 +758,54 @@ def test_fl18_production_transition_factory_uses_real_parser_normalizer_and_vali
     assert activation["result"].new_home_units is None
     assert activation["result"].accepted_supply_units_added_to_snapshot == 0
     assert activation["result"].ready_to_apply is False
+
+
+def test_finance_sku_alias_is_included_only_with_exact_owner_confirmed_mapping():
+    metadata = _metadata(EvidenceSourceKind.OZON_API, "finance-alias-proof")
+    proof = SourceProof(metadata, True, True, "2026-11-08T09:00:00Z")
+    response = {"error": False, "rows": [{
+        "order": {"posting_number": "historical-posting"},
+        "item": {
+            "sku": "1000000999", "offer_id": SCOPE.offer_id,
+            "product_id": SCOPE.product_id,
+        },
+    }]}
+    adapter = FifoCutoffBridgeSourceAdapter()
+
+    with pytest.raises(ValueError, match="FIFO_CUTOFF_BRIDGE_FINANCE_SKU_ALIAS_UNCONFIRMED"):
+        adapter.parse_realization_postings(
+            response=response, scope=SCOPE, proof=proof,
+            period_from="2026-11-05", period_to=COMPLETE_THROUGH,
+            source_as_of=proof.source_as_of,
+        )
+
+    mapping = {
+        "mapping_confirmed": True,
+        "seller_confirmed": True,
+        "finance_sku": "1000000999",
+        "current_product_id": SCOPE.product_id,
+        "current_sku": SCOPE.sku,
+        "current_offer_id": SCOPE.offer_id,
+        "mapping_id": 42,
+        "source": "SELLER_CONFIRMED_BOT_TEXT",
+        "confirmed_at": "2026-11-08T10:00:00Z",
+    }
+    batch = adapter.parse_realization_postings(
+        response=response, scope=SCOPE, proof=proof,
+        period_from="2026-11-05", period_to=COMPLETE_THROUGH,
+        source_as_of=proof.source_as_of,
+        confirmed_finance_sku_mappings={"1000000999": mapping},
+    )
+    assert len(batch.rows) == 1
+    assert batch.rows[0].finance_sku == "1000000999"
+
+    wrong_store_product_mapping = dict(mapping, current_product_id="other-product")
+    with pytest.raises(ValueError, match="FIFO_CUTOFF_BRIDGE_FINANCE_SKU_ALIAS_UNCONFIRMED"):
+        adapter.parse_realization_postings(
+            response=response, scope=SCOPE, proof=proof,
+            period_from="2026-11-05", period_to=COMPLETE_THROUGH,
+            source_as_of=proof.source_as_of,
+            confirmed_finance_sku_mappings={
+                "1000000999": wrong_store_product_mapping,
+            },
+        )

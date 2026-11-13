@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
+import json
 import re
 
 from services.fifo_cost_repository import FifoCostRepository
@@ -15,8 +16,11 @@ from services.fifo_cost_transition_activation_proposal_service import (
 )
 from services.fifo_cost_source_normalizer import (
     FifoActiveSupplySnapshot,
+    FifoCostSourceNormalizer,
+    FifoSupplyActSnapshot,
 )
 from services.fifo_cost_transition_contracts import (
+    AcceptedQuantityKind,
     CostComponents,
     CostInputMode,
     EvidenceCompleteness,
@@ -29,6 +33,7 @@ from services.fifo_cost_transition_contracts import (
     TransitionReasonCode,
     TransitionState,
     SupplyDeclaration,
+    SupplyActEvidence,
     SupplyObservation,
     SupplyReferenceKind,
     UnknownValue,
@@ -131,6 +136,97 @@ class FifoCostTransitionService:
             idempotency_key=idempotency_key,
         )
 
+    def update_owner_inputs(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        expected_revision, updates, idempotency_key, state=None,
+    ):
+        """CAS-save a narrow set of typed owner-entered transition facts."""
+        allowed = {
+            "dispatch_date", "old_unit_cost_rub", "new_unit_cost_rub",
+            "cost_components", "owner_old_home_units", "owner_old_transit_units",
+            "new_home_quantity", "declared_shipped_units",
+        }
+        if not isinstance(updates, dict) or not updates or set(updates) - allowed:
+            return self._error("FIFO_TRANSITION_OWNER_INPUT_INVALID")
+        current = self.get_case(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku,
+        )
+        if current.get("error"):
+            return current
+        if current.get("case_revision") != expected_revision:
+            return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
+        try:
+            case = self._case_from_payload(current["case"])
+            if case.state not in self._EDITABLE_STATES:
+                return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+            unknown_values = dict(case.unknown_values)
+            optional_fields = {
+                "dispatch_date", "old_unit_cost_rub", "new_unit_cost_rub",
+                "owner_old_home_units", "owner_old_transit_units",
+                "new_home_quantity", "declared_shipped_units",
+            }
+            for name, value in updates.items():
+                if name in optional_fields:
+                    if value is None:
+                        unknown_values[name] = UnknownValue(
+                            TransitionReasonCode.SOURCE_PROOF_UNAVAILABLE,
+                            EvidenceSourceKind.OWNER_INPUT,
+                        )
+                    else:
+                        unknown_values.pop(name, None)
+            next_state = case.state if state is None else (
+                state if isinstance(state, TransitionState) else TransitionState(str(state))
+            )
+            if next_state not in self._EDITABLE_STATES:
+                return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+            fingerprint_payload = {
+                "prior": case.metadata.source_fingerprint,
+                "revision": expected_revision + 1,
+                "updates": {
+                    key: (
+                        {
+                            "purchase_cost_rub": str(value.purchase_cost_rub),
+                            "delivery_cost_rub": str(value.delivery_cost_rub),
+                            "packaging_cost_rub": str(value.packaging_cost_rub),
+                        }
+                        if isinstance(value, CostComponents)
+                        else None if value is None else str(value)
+                    )
+                    for key, value in sorted(updates.items())
+                },
+                "state": next_state.value,
+            }
+            source_fingerprint = hashlib.sha256(
+                json.dumps(
+                    fingerprint_payload, sort_keys=True, separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            metadata = replace(
+                case.metadata,
+                source_fingerprint=source_fingerprint,
+                completeness=EvidenceCompleteness.PARTIAL,
+            )
+            updated = replace(
+                case,
+                metadata=metadata,
+                case_revision=expected_revision + 1,
+                state=next_state,
+                updated_at=max(utc_now(self._now_provider), case.updated_at),
+                unknown_values=unknown_values,
+                **updates,
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            reason = getattr(exc, "reason_code", None)
+            if reason is not None:
+                return self._error(reason.value)
+            return self._error("FIFO_TRANSITION_OWNER_INPUT_INVALID")
+        return self.update_case(
+            case=updated,
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+        )
+
     def cancel_case(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         expected_revision, idempotency_key,
@@ -187,6 +283,17 @@ class FifoCostTransitionService:
     ):
         return self.repository.list_transition_cases(
             store_id=store_id, sku=sku, states=states, limit=limit,
+        )
+
+    def read_case_history(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        limit=100, before_revision=None,
+    ):
+        """Read bounded, redacted case revisions for the exact owner/store/SKU."""
+        return self.repository.read_transition_case_history(
+            case_id=case_id, store_id=store_id, product_id=product_id,
+            offer_id=offer_id, sku=sku, limit=limit,
+            before_revision=before_revision,
         )
 
     def declare_supply(
@@ -384,7 +491,7 @@ class FifoCostTransitionService:
     def record_supply_observation(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         declaration_id, reference_id, snapshot, expected_case_revision,
-        idempotency_key,
+        idempotency_key, act_snapshot=None,
     ) -> dict:
         """Append a redacted status observation for its exact supply declaration.
 
@@ -460,6 +567,111 @@ class FifoCostTransitionService:
             if any(item.get("lookup_reference_available") is not True for item in matching):
                 return self._error("FIFO_TRANSITION_LOOKUP_REFERENCE_UNAVAILABLE")
 
+            accepted_quantity = None
+            accepted_kind = None
+            act_reference_digest = None
+            act_version_digest = None
+            act_captured_at = None
+            act_source_fingerprint = None
+            act_source_supply_reference_digest = None
+            act_order_reference_digest = None
+            act_evidence = ()
+            source_fingerprint = snapshot.source_fingerprint
+            if act_snapshot is not None:
+                if not isinstance(act_snapshot, FifoSupplyActSnapshot):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                latest_declaration = max(
+                    matching, key=lambda item: item.get("evidence_revision", 0),
+                )
+                declared_units = latest_declaration.get("declared_shipped_units")
+                if (
+                    snapshot.presence != "PRESENT"
+                    or snapshot.normalized_status != "ACCEPTED"
+                    or snapshot.source_status != "COMPLETE"
+                    or act_snapshot.status not in {"COMPLETE", "CONFIRMED_ZERO"}
+                    or act_snapshot.source_status != "COMPLETE"
+                    or act_snapshot.store_id != store_id
+                    or act_snapshot.supply_ref
+                    != FifoCostSourceNormalizer._digest("SUPPLY", normalized_reference)
+                    or act_snapshot.order_ref != snapshot.order_ref
+                    or act_snapshot.captured_at is None
+                    or act_snapshot.source_fingerprint is None
+                    or act_snapshot.evidence_fingerprint is None
+                    or not isinstance(act_snapshot.units_by_sku, tuple)
+                    or len(act_snapshot.units_by_sku) != 1
+                    or act_snapshot.units_by_sku[0][0] != str(sku)
+                    or not isinstance(act_snapshot.act_evidence, tuple)
+                ):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                act_payload = {
+                    "store_id": act_snapshot.store_id,
+                    "order_ref": act_snapshot.order_ref,
+                    "supply_ref": act_snapshot.supply_ref,
+                    "act_refs": list(sorted(act_snapshot.act_refs)),
+                    "act_evidence": [
+                        {
+                            "act_ref": item.act_ref,
+                            "act_type": item.act_type,
+                            "act_state": item.act_state,
+                            "created_date": item.created_date,
+                            "declared_quantity": item.declared_quantity,
+                            "approved_quantity": item.approved_quantity,
+                            "fact_quantity": item.fact_quantity,
+                        }
+                        for item in act_snapshot.act_evidence
+                    ],
+                    "units_by_sku": [list(item) for item in act_snapshot.units_by_sku],
+                    "status": act_snapshot.status,
+                }
+                if (
+                    FifoCostSourceNormalizer._fingerprint(act_payload)
+                    != act_snapshot.evidence_fingerprint
+                    or FifoCostSourceNormalizer._fingerprint({
+                        **act_payload, "captured_at": act_snapshot.captured_at,
+                    }) != act_snapshot.source_fingerprint
+                ):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                from services.fifo_cost_supply_acceptance_reconciliation_service import (
+                    FifoCostSupplyAcceptanceReconciliationService,
+                )
+
+                reconciled = FifoCostSupplyAcceptanceReconciliationService().reconcile(
+                    snapshots=(act_snapshot,), target_sku=str(sku),
+                    declared_quantity=declared_units,
+                )
+                if (
+                    reconciled.status not in {"COMPLETE", "PARTIALLY_ACCEPTED"}
+                    or reconciled.accepted_quantity != act_snapshot.units_by_sku[0][1]
+                    or not reconciled.act_reference_digests
+                ):
+                    return self._error("FIFO_TRANSITION_ACCEPTANCE_INVALID")
+                accepted_quantity = reconciled.accepted_quantity
+                accepted_kind = AcceptedQuantityKind.DOCUMENT_LINES
+                act_reference_digest = FifoCostSourceNormalizer._fingerprint(
+                    list(sorted(act_snapshot.act_refs)),
+                )
+                act_version_digest = act_snapshot.evidence_fingerprint
+                act_captured_at = act_snapshot.captured_at
+                act_source_fingerprint = act_snapshot.source_fingerprint
+                act_source_supply_reference_digest = act_snapshot.supply_ref
+                act_order_reference_digest = act_snapshot.order_ref
+                act_evidence = tuple(
+                    SupplyActEvidence(
+                        act_ref=item.act_ref,
+                        act_type=item.act_type,
+                        act_state=item.act_state,
+                        created_date=item.created_date,
+                        declared_quantity=item.declared_quantity,
+                        approved_quantity=item.approved_quantity,
+                        fact_quantity=item.fact_quantity,
+                    )
+                    for item in act_snapshot.act_evidence
+                )
+                source_fingerprint = FifoCostSourceNormalizer._fingerprint({
+                    "status": snapshot.source_fingerprint,
+                    "acts": act_snapshot.source_fingerprint,
+                })
+
             normalized_status = NormalizedSupplyStatus(snapshot.normalized_status)
             presence = EvidencePresence(snapshot.presence)
             completeness = (
@@ -471,7 +683,7 @@ class FifoCostTransitionService:
                 scope=case.metadata.scope,
                 source_kind=EvidenceSourceKind.OZON_API,
                 completeness=completeness,
-                source_fingerprint=snapshot.source_fingerprint,
+                source_fingerprint=source_fingerprint,
                 store_timezone=case.metadata.store_timezone,
             )
             unknown_reason = (
@@ -483,10 +695,11 @@ class FifoCostTransitionService:
                 "declared_quantity": UnknownValue(
                     unknown_reason, EvidenceSourceKind.OZON_API,
                 ),
-                "accepted_quantity": UnknownValue(
-                    unknown_reason, EvidenceSourceKind.OZON_API,
-                ),
             }
+            if accepted_quantity is None:
+                unknown_values["accepted_quantity"] = UnknownValue(
+                    unknown_reason, EvidenceSourceKind.OZON_API,
+                )
             observation = SupplyObservation(
                 metadata=metadata,
                 declaration_id=declaration_id,
@@ -495,14 +708,19 @@ class FifoCostTransitionService:
                 raw_status=snapshot.raw_status,
                 normalized_status=normalized_status,
                 declared_quantity=None,
-                accepted_quantity=None,
-                accepted_quantity_kind=None,
-                act_reference_digest=None,
-                act_version_digest=None,
+                accepted_quantity=accepted_quantity,
+                accepted_quantity_kind=accepted_kind,
+                act_reference_digest=act_reference_digest,
+                act_version_digest=act_version_digest,
                 scope_complete=snapshot.scope_complete,
                 pagination_complete=snapshot.pagination_complete,
                 presence=presence,
                 unknown_values=unknown_values,
+                act_captured_at=act_captured_at,
+                act_source_fingerprint=act_source_fingerprint,
+                act_source_supply_reference_digest=act_source_supply_reference_digest,
+                act_order_reference_digest=act_order_reference_digest,
+                act_evidence=act_evidence,
             )
         except (TypeError, ValueError, KeyError) as exc:
             reason = getattr(exc, "reason_code", None)

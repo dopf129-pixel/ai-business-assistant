@@ -1,7 +1,10 @@
 import csv
 import io
 from datetime import date, datetime, timezone
+from dataclasses import replace
 from types import SimpleNamespace
+
+from cryptography.fernet import Fernet
 
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.fifo_cost_history_service import FifoCostHistoryService
@@ -9,6 +12,18 @@ from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
 from services.fifo_cost_rate_cancellation_service import FifoCostRateCancellationService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_transition_contracts import (
+    CostInputMode,
+    EvidenceCompleteness,
+    EvidenceSourceKind,
+    ScopeIdentity,
+    TransitionCase,
+    TransitionMetadata,
+    TransitionReasonCode,
+    TransitionState,
+    UnknownValue,
+)
+from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.ozon_account_repository import make_store_tenant_scope
 from services.telegram_fifo_cost_history_service import TelegramFifoCostHistoryService
 from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateEntryService
@@ -87,6 +102,50 @@ def _commit_planned_rate(
     return result
 
 
+def _empty_transition_case(*, case_id="case_uninitialized01"):
+    metadata = TransitionMetadata(
+        scope=ScopeIdentity(
+            owner_id="owner-a",
+            store_id=IDENTITY["store_id"],
+            product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"],
+            sku=IDENTITY["sku"],
+        ),
+        source_kind=EvidenceSourceKind.OWNER_INPUT,
+        completeness=EvidenceCompleteness.PARTIAL,
+        source_fingerprint="a" * 64,
+    )
+    reason = UnknownValue(
+        reason_code=TransitionReasonCode.SOURCE_PROOF_UNAVAILABLE,
+        source_kind=EvidenceSourceKind.OWNER_INPUT,
+    )
+    unknown = {
+        name: reason for name in (
+            "dispatch_date", "old_unit_cost_rub", "new_unit_cost_rub",
+            "owner_old_home_units", "owner_old_transit_units",
+            "new_home_quantity", "declared_shipped_units",
+        )
+    }
+    return TransitionCase(
+        metadata=metadata,
+        case_id=case_id,
+        case_revision=1,
+        state=TransitionState.DRAFT,
+        created_at="2026-11-08T10:00:00Z",
+        updated_at="2026-11-08T10:00:00Z",
+        dispatch_date=None,
+        old_unit_cost_rub=None,
+        new_unit_cost_rub=None,
+        cost_input_mode=CostInputMode.TOTAL_LANDED,
+        cost_components=None,
+        owner_old_home_units=None,
+        owner_old_transit_units=None,
+        new_home_quantity=None,
+        declared_shipped_units=None,
+        unknown_values=unknown,
+    )
+
+
 def test_history_callback_is_opaque_revision_bound_and_user_facing(tmp_path):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
@@ -131,11 +190,150 @@ def test_history_callback_is_opaque_revision_bound_and_user_facing(tmp_path):
         reset_current_tenant_user_id(tenant)
 
 
-def test_fifo_history_export_is_read_only_redacted_and_revision_bound(tmp_path):
+def test_uninitialized_fifo_card_offers_late_entry_and_drafts_without_removing_initial_actions(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "uninitialized-fifo-card.sqlite",
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(repository)
+        transitions = FifoCostTransitionService(repository)
+        ui = TelegramFifoCostHistoryService(history, transition_service=transitions)
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = ui.handle_callback(101, ticket["callback"])
+        callbacks = [button["callback"] for button in card["keyboard"]["buttons"]]
+
+        assert any(callback.startswith("fifo_history:anchor:") for callback in callbacks)
+        assert any(callback.startswith("fifo_history:zero_rate:") for callback in callbacks)
+        late_callback = next(
+            callback for callback in callbacks if callback.startswith("fifo_history:late:")
+        )
+        assert any(callback.startswith("fifo_history:drafts:") for callback in callbacks)
+
+        prompt = ui.handle_callback(101, late_callback)
+        mode_callbacks = [button["callback"] for button in prompt["keyboard"]["buttons"]]
+        total_callback = next(
+            callback for callback in mode_callbacks
+            if callback.startswith("fifo_history:late_total:")
+        )
+        components_callback = next(
+            callback for callback in mode_callbacks
+            if callback.startswith("fifo_history:late_components:")
+        )
+        total = ui.handle_callback(101, total_callback)
+        components = ui.handle_callback(101, components_callback)
+        zero = ui.handle_callback(
+            101, next(c for c in callbacks if c.startswith("fifo_history:zero_rate:")),
+        )
+        anchor = ui.handle_callback(
+            101, next(c for c in callbacks if c.startswith("fifo_history:anchor:")),
+        )
+        drafts = ui.handle_callback(
+            101, next(c for c in callbacks if c.startswith("fifo_history:drafts:")),
+        )
+        snapshot = history.get_sku_history(**IDENTITY)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert total["action"] == "start_transition_wizard"
+    assert total["cost_input_mode"] == "TOTAL_LANDED"
+    assert components["cost_input_mode"] == "COMPONENTS"
+    assert zero["action"] == "start_initial_zero_rate"
+    assert anchor["action"] == "start_initial_anchor"
+    assert "нет незавершённых изменений" in drafts["message"]
+    assert snapshot["queue_initialized"] is False
+    assert snapshot["layers"] == []
+
+
+def test_zero_start_is_blocked_by_unfinished_shipment_case_and_draft_resumes_by_opaque_ticket(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "zero-start-transition-guard.sqlite",
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        history = FifoCostHistoryService(repository)
+        transitions = FifoCostTransitionService(repository)
+        created = transitions.create_case(
+            case=_empty_transition_case(), idempotency_key="create-uninitialized-case-01",
+        )
+        assert created["error"] is False, created
+        ui = TelegramFifoCostHistoryService(history, transition_service=transitions)
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = ui.handle_callback(101, ticket["callback"])
+        zero_callback = next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["callback"].startswith("fifo_history:zero_rate:")
+        )
+        drafts_callback = next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["callback"].startswith("fifo_history:drafts:")
+        )
+        blocked = ui.handle_callback(101, zero_callback)
+        listing = ui.handle_callback(101, drafts_callback)
+        resume_callback = next(
+            button["callback"] for button in listing["keyboard"]["buttons"]
+            if button["callback"].startswith("fifo_history:resume:")
+        )
+        resumed = ui.handle_callback(101, resume_callback)
+        foreign = ui.handle_callback(202, resume_callback)
+        snapshot = history.get_sku_history(**IDENTITY)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert "Нулевой старт запрещён" in blocked["message"]
+    assert len(resume_callback.encode("utf-8")) <= 64
+    assert "case_uninitialized01" not in resume_callback
+    assert resumed.get("action") == "resume_transition_wizard", resumed
+    assert resumed["case_id"] == "case_uninitialized01"
+    assert foreign["error"] is True
+    assert snapshot["queue_initialized"] is False
+    assert snapshot["layers"] == []
+
+
+def test_fifo_history_export_is_read_only_redacted_and_revision_bound(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
     tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
         repository, history = _anchored_history(tmp_path)
-        ui = TelegramFifoCostHistoryService(history)
+        transitions = FifoCostTransitionService(repository)
+        case = replace(
+            _empty_transition_case(case_id="case_export_private_001"),
+            dispatch_date="2026-11-05", old_unit_cost_rub="21.00",
+            new_unit_cost_rub="14.65", owner_old_home_units=0,
+            owner_old_transit_units=0, new_home_quantity=0,
+            declared_shipped_units=148,
+            unknown_values={},
+        )
+        created = transitions.create_case(
+            case=case, idempotency_key="history-export-create-case-1",
+        )
+        assert created["error"] is False, created
+        declared = transitions.declare_supply(
+            case_id=case.case_id, **IDENTITY,
+            reference_kind="SUPPLY", reference_id="987654321",
+            declared_shipped_units=148, dispatch_date="2026-11-05",
+            expected_case_revision=1,
+            idempotency_key="history-export-declare-1",
+        )
+        assert declared["error"] is False, declared
+        declaration_evidence = repository.read_transition_evidence(
+            case_id=case.case_id, **IDENTITY,
+            kind="SUPPLY_DECLARATION", limit=100,
+            include_encrypted_lookup_reference=True,
+        )
+        assert declaration_evidence["error"] is False, declaration_evidence
+        encrypted_lookup_reference = declaration_evidence["items"][0][
+            "encrypted_lookup_reference"
+        ]
+        ui = TelegramFifoCostHistoryService(history, transition_service=transitions)
         ticket = ui.create_sku_callback(
             user_id=101, **IDENTITY, display_name="Крючки",
         )
@@ -157,6 +355,11 @@ def test_fifo_history_export_is_read_only_redacted_and_revision_bound(tmp_path):
         assert "2026-11-05" in exported["file_content"]
         assert "store-a" not in exported["file_content"]
         assert "product-101" not in exported["file_content"]
+        assert "case_export_private_001" not in exported["file_content"]
+        assert "987654321" not in exported["file_content"]
+        assert encrypted_lookup_reference not in exported["file_content"]
+        assert "TRANSITION_CASE_REVISION" in exported["file_content"]
+        assert "CANCELLED" not in exported["file_content"]
         assert "fifo-cost-history.csv" == exported["filename"]
 
         # A cost change invalidates the export ticket before another file is returned.
@@ -164,6 +367,69 @@ def test_fifo_history_export_is_read_only_redacted_and_revision_bound(tmp_path):
         stale = ui.handle_callback(101, export_callback)
         assert stale["error"] is True
         assert stale["code"] == "FIFO_HISTORY_CALLBACK_STALE"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_transition_history_is_reopened_after_ui_restart_and_shows_terminal_states(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(
+            db_path=tmp_path / "transition-history-restart.sqlite",
+            now_provider=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc),
+        )
+        transitions = FifoCostTransitionService(repository)
+        case = _empty_transition_case(case_id="case_history_restart01")
+        created = transitions.create_case(
+            case=case, idempotency_key="history-restart-create-001",
+        )
+        assert created["error"] is False
+        cancelled = transitions.cancel_case(
+            case_id=case.case_id, **IDENTITY, expected_revision=1,
+            idempotency_key="history-restart-cancel-001",
+        )
+        assert cancelled["error"] is False
+        before_restart = transitions.read_case_history(
+            case_id=case.case_id, **IDENTITY, limit=100,
+        )
+
+        # A fresh Telegram history service has no in-memory case ticket. It
+        # reconstructs the terminal case list from the persisted repository.
+        restarted_transitions = FifoCostTransitionService(
+            FifoCostRepository(db_path=repository.db_path),
+        )
+        after_restart = restarted_transitions.read_case_history(
+            case_id=case.case_id, **IDENTITY, limit=100,
+        )
+        assert after_restart == before_restart
+        history = FifoCostHistoryService(restarted_transitions.repository)
+        ui = TelegramFifoCostHistoryService(
+            history, transition_service=restarted_transitions,
+        )
+        sku_ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = ui.handle_callback(101, sku_ticket["callback"])
+        drafts = next(
+            item["callback"] for item in card["keyboard"]["buttons"]
+            if item["callback"].startswith("fifo_history:drafts:")
+        )
+        listing = ui.handle_callback(101, drafts)
+        history_list = next(
+            item["callback"] for item in listing["keyboard"]["buttons"]
+            if item["callback"].startswith("fifo_history:transition_cases:")
+        )
+        cases = ui.handle_callback(101, history_list)
+        assert "CANCELLED" in cases["message"]
+        case_history = next(
+            item["callback"] for item in cases["keyboard"]["buttons"]
+            if item["callback"].startswith("fifo_history:case_history:")
+        )
+        detail = ui.handle_callback(101, case_history)
+        assert "черновик" in detail["message"]
+        assert "отменено" in detail["message"]
+        assert case.case_id not in detail["message"]
+        assert len(case_history.encode("utf-8")) <= 64
     finally:
         reset_current_tenant_user_id(tenant)
 

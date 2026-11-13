@@ -16,6 +16,7 @@ from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
     EvidenceSourceKind,
     ReportType,
+    PeriodProvenance,
     ScopeIdentity,
     TransitionCase,
     TransitionMetadata,
@@ -189,7 +190,7 @@ def test_explicit_preview_then_confirm_persists_once_and_replays(tmp_path):
         )
         assert preview["code"] == "FIFO_REPORT_PREVIEW_READY"
         assert "дата-кандидат" in preview["message"]
-        assert "Доказательство пока не записано" in preview["message"]
+        assert "Период из имени файла сам по себе не подтверждён" in preview["message"]
         confirm = preview["keyboard"]["buttons"][0]["callback"]
         assert len(confirm.encode("utf-8")) <= 64
         assert case.case_id not in confirm and SKU not in confirm
@@ -209,6 +210,56 @@ def test_explicit_preview_then_confirm_persists_once_and_replays(tmp_path):
         )
         assert len(evidence["items"]) == 1
         assert evidence["items"][0]["period_provenance"] == "FILENAME_CANDIDATE"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_same_report_can_be_reimported_to_append_owner_period_confirmation(tmp_path):
+    repository, service, case = _setup(tmp_path)
+    tenant = set_current_tenant_user_id(TENANT)
+    filename = "turnover_04112026-05112026.xlsx"
+    payload = _turnover_payload()
+    try:
+        _select(service, case)
+        candidate_preview = service.handle_document(OWNER, payload, filename)
+        candidate_confirm = candidate_preview["keyboard"]["buttons"][0]["callback"]
+        candidate_saved = service.handle_callback(OWNER, candidate_confirm)
+        assert candidate_saved["error"] is False
+        assert "остаётся кандидатом" in candidate_saved["message"]
+
+        # A fresh selection binds the same bytes to the current case revision.
+        _select(service, case)
+        confirmation_preview = service.handle_document(OWNER, payload, filename)
+        confirm_period = next(
+            button["callback"] for button in confirmation_preview["keyboard"]["buttons"]
+            if button["text"] == "📅 Подтвердить период из имени файла"
+        )
+        assert len(confirm_period.encode("utf-8")) <= 64
+        confirmed = service.handle_callback(OWNER, confirm_period)
+        assert confirmed["error"] is False
+        assert "отдельно подтверждён владельцем" in confirmed["message"]
+
+        evidence = repository.read_transition_evidence(
+            case_id=case.case_id, store_id=STORE, product_id="product-1",
+            offer_id="hook-2", sku=SKU, kind="REPORT_EVIDENCE",
+        )
+        assert len(evidence["items"]) == 1
+        assert evidence["items"][0]["period_from"] == "2026-11-04"
+        assert evidence["items"][0]["period_to"] == "2026-11-05"
+        assert evidence["items"][0]["period_provenance"] == "OWNER_CONFIRMED"
+
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT period_provenance FROM fifo_cost_report_evidence WHERE case_id=?",
+                (case.case_id,),
+            ).fetchone()[0] == PeriodProvenance.FILENAME_CANDIDATE.value
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_report_period_confirmations WHERE case_id=?",
+                (case.case_id,),
+            ).fetchone()[0] == 1
+        finally:
+            connection.close()
     finally:
         reset_current_tenant_user_id(tenant)
 

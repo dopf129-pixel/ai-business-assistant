@@ -106,6 +106,32 @@ class EvidencePresence(str, Enum):
     MISSING = "MISSING"
 
 
+@dataclass(frozen=True, slots=True)
+class SupplyActEvidence:
+    """Allowlisted acceptance-act facts; references are opaque digests only."""
+
+    act_ref: str
+    act_type: str
+    act_state: str
+    created_date: str | None
+    declared_quantity: int | None
+    approved_quantity: int | None
+    fact_quantity: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "act_ref", normalize_digest(self.act_ref))
+        if self.act_type != "ACCEPTANCE" or self.act_state != "ACCEPTED":
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if self.created_date is not None:
+            object.__setattr__(self, "created_date", normalize_date_only(self.created_date))
+        if self.fact_quantity is None:
+            _fail(TransitionReasonCode.QUANTITY_INVALID)
+        for name in ("declared_quantity", "approved_quantity", "fact_quantity"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, normalize_quantity(value))
+
+
 class AcceptedQuantityKind(str, Enum):
     CUMULATIVE = "CUMULATIVE"
     DOCUMENT_LINES = "DOCUMENT_LINES"
@@ -420,6 +446,11 @@ class SupplyObservation:
     pagination_complete: bool
     presence: EvidencePresence
     unknown_values: Mapping[str, UnknownValue] = field(default_factory=dict)
+    act_captured_at: str | None = None
+    act_source_fingerprint: str | None = None
+    act_source_supply_reference_digest: str | None = None
+    act_order_reference_digest: str | None = None
+    act_evidence: tuple[SupplyActEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         _require_metadata(self.metadata)
@@ -462,8 +493,55 @@ class SupplyObservation:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, normalize_digest(value))
+        for name in (
+            "act_source_fingerprint", "act_source_supply_reference_digest",
+            "act_order_reference_digest",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, normalize_digest(value))
+        if self.act_captured_at is not None:
+            object.__setattr__(self, "act_captured_at", normalize_utc_timestamp(self.act_captured_at))
+        if not isinstance(self.act_evidence, tuple) or len(self.act_evidence) > 100:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if any(not isinstance(item, SupplyActEvidence) for item in self.act_evidence):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        if self.act_evidence:
+            references = tuple(sorted(item.act_ref for item in self.act_evidence))
+            reference_digest = hashlib.sha256(
+                json.dumps(
+                    list(references), sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if (
+                self.accepted_quantity is None
+                or self.accepted_quantity_kind is not AcceptedQuantityKind.DOCUMENT_LINES
+                or len(set(references)) != len(references)
+                or sum(item.fact_quantity for item in self.act_evidence) != self.accepted_quantity
+                or self.act_reference_digest != reference_digest
+                or self.act_version_digest is None
+                or self.act_source_fingerprint is None
+                or self.act_source_supply_reference_digest is None
+                or self.act_order_reference_digest is None
+                or self.act_captured_at is None
+            ):
+                _fail(TransitionReasonCode.CONTRACT_INVALID)
+        elif self.accepted_quantity_kind is AcceptedQuantityKind.DOCUMENT_LINES:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        elif any((
+            self.act_captured_at is not None,
+            self.act_source_fingerprint is not None,
+            self.act_source_supply_reference_digest is not None,
+            self.act_order_reference_digest is not None,
+        )):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
         if self.presence is EvidencePresence.MISSING:
-            if self.declared_quantity is not None or self.accepted_quantity is not None:
+            if (
+                self.declared_quantity is not None
+                or self.accepted_quantity is not None
+                or self.act_evidence
+            ):
                 _fail(TransitionReasonCode.CONTRACT_INVALID)
             if not unknown:
                 _fail(TransitionReasonCode.CONTRACT_INVALID)

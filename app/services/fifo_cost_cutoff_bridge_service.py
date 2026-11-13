@@ -134,6 +134,7 @@ class FifoCutoffBridgeSourceAdapter:
     def parse_realization_postings(
         self, *, response, scope: ScopeIdentity, proof: SourceProof,
         period_from, period_to, source_as_of=None,
+        confirmed_finance_sku_mappings=None,
     ) -> FifoFinanceSaleIdentityBatch:
         if not isinstance(scope, ScopeIdentity) or not isinstance(proof, SourceProof):
             raise ValueError("FIFO_CUTOFF_BRIDGE_SOURCE_INVALID")
@@ -147,7 +148,12 @@ class FifoCutoffBridgeSourceAdapter:
         if not isinstance(rows, list) or len(rows) > _MAX_IDENTITY_ROWS:
             raise ValueError("FIFO_CUTOFF_BRIDGE_SOURCE_FORMAT_INVALID")
 
+        if confirmed_finance_sku_mappings is None:
+            confirmed_finance_sku_mappings = {}
+        if not isinstance(confirmed_finance_sku_mappings, Mapping):
+            raise ValueError("FIFO_CUTOFF_BRIDGE_SKU_MAPPING_INVALID")
         identities = []
+        alias_material = {}
         for row in rows:
             if not isinstance(row, Mapping):
                 raise ValueError("FIFO_CUTOFF_BRIDGE_SOURCE_FORMAT_INVALID")
@@ -157,19 +163,31 @@ class FifoCutoffBridgeSourceAdapter:
             finance_sku = self._safe_source_text(item.get("sku"))
             if finance_sku is None:
                 raise ValueError("FIFO_CUTOFF_BRIDGE_SOURCE_FORMAT_INVALID")
-            if finance_sku != scope.sku:
-                continue
             posting_number = self._safe_source_text(order.get("posting_number"))
             offer_id = self._safe_source_text(item.get("offer_id"))
             product_id = self._safe_source_text(item.get("product_id"))
             if posting_number is None or (offer_id is None and product_id is None):
                 raise ValueError("FIFO_CUTOFF_BRIDGE_SOURCE_FORMAT_INVALID")
-            if scope.offer_id is not None and offer_id != scope.offer_id:
-                raise ValueError("FIFO_CUTOFF_BRIDGE_PRODUCT_IDENTITY_CONFLICT")
-            if scope.offer_id is None and product_id != scope.product_id:
-                raise ValueError("FIFO_CUTOFF_BRIDGE_PRODUCT_IDENTITY_CONFLICT")
+            matches_scope = (
+                offer_id == scope.offer_id if scope.offer_id is not None
+                else product_id == scope.product_id
+            )
+            if not matches_scope:
+                continue
             if scope.product_id is not None and product_id not in (None, scope.product_id):
                 raise ValueError("FIFO_CUTOFF_BRIDGE_PRODUCT_IDENTITY_CONFLICT")
+            if finance_sku != scope.sku:
+                mapping = confirmed_finance_sku_mappings.get(finance_sku)
+                if not self._mapping_confirms_scope(mapping, finance_sku, scope):
+                    # Do not silently discard a posting that otherwise belongs
+                    # to this exact product. A complete API page is not proof
+                    # that the selected SKU's historical aliases were covered.
+                    raise ValueError("FIFO_CUTOFF_BRIDGE_FINANCE_SKU_ALIAS_UNCONFIRMED")
+                alias_material[finance_sku] = {
+                    key: mapping.get(key)
+                    for key in ("mapping_id", "source", "confirmed_at")
+                    if isinstance(mapping.get(key), (str, int))
+                }
             identities.append(FifoFinanceSaleIdentity(
                 posting_number=posting_number,
                 finance_sku=finance_sku,
@@ -183,6 +201,7 @@ class FifoCutoffBridgeSourceAdapter:
             "source": proof.metadata.source_fingerprint,
             "period_from": period_from,
             "period_to": period_to,
+            "confirmed_finance_sku_mappings": alias_material,
             "rows": [
                 self._identity_material(row)
                 for row in sorted(identities, key=lambda item: (
@@ -206,6 +225,25 @@ class FifoCutoffBridgeSourceAdapter:
             proof=proof,
             rows=tuple(identities),
         )
+
+    @staticmethod
+    def _mapping_confirms_scope(mapping, finance_sku, scope):
+        if not isinstance(mapping, Mapping) or (
+            mapping.get("mapping_confirmed") is not True
+            or mapping.get("seller_confirmed") is not True
+            or str(mapping.get("finance_sku") or "").strip() != finance_sku
+            or str(mapping.get("current_sku") or "").strip() != scope.sku
+        ):
+            return False
+        if scope.product_id is not None and str(
+            mapping.get("current_product_id") or ""
+        ).strip() != scope.product_id:
+            return False
+        if scope.offer_id is not None and mapping.get("current_offer_id") not in (
+            None, scope.offer_id,
+        ):
+            return False
+        return True
 
     @staticmethod
     def _identity_material(row):
@@ -641,9 +679,10 @@ class FifoCostCutoffBridgeService:
             document=physical_sale_document, confirmation=owner_confirmation,
             scope=scope, case=case, issues=issues,
         )
-        self._validate_movements(
+        post_cutoff_movements = self._validate_movements(
             movements=movement_coverage, scope=scope, case=case,
             requested_complete_through=requested_complete_through, issues=issues,
+            cutoff=cutoff,
         )
 
         normalized_finance = {}
@@ -698,6 +737,46 @@ class FifoCostCutoffBridgeService:
                 issues.add("DOCUMENT_TO_FINANCE_IDENTITY_DUPLICATE")
                 continue
             normalized_docs[digest] = (finance_row, row)
+
+        # A return can restore cost only from a sale event that this exact
+        # cutoff bridge will persist. A pre-cutoff sale is already reflected in
+        # the stock snapshot and has no reconstructible FIFO allocation here;
+        # an unlinked or same-day return also lacks a proven causal basis.
+        bridged_post_cutoff_sale_dates = {
+            digest: document_row.physical_effective_date
+            for digest, (_finance_row, document_row) in normalized_docs.items()
+            if cutoff is not None and document_row.physical_effective_date > cutoff
+        }
+        returned_units_by_sale = {}
+        movement_digests = set()
+        movement_fingerprints = set()
+        for movement in post_cutoff_movements:
+            if (
+                movement.source_identity_digest in movement_digests
+                or movement.movement_fingerprint in movement_fingerprints
+            ):
+                issues.add("FIFO_MOVEMENT_IDENTITY_DUPLICATE")
+                continue
+            movement_digests.add(movement.source_identity_digest)
+            movement_fingerprints.add(movement.movement_fingerprint)
+            if movement.movement_kind != "RETURN":
+                continue
+            sale_date = bridged_post_cutoff_sale_dates.get(
+                movement.linked_sale_identity_digest,
+            )
+            if sale_date is None:
+                issues.add("FIFO_RETURN_ORIGIN_SALE_NOT_IN_CUTOFF_BRIDGE")
+                continue
+            if sale_date >= movement.effective_date:
+                issues.add("FIFO_RETURN_EVENT_ORDER_UNRESOLVED")
+                continue
+            sale_row = normalized_docs[movement.linked_sale_identity_digest][1]
+            returned_units_by_sale[movement.linked_sale_identity_digest] = (
+                returned_units_by_sale.get(movement.linked_sale_identity_digest, 0)
+                + movement.quantity
+            )
+            if returned_units_by_sale[movement.linked_sale_identity_digest] > sale_row.quantity:
+                issues.add("FIFO_RETURN_QUANTITY_EXCEEDS_ORIGIN_SALE")
 
         if set(normalized_docs) != set(normalized_finance):
             issues.add("FINANCE_DOCUMENT_IDENTITY_COVERAGE_MISMATCH")
@@ -795,7 +874,7 @@ class FifoCostCutoffBridgeService:
             pre_cutoff_outflows=tuple(pre_events),
             post_cutoff_events=tuple(post_events),
             finance_to_sale_identity_mappings=tuple(mappings),
-            linked_returns_non_sale_movements=tuple(movement_coverage.movements),
+            linked_returns_non_sale_movements=post_cutoff_movements,
             source_set_fingerprint=source_set_fp,
             unresolved_issues=tuple(issues),
             provenance_by_basis=MappingProxyType({
@@ -894,7 +973,9 @@ class FifoCostCutoffBridgeService:
         return document.rows
 
     @staticmethod
-    def _validate_movements(*, movements, scope, case, requested_complete_through, issues):
+    def _validate_movements(
+        *, movements, scope, case, requested_complete_through, issues, cutoff,
+    ):
         requested = normalize_date_only(requested_complete_through)
         if (
             not isinstance(movements, FifoCutoffMovementCoverage)
@@ -904,8 +985,35 @@ class FifoCostCutoffBridgeService:
             or movements.complete_through < requested
         ):
             issues.add("RETURN_NONSALE_COVERAGE_INCOMPLETE")
-            return
-        if movements.movements:
-            # FL21 will normalize linked returns/non-sale events through the
-            # existing authority services.  Preserve them; never infer or drop.
-            issues.add("RETURN_NONSALE_NORMALIZATION_PENDING_FL21")
+            return ()
+        supported = []
+        for movement in movements.movements:
+            if movement.effective_date < movements.period_from or movement.effective_date > requested:
+                issues.add("RETURN_NONSALE_EVENT_OUTSIDE_COVERAGE")
+                continue
+            if cutoff is not None and movement.effective_date <= cutoff:
+                # The confirmed stock snapshot already contains pre-cutoff
+                # movements. Replaying them again would double-apply quantity.
+                continue
+            if movement.movement_kind == "TRANSFER":
+                issues.add("INVENTORY_TRANSFER_NORMALIZATION_UNAVAILABLE")
+                continue
+            if movement.movement_kind == "RETURN":
+                if (
+                    movement.source_identity_digest is None
+                    or movement.linked_sale_identity_digest is None
+                ):
+                    issues.add("FIFO_RETURN_IDENTITY_UNCONFIRMED")
+                    continue
+            elif movement.movement_kind in {"SELLER_WITHDRAWAL", "DAMAGE"}:
+                if (
+                    movement.source_identity_digest is None
+                    or movement.linked_sale_identity_digest is not None
+                ):
+                    issues.add("FIFO_MOVEMENT_IDENTITY_UNCONFIRMED")
+                    continue
+            else:
+                issues.add("FIFO_MOVEMENT_KIND_UNSUPPORTED")
+                continue
+            supported.append(movement)
+        return tuple(supported)

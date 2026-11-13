@@ -115,6 +115,72 @@ def test_late_entry_impact_calculates_cogs_tax_and_profit_using_income_tax_polic
     assert result["read_only"] is True
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected_tax", "expected_before_profit", "expected_after_profit"),
+    [
+        ("NONE", "0.00", "395.00", "407.70"),
+        ("USN_INCOME", "60.00", "335.00", "347.70"),
+    ],
+)
+def test_late_entry_numeric_acceptance_five_units_uses_independent_decimal_oracle(
+    mode, expected_tax, expected_before_profit, expected_after_profit,
+):
+    # Independent arithmetic from N21/N24/N25: old COGS=5*21=105;
+    # candidate COGS=3*21+2*14.65=92.30; net accrual=500.
+    old_cogs = Decimal("5") * Decimal("21.00")
+    candidate_cogs = Decimal("3") * Decimal("21.00") + Decimal("2") * Decimal("14.65")
+    assert old_cogs == Decimal("105.00")
+    assert candidate_cogs == Decimal("92.30")
+    assert Decimal("500.00") - old_cogs == Decimal("395.00")
+    assert Decimal("500.00") - candidate_cogs == Decimal("407.70")
+
+    reconstruction = _reconstruction(before_cost="105.00", after_cost="92.30")
+    reconstruction["before_total_cogs_rub"] = "105.00"
+    reconstruction["candidate_total_cogs_rub"] = "92.30"
+    reconstruction["before_allocations"] = [{
+        "event_id": "event-sale-1", "quantity": 5,
+        "total_cost_rub": "105.00", "lines": [{
+            "layer_id": "layer-old", "rate_change_id": None,
+            "quantity": 5, "unit_cost_rub": "21.00", "total_cost_rub": "105.00",
+        }],
+    }]
+    reconstruction["candidate_allocations"] = [{
+        "event_id": "event-sale-1", "quantity": 5,
+        "total_cost_rub": "92.30", "lines": [
+            {
+                "layer_id": "layer-old", "rate_change_id": None,
+                "quantity": 3, "unit_cost_rub": "21.00", "total_cost_rub": "63.00",
+            },
+            {
+                "layer_id": None, "rate_change_id": "rate-candidate",
+                "quantity": 2, "unit_cost_rub": "14.65", "total_cost_rub": "29.30",
+            },
+        ],
+    }]
+    summary = _summary(
+        current_sku_cost="105.00", total_cost="105.00", net_accrual="500.00",
+    )
+    policy = _policy(mode, 6.0, 1.0)
+
+    result = FifoCostLateEntryImpactService().preview(
+        reconstruction=reconstruction,
+        period_summaries=[summary],
+        tax_policy_result=policy,
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_READY"
+    period = result["periods"][0]
+    assert period["units"] == 5
+    assert period["before_sku_cogs_rub"] == "105.00"
+    assert period["after_sku_cogs_rub"] == "92.30"
+    assert period["delta_cogs_rub"] == "-12.70"
+    assert period["before_tax_rub"] == expected_tax
+    assert period["after_tax_rub"] == expected_tax
+    assert period["before_profit_rub"] == expected_before_profit
+    assert period["after_profit_rub"] == expected_after_profit
+    assert period["delta_profit_rub"] == "12.70"
+
+
 def test_late_entry_impact_applies_minimum_tax_and_expense_based_policy():
     result = FifoCostLateEntryImpactService().preview(
         reconstruction=_reconstruction(),

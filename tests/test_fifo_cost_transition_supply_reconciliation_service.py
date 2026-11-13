@@ -202,6 +202,27 @@ def test_latest_missing_observation_preserves_last_known_receiving_without_zeroi
     assert result.declarations[0].accepted_quantity is None
 
 
+def test_later_present_observation_refreshes_same_declaration_without_duplicate_receipt():
+    result = _reconcile(observations=(
+        _observation(
+            minute=1, presence=EvidencePresence.MISSING,
+            status=NormalizedSupplyStatus.UNKNOWN, source_as_of=None,
+        ),
+        _observation(minute=2),
+    ))
+
+    view = result.declarations[0]
+    assert result.owner_declared_total == 6982
+    assert result.known_declared_total == 148
+    assert len(result.declarations) == 1
+    assert view.declared_quantity == 148
+    assert view.observed_declared_quantity == 148
+    assert view.observed_status is NormalizedSupplyStatus.RECEIVING
+    assert view.observed_presence is EvidencePresence.PRESENT
+    assert view.accepted_quantity is None
+    assert result.status == "PARTIAL"
+
+
 def test_missing_without_any_prior_observation_does_not_invent_unknown_status_as_current():
     result = _reconcile(observations=(
         _observation(

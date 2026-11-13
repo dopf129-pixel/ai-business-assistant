@@ -122,7 +122,10 @@ class FifoCostTransitionOpeningProposalService:
         if (
             not isinstance(case, TransitionCase)
             or type(fifo_initialized) is not bool
-            or case.state not in {TransitionState.DRAFT, TransitionState.AWAITING_EVIDENCE}
+            or case.state not in {
+                TransitionState.DRAFT, TransitionState.AWAITING_EVIDENCE,
+                TransitionState.READY_TO_CONFIRM,
+            }
         ):
             raise ValueError("FIFO_OPENING_PROPOSAL_INPUT_INVALID")
         stock_reports = self._bounded_reports(stock_reports)

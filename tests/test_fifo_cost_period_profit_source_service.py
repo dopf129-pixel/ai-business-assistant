@@ -9,12 +9,14 @@ from services.ozon_account_repository import make_store_tenant_scope
 
 class _Repository:
     def __init__(
-        self, *, active=True, complete=True, allocations=None, cutoff_date=None,
+        self, *, active=True, complete=True, allocations=None,
+        cutoff_date="2026-11-01", mapping_result=None,
     ):
         self.active = active
         self.complete = complete
         self.allocations = allocations or []
         self.cutoff_date = cutoff_date
+        self.mapping_result = mapping_result
         self.summary_calls = 0
         self.summary_scope_calls = []
         self.mode_calls = []
@@ -36,7 +38,15 @@ class _Repository:
             "complete": self.complete,
             "reason_code": "FIFO_ALLOCATION_STALE_OR_MISSING",
             "stream_revision": 4, "allocation_revision": 2,
-            "cutoff_date": "2026-11-01", "allocations": self.allocations,
+            "cutoff_date": self.cutoff_date, "allocations": self.allocations,
+        }
+
+    def read_cutoff_sale_mapping_set(self, **_kwargs):
+        if self.mapping_result is not None:
+            return self.mapping_result
+        return {
+            "error": False, "active": True, "complete": False,
+            "reason_code": "FIFO_CUTOFF_SALE_MAPPING_UNAVAILABLE",
         }
 
 
@@ -321,14 +331,17 @@ def test_alias_reconciliation_still_rejects_missing_or_unexpected_allocations():
         }],
     )
 
-    for allocations in cases:
+    for index, allocations in enumerate(cases):
         result = _service(_Repository(allocations=allocations)).reconcile_period_sales(
             product=aliases[0], finance_sku="old-finance-sku-a",
             finance_sku_alias_products=aliases,
             date_from="2026-11-02", date_to="2026-11-02", sales=sales,
         )
         assert result["complete"] is False
-        assert result["reason_code"] == "FIFO_ALLOCATION_SALE_COVERAGE_MISMATCH"
+        assert result["reason_code"] == (
+            "FIFO_CUTOFF_SALE_MAPPING_UNAVAILABLE" if index == 0
+            else "FIFO_ALLOCATION_SALE_COVERAGE_MISMATCH"
+        )
 
 
 def test_unconfirmed_catalog_sku_alias_blocks_instead_of_falling_back_to_legacy():
@@ -351,8 +364,20 @@ def test_unconfirmed_catalog_sku_alias_blocks_instead_of_falling_back_to_legacy(
     assert repository.mode_calls == []
 
 
-def test_pre_cutoff_period_uses_legacy_mode_after_fifo_was_activated():
-    repository = _Repository(active=True, cutoff_date="2026-11-05")
+def test_pre_cutoff_period_is_classified_by_persisted_physical_sale_mapping():
+    digest = _digest()
+    repository = _Repository(
+        active=True, cutoff_date="2026-11-05", allocations=[],
+        mapping_result={
+            "error": False, "active": True, "complete": True,
+            "mapping_revision": 1, "cutoff_date": "2026-11-05",
+            "complete_through": "2026-11-06", "bridge_fingerprint": "a" * 64,
+            "mappings": [{
+                "source_identity_digest": digest, "quantity": 2,
+                "physical_effective_date": "2026-11-05", "partition": "PRE_CUTOFF",
+            }],
+        },
+    )
     service = _service(repository)
 
     mode = service.get_scope_mode(
@@ -367,11 +392,16 @@ def test_pre_cutoff_period_uses_legacy_mode_after_fifo_was_activated():
     assert mode["error"] is False
     assert mode["active"] is False
     assert mode["code"] == "FIFO_COST_MODE_PRE_CUTOFF"
-    assert result == {"error": False, "active": False, "code": "FIFO_COST_MODE_PRE_CUTOFF"}
-    assert repository.summary_calls == 0
+    assert result["error"] is False
+    assert result["active"] is True
+    assert result["complete"] is True
+    assert result["partitioned_cutoff"] is True
+    assert result["legacy_units_sold"] == 2
+    assert result["fifo_units_sold"] == 0
+    assert repository.summary_calls == 1
 
 
-def test_period_spanning_fifo_cutoff_fails_closed_and_post_cutoff_uses_fifo():
+def test_period_spanning_fifo_cutoff_without_partition_or_allocation_fails_closed():
     repository = _Repository(active=True, cutoff_date="2026-11-05")
     service = _service(repository)
     sales = [{"posting_number": "opaque-posting", "quantity": 2}]
@@ -391,9 +421,137 @@ def test_period_spanning_fifo_cutoff_fails_closed_and_post_cutoff_uses_fifo():
     assert overlap_mode["code"] == "FIFO_PERIOD_SPANS_COST_CUTOFF"
     assert overlap["active"] is True
     assert overlap["complete"] is False
-    assert overlap["reason_code"] == "FIFO_PERIOD_SPANS_COST_CUTOFF"
-    assert repository.summary_calls == 0
+    assert overlap["reason_code"] == "FIFO_CUTOFF_SALE_MAPPING_UNAVAILABLE"
+    assert repository.summary_calls == 1
     assert post_cutoff["active"] is True
+
+
+def test_period_spanning_cutoff_does_not_infer_partition_from_fifo_allocation_only():
+    digest = _digest()
+    repository = _Repository(
+        cutoff_date="2026-11-05",
+        allocations=[{
+            "source_identity_digest": digest,
+            "effective_date": "2026-11-06", "quantity": 2,
+            "total_cogs_rub": "29.30",
+        }],
+    )
+
+    result = _service(repository).reconcile_period_sales(
+        product=_product(), finance_sku="sku-1",
+        date_from="2026-11-05", date_to="2026-11-06",
+        sales=[{"posting_number": "opaque-posting", "quantity": 2}],
+    )
+
+    assert result["error"] is False
+    assert result["active"] is True
+    assert result["complete"] is False
+    assert result["reason_code"] == "FIFO_CUTOFF_SALE_MAPPING_UNAVAILABLE"
+
+
+def test_cutoff_bridge_coverage_cannot_omit_sale_inside_complete_through():
+    digest = _digest()
+    repository = _Repository(
+        cutoff_date="2026-11-05",
+        allocations=[{
+            "source_identity_digest": digest,
+            "effective_date": "2026-11-06", "quantity": 2,
+            "total_cogs_rub": "29.30",
+        }],
+        mapping_result={
+            "error": False, "active": True, "complete": True,
+            "mapping_revision": 3, "cutoff_date": "2026-11-05",
+            "complete_through": "2026-11-06", "bridge_fingerprint": "b" * 64,
+            "mappings": [],
+        },
+    )
+
+    result = _service(repository).reconcile_period_sales(
+        product=_product(), finance_sku="sku-1",
+        date_from="2026-11-05", date_to="2026-11-06",
+        sales=[{"posting_number": "opaque-posting", "quantity": 2}],
+    )
+
+    assert result["complete"] is False
+    assert result["reason_code"] == "FIFO_CUTOFF_SALE_MAPPING_COVERAGE_MISMATCH"
+
+
+def test_fifo_allocations_after_bridge_complete_through_remain_valid():
+    digest = _digest()
+    repository = _Repository(
+        cutoff_date="2026-11-05",
+        allocations=[{
+            "source_identity_digest": digest,
+            "effective_date": "2026-11-07", "quantity": 2,
+            "total_cogs_rub": "29.30",
+        }],
+        mapping_result={
+            "error": False, "active": True, "complete": True,
+            "mapping_revision": 3, "cutoff_date": "2026-11-05",
+            "complete_through": "2026-11-06", "bridge_fingerprint": "b" * 64,
+            "mappings": [],
+        },
+    )
+
+    result = _service(repository).reconcile_period_sales(
+        product=_product(), finance_sku="sku-1",
+        date_from="2026-11-06", date_to="2026-11-07",
+        sales=[{"posting_number": "opaque-posting", "quantity": 2}],
+    )
+
+    assert result["complete"] is True
+    assert result.get("partitioned_cutoff", False) is False
+    assert result["units_sold"] == 2
+    assert result["product_cost"] == "29.30"
+
+
+def test_financial_period_can_mix_cutoff_legacy_and_fifo_allocations_by_exact_identity():
+    legacy_digest = _digest(posting_number="legacy-posting")
+    fifo_digest = _digest(posting_number="fifo-posting")
+    repository = _Repository(
+        cutoff_date="2026-11-05",
+        allocations=[{
+            "source_identity_digest": fifo_digest,
+            "effective_date": "2026-11-06", "quantity": 3,
+            "total_cogs_rub": "43.95",
+        }],
+        mapping_result={
+            "error": False, "active": True, "complete": True,
+            "mapping_revision": 3, "cutoff_date": "2026-11-05",
+            "complete_through": "2026-11-06", "bridge_fingerprint": "b" * 64,
+            "mappings": [
+                {
+                    "source_identity_digest": legacy_digest, "quantity": 2,
+                    "physical_effective_date": "2026-11-05", "partition": "PRE_CUTOFF",
+                },
+                {
+                    "source_identity_digest": fifo_digest, "quantity": 3,
+                    "physical_effective_date": "2026-11-06", "partition": "POST_CUTOFF",
+                },
+            ],
+        },
+    )
+    result = _service(repository).reconcile_period_sales(
+        product=_product(), finance_sku="sku-1",
+        date_from="2026-11-05", date_to="2026-11-06",
+        sales=[
+            {"posting_number": "legacy-posting", "quantity": 2},
+            {"posting_number": "fifo-posting", "quantity": 3},
+        ],
+    )
+
+    assert result["error"] is False
+    assert result["complete"] is True
+    assert result["partitioned_cutoff"] is True
+    assert result["units_sold"] == 5
+    assert result["legacy_units_sold"] == 2
+    assert result["fifo_units_sold"] == 3
+    assert result["fifo_product_cost"] == "43.95"
+    assert result["legacy_sales"] == [{
+        "source_identity_digest": legacy_digest, "quantity": 2,
+        "physical_effective_date": "2026-11-05",
+    }]
+    assert result["cutoff_mapping_revision"] == 3
 
 
 def test_fifo_scope_requires_active_store_and_stable_product_identity():

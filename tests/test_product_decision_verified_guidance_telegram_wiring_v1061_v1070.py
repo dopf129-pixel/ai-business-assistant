@@ -371,6 +371,9 @@ def test_v1070_factory_shares_history_with_readonly_verifier(monkeypatch):
         def __init__(self, *args, **kwargs):
             captured["handler_kwargs"] = kwargs
 
+        def invalidate_fifo_transition_snapshots(self, identity):
+            captured["invalidated_fifo_transition_identity"] = identity
+
     monkeypatch.setattr(
         telegram_factory,
         "AssistantButtonHandlerService",

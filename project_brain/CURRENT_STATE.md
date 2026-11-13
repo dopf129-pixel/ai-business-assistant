@@ -1,3 +1,80 @@
+# 2026-11-09 — FIFO blocker completion specification prepared
+
+- Prepared execution specification and empty progress log: [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), [Resume/progress](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). The task fixes temporal multi-rate replay and a durable production bridge/preview/atomic-apply path, with contracts, MR01–MR22 numeric/behavior controls and dependent PR packaging.
+- This is documentation preparation only. Existing local review corrections remain uncommitted and must be preserved first. Implementation has not started; PR #730 remains NOT READY TO MERGE; owner validation remains pending. Previous pytest/CI results do not verify the future FR implementation.
+
+# 2026-11-08 — FIFO review corrections in progress
+
+- Applied local corrections for report period confirmation, exact linked return bridge validation, restart-safe READY review, seller-confirmed historical finance SKU aliases, the first ordinary rate change after a verified late-entry replay, and deterministic repository clocks in the lifecycle regression. Schema v15 stores owner period confirmation separately and append-only from the source report. The FIFO-focused regression profile passes **110 tests**; isolated full Windows pytest passes **5,115 tests in 61.10s**; compileall and data-preservation checks pass.
+- Independent review found two remaining implementation gaps: (1) production factory/runtime never builds and supplies the cutoff bridge or atomic apply service, so the user-facing path cannot reach READY/APPLIED; (2) deterministic replay still rejects more than one active rate, so successive ordinary rate changes after late entry are not supported. The current branch must not be merged until these are addressed or explicitly removed from the promised scope with review approval.
+- The first isolated attempts exposed setup issues: a local worker dependency directory was absent from the disposable copy, then PowerShell was still in the source checkout and a test changed `data/tasks.json`. That file was restored from Git per the owner's earlier choice and `git diff --exit-code -- data` was rerun. The final full test ran with the temporary copy as its actual working directory and passed. No owner-provided business records, live Ozon/Telegram calls, bot process, merge, or deployment was used. Exact-head CI has not run on these local corrections; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+
+# 2026-11-08 — FIFO FL34–FL35: local verification green, final packet CI pending
+
+- Full isolated Windows pytest passed **5,104 tests in 75.99s** on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`; `compileall`, `git diff --check` and tracked `data/` diff passed. Remote Verify runs 42433357867 (PR #728), 42480102151 (PR #729), and 42480112108 (the earlier PR #730 head) passed Windows/Linux and production Docker smoke.
+- At the time of that earlier check, PRs #728–#730 were marked ready; that status was superseded by the review correction entry above. PR #728 and #729 exact heads were green; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed exact-head run 42480784925, which does not cover the current local corrections.
+- No runtime behavior changed in the verification/review-packet/status commits. Owner validation/source evidence remain pending; no merge, deployment, live API call or bot launch occurred.
+
+# 2026-11-08 — FIFO FL33: owner instructions separate knowns from missing evidence
+
+- The owner guide now describes the actual late-entry review flow, `TOTAL_LANDED` for a single known full unit cost, exact SKU/case binding, report preview, supply refresh and read-only readiness/recalculation actions.
+- The acceptance checklist records the 05.11 case: costs 21/14.65 ₽, 6,982 owner-declared units, old home/transit zero, new-home unknown and one 148-unit RECEIVING declaration. It separately identifies 1,191 from the inspected stock report and 1,192 from the owner's Google Sheet; neither is promoted to cutoff stock.
+- Explicit missing evidence is listed: actual per-supply IDs/quantities and acceptance acts; post-05.11 turnover and complete dated stock buckets; exact physical-sale/return/non-sale bridge and confirmed cutoff. Decision 066 remains strict: `USER_VALIDATION_PENDING`, `SOURCE_BLOCKED`.
+
+# 2026-11-08 — FIFO FL32: backup/restore preserves late-entry state
+
+- A normal backup/restore round-trip now has regression coverage for separate `DRAFT`, `AWAITING_EVIDENCE`, and `APPLIED` cases, a tenant-encrypted supply lookup, the current v14 schema, and a saved planning snapshot.
+- Restored case state and ciphertext remain readable. Supplying a wrong Fernet key fails to decrypt the token but does not delete the declaration or report “no supply”. Replaying the already committed confirmation returns the existing commit; all FIFO table counts remain unchanged.
+- Existing migrations v12→v13 and v13→v14 pass. All stateful fixtures remain in `tmp_path`; `data/` is unchanged. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+
+# 2026-11-08 — FIFO FL31: concurrent confirmation is regression-covered
+
+- FL31 audit found that atomic apply already uses a transaction and revision check, but its positive-path tests only exercised sequential retries. Added a synchronized competing-confirm test with two repository instances and distinct idempotency keys.
+- Exactly one request moves the case to `APPLIED`; the other receives `FIFO_TRANSITION_REVISION_CONFLICT`. The resulting database has one transition commit, one rate change, one allocation, two initial cost layers, two sale mappings, and only the expected three events (two opening layers plus one post-cutoff sale).
+- Existing security/import/navigation tests cover the remaining FL31 matrix; no product code change or architectural decision was needed. FL31 implementation verification is synthetic only; `OWNER_CASE_VERIFIED=false`.
+
+# 2026-11-08 — FIFO FL30: acceptance evidence survives refresh and restart
+
+- `FifoCostTransitionSupplyRefreshService` now passes complete act evidence into the existing append-only transition observation. The case stores only allowlisted per-act digests and quantities; raw act/supply IDs remain transient and are not persisted in the transition payload.
+- Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).
+- Review reconstructs the source act snapshots and reruns cumulative acceptance reconciliation after a fresh repository/service instance. Explicit zero is confirmed only when a complete accepted act contains zero; no act evidence stays unknown. Acceptance remains documentary evidence and never writes an inventory movement or activates FIFO.
+- Numeric crosswalk N01–N40: linked profile **1094 passed in 44.41s**; acceptance refresh/restart and linked reconciliation tests **39 passed in 2.04s**; compileall, diff-check, and tracked `data/` diff passed. Aggregate current `data/` manifest SHA-256: `4e540517654f0ab646dd704b8fb4f0cd7fdce93132b866ff961eae26414f8e07` (six files; content not printed). Synthetic only.
+- This change extends the transition observation contract and public review assembly; classify as **Architecture Review Required**. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; FL31 remains next.
+
+# 2026-11-08 — FIFO FL29: история переходов, отмена и refresh
+
+- Код FL29: 0bcb13d8cfd4704429a08999e7a014a2c4275e8a; требуется независимый архитектурный review публичного history path и Telegram export integration.
+- История transition cases читается постранично из append-only revisions в точной области owner/store/SKU. Telegram показывает все пять статусов, включая APPLIED и CANCELLED, и может снова открыть историю после перезапуска процесса.
+- CSV истории FIFO объединяет allowlisted редакции переходов с прежними слоями/ставками, ограничен 10 000 строк и 1 МБ, не содержит case ID, raw/encrypted lookup references или evidence IDs. APPLIED нельзя исправить UPDATE; коррекция создаётся отдельным случаем, связанным через `supersedes_case_id`.
+- Новое доказательство переводит READY в AWAITING_EVIDENCE и не меняет сохранённый preview. При отстающем времени источника `updated_at` дела не откатывается.
+- FL29 focused tests: **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile: **1086 passed in 44.07s**; compileall, diff-check, `data/` unchanged PASS. Synthetic-only. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; далее FL30 — вся числовая матрица.
+
+# 2026-11-08 — FIFO FL28: factual Period Profit cutoff partition
+
+- `FifoCostRepository` schema v14 persists append-only mapping revisions between exact finance sale identities and physical cutoff dates, in the existing tenant FIFO database. Transition apply stores the mapping atomically with its rate, allocation and case commit.
+- Period Profit now joins pre-cutoff dated legacy cost and post-cutoff FIFO allocation by sale identity, not by financial period date. A touching-cutoff period fails closed without complete bridge coverage. Explanation and sanitized export retain the same stream/allocation/mapping revisions.
+- FL28 focused checks **60 passed**; linked FIFO/Telegram/Period Profit **1085 passed in 44.01s**; compileall, diff-check and `data/` unchanged passed. Synthetic data only; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; PR CI pending.
+
+# 2026-11-08 — FIFO FL27: current unit economics and plans
+
+- Черновик/READY перехода не меняет текущую себестоимость: до атомарного применения продолжается legacy effective-dated значение. После `APPLIED` общий FIFO adapter получает новую точную history revision, а query cache текущей экономики сразу перестраивается по cost revision.
+- Telegram snapshot расшифровки хранит точные store/product/offer/SKU, cost revision и allocation revision. После apply invalidator удаляет только устаревший snapshot этой identity; каждый callback дополнительно сверяет обе revision и закрывается при изменении или недоступном источнике. Новые owner/API запросы при этом не делаются.
+- Сохранённые планы остаются историческими immutable revisions; свежий расчёт получает новый FIFO basis. `TOTAL_LANDED` остаётся одной суммой без созданной ботом разбивки компонентов.
+- FL27 code `81266ad3`; focused **72 passed**, linked profile **617 passed in 27.93s**, compileall/diff-check/`data/` unchanged PASS. Только временные synthetic SQLite; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Production apply orchestration и financial Period Profit integration продолжаются в FL28.
+
+# 2026-11-08 — FIFO FL26: раздельные действия, readiness и preview
+
+- Добавлен read-only reconstruction сохранённых declarations/observations/reports и readiness для точного owner/store/SKU дела. Preview различает owner-ввод, source as-of/period provenance, подтверждённые FIFO-слои, TOTAL_LANDED/COMPONENTS и не выдаёт разницу себестоимости за прибыль.
+- Обновление поставок выбирается постранично и только после owner-повторного ввода точного ID, сверяемого с encrypted declaration до вызова источника. Callback-ы opaque и не содержат ID.
+- Неподтверждённый preview не меняет FIFO, цену, прибыль, кэш или планы; apply UI закрыт без READY/service и отдельно проверяет server state/revision. Production apply orchestration не подключён и должен быть реализован downstream.
+- FL26 code SHA `1e9ccb95d06974ebacf9b00186341dd399d40cfb`; целевые тесты **57 passed**, linked FIFO/Telegram/Period Profit **545 passed**; compileall/diff-check/data unchanged PASS. READY review остаётся read-only и не активирует apply. Synthetic-only. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+
+# 2026-11-08 — FIFO FL24: переход к поздней партии до настройки очереди
+
+- Карточка SKU без FIFO теперь показывает «Новая партия уже отправлена» и «Незавершённые изменения», сохраняя доступ к прежнему начальному срезу и нулевому старту. Поздний сценарий не блокируется отсутствием очереди.
+- Список читает только активные cases точного store/SKU/offer/product scope и выдаёт временный owner-bound opaque resume callback. Незавершённый переход блокирует нулевой старт; при сбое чтения проверка закрывается безопасно. Ни FIFO, ни себестоимость отчётов/прибыль этим экраном не меняются.
+- FL24 code SHA `ee98230286354e21e1f2cf5ca307391c97d6171f`; связанный FIFO/Telegram/Period Profit профиль **533 passed in 22.87s**; compileall, `git diff --check`, `git diff --exit-code -- data` PASS. Только временная synthetic SQLite; owner DB, live API и bot не использовались. Следом FL25 — durable resumable wizard.
+
 # 2026-11-08 — FIFO FL23: атомарное применение позднего перехода
 
 - Добавлен транзакционный `commit_transition_case`: повторная проверка case/FIFO/allocation revisions, bridge, tax/evidence fingerprints, sealed preview, replay и idempotency; ставка, полная allocation/projection, commit audit и `APPLIED` фиксируются одним `BEGIN IMMEDIATE`.
@@ -5593,3 +5670,10 @@ Completed:
 - Parser различает `redeemed_units=775` и `non_sale_expense_units=5`, сверяет opening 4492 + receipts 0 − expenses 780 − closing 3712 = 0 и сохраняет buckets доставки покупателю/возврата отдельно. 3712 остаётся отчётным closing total и не подменяет доступный/физический stock.
 - FL12 commit `1f209a23`; focused synthetic profile **21 passed**, полный FIFO/Telegram FIFO профиль **409 passed in 17.21s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Владелец XLSX не использовался тестами, API/UI/persistence ещё не подключены.
 - FL13 добавил 1 security regression к общему XLSX preflight: скрытые sheets отклоняются до parsing. Текущая повторная проверка: FL12 parser **22 passed**, FL13 parser **13 passed**, связанный профиль **423 passed**. Следующий этап FL14 описан выше.
+# 2026-11-08 — FIFO FL25: возобновляемый мастер поздней партии
+
+- В карточке уже можно начать или открыть сохранённое FIFO-дело. Новый runtime мастер последовательно подтверждает прежнюю себестоимость, новую стоимость TOTAL_LANDED/COMPONENTS, дату первой отправки, старые остатки дома/в пути и известный общий объём новой партии. Каждый подтверждённый блок сохраняется как новая CAS revision; новое количество, оставшееся дома, не спрашивается и остаётся неизвестным.
+- Можно добавить типизированные номера заявки/поставки с количеством или пропустить этот этап, а также начать контекстный выбор оборотной ведомости/отчёта остатков. Callback короткий и opaque; переход между магазинами прекращает ввод. После перезапуска пользователь возобновляет case из durable списка. Сохранение мастера не меняет FIFO, стоимость отчётов или фактическую прибыль.
+- FL25 code SHA `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked FIFO/Telegram/Period Profit profile **537 passed**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Все тестовые данные синтетические. Реальный case владельца не применён и не подтверждён.
+
+# 2026-11-08 — FIFO FL24: переход к поздней партии до настройки очереди

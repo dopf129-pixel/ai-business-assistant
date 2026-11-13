@@ -1,3 +1,83 @@
+# 2026-11-08 — FIFO review-fix regression map
+
+- `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.
+- `tests/test_fifo_cost_cutoff_bridge_service.py` and `tests/test_fifo_cost_transition_atomic_apply.py`: exact linked returns/non-sale movements are validated against persisted source events and origin sale chronology; unsupported/duplicate/over-quantity cases fail closed.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py`: a READY case reopened by a fresh runtime remains a read-only summary, not an editable wizard; confirmed callbacks retain their exact scope/revision guards. `tests/test_fifo_cost_transition_service.py` injects one fixed clock into the repository and service on restart so case timestamps do not depend on wall-clock order.
+- `tests/test_fifo_cost_rate_service.py`: first ordinary rate after late-entry is accepted only after current allocation replay, source fingerprint, stream revision and finite remaining layers all reconcile. Multiple active-rate replay remains unsupported and is recorded as an open review issue.
+- Verification: focused profile **110 passed in 8.23s**; full Windows pytest in a disposable worktree **5,115 passed in 61.10s**; `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS after restoring the one test-mutated `data/tasks.json` from Git. Final full suite ran with the temporary copy as its actual working directory. Current-head remote CI has not run on this local correction set.
+
+# 2026-11-08 — FIFO FL34 full-suite and FL35 review packet
+
+- `tests/test_analytics_export_service.py::test_fc28_period_export_keeps_screen_fifo_values_references_and_correction_versions` now asserts the current `mixed_cutoff_sku_count=0` projection in both JSON and CSV metadata.
+- `tests/test_product_decision_verified_guidance_telegram_wiring_v1061_v1070.py::test_v1070_factory_shares_history_with_readonly_verifier` now gives its factory test double the production FIFO cache invalidation method.
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` now injects the same fake clock into both independent repositories, preventing its preview TTL from depending on wall time.
+- The first full-run failures were diagnosed and corrected without changing runtime behavior: eight came from test-harness storage/dependency isolation, two from stale fixtures, and the subsequent single race failure from mixing a frozen preview clock with system clocks. The updated deterministic race and export/factory tests pass.
+- Final isolated Windows pytest on implementation SHA `4771794e4372c5443ab65cee349d2e673508118e`: **5104 passed in 75.99s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Review packet: `project_brain/FIFO_LATE_ENTRY_INDEPENDENT_REVIEW_PACKET_2026-11-08.md`.
+- Historical exact-head Verify runs: PR #728 SHA `5b4f8588` run 42433357867 PASS; PR #729 SHA `7abf5d79` run 42480102151 PASS; PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` run 42480784925 PASS (Windows/Linux full verification and Linux Docker build/runtime smoke). These runs predate and do not cover the local review corrections documented at the top of this file.
+
+# 2026-11-08 — FIFO FL33 owner acceptance map
+
+- Manual owner acceptance instructions: `docs/fifo-cost-history-user-guide.md` and `project_brain/FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md`. They document the exact menu sequence, known values, source periods and remaining evidence without asking for credentials/raw JSON.
+- Static contract reference: `project_brain/DECISIONS_066.md`; no new business/architecture decision and no code/test change was made in FL33. Owner live validation is explicitly not performed; `USER_VALIDATION_PENDING` and `SOURCE_BLOCKED` remain.
+
+# 2026-11-08 — FIFO FL32 backup/restore and migration map
+
+- `tests/test_fifo_cost_backup_restore.py::test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply` round-trips DRAFT/AWAITING_EVIDENCE/APPLIED cases through the normal archive service, retains the encrypted reference, proves the wrong key does not turn a declaration into an absent supply, and verifies exact apply replay makes no new FIFO writes. Existing sibling backup test preserves a saved planning snapshot.
+- `tests/test_fifo_cost_transition_schema_v13.py` covers fresh schema v13 contract, v12→v13 migration rollback/foreign keys and v13→v14 cutoff-mapping migration; the late-entry round-trip exercises schema v14 in a tenant-scoped database.
+- Targeted backup/schema profile: **9 passed**; linked FIFO/Telegram/Period Profit profile: **583 passed in 26.48s**. Six `data/` files, 89,184 bytes, aggregate SHA-256 `602553deb79d4cca559df8a3b0e0c6d412a5aaf1aa8a2978362875d3820fb3ca` before and after. Temporary storage only.
+
+# 2026-11-08 — FIFO FL31 regression map
+
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_two_concurrent_confirms_apply_one_fifo_transition` synchronizes two independent repository instances at the same READY preview; verifies one commit and fail-closed CAS for the competing confirmation.
+- Related existing FL31 checks: `tests/test_fifo_cost_transition_store.py` (tenant/store/SKU scope and concurrent lifecycle CAS); `tests/test_fifo_cost_transition_service.py` and `tests/test_fifo_cost_transition_supply_reconciliation_service.py` (source fingerprints, duplicate pages/acts and ambiguity); `tests/test_telegram_fifo_cost_transition_runtime_service.py` (TOTAL_LANDED/COMPONENTS and wrong-store callback); `tests/test_fifo_cost_report_import_service.py`, `tests/test_fifo_cost_stock_management_import_service.py` and worker/import service tests (stale CSV/XLSX, formulas, duplicate/missing headers/SKU, hidden sheets, malicious package/size limits); `tests/test_fifo_telegram_navigation_regressions.py` (start, calculator/workflow switching, ReturnInventory and external-expense draft preservation).
+- Verification: atomic apply **11 passed**; linked FIFO/Telegram/Period Profit/navigation/external-expense profile **582 passed in 26.33s**. Inputs use `tmp_path`, synthetic XLSX/CSV and temporary SQLite; no owner Downloads or database is read.
+
+# 2026-11-08 — FIFO FL30 numeric matrix and durable acceptance regressions
+
+- Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).
+- `tests/test_fifo_cost_transition_supply_refresh_durable_acceptance.py`: production-shaped refresh saves complete per-act evidence and a new review/repository instance restores its acceptance result. Parameterized `0` and `100` accepted-unit cases prove explicit zero differs from missing evidence; final partial receipt is a discrepancy, and FIFO remains uninitialized with no stock write.
+- `tests/test_fifo_cost_transition_observations.py`, `tests/test_fifo_cost_transition_review_service.py`, `tests/test_fifo_cost_transition_supply_reconciliation_service.py`, and `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py`: backward-compatible status-only observations, durable typed act payload, read reconstruction, source/declaration binding, correction and cumulative receipt behavior.
+- `tests/test_fifo_cost_late_entry_impact_service.py` and `tests/test_fifo_cost_replay_service.py`: independently calculated Decimal controls for N21/N23/N24/N25/N27/N29; all N01–N40 cases are mapped in `project_brain/FIFO_LATE_ENTRY_NUMERICAL_ACCEPTANCE_FL30_2026-11-08.md`.
+- Linked FIFO/Telegram/Period Profit profile: **1094 passed in 44.41s**. Focused acceptance/review/reconciliation profile: **39 passed in 2.04s**. `compileall -q app tests`, `git diff --check`, and tracked `data/` diff passed. Synthetic SQLite and generated API fixtures only.
+
+# 2026-11-08 — FIFO FL29 history, cancellation, and refresh regressions
+
+- `tests/test_fifo_cost_transition_service.py`: cancellation remains idempotent and append-only after restart; encrypted supply declaration evidence remains readable after cancellation; bounded revision pages retain exact order and exclude case/raw lookup IDs; delayed source clock cannot move case `updated_at` backward.
+- `tests/test_telegram_fifo_cost_history.py`: terminal-case history is reconstructed by a fresh runtime service, CSV contains transition revisions without raw/ciphertext/case IDs, and callbacks remain opaque. Export stays under existing row/byte limits.
+- `tests/test_fifo_cost_transition_atomic_apply.py`: changed evidence moves READY back to AWAITING_EVIDENCE without changing any sealed preview column/payload or writing FIFO rows; APPLIED amount overwrite is rejected and a linked correction case is append-created.
+- Focused lifecycle/history/runtime/atomic profile: **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile: **1086 passed in 44.07s**. `compileall -q app tests`, `git diff --check`, and unchanged `data/` all passed; only synthetic temporary SQLite was used.
+
+# 2026-11-08 — FIFO FL28: Period Profit across cutoff
+
+- `tests/test_fifo_cost_period_profit_source_service.py` validates exact finance-ID selection, pre/post mapping, incomplete bridge rejection, complete-through coverage, and later FIFO allocations. Missing mapping cannot be replaced with an allocation date for a financial period touching cutoff.
+- `tests/test_fifo_cost_transition_atomic_apply.py` verifies mapping rows and metadata commit atomically with transition apply, append-only guards, rollback at all injected write boundaries, and pre/post physical-date classification. `tests/test_fifo_cost_transition_schema_v13.py` verifies additive v13→v14 migration.
+- `tests/test_period_profit_fifo_cost_integration.py` checks the N21/N27-style mixed result (2×21.00 + 3×14.65 = 85.95 ₽ COGS), matching stream/allocation/mapping revisions in report explanation/export. `tests/test_fifo_cost_history_service.py` verifies late shipment transfer adds no cost layer.
+- Focused profile **60 passed**; complete linked FIFO/Telegram/Period Profit profile **1085 passed in 44.01s**. Compileall/diff-check/data-preservation PASS; fixtures use temporary SQLite.
+
+# 2026-11-08 — FIFO FL27 consumers/cache regressions
+
+- `tests/test_fifo_late_entry_current_consumers.py` covers current cost/cache staying at legacy 21.00 ₽ across a persisted READY transition and switching to FIFO 14.65 ₽ only after atomic `APPLIED`; the exact cost revision forces a fresh unit-economics query, and runtime apply requests revision-aware detail invalidation.
+- `tests/test_product_unit_economics_telegram_ui.py` covers stale rendered-detail rejection when either cost/allocation revision changes, exact identity/revision invalidation, and preservation of current-revision and other-SKU snapshots.
+- Existing `tests/test_product_unit_economics_query_cache.py` verifies immediate exact-cost-revision cache refresh. Existing `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export` verifies frozen old plan assumptions across restart/copy/new plan revisions. Existing FL26 review tests verify TOTAL_LANDED is not decomposed.
+- Focused profile: **72 passed**. Linked FIFO/Telegram/Period Profit/current unit economics/saved plans: **617 passed in 27.93s**. Compileall, `git diff --check`, and `git diff --exit-code -- data` PASS; temporary synthetic SQLite only.
+
+# 2026-11-08 — FIFO FL26 Telegram review/actions
+
+- `tests/test_fifo_cost_transition_review_service.py`: read-only reconstruction from exact scoped durable evidence, readiness stays non-applicable, ciphertext/reference fields remain hidden, source report and declarations retain typed provenance, confirmed layer view excludes unknown/replay-required quantities.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py`: distinct save/readiness/preview/cancel/apply guards; TOTAL_LANDED versus COMPONENTS; coverage/source periods and owner provenance; 21.00→14.65 unit-cost delta explicitly not profit; 10 SUPPLY declarations paginated 8+2; opaque callbacks stay ≤64 bytes and contain no raw references; forged apply is denied before READY without a service call.
+- READY-case review is explicitly tested as read-only and continues to return `ready_to_apply=false`.
+- FL26 targeted suite: **57 passed in 4.38s**. Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, and `test_period_profit_fifo_cost_integration.py`: **545 passed in 24.43s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Synthetic temporary SQLite only.
+
+# 2026-11-08 — FIFO FL25 Telegram transition wizard
+
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py` covers explicit input confirmation and durable revision increments, 21.00→14.65 TOTAL_LANDED with no fabricated component breakdown, 10+3+1.65 COMPONENTS total parity, unknown new-home quantity, restart/resume, separate ORDER/SUPPLY declarations summing to 6,982, case-bound opaque report selection, and rejected cross-store text/callbacks.
+- Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **537 passed**. `compileall -q app tests`, `git diff --check`, and unchanged `data/` checks PASS. Only temporary synthetic SQLite; no live source calls.
+
+# 2026-11-08 — FIFO FL24 Telegram routing regressions
+
+- `tests/test_telegram_fifo_cost_history.py` verifies uninitialized card keeps anchor/zero-start while exposing late-entry and draft-list actions; TOTAL_LANDED/COMPONENTS mode routing; active transition blocks zero-start without FIFO writes; resume callback is opaque, bounded to Telegram's 64-byte limit, and rejected for another Telegram user.
+- FL24 linked FIFO/Telegram/Period Profit profile: **533 passed in 22.87s**. `compileall -q app tests`, `git diff --check`, and unchanged `data/` checks PASS. Test storage is synthetic temporary SQLite.
+
 # 2026-11-08 — FIFO FL23 atomic commit regressions
 
 - `tests/test_fifo_cost_transition_atomic_apply.py` uses a real temporary SQLite repository and the production cutoff bridge. It covers an uninitialized FIFO read-only preview, numeric N21 layers (`3×21.00 + 100×14.65`, sale 5, COGS `92.30`, remaining 98 at `14.65`), exact preview replay and conflicting payload, stale tax/bridge/stock/return evidence, and idempotent commit replay after TTL and tax-policy change.

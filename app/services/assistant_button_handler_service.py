@@ -5651,6 +5651,11 @@ class AssistantButtonHandlerService:
                 "message": "Юнит-экономика недоступна",
             }
 
+        cost_identity = (
+            result.pop("_cost_cache_identity", None)
+            if isinstance(result, dict) else None
+        )
+
         validation_error = (
             self._validate_unit_economics_result(
                 result
@@ -5709,6 +5714,9 @@ class AssistantButtonHandlerService:
                         sku=str(sku),
                         calculator_button=button,
                         cost_callback=cost_callback,
+                        cost_identity=cost_identity,
+                        cost_revision=result.get("cost_revision"),
+                        allocation_revision=self._unit_economics_allocation_revision(result),
                     )
                     snapshot_token = breakdown_callback.split(":", 1)[1]
 
@@ -5743,6 +5751,7 @@ class AssistantButtonHandlerService:
 
     def _store_unit_economics_detail_snapshot(
         self, user_id, message, *, sku=None, calculator_button=None, cost_callback=None,
+        cost_identity=None, cost_revision=None, allocation_revision=None,
     ):
         now = monotonic()
         token = secrets.token_urlsafe(6)
@@ -5754,6 +5763,9 @@ class AssistantButtonHandlerService:
             "tenant_scope": str(get_current_tenant_user_id() or ""),
             "calculator_button": dict(calculator_button) if isinstance(calculator_button, dict) else None,
             "cost_callback": str(cost_callback) if cost_callback else None,
+            "cost_identity": dict(cost_identity) if isinstance(cost_identity, dict) else None,
+            "cost_revision": str(cost_revision) if cost_revision else None,
+            "allocation_revision": str(allocation_revision) if allocation_revision else None,
         }
         with self._unit_economics_state_lock:
             expired = [
@@ -5877,6 +5889,26 @@ class AssistantButtonHandlerService:
                     "Откройте SKU заново; источники при этом не запрашивались."
                 ),
             }
+        if snapshot.get("cost_revision") is not None:
+            current_revisions = self._resolve_current_cost_revisions(
+                snapshot.get("cost_identity"),
+            )
+            if (
+                current_revisions is None
+                or current_revisions.get("cost_revision") != snapshot.get("cost_revision")
+                or current_revisions.get("allocation_revision") != snapshot.get("allocation_revision")
+            ):
+                with self._unit_economics_state_lock:
+                    if self._unit_economics_detail_snapshots.get(key) is snapshot:
+                        self._unit_economics_detail_snapshots.pop(key, None)
+                return {
+                    "error": False,
+                    "code": "UNIT_ECONOMICS_BREAKDOWN_STALE",
+                    "message": (
+                        "Себестоимость или FIFO-распределение изменились. "
+                        "Откройте SKU заново, чтобы получить актуальную расшифровку."
+                    ),
+                }
         keyboard = None
         if self.keyboard_service is not None:
             keyboard = self.keyboard_service.build_unit_economics_detail_keyboard(
@@ -5891,6 +5923,78 @@ class AssistantButtonHandlerService:
         if keyboard is not None:
             result["keyboard"] = keyboard
         return result
+
+    @staticmethod
+    def _unit_economics_allocation_revision(result):
+        basis = result.get("cost_basis") if isinstance(result, dict) else None
+        allocation = basis.get("quantity_allocation_basis") if isinstance(basis, dict) else None
+        revision = allocation.get("revision") if isinstance(allocation, dict) else None
+        return str(revision) if revision else None
+
+    def _resolve_current_cost_revisions(self, identity):
+        if not isinstance(identity, dict) or any(
+            not str(identity.get(key) or "").strip()
+            for key in ("store_id", "product_id", "offer_id", "sku")
+        ):
+            return None
+        adapter = getattr(self.unit_economics_query, "cost_adapter", None)
+        resolver = getattr(adapter, "resolve_current_cost", None)
+        if not callable(resolver):
+            return None
+        date_getter = getattr(adapter, "get_current_cost_date", None)
+        try:
+            as_of_date = date_getter() if callable(date_getter) else None
+            current = resolver(
+                {key: identity[key] for key in ("product_id", "offer_id", "sku")},
+                store_id=identity["store_id"], as_of_date=as_of_date,
+            )
+        except Exception:
+            return None
+        if not isinstance(current, dict) or current.get("error") is True:
+            return None
+        cost_revision = current.get("cost_revision")
+        if not isinstance(cost_revision, str) or not cost_revision:
+            return None
+        basis = current.get("cost_basis")
+        allocation = basis.get("quantity_allocation_basis") if isinstance(basis, dict) else None
+        allocation_revision = allocation.get("revision") if isinstance(allocation, dict) else None
+        return {
+            "cost_revision": cost_revision,
+            "allocation_revision": str(allocation_revision) if allocation_revision else None,
+        }
+
+    def invalidate_fifo_transition_snapshots(self, identity):
+        """Evict cached details whose exact cost/allocation revision is no longer current."""
+        if not isinstance(identity, dict):
+            return 0
+        current_tenant = str(get_current_tenant_user_id() or "")
+        if not current_tenant:
+            return 0
+        expected_identity = {
+            key: str(identity.get(key) or "")
+            for key in ("store_id", "product_id", "offer_id", "sku")
+        }
+        if any(not value for value in expected_identity.values()):
+            return 0
+        current_revisions = self._resolve_current_cost_revisions(expected_identity)
+        stale = []
+        with self._unit_economics_state_lock:
+            for key, snapshot in self._unit_economics_detail_snapshots.items():
+                if (
+                    not isinstance(snapshot, dict)
+                    or snapshot.get("tenant_scope") != current_tenant
+                    or snapshot.get("cost_identity") != expected_identity
+                ):
+                    continue
+                if (
+                    current_revisions is None
+                    or snapshot.get("cost_revision") != current_revisions["cost_revision"]
+                    or snapshot.get("allocation_revision") != current_revisions["allocation_revision"]
+                ):
+                    stale.append(key)
+            for key in stale:
+                self._unit_economics_detail_snapshots.pop(key, None)
+        return len(stale)
 
 
     def _extract_sku(

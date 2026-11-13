@@ -1,3 +1,78 @@
+# 2026-11-08 — FIFO late-entry review corrections
+
+- Same-file owner period confirmation now persists as a separate immutable report-period decision, so an imported report can be confirmed without rewriting or colliding with its original evidence.
+- Cutoff bridge movement checks now preserve supported, exact linked return/non-sale evidence and reject ambiguous origins, duplicated quantities, and unsupported transfer movements. An ordinary cost change after a late-entry replay is accepted only after the current persisted allocation is independently rebuilt and reconciled.
+- READY cases reopen read-only after a process restart. Historical finance SKU aliases are accepted only with a seller-confirmed mapping bound to the current product/offer; otherwise the bridge remains blocked.
+- Review follow-up is **not merge-ready**: the production Telegram factory still does not assemble a cutoff bridge or inject atomic apply, and replay still rejects multiple active cost rates. No current-head CI has run for these local corrections.
+
+# 2026-11-08 — FIFO FL34–FL35: exact stack checks and review packet
+
+- Full isolated Windows pytest passed **5,104 tests in 75.99s** on integration code/test SHA `4771794e4372c5443ab65cee349d2e673508118e`. Compileall, diff-check and tracked `data/` integrity passed.
+- Exact-head Verify runs for PR #728 (`42433357867`) and PR #729 (`42480102151`) passed Windows/Linux verification and Linux production Docker smoke. PR #730 SHA `5178d50110a445e8313e7e4b2979cfc43dcfbe89` passed run [42480784925](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/42480784925) on both platforms and Docker smoke.
+- Added an independent review packet with stack refs, changed-files map, FL00–FL35 crosswalk, migration/rollback and positive atomic-commit review guidance, numeric controls and owner-data limitations. PRs #728–#730 were marked ready at that point; this was superseded by the follow-up review status above.
+- The full-suite harness corrections were test-only: sync the current export projection, provide the production invalidation method in the factory test double, and inject one fixed clock into both concurrent confirmation repositories.
+
+# 2026-11-08 — FIFO FL33: owner late-entry guide and evidence checklist
+
+- Updated the owner guide and acceptance plan with the exact 05.11 late-entry flow, `TOTAL_LANDED` guidance for the known 14.65 ₽ full unit cost, and an explicit instruction to leave the uncounted new-home quantity unknown.
+- Documented the inspected sources and unresolved `1,191` vs `1,192` stock discrepancy, the turnover report's coverage only through 05.11, the 148-unit RECEIVING caveat, and the missing per-supply identities/acts/physical-sale bridge. The safe `🔍 Проверить готовность` path is documented as read-only.
+- Updated Decision 066 status: synthetic FL00–FL32 verification does not merge/deploy the branch or unlock the factual FIFO COGS gate. Owner acceptance remains pending.
+
+# 2026-11-08 — FIFO FL32: late-entry backup and restore round-trip
+
+- Added a normal backup/restore integration regression containing concurrent late-entry cases in `DRAFT`, `AWAITING_EVIDENCE`, and `APPLIED`, including the encrypted supply lookup reference. The same test verifies a wrong Fernet key does not erase or relabel the declared supply as absent.
+- Restore keeps all FIFO table counts stable; an exact replay of the already-applied confirmation returns its original commit and creates no additional events, layers, rates, or allocations. Existing v12/v13 migration and saved-plan snapshot tests remain part of the suite.
+- Targeted backup/schema profile: **9 passed**; linked FIFO/Telegram/Period Profit profile: **583 passed in 26.48s**. The six-file `data/` manifest stayed at **89,184 bytes**, SHA-256 `602553deb79d4cca559df8a3b0e0c6d412a5aaf1aa8a2978362875d3820fb3ca`.
+
+# 2026-11-08 — FIFO FL31: concurrent confirmation and isolation regressions
+
+- Added a barrier-synchronized two-request confirmation regression using separate repository instances and idempotency keys. Exactly one late-entry transition may apply; the competing stale request returns a revision conflict, with one commit/allocation/rate and no duplicate stock or COGS events.
+- Existing FL31 coverage was cross-checked for owner/store/SKU scoping, historical aliases, source conflicts, both cost-input modes, stale/wrong-store callbacks, safe report parsing and navigation preservation.
+- Targeted atomic-apply tests: **11 passed**. Linked FIFO, Telegram FIFO, Period Profit integration, navigation and external-expense profile: **582 passed in 26.33s**. Synthetic temporary SQLite and files only.
+
+# 2026-11-08 — FIFO FL30: persist acceptance-act evidence through restart
+
+- The late-entry supply refresh now saves the allowlisted acceptance-act facts it already reads: opaque act digests, document date, declared/approved/fact quantities, source fingerprints, and capture time. A fresh review service reconstructs accepted quantities from that durable evidence.
+- Explicit zero accepted units remain distinct from unavailable or missing act evidence. Status and acceptance evidence remain separate; saving either does not create stock, FIFO layers, cost, or profit changes. No database migration was needed because the existing append-only transition payload already stores typed evidence.
+- Code commit: `2dec7566` (`Persist FIFO transition acceptance act evidence`).
+- FL30 numeric controls and the new durable-refresh regression pass; linked FIFO/Telegram/Period Profit profile: **1094 passed**. Synthetic fixtures only; owner-case verification and remote CI remain pending.
+
+# 2026-11-08 — FIFO FL29: transition history, cancellation, and refresh safety
+
+- Code commit: 0bcb13d8cfd4704429a08999e7a014a2c4275e8a; independent architecture review is required because this adds a repository/service read path and Telegram history/export integration.
+- Added owner/store/SKU-scoped, paginated reads of append-only transition case revisions. Telegram can reopen draft, awaiting-evidence, ready, applied, and cancelled cases after a process restart; callbacks stay opaque and bounded.
+- FIFO history CSV now includes allowlisted transition revision rows under the existing 10,000-row/1 MB bounds. Raw lookup references, encrypted references, case IDs, and evidence references are excluded. Direct edits to an APPLIED case remain rejected; a linked correction is represented by a new case.
+- Evidence refresh preserves sealed preview rows and advances the case to AWAITING_EVIDENCE. Case `updated_at` remains monotonic when a source timestamp is older than the last owner edit.
+- FL29 focused lifecycle/history/export/atomic-apply profile: **69 passed in 6.40s**; linked FIFO/Telegram/Period Profit profile: **1086 passed in 44.07s**. `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic SQLite only; owner case and full CI remain pending.
+
+# 2026-11-08 — FIFO FL28: cutoff partition in Period Profit
+
+- Period Profit can combine confirmed legacy cost for physical sales through the cutoff with FIFO COGS for post-cutoff sales, selected by exact finance sale identity while preserving the financial recognition period. The same stream, allocation, cutoff-mapping revisions appear in the canonical explanation and export projection.
+- Missing or incomplete bridge coverage fails closed for periods touching cutoff. Schema v14 adds append-only cutoff sale mapping evidence atomically with transition apply. A late TRANSIT→OZON delivery is verified as a movement and does not create another receipt/opening layer.
+- FL28 focused set: **60 passed**; linked FIFO/Telegram/Period Profit profile: **1085 passed in 44.01s**; compileall, diff-check, and unchanged `data/` passed. Synthetic only; owner case remains unverified.
+
+# 2026-11-08 — FIFO current economics and cache revisions (FL27)
+
+- Current unit economics continues to use the effective legacy cost while a transition is only draft/ready. After atomic `APPLIED`, the current-cost adapter observes the new FIFO history revision and the query cache is refreshed by its exact cost revision.
+- Rendered Telegram expense details now retain exact product/store, cost and allocation revisions. Stale callbacks are rejected, and successful transition apply invalidates only matching snapshots whose revisions are no longer current. Saved planning documents remain frozen historical assumptions.
+- FL27 consumer/cache/planning profile: **72 passed**; linked FIFO, Telegram, Period Profit, current unit economics and saved planning profile: **617 passed**. Compileall, diff-check, and unchanged `data/` checks passed. Synthetic database only; owner case remains unverified.
+
+# 2026-11-08 — FIFO late-entry readiness and review actions (FL26)
+
+- Added scoped read-only reconstruction of saved FIFO transition evidence, explicit readiness requirements and a recalculation preview with owner/source provenance, confirmed layers, coverage limits, and a clear separation between unit-cost difference and actual profit.
+- Added paginated selection of exact supply declarations, opaque callback tickets, and repeated server-side state/revision checks before any apply action. Apply remains unavailable until READY and production orchestration is not yet wired.
+- READY cases can reopen the same read-only readiness review, which never marks them applicable. FL26 targeted profile: **57 passed**; linked FIFO/Telegram/Period Profit profile: **545 passed**; compileall, diff-check and unchanged `data/` checks passed. Synthetic evidence only.
+
+# 2026-11-08 — FIFO late-entry resumable wizard (FL25)
+
+- Added the durable owner-input wizard for FIFO late-entry cases, including TOTAL_LANDED and COMPONENTS paths, CAS revisions after confirmed input blocks, typed supply declarations, case-bound report selection, and resume from saved cases after process restart. New home quantity stays unknown; draft input does not activate FIFO or alter profit.
+- FL25 linked FIFO/Telegram/Period Profit profile: **537 passed**; compileall, diff-check, and unchanged `data/` checks passed. Synthetic SQLite only; no owner data, live APIs, or bot run.
+
+# 2026-11-08 — FIFO late-entry access before queue initialization (FL24)
+
+- The uninitialized FIFO card now exposes late-party entry and unfinished changes without hiding the transition behind `queue_initialized`. Initial anchor and zero-start actions remain available; an active scoped transition blocks zero-start. Existing FIFO/profit state is unchanged.
+- Added owner/tenant/SKU-bound opaque resume tickets for saved transition drafts. FL24 linked FIFO/Telegram/Period Profit profile: **533 passed**; compileall, diff-check and unchanged `data/` checks passed. Synthetic storage only; no live Ozon/Telegram calls or bot run.
+
 # 2026-11-08 — FIFO late-entry atomic apply
 
 - Added a single-transaction FIFO late-entry confirmation that seals source, tax and replay evidence, atomically writes the rate/allocation/projection and audit, and moves the case to `APPLIED`. Initial cutover remains preview-only until confirmation; retries are idempotent and partial writes roll back.

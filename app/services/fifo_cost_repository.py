@@ -38,7 +38,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 13
+    SCHEMA_VERSION = 15
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -111,8 +111,11 @@ class FifoCostRepository:
         "fifo_cost_supply_declarations",
         "fifo_cost_supply_observations",
         "fifo_cost_report_evidence",
+        "fifo_cost_report_period_confirmations",
         "fifo_cost_transition_previews",
         "fifo_cost_transition_commits",
+        "fifo_cost_cutoff_sale_mapping_sets",
+        "fifo_cost_cutoff_sale_mappings",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -139,8 +142,11 @@ class FifoCostRepository:
         "fifo_cost_supply_declarations",
         "fifo_cost_supply_observations",
         "fifo_cost_report_evidence",
+        "fifo_cost_report_period_confirmations",
         "fifo_cost_transition_previews",
         "fifo_cost_transition_commits",
+        "fifo_cost_cutoff_sale_mapping_sets",
+        "fifo_cost_cutoff_sale_mappings",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -257,6 +263,39 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def read_transition_case_history(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        limit=100, before_revision=None,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return self._error("FIFO_TRANSITION_LIMIT_INVALID")
+        if before_revision is not None and (
+            type(before_revision) is not int or before_revision < 2
+        ):
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_case_history(
+                connection, case_id, scope, identity,
+                limit=limit, before_revision=before_revision,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
     def append_supply_declaration(
         self, *, declaration, expected_case_revision, idempotency_key,
     ):
@@ -326,7 +365,7 @@ class FifoCostRepository:
 
     def read_transition_evidence(
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
-        kind, limit=100,
+        kind, limit=100, include_encrypted_lookup_reference=False,
     ):
         identity = self._normalize_transition_read_identity(
             store_id, product_id=product_id, offer_id=offer_id, sku=sku,
@@ -343,6 +382,7 @@ class FifoCostRepository:
             connection = self.get_connection()
             return FifoCostTransitionStore.read_evidence(
                 connection, case_id, scope, identity, kind=kind, limit=limit,
+                include_encrypted_lookup_reference=include_encrypted_lookup_reference,
             )
         except (sqlite3.Error, OSError, ValueError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
@@ -1094,6 +1134,13 @@ class FifoCostRepository:
                     payload=payload, now=now, now_text=now_text,
                     idempotency_key=idempotency_key,
                 )
+                mapping_error = self._persist_cutoff_sale_mapping_set(
+                    connection, stream_id=stream_id,
+                    cutoff_bridge=cutoff_bridge, created_at=now_text,
+                )
+                if mapping_error:
+                    connection.rollback()
+                    return self._error(mapping_error)
                 applied = FifoCostTransitionStore.apply_case_preview(
                     connection, case_id=case_id, scope=scope, identity=identity,
                     expected_case_revision=expected_case_revision,
@@ -1608,16 +1655,75 @@ class FifoCostRepository:
         )
         if any(row["effective_date"] <= cutoff for row in rows) or actual != expected:
             return "FIFO_TRANSITION_SALE_BRIDGE_MISMATCH"
-        counts = connection.execute(
-            """SELECT event_kind, COUNT(*) AS count
+        ledger_rows = connection.execute(
+            """SELECT event_kind, source_identity_digest, quantity, effective_date,
+                      supersedes_event_id, reason_code
                FROM fifo_cost_events WHERE stream_id=?
                  AND event_kind IN ('SALEABLE_RETURN_RESTOCK', 'NON_SALE_OUTFLOW')
-               GROUP BY event_kind""",
-            (stream_id,),
+                 AND effective_date>? AND effective_date<=?
+               ORDER BY event_kind, source_identity_digest, effective_date, quantity""",
+            (stream_id, cutoff, bridge.complete_through),
         ).fetchall()
-        ledger_count = sum(row["count"] for row in counts)
-        if ledger_count != len(bridge.linked_returns_non_sale_movements):
+        expected_movements = []
+        from services.fifo_cost_cutoff_bridge_service import FifoCutoffMovementReference
+
+        for movement in bridge.linked_returns_non_sale_movements:
+            if not isinstance(movement, FifoCutoffMovementReference):
+                return "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+            if movement.movement_kind == "RETURN":
+                origin = connection.execute(
+                    """SELECT event_id, effective_date, quantity FROM fifo_cost_events
+                       WHERE stream_id=? AND event_kind='PHYSICAL_SALE'
+                         AND source_identity_digest=? LIMIT 2""",
+                    (stream_id, movement.linked_sale_identity_digest),
+                ).fetchall()
+                if len(origin) != 1:
+                    return "FIFO_TRANSITION_MOVEMENT_ORIGIN_SALE_MISMATCH"
+                if origin[0]["effective_date"] >= movement.effective_date:
+                    return "FIFO_TRANSITION_MOVEMENT_ORDER_UNRESOLVED"
+                prior_returns = connection.execute(
+                    """SELECT COALESCE(SUM(quantity), 0)
+                       FROM fifo_cost_events
+                       WHERE stream_id=? AND event_kind='SALEABLE_RETURN_RESTOCK'
+                         AND supersedes_event_id=? AND source_identity_digest<>?""",
+                    (stream_id, origin[0]["event_id"], movement.source_identity_digest),
+                ).fetchone()[0]
+                if prior_returns + movement.quantity > origin[0]["quantity"]:
+                    return "FIFO_TRANSITION_RETURN_QUANTITY_EXCEEDS_ORIGIN_SALE"
+                expected_movements.append((
+                    "SALEABLE_RETURN_RESTOCK", movement.source_identity_digest,
+                    movement.quantity, movement.effective_date, origin[0]["event_id"],
+                    None,
+                ))
+            elif movement.movement_kind == "SELLER_WITHDRAWAL":
+                expected_movements.append((
+                    "NON_SALE_OUTFLOW", movement.source_identity_digest,
+                    movement.quantity, movement.effective_date, None, "SUPPLIER_RETURN",
+                ))
+            elif movement.movement_kind == "DAMAGE":
+                expected_movements.append((
+                    "NON_SALE_OUTFLOW", movement.source_identity_digest,
+                    movement.quantity, movement.effective_date, None, None,
+                ))
+            else:
+                return "FIFO_TRANSITION_MOVEMENT_KIND_UNSUPPORTED"
+        expected_movements.sort(key=lambda row: (row[0], row[1], row[3], row[2]))
+        actual_movements = [tuple(row) for row in ledger_rows]
+        # Damage may use either of the already validated disposal/write-off
+        # reason codes; the source identity, quantity, date and event kind must
+        # still match exactly.
+        if len(actual_movements) != len(expected_movements):
             return "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+        for expected, actual in zip(expected_movements, actual_movements):
+            if expected[:5] != actual[:5]:
+                return "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+            if expected[0] == "NON_SALE_OUTFLOW":
+                if expected[5] is not None and actual[5] != expected[5]:
+                    return "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
+                if expected[5] is None and actual[5] not in {
+                    "OZON_DISPOSAL", "INVENTORY_WRITE_OFF",
+                }:
+                    return "FIFO_TRANSITION_MOVEMENT_BRIDGE_MISMATCH"
         return None
 
     @classmethod
@@ -2478,15 +2584,254 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    @classmethod
+    def _persist_cutoff_sale_mapping_set(
+        cls, connection, *, stream_id, cutoff_bridge, created_at,
+    ):
+        """Append the exact financial-sale ↔ physical-cutoff partition atomically."""
+        try:
+            cutoff = cls._normalize_date(cutoff_bridge.cutoff_date)
+            complete_through = cls._normalize_date(cutoff_bridge.complete_through)
+            bridge_fingerprint = cutoff_bridge.source_set_fingerprint
+            if (
+                cutoff is None or complete_through is None or complete_through < cutoff
+                or not cls._valid_digest(bridge_fingerprint)
+            ):
+                return "FIFO_CUTOFF_SALE_MAPPING_INVALID"
+            mapping_events = []
+            for partition, events in (
+                ("PRE_CUTOFF", cutoff_bridge.pre_cutoff_outflows),
+                ("POST_CUTOFF", cutoff_bridge.post_cutoff_events),
+            ):
+                for event in events:
+                    event_date = cls._normalize_date(event.physical_effective_date)
+                    if (
+                        not cls._valid_digest(event.source_identity_digest)
+                        or type(event.quantity) is not int or event.quantity < 1
+                        or event_date is None
+                        or (partition == "PRE_CUTOFF" and event_date > cutoff)
+                        or (partition == "POST_CUTOFF" and event_date <= cutoff)
+                    ):
+                        return "FIFO_CUTOFF_SALE_MAPPING_INVALID"
+                    mapping_events.append((
+                        event.source_identity_digest, event.quantity, event_date,
+                        partition,
+                    ))
+            if len(mapping_events) > 100_000:
+                return "FIFO_CUTOFF_SALE_MAPPING_LIMIT_EXCEEDED"
+            digests = [row[0] for row in mapping_events]
+            if len(digests) != len(set(digests)):
+                return "FIFO_CUTOFF_SALE_MAPPING_DUPLICATE"
+            finance_fingerprints = {
+                digest: fingerprint
+                for digest, fingerprint in cutoff_bridge.finance_to_sale_identity_mappings
+            }
+            if (
+                len(finance_fingerprints) != len(cutoff_bridge.finance_to_sale_identity_mappings)
+                or set(finance_fingerprints) != set(digests)
+                or any(
+                    finance_fingerprints[digest] != event.finance_source_fingerprint
+                    for partition_events in (
+                        cutoff_bridge.pre_cutoff_outflows,
+                        cutoff_bridge.post_cutoff_events,
+                    )
+                    for event in partition_events
+                    for digest in (event.source_identity_digest,)
+                )
+            ):
+                return "FIFO_CUTOFF_SALE_MAPPING_COVERAGE_MISMATCH"
+
+            existing = connection.execute(
+                """SELECT mapping_set_id, cutoff_date, complete_through,
+                          mapping_count FROM fifo_cost_cutoff_sale_mapping_sets
+                   WHERE stream_id=? AND bridge_fingerprint=?""",
+                (stream_id, bridge_fingerprint),
+            ).fetchone()
+            expected_rows = sorted(mapping_events)
+            if existing is not None:
+                stored_rows = connection.execute(
+                    """SELECT source_identity_digest, quantity,
+                              physical_effective_date, partition
+                       FROM fifo_cost_cutoff_sale_mappings
+                       WHERE mapping_set_id=? ORDER BY source_identity_digest""",
+                    (existing["mapping_set_id"],),
+                ).fetchall()
+                if (
+                    existing["cutoff_date"] != cutoff
+                    or existing["complete_through"] != complete_through
+                    or existing["mapping_count"] != len(expected_rows)
+                    or [tuple(row) for row in stored_rows] != expected_rows
+                ):
+                    return "FIFO_CUTOFF_SALE_MAPPING_CONFLICT"
+                return None
+
+            revision = connection.execute(
+                """SELECT COALESCE(MAX(mapping_revision), 0) + 1
+                   FROM fifo_cost_cutoff_sale_mapping_sets WHERE stream_id=?""",
+                (stream_id,),
+            ).fetchone()[0]
+            mapping_set_id = "cutoffmap_" + cls._sha256({
+                "stream_id": stream_id, "bridge_fingerprint": bridge_fingerprint,
+            })[:40]
+            connection.execute(
+                """INSERT INTO fifo_cost_cutoff_sale_mapping_sets (
+                    mapping_set_id, stream_id, mapping_revision, cutoff_date,
+                    complete_through, bridge_fingerprint, mapping_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (mapping_set_id, stream_id, revision, cutoff, complete_through,
+                 bridge_fingerprint, len(expected_rows), created_at),
+            )
+            connection.executemany(
+                """INSERT INTO fifo_cost_cutoff_sale_mappings (
+                    mapping_set_id, source_identity_digest, quantity,
+                    physical_effective_date, partition
+                ) VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (mapping_set_id, digest, quantity, physical_date, partition)
+                    for digest, quantity, physical_date, partition in expected_rows
+                ],
+            )
+            return None
+        except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError):
+            return "FIFO_CUTOFF_SALE_MAPPING_STORAGE_UNAVAILABLE"
+
+    def read_cutoff_sale_mapping_set(
+        self, *, store_id, product_id=None, offer_id=None, sku,
+    ):
+        """Read and validate the latest committed physical-date partition."""
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        connection = None
+        try:
+            identity = self._normalize_identity(store_id, product_id, offer_id, sku, 1)
+            fingerprint = self._sha256(identity)
+            stream_id = "fifo_" + fingerprint[:40]
+            connection = self.get_connection()
+            connection.execute("BEGIN")
+            stream = connection.execute(
+                """SELECT revision, state FROM fifo_cost_streams
+                   WHERE stream_id=? AND store_id=? AND identity_fingerprint=?""",
+                (stream_id, identity["store_id"], fingerprint),
+            ).fetchone()
+            if stream is None or stream["state"] in {"LEGACY", "FIFO_PENDING_ANCHOR"}:
+                connection.rollback()
+                return {"error": False, "active": False}
+            mapping_set = connection.execute(
+                """SELECT mapping_set_id, mapping_revision, cutoff_date,
+                          complete_through, bridge_fingerprint, mapping_count
+                   FROM fifo_cost_cutoff_sale_mapping_sets WHERE stream_id=?
+                   ORDER BY mapping_revision DESC LIMIT 1""",
+                (stream_id,),
+            ).fetchone()
+            projection = connection.execute(
+                "SELECT inventory_cutoff, cutoff_status FROM fifo_cost_projections WHERE stream_id=?",
+                (stream_id,),
+            ).fetchone()
+            if mapping_set is None or projection is None:
+                connection.rollback()
+                return {
+                    "error": False, "active": True, "complete": False,
+                    "reason_code": "FIFO_CUTOFF_SALE_MAPPING_UNAVAILABLE",
+                }
+            if (
+                projection["cutoff_status"] != "RECONCILED"
+                or projection["inventory_cutoff"] != mapping_set["cutoff_date"]
+            ):
+                connection.rollback()
+                return {
+                    "error": False, "active": True, "complete": False,
+                    "reason_code": "FIFO_CUTOFF_SALE_MAPPING_STALE",
+                }
+            rows = connection.execute(
+                """SELECT source_identity_digest, quantity,
+                          physical_effective_date, partition
+                   FROM fifo_cost_cutoff_sale_mappings
+                   WHERE mapping_set_id=? ORDER BY source_identity_digest""",
+                (mapping_set["mapping_set_id"],),
+            ).fetchall()
+            cutoff = self._normalize_date(mapping_set["cutoff_date"])
+            complete_through = self._normalize_date(mapping_set["complete_through"])
+            if (
+                cutoff is None or complete_through is None or complete_through < cutoff
+                or not self._valid_digest(mapping_set["bridge_fingerprint"])
+                or len(rows) != mapping_set["mapping_count"]
+            ):
+                connection.rollback()
+                return {
+                    "error": False, "active": True, "complete": False,
+                    "reason_code": "FIFO_CUTOFF_SALE_MAPPING_INVALID",
+                }
+            mappings = []
+            seen = set()
+            for row in rows:
+                digest = row["source_identity_digest"]
+                event_date = self._normalize_date(row["physical_effective_date"])
+                partition = row["partition"]
+                if (
+                    not self._valid_digest(digest) or digest in seen
+                    or type(row["quantity"]) is not int or row["quantity"] < 1
+                    or event_date is None
+                    or (partition == "PRE_CUTOFF" and event_date > cutoff)
+                    or (partition == "POST_CUTOFF" and event_date <= cutoff)
+                    or partition not in {"PRE_CUTOFF", "POST_CUTOFF"}
+                    or event_date > complete_through
+                ):
+                    connection.rollback()
+                    return {
+                        "error": False, "active": True, "complete": False,
+                        "reason_code": "FIFO_CUTOFF_SALE_MAPPING_INVALID",
+                    }
+                seen.add(digest)
+                mappings.append({
+                    "source_identity_digest": digest,
+                    "quantity": row["quantity"],
+                    "physical_effective_date": event_date,
+                    "partition": partition,
+                })
+            connection.commit()
+            return {
+                "error": False, "active": True, "complete": True,
+                "mapping_revision": mapping_set["mapping_revision"],
+                "cutoff_date": cutoff, "complete_through": complete_through,
+                "bridge_fingerprint": mapping_set["bridge_fingerprint"],
+                "mappings": mappings,
+            }
+        except (sqlite3.Error, OSError, TypeError, ValueError, InvalidOperation, OverflowError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return {
+                "error": False, "active": True, "complete": False,
+                "reason_code": "FIFO_CUTOFF_SALE_MAPPING_UNAVAILABLE",
+            }
+        finally:
+            if connection is not None:
+                connection.close()
+
     def read_period_allocation_summary(
         self, *, store_id, product_id=None, offer_id=None, sku,
-        date_from, date_to,
+        date_from, date_to, source_identity_digests=None,
+        require_identity_coverage=True,
     ):
         """Read one exact SKU's latest complete FIFO COGS allocation by period."""
         start = self._normalize_date(date_from)
         end = self._normalize_date(date_to)
         if start is None or end is None or start > end:
             return self._error("FIFO_PERIOD_INVALID")
+        digest_filter = None
+        if source_identity_digests is not None:
+            if (
+                not isinstance(source_identity_digests, (list, tuple, set, frozenset))
+                or len(source_identity_digests) > 100_000
+                or type(require_identity_coverage) is not bool
+            ):
+                return self._error("FIFO_ALLOCATION_IDENTITY_FILTER_INVALID")
+            digest_filter = set(source_identity_digests)
+            if (
+                any(not self._valid_digest(item) for item in digest_filter)
+                or len(digest_filter) != len(source_identity_digests)
+            ):
+                return self._error("FIFO_ALLOCATION_IDENTITY_FILTER_INVALID")
         scope = self._tenant_scope(store_id)
         if scope.get("error"):
             return scope
@@ -2701,7 +3046,13 @@ class FifoCostRepository:
                 group["quantity"] += quantity
                 group["total"] += Decimal(total_cost)
                 sale = source_by_id[line["event_id"]]
-                if start <= sale["effective_date"] <= end:
+                sale_digest = sale["source_identity_digest"]
+                selected_for_period = (
+                    sale_digest in digest_filter
+                    if digest_filter is not None
+                    else start <= sale["effective_date"] <= end
+                )
+                if selected_for_period:
                     sequence = line["layer_sequence"]
                     effective_date = self._normalize_date(
                         line["basis_effective_date"]
@@ -2775,7 +3126,12 @@ class FifoCostRepository:
                 total = group["total"].quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP,
                 )
-                if start <= row["effective_date"] <= end:
+                selected_for_period = (
+                    digest in digest_filter
+                    if digest_filter is not None
+                    else start <= row["effective_date"] <= end
+                )
+                if selected_for_period:
                     period_cogs += total
                     period_units += row["quantity"]
                     allocations.append({
@@ -2784,6 +3140,16 @@ class FifoCostRepository:
                         "quantity": row["quantity"],
                         "total_cogs_rub": format(total, ".2f"),
                     })
+            if (
+                digest_filter is not None and require_identity_coverage
+                and digests.intersection(digest_filter) != digest_filter
+            ):
+                connection.rollback()
+                return {
+                    "error": False, "code": "FIFO_COST_SCOPE_INCOMPLETE",
+                    "active": True, "complete": False,
+                    "reason_code": "FIFO_ALLOCATION_SALE_COVERAGE_MISMATCH",
+                }
             allocations.sort(key=lambda item: (
                 item["effective_date"], item["source_identity_digest"],
             ))
@@ -4932,7 +5298,7 @@ class FifoCostRepository:
             projection = connection.execute(
                 """SELECT revision, state, known_quantity, known_cost_rub,
                           next_unit_cost_rub, queue_complete, cutoff_status,
-                          source_set_fingerprint
+                          source_set_fingerprint, inventory_cutoff
                    FROM fifo_cost_projections WHERE stream_id=?""",
                 (stream_id,),
             ).fetchone()
@@ -5055,9 +5421,6 @@ class FifoCostRepository:
                 )
                 if isinstance(stock, str):
                     return self._error(stock)
-                # Until accepted sale/movement replay is available, a current
-                # count cannot be used to shrink older layers or explain away
-                # inventory disappearance.
                 movement_count = connection.execute(
                     """SELECT COUNT(*) FROM fifo_cost_events
                        WHERE stream_id=? AND event_kind NOT IN (
@@ -5065,8 +5428,73 @@ class FifoCostRepository:
                        )""",
                     (stream_id,),
                 ).fetchone()[0]
+                replayed_finite_units = None
                 if movement_count:
-                    return self._error("FIFO_RATE_REPLAY_REQUIRED")
+                    # A late transition already stores an exact allocation for
+                    # its complete sale bridge. Reuse it only after rebuilding
+                    # and validating the same replay from immutable events;
+                    # never infer consumption from the current stock count.
+                    allocation = connection.execute(
+                        """SELECT revision, stream_revision, status, cutoff_status,
+                                  source_set_fingerprint
+                           FROM fifo_cost_allocations WHERE stream_id=?
+                           ORDER BY revision DESC LIMIT 1""",
+                        (stream_id,),
+                    ).fetchone()
+                    allocation_revision = connection.execute(
+                        "SELECT COALESCE(MAX(revision), 0) FROM fifo_cost_allocations "
+                        "WHERE stream_id=?", (stream_id,),
+                    ).fetchone()[0]
+                    current_source_fingerprint = self._allocation_source_fingerprint(
+                        connection, stream_id, stream["revision"],
+                        stream["policy_version"], projection["cutoff_status"],
+                    )
+                    if (
+                        allocation is None
+                        or allocation["stream_revision"] != stream["revision"]
+                        or allocation["status"] != "COMPLETE"
+                        or allocation["cutoff_status"] != "RECONCILED"
+                        or allocation["source_set_fingerprint"]
+                        != current_source_fingerprint
+                        or projection["queue_complete"] != 1
+                        or projection["cutoff_status"] != "RECONCILED"
+                    ):
+                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
+                    current_replay = self._preview_allocation_from_connection(
+                        connection, stream_id,
+                        stream_revision=stream["revision"],
+                        allocation_revision=allocation_revision,
+                        source_fingerprint=current_source_fingerprint,
+                        cutoff_status=projection["cutoff_status"],
+                        anchor_cutoff_date=projection["inventory_cutoff"],
+                    )
+                    normalized_replay = self._normalize_allocation_preview(
+                        current_replay, "rate-reconcile-current-0001",
+                    ) if current_replay else "FIFO_ALLOCATION_PREVIEW_INCOMPLETE"
+                    if isinstance(normalized_replay, str):
+                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
+                    try:
+                        self._validate_allocation_lines(
+                            connection, stream_id, normalized_replay,
+                            stream_revision=stream["revision"],
+                            allocation_revision=allocation_revision,
+                            source_fingerprint=current_source_fingerprint,
+                            cutoff_status=projection["cutoff_status"],
+                        )
+                    except (TypeError, ValueError):
+                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
+                    remaining = self._replayed_remaining_layers(
+                        connection, stream_id, allocation["revision"],
+                    )
+                    if remaining is None or any(
+                        type(item.get("remaining_units")) is not int
+                        or item["remaining_units"] < 0
+                        for item in remaining
+                    ):
+                        return self._error("FIFO_RATE_REPLAY_REQUIRED")
+                    replayed_finite_units = sum(
+                        item["remaining_units"] for item in remaining
+                    )
                 previous_rate_sequence = previous["rate_sequence"]
                 prior_reconciliation_count = connection.execute(
                     """SELECT COUNT(*) FROM fifo_cost_rate_reconciliations
@@ -5092,7 +5520,11 @@ class FifoCostRepository:
                 ).fetchone()
                 if already_reconciled is not None:
                     return self._error("FIFO_RATE_RECONCILIATION_ALREADY_EXISTS")
-                older_units = projection["known_quantity"]
+                older_units = (
+                    replayed_finite_units
+                    if replayed_finite_units is not None
+                    else projection["known_quantity"]
+                )
                 if type(older_units) is not int or older_units < 0:
                     return self._error("FIFO_PROJECTION_STALE")
                 total_units = (
@@ -8277,6 +8709,22 @@ class FifoCostRepository:
                 UNIQUE(case_id, report_type, file_sha256)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_report_period_confirmations (
+                period_confirmation_id TEXT PRIMARY KEY,
+                report_evidence_id TEXT NOT NULL
+                    REFERENCES fifo_cost_report_evidence(report_evidence_id),
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                confirmation_revision INTEGER NOT NULL CHECK(confirmation_revision >= 1),
+                period_from TEXT NOT NULL,
+                period_to TEXT NOT NULL,
+                period_provenance TEXT NOT NULL CHECK(period_provenance = 'OWNER_CONFIRMED'),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                confirmed_at TEXT NOT NULL,
+                UNIQUE(report_evidence_id, confirmation_revision),
+                UNIQUE(report_evidence_id, source_fingerprint),
+                CHECK(period_to >= period_from)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_transition_previews (
                 preview_id TEXT PRIMARY KEY,
                 case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
@@ -8303,6 +8751,28 @@ class FifoCostRepository:
                 complete_through TEXT,
                 committed_at TEXT NOT NULL,
                 UNIQUE(case_id, idempotency_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_cutoff_sale_mapping_sets (
+                mapping_set_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                mapping_revision INTEGER NOT NULL CHECK(mapping_revision >= 1),
+                cutoff_date TEXT NOT NULL,
+                complete_through TEXT NOT NULL,
+                bridge_fingerprint TEXT NOT NULL CHECK(length(bridge_fingerprint) = 64),
+                mapping_count INTEGER NOT NULL CHECK(mapping_count >= 0),
+                created_at TEXT NOT NULL,
+                UNIQUE(stream_id, mapping_revision),
+                UNIQUE(stream_id, bridge_fingerprint)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_cutoff_sale_mappings (
+                mapping_set_id TEXT NOT NULL REFERENCES fifo_cost_cutoff_sale_mapping_sets(mapping_set_id),
+                source_identity_digest TEXT NOT NULL CHECK(length(source_identity_digest) = 64),
+                quantity INTEGER NOT NULL CHECK(quantity > 0 AND quantity <= 100000),
+                physical_effective_date TEXT NOT NULL,
+                partition TEXT NOT NULL CHECK(partition IN ('PRE_CUTOFF', 'POST_CUTOFF')),
+                PRIMARY KEY(mapping_set_id, source_identity_digest)
             );
             """
         for statement in statements.split(";"):
@@ -8348,6 +8818,8 @@ class FifoCostRepository:
                 ON fifo_cost_transition_previews(case_id, expires_at);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_commits_case
                 ON fifo_cost_transition_commits(case_id, committed_at);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cutoff_mapping_sets_latest
+                ON fifo_cost_cutoff_sale_mapping_sets(stream_id, mapping_revision DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;
@@ -8448,6 +8920,15 @@ class FifoCostRepository:
             "fifo_cost_transition_commits": {
                 "commit_id", "case_id", "case_revision", "preview_id",
                 "idempotency_key", "payload_fingerprint", "committed_at",
+            },
+            "fifo_cost_cutoff_sale_mapping_sets": {
+                "mapping_set_id", "stream_id", "mapping_revision", "cutoff_date",
+                "complete_through", "bridge_fingerprint", "mapping_count",
+                "created_at",
+            },
+            "fifo_cost_cutoff_sale_mappings": {
+                "mapping_set_id", "source_identity_digest", "quantity",
+                "physical_effective_date", "partition",
             },
         }
         actual_transition_columns = {

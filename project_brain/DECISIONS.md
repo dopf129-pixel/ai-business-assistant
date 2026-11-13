@@ -2,7 +2,9 @@
 
 ## Decision 066 — FIFO cost ledger, finance-SKU aliases, and inventory cutoff gate
 
-Keep factual FIFO evidence in a dedicated append-only repository using the existing tenant SQLite database, separate from Planning Workspace and legacy mutable cost. Do not auto-backfill old cost rows. FIFO cutover is per exact store/SKU; historical finance-SKU aliases retain separate sale identities, are reconciled as one complete exact-stream set, then receive per-alias COGS attribution. Immutable events and allocation revisions use CAS/idempotency. If the stock/physical-sale cutoff is not proven, `INVENTORY_CUTOFF_UNRECONCILED` blocks FIFO COGS from factual Period Profit. Existing finance, TaxService, Return COGS and saved-plan owners remain unchanged. Details: `DECISIONS_066.md` and `FIFO_COST_CONTRACTS_2026-11-06.md`.
+Keep factual FIFO evidence in a dedicated append-only repository using the existing tenant SQLite database, separate from Planning Workspace and legacy mutable cost. Do not auto-backfill old cost rows. FIFO cutover is per exact store/SKU; historical finance-SKU aliases retain separate sale identities, are reconciled as one complete exact-stream set, then receive per-alias COGS attribution. Immutable events, cutoff-to-sale mapping sets and allocation revisions use CAS/idempotency. If the stock/physical-sale cutoff is not proven, `INVENTORY_CUTOFF_UNRECONCILED` blocks FIFO COGS from factual Period Profit. Periods crossing cutoff require full bridge coverage and resolve COGS by exact sale identity while tax remains in the financial recognition period. Existing finance, TaxService, Return COGS and saved-plan owners remain unchanged. Details: `DECISIONS_066.md` and `FIFO_COST_CONTRACTS_2026-11-06.md`.
+
+Implementation note (2026-11-08): late-entry work is verified only with synthetic sources in the review branch. The current owner case remains `SOURCE_BLOCKED`; see `DECISIONS_066.md` and `FIFO_COST_OWNER_ACCEPTANCE_2026-11-06.md` for the 1,191/1,192 source mismatch and remaining evidence.
 
 ## Decision 065 — owner decisions are immutable experiment evidence
 
