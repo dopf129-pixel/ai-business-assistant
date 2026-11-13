@@ -7,8 +7,8 @@
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.
 - Spec branch: codex/fifo-auto-batch-rule-spec-20261113.
 - Product baseline: main 7965dcddffa50bd4e0f175cd18c32929b6a845d0.
-- Implementation branch/HEAD: codex/fifo-auto-batch-foundation-20261113 at 0fa8b7835829a710bf86adda1c3737d8286c42de (FB00 checkpoint in progress).
-- Следующий этап: FB00. Выполненных implementation stages нет.
+- Implementation branch/HEAD: codex/fifo-auto-batch-foundation-20261113; FB00 checkpoint `56c7c24a`.
+- Следующий этап: FB01. Завершён FB00; продуктовые изменения пока не начаты.
 - Прежняя untracked .fl12-deps/ сохранена, не добавлять в Git.
 - Рабочая копия: изолированный Codex worktree; Desktop-папка с работающим ботом не открывалась для разработки.
 - Исходный `git status`: только `?? .fl12-deps/`; staged и tracked diff отсутствовали. Каталог .fl12-deps содержит 6 элементов, сохранён и исключён из изменений.
@@ -24,7 +24,7 @@
 
 | Этап | Статус | Коммит / файлы | Проверки и фактический результат |
 |---|---|---|---|
-| FB00 | IN_PROGRESS | spec SHA 0fa8b783; new A branch; progress journal | Working tree had no tracked/staged edits; .fl12-deps preserved; five tracked data hashes recorded; base/main=7965dcdd; Desktop bot untouched. |
+| FB00 | DONE | `56c7c24a`; progress journal | `git status` подтвердил отсутствие tracked/staged edits на старте; `.fl12-deps/` сохранён; пять tracked data hashes записаны; base/main=7965dcdd; Desktop bot не открывался. `git diff --check` PASS. |
 | FB01 | NOT_STARTED | — | — |
 | FB02 | NOT_STARTED | — | — |
 | FB03 | NOT_STARTED | — | — |
