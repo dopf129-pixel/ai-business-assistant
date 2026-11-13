@@ -187,6 +187,16 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     if document is None:
         return
+    filename = str(document.file_name or "")
+    if (
+        filename.lower().endswith(".xlsx")
+        and type(document.file_size) is int
+        and document.file_size > 10 * 1024 * 1024
+    ):
+        await update.message.reply_text(
+            "XLSX для FIFO не должен превышать 10 МиБ. Файл не загружен; FIFO-дело не изменено."
+        )
+        return
     progress_message = await begin_progress(
         update.message,
         bot=context.bot,

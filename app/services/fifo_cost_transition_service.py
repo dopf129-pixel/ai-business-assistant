@@ -9,6 +9,10 @@ import hashlib
 import re
 
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_cutoff_bridge_service import FifoCostCutoffBridgeService
+from services.fifo_cost_transition_activation_proposal_service import (
+    FifoCostTransitionActivationProposalService,
+)
 from services.fifo_cost_source_normalizer import (
     FifoActiveSupplySnapshot,
 )
@@ -49,9 +53,35 @@ class FifoCostTransitionService:
         TransitionState.AWAITING_EVIDENCE,
     })
 
-    def __init__(self, repository: FifoCostRepository | None = None, *, now_provider=None):
+    def __init__(
+        self, repository: FifoCostRepository | None = None, *,
+        now_provider=None, cutoff_bridge_service=None,
+        activation_proposal_service=None,
+    ):
         self.repository = repository or FifoCostRepository()
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self.cutoff_bridge_service = cutoff_bridge_service or FifoCostCutoffBridgeService()
+        self.activation_proposal_service = (
+            activation_proposal_service or FifoCostTransitionActivationProposalService()
+        )
+
+    def build_cutoff_bridge(self, **evidence) -> dict:
+        """Build a read-only bridge through the production transition service."""
+        try:
+            result = self.cutoff_bridge_service.build(**evidence)
+        except (TypeError, ValueError) as exc:
+            code = str(exc) or "FIFO_CUTOFF_BRIDGE_INPUT_INVALID"
+            return self._error(code)
+        return {"error": False, "result": result}
+
+    def build_activation_proposal(self, **evidence) -> dict:
+        """Build a no-write opening/rate proposal through production wiring."""
+        try:
+            result = self.activation_proposal_service.propose(**evidence)
+        except (TypeError, ValueError) as exc:
+            code = str(exc) or "FIFO_ACTIVATION_PROPOSAL_INPUT_INVALID"
+            return self._error(code)
+        return {"error": False, "result": result}
 
     def create_case(self, *, case: TransitionCase, idempotency_key: str) -> dict:
         if not isinstance(case, TransitionCase):

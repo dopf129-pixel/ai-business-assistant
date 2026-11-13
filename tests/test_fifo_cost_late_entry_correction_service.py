@@ -21,6 +21,7 @@ IDENTITY = {
 }
 SUMMARY = [{
     "period": "2026-11", "complete": True, "source_fingerprint": "d" * 64,
+    "sale_identity_digests": ["a" * 64],
     "revenue": "1000.00", "discount_points": "0.00", "net_accrual": "500.00",
     "current_total_product_cost": "100.00", "current_sku_product_cost": "100.00",
 }]
@@ -181,6 +182,38 @@ def test_fc22_changed_period_source_invalidates_preview_without_writes(ready_cor
     assert result["reason_code"] == "FIFO_LATE_ENTRY_SOURCE_STALE"
     assert repository.read_cost_history_snapshot(**IDENTITY)["revision"] == 2
     assert repository.read_cost_history_snapshot(**IDENTITY)["rates"] == []
+    assert repository.read_late_entry_corrections(**IDENTITY)["corrections"] == []
+
+
+def test_fc22_changed_financial_recognition_period_invalidates_preview_without_writes(
+    ready_correction,
+):
+    repository, service, draft_id = ready_correction
+    preview = _preview(ready_correction, draft_id)
+    changed_period = [dict(SUMMARY[0], period="2026-10")]
+
+    result = _confirm(service, preview, draft_id, summaries=changed_period)
+
+    assert result["reason_code"] == "FIFO_LATE_ENTRY_SOURCE_STALE"
+    assert repository.read_cost_history_snapshot(**IDENTITY)["revision"] == 2
+    assert repository.read_cost_history_snapshot(**IDENTITY)["rates"] == []
+    assert repository.read_late_entry_corrections(**IDENTITY)["corrections"] == []
+
+
+def test_fc22_cannot_prepare_confirmation_without_financial_sale_mapping(ready_correction):
+    repository, service, draft_id = ready_correction
+    unassigned = [dict(SUMMARY[0])]
+    unassigned[0].pop("sale_identity_digests")
+
+    result = service.preview(
+        **IDENTITY, draft_id=draft_id,
+        period_summaries=unassigned, tax_policy_result=TAX,
+    )
+
+    assert result["code"] == "FIFO_LATE_ENTRY_IMPACT_CANDIDATE_ONLY"
+    assert result["reason_code"] == "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+    assert "preview_id" not in result
+    assert repository.read_cost_history_snapshot(**IDENTITY)["revision"] == 2
     assert repository.read_late_entry_corrections(**IDENTITY)["corrections"] == []
 
 

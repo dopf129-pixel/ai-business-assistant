@@ -70,6 +70,7 @@ from services.period_profit_effective_cost_service import (
     PeriodProfitEffectiveCostService,
 )
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_rate_service import FifoCostRateService
 from services.fifo_cost_rate_cancellation_service import FifoCostRateCancellationService
@@ -83,6 +84,7 @@ from services.telegram_fifo_cost_rate_entry_service import TelegramFifoCostRateE
 from services.telegram_fifo_cost_late_entry_service import TelegramFifoCostLateEntryService
 from services.fifo_cost_anchor_service import FifoCostAnchorService
 from services.telegram_fifo_cost_anchor_entry_service import TelegramFifoCostAnchorEntryService
+from services.telegram_fifo_cost_report_import_service import TelegramFifoCostReportImportService
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
@@ -165,6 +167,11 @@ from services.tax_configuration_service import TaxConfigurationService
 _APP_BUILD_METADATA_SERVICE = AppBuildMetadataService()
 
 
+def create_fifo_cost_transition_service(repository=None):
+    """Compose the read-only transition coordinator used by production wiring."""
+    return FifoCostTransitionService(repository=repository)
+
+
 from telegram_app_layer.return_inventory_telegram_adapter import (
     ReturnInventoryTelegramAdapter as AssistantTelegramAdapter,
 )
@@ -232,6 +239,10 @@ def create_telegram_assistant():
 
     fifo_cost_repository = FifoCostRepository()
     system["fifo_cost_repository"] = fifo_cost_repository
+    fifo_cost_transition_service = create_fifo_cost_transition_service(
+        fifo_cost_repository,
+    )
+    system["fifo_cost_transition_service"] = fifo_cost_transition_service
 
     unit_economics_query = (
         create_current_unit_economics_query(
@@ -627,6 +638,9 @@ def create_telegram_assistant():
         fifo_cost_history_service,
         FifoCostAnchorService(fifo_cost_repository),
     )
+    telegram_fifo_cost_report_import_service = TelegramFifoCostReportImportService(
+        repository=fifo_cost_repository,
+    )
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
         cost_service=period_profit_cost_service,
@@ -662,6 +676,7 @@ def create_telegram_assistant():
             telegram_fifo_cost_rate_entry_service,
             telegram_fifo_cost_late_entry_service,
             telegram_fifo_cost_anchor_entry_service,
+            telegram_fifo_cost_report_import_service,
         )
     )
 
@@ -782,6 +797,7 @@ def create_telegram_assistant():
 
 
     runner.seller_cost_service = seller_cost_service
+    runner.fifo_cost_transition_service = fifo_cost_transition_service
     runner.fifo_cost_anchor_entry_service = telegram_fifo_cost_anchor_entry_service
     runner.return_inventory_service = return_inventory_service
     runner.onboarding_service = onboarding_service

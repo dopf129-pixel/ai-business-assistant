@@ -41,6 +41,8 @@ class FifoDatedAllocationEvent:
 
 class FifoCostReplayService:
     MAX_EVENTS = 100_000
+    MAX_ORDER_VARIANTS_PER_GROUP = 120
+    MAX_ORDER_ANALYSIS_WORK = 1_000_000
     _DIGEST = frozenset("0123456789abcdef")
 
     def __init__(self, allocation_service=None):
@@ -82,7 +84,7 @@ class FifoCostReplayService:
         if unsupported_event_count:
             return self._blocked("FIFO_REPLAY_UNSUPPORTED_EVENT")
 
-        ordered, order_error = self._order_events(
+        ordered, ambiguous_groups, order_error = self._order_events(
             normalized_events, anchor_cutoff_date=anchor_cutoff_date,
         )
         if order_error:
@@ -92,18 +94,6 @@ class FifoCostReplayService:
                 return self._blocked("FIFO_RATE_EFFECTIVE_DATE_UNAVAILABLE")
             if open_rate_effective_date <= anchor_cutoff_date:
                 return self._blocked("FIFO_RATE_EFFECTIVE_DATE_CONFLICT")
-            finite_units = sum(layer.quantity for layer in normalized_layers)
-            sales_before_rate = sum(
-                item.event.quantity for item in ordered
-                if isinstance(item.event, FifoSaleEvent)
-                and self._event_day(item) <= open_rate_effective_date
-            )
-            if sales_before_rate > finite_units or any(
-                isinstance(item.event, (FifoRestockEvent, FifoOutflowEvent))
-                and self._event_day(item) <= open_rate_effective_date
-                for item in ordered
-            ):
-                return self._blocked("FIFO_RATE_TRANSITION_ORDER_UNRESOLVED")
         core_events = [item.event for item in ordered]
 
         result = self._allocation.allocate(
@@ -115,6 +105,32 @@ class FifoCostReplayService:
             source_completeness=source_completeness,
             open_rate=open_rate,
         )
+        if open_rate is not None and result.complete:
+            effective_days = {
+                item.event.event_id: self._event_day(item)
+                for item in ordered
+                if isinstance(item.event, FifoSaleEvent)
+            }
+            if any(
+                line.layer_id == open_rate.layer_id
+                and effective_days.get(sale.event_id, "") <= open_rate_effective_date
+                for sale in result.sale_allocations
+                for line in sale.lines
+            ):
+                return self._blocked("FIFO_RATE_TRANSITION_ORDER_UNRESOLVED")
+        if ambiguous_groups:
+            order_error = self._ambiguous_order_error(
+                ordered=ordered,
+                ambiguous_groups=ambiguous_groups,
+                normalized_layers=normalized_layers,
+                baseline_result=result,
+                anchor_status=anchor_status,
+                cutoff_status=cutoff_status,
+                source_completeness=source_completeness,
+                open_rate=open_rate,
+            )
+            if order_error is not None:
+                return self._blocked(order_error)
         status = "COMPLETE" if result.complete else self._status_for(result.reason_code)
         allocations = []
         for sale in result.sale_allocations:
@@ -164,9 +180,9 @@ class FifoCostReplayService:
 
     def _order_events(self, events, *, anchor_cutoff_date):
         if len(events) > self.MAX_EVENTS:
-            return None, "FIFO_REPLAY_INPUT_LIMIT"
+            return None, (), "FIFO_REPLAY_INPUT_LIMIT"
         if any(not isinstance(item, FifoDatedAllocationEvent) for item in events):
-            return None, "FIFO_EVENT_INVALID"
+            return None, (), "FIFO_EVENT_INVALID"
         ids = []
         sale_digests = []
         return_digests = []
@@ -176,67 +192,256 @@ class FifoCostReplayService:
             event = item.event
             event_id = getattr(event, "event_id", None)
             if not isinstance(event_id, str) or not event_id or len(event_id) > 160:
-                return None, "FIFO_EVENT_INVALID"
+                return None, (), "FIFO_EVENT_INVALID"
             ids.append(event_id)
             position = self._effective_position(item.effective_at, item.effective_date)
             if position is None:
-                return None, "EVENT_ORDER_UNRESOLVED"
+                return None, (), "EVENT_ORDER_UNRESOLVED"
             if position[1] <= anchor_cutoff_date:
-                return None, "INVENTORY_CUTOFF_UNRECONCILED"
+                return None, (), "INVENTORY_CUTOFF_UNRECONCILED"
             if isinstance(event, FifoSaleEvent):
                 if not self._valid_digest(item.source_identity_digest):
-                    return None, "PHYSICAL_SALE_IDENTITY_UNCONFIRMED"
+                    return None, (), "PHYSICAL_SALE_IDENTITY_UNCONFIRMED"
                 if item.physical_time_confirmed is not True:
-                    return None, "PHYSICAL_SALE_TIME_UNCONFIRMED"
+                    return None, (), "PHYSICAL_SALE_TIME_UNCONFIRMED"
                 if item.cutoff_bridge_confirmed is not True:
-                    return None, "INVENTORY_CUTOFF_UNRECONCILED"
+                    return None, (), "INVENTORY_CUTOFF_UNRECONCILED"
                 sale_digests.append(item.source_identity_digest)
             elif isinstance(event, FifoRestockEvent):
                 if not self._valid_digest(item.source_identity_digest):
-                    return None, "FIFO_RETURN_IDENTITY_UNCONFIRMED"
+                    return None, (), "FIFO_RETURN_IDENTITY_UNCONFIRMED"
                 if item.saleable_recovery_confirmed is not True:
-                    return None, "FIFO_RETURN_SALEABLE_RECOVERY_UNCONFIRMED"
+                    return None, (), "FIFO_RETURN_SALEABLE_RECOVERY_UNCONFIRMED"
                 if item.physical_time_confirmed is not True:
-                    return None, "FIFO_RETURN_EFFECTIVE_DATE_UNAVAILABLE"
+                    return None, (), "FIFO_RETURN_EFFECTIVE_DATE_UNAVAILABLE"
                 if item.cutoff_bridge_confirmed is not True:
-                    return None, "INVENTORY_CUTOFF_UNRECONCILED"
+                    return None, (), "INVENTORY_CUTOFF_UNRECONCILED"
                 return_digests.append(item.source_identity_digest)
             elif isinstance(event, FifoOutflowEvent):
                 if not self._valid_digest(item.source_identity_digest):
-                    return None, "FIFO_MOVEMENT_IDENTITY_UNCONFIRMED"
+                    return None, (), "FIFO_MOVEMENT_IDENTITY_UNCONFIRMED"
                 if item.movement_reason_confirmed is not True:
-                    return None, "FIFO_MOVEMENT_REASON_UNCONFIRMED"
+                    return None, (), "FIFO_MOVEMENT_REASON_UNCONFIRMED"
                 if item.physical_time_confirmed is not True:
-                    return None, "FIFO_MOVEMENT_EFFECTIVE_DATE_UNAVAILABLE"
+                    return None, (), "FIFO_MOVEMENT_EFFECTIVE_DATE_UNAVAILABLE"
                 if item.cutoff_bridge_confirmed is not True:
-                    return None, "INVENTORY_CUTOFF_UNRECONCILED"
+                    return None, (), "INVENTORY_CUTOFF_UNRECONCILED"
                 movement_digests.append(item.source_identity_digest)
             else:
-                return None, "FIFO_EVENT_INVALID"
+                return None, (), "FIFO_EVENT_INVALID"
             normalized.append((position, event_id, item))
 
         if len(set(ids)) != len(ids):
-            return None, "FIFO_EVENT_ID_DUPLICATE"
+            return None, (), "FIFO_EVENT_ID_DUPLICATE"
         if len(set(sale_digests)) != len(sale_digests):
-            return None, "FIFO_SALE_IDENTITY_DUPLICATE"
+            return None, (), "FIFO_SALE_IDENTITY_DUPLICATE"
         if len(set(return_digests)) != len(return_digests):
-            return None, "FIFO_RETURN_IDENTITY_DUPLICATE"
+            return None, (), "FIFO_RETURN_IDENTITY_DUPLICATE"
         if len(set(movement_digests)) != len(movement_digests):
-            return None, "FIFO_MOVEMENT_IDENTITY_DUPLICATE"
+            return None, (), "FIFO_MOVEMENT_IDENTITY_DUPLICATE"
 
-        # Date-only evidence cannot order multiple events on the same date.
-        # Equal instants are also ambiguous for per-sale layer attribution.
-        positions_by_day = {}
-        positions = set()
+        # Date-only evidence may occur anywhere on its calendar day.  When a
+        # day also has timed rows, all rows for that day share one ambiguity
+        # group; the proof routine preserves order among distinct instants.
+        by_day = {}
+        by_instant = {}
         for position, _, item in normalized:
             instant_key, day_key, is_date_only = position
-            positions_by_day.setdefault(day_key, []).append(is_date_only)
-            if instant_key in positions:
-                return None, "EVENT_ORDER_UNRESOLVED"
-            positions.add(instant_key)
-        if any(len(flags) > 1 and any(flags) for flags in positions_by_day.values()):
-            return None, "EVENT_ORDER_UNRESOLVED"
-        return [item for _, _, item in sorted(normalized, key=lambda row: row[:2])], None
+            by_day.setdefault(day_key, []).append((position, item))
+            if not is_date_only:
+                by_instant.setdefault(instant_key, []).append((position, item))
+
+        ambiguous_groups = []
+        for rows in by_day.values():
+            if any(position[2] for position, _ in rows):
+                if len(rows) > 1:
+                    ambiguous_groups.append(tuple(item for _, item in rows))
+        for rows in by_instant.values():
+            if len(rows) > 1 and not any(position[2] for position, _ in rows):
+                ambiguous_groups.append(tuple(item for _, item in rows))
+
+        ordered = [item for _, _, item in sorted(normalized, key=lambda row: row[:2])]
+        ordered_index = {item.event.event_id: index for index, item in enumerate(ordered)}
+        ambiguous_groups.sort(key=lambda group: min(
+            ordered_index[item.event.event_id] for item in group
+        ))
+        return ordered, tuple(ambiguous_groups), None
+
+    def _ambiguous_order_error(
+        self, *, ordered, ambiguous_groups, normalized_layers, baseline_result,
+        anchor_status, cutoff_status, source_completeness, open_rate,
+    ):
+        baseline_signature = self._allocation_signature(baseline_result)
+        analysis_work_used = 0
+        for group in ambiguous_groups:
+            variants, exceeded = self._bounded_tie_orderings(
+                group, maximum=self.MAX_ORDER_VARIANTS_PER_GROUP,
+            )
+            if exceeded and baseline_result.complete:
+                if self._single_layer_group_is_invariant(
+                    ordered=ordered,
+                    group=group,
+                    normalized_layers=normalized_layers,
+                    anchor_status=anchor_status,
+                    cutoff_status=cutoff_status,
+                    source_completeness=source_completeness,
+                    open_rate=open_rate,
+                ):
+                    continue
+            index_by_id = {
+                item.event.event_id: index for index, item in enumerate(ordered)
+            }
+            indices = [index_by_id[item.event.event_id] for item in group]
+            for variant in variants:
+                candidate = list(ordered)
+                for index, item in zip(indices, variant):
+                    candidate[index] = item
+                analysis_work_used += len(candidate)
+                if analysis_work_used > self.MAX_ORDER_ANALYSIS_WORK:
+                    return "FIFO_REPLAY_ORDER_ANALYSIS_LIMIT"
+                result = self._allocation.allocate(
+                    layers=normalized_layers,
+                    events=[item.event for item in candidate],
+                    anchor_status=anchor_status,
+                    cutoff_status=cutoff_status,
+                    event_order_status="PROVEN",
+                    source_completeness=source_completeness,
+                    open_rate=open_rate,
+                )
+                if self._allocation_signature(result) != baseline_signature:
+                    return "EVENT_ORDER_UNRESOLVED"
+            if exceeded:
+                return "FIFO_REPLAY_ORDER_ANALYSIS_LIMIT"
+        return None
+
+    def _single_layer_group_is_invariant(
+        self, *, ordered, group, normalized_layers, anchor_status,
+        cutoff_status, source_completeness, open_rate,
+    ):
+        if open_rate is not None or any(
+            isinstance(item.event, FifoRestockEvent) for item in ordered
+        ):
+            return False
+        if any(not isinstance(item.event, (FifoSaleEvent, FifoOutflowEvent)) for item in group):
+            return False
+        group_quantity = sum(item.event.quantity for item in group)
+        ordered_index = {
+            item.event.event_id: index for index, item in enumerate(ordered)
+        }
+        group_start = min(ordered_index[item.event.event_id] for item in group)
+        prefix = [item.event for item in ordered[:group_start]]
+        if any(
+            not isinstance(layer, FifoCostLayer)
+            or type(layer.quantity) is not int
+            or layer.quantity < 0
+            or not isinstance(layer.layer_id, str)
+            for layer in normalized_layers
+        ):
+            return False
+        remaining = {layer.layer_id: layer.quantity for layer in normalized_layers}
+        if prefix:
+            prefix_result = self._allocation.allocate(
+                layers=normalized_layers,
+                events=prefix,
+                anchor_status=anchor_status,
+                cutoff_status=cutoff_status,
+                event_order_status="PROVEN",
+                source_completeness=source_completeness,
+                open_rate=None,
+            )
+            if not prefix_result.complete:
+                return False
+            for allocation in (*prefix_result.sale_allocations, *prefix_result.outflow_allocations):
+                lines = allocation.lines
+                for line in lines:
+                    if line.layer_id in remaining:
+                        remaining[line.layer_id] -= line.quantity
+        for quantity in remaining.values():
+            if quantity < 0:
+                return False
+        first_available = next(
+            (remaining[layer.layer_id] for layer in normalized_layers
+             if remaining.get(layer.layer_id, 0) > 0),
+            0,
+        )
+        return first_available >= group_quantity
+
+    @classmethod
+    def _bounded_tie_orderings(cls, group, *, maximum):
+        date_only = tuple(sorted(
+            (item for item in group if cls._effective_position(
+                item.effective_at, item.effective_date,
+            )[2]),
+            key=lambda item: item.event.event_id,
+        ))
+        timestamp_groups_by_instant = {}
+        for item in group:
+            position = cls._effective_position(item.effective_at, item.effective_date)
+            if not position[2]:
+                timestamp_groups_by_instant.setdefault(position[0], []).append(item)
+        timestamp_groups = tuple(
+            tuple(sorted(rows, key=lambda item: item.event.event_id))
+            for _, rows in sorted(timestamp_groups_by_instant.items())
+        )
+        output = []
+        exceeded = False
+
+        def walk(remaining_dates, time_group_index, remaining_times, prefix):
+            nonlocal exceeded
+            if exceeded:
+                return
+            if not remaining_dates and time_group_index >= len(timestamp_groups):
+                output.append(tuple(prefix))
+                if len(output) > maximum:
+                    exceeded = True
+                return
+            choices = list(remaining_dates)
+            current_times = remaining_times
+            current_index = time_group_index
+            while not current_times and current_index < len(timestamp_groups):
+                current_times = timestamp_groups[current_index]
+                break
+            choices.extend(current_times)
+            for item in sorted(choices, key=lambda value: value.event.event_id):
+                if item in remaining_dates:
+                    next_dates = tuple(value for value in remaining_dates if value is not item)
+                    walk(next_dates, current_index, current_times, [*prefix, item])
+                else:
+                    next_times = tuple(value for value in current_times if value is not item)
+                    next_index = current_index
+                    if not next_times:
+                        next_index += 1
+                        next_times = ()
+                    walk(remaining_dates, next_index, next_times, [*prefix, item])
+
+        walk(date_only, 0, (), [])
+        if exceeded:
+            return tuple(output[:maximum + 1]), True
+        return tuple(output), False
+
+    @staticmethod
+    def _allocation_signature(result):
+        def line_signature(line):
+            return (
+                line.layer_id, line.quantity, line.unit_cost_rub,
+                line.total_cost_rub, line.origin_sale_event_id,
+            )
+
+        sales = tuple(sorted((
+            row.event_id, row.quantity, row.total_cost_rub,
+            tuple(line_signature(line) for line in row.lines),
+        ) for row in result.sale_allocations))
+        outflows = tuple(sorted((
+            row.event_id, row.quantity, row.reason_code, row.estimated_value_rub,
+            tuple(line_signature(line) for line in row.lines),
+        ) for row in result.outflow_allocations))
+        return (
+            result.status, result.complete, result.reason_code, sales, outflows,
+            result.total_cogs_rub, result.non_sale_outflow_value_rub,
+            result.inventory_restored_value_rub, result.restored_units,
+            result.remaining_confirmed_units, result.total_available_units,
+            result.next_unit_cost_rub, result.next_unit_cost_status,
+        )
 
     @staticmethod
     def _effective_position(effective_at, effective_date):
@@ -323,6 +528,7 @@ class FifoCostReplayService:
             "FIFO_REPLAY_UNSUPPORTED_EVENT",
             "FIFO_RATE_EFFECTIVE_DATE_UNAVAILABLE",
             "FIFO_RATE_TRANSITION_ORDER_UNRESOLVED",
+            "FIFO_REPLAY_ORDER_ANALYSIS_LIMIT",
         }:
             return "SOURCE_BLOCKED"
         return "CONFLICT"

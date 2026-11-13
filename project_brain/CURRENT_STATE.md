@@ -1,3 +1,64 @@
+# 2026-11-08 — FIFO FL23: атомарное применение позднего перехода
+
+- Добавлен транзакционный `commit_transition_case`: повторная проверка case/FIFO/allocation revisions, bridge, tax/evidence fingerprints, sealed preview, replay и idempotency; ставка, полная allocation/projection, commit audit и `APPLIED` фиксируются одним `BEGIN IMMEDIATE`.
+- Для FIFO без начальной очереди preview допускает только сохранённый initial cutoff с подтверждёнными остатками. Начальный срез остаётся read-only до подтверждения; себестоимость слоёв ограничена старой/новой ценой и FIFO-порядком. Базовое сравнение N21 проверяет 105,00 ₽ до и 92,30 ₽ после, конечный подтверждённый остаток — 98 новых единиц.
+- Дословный повтор commit возвращает исходный результат после TTL и смены текущей налоговой политики; изменённый payload возвращает idempotency conflict. Сбой до/после каждого DML write откатывает все затронутые FIFO и transition таблицы.
+- FL23 code SHA `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; dedicated tests **10 passed**, linked FIFO/Telegram/Period Profit profile **531 passed**, `compileall -q app tests`, `git diff --check` и `git diff --exit-code -- data` PASS. Только synthetic temporary databases; реальный case и источники магазина не подтверждены. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Далее FL24 — кнопки для поздней партии и незавершённых изменений до настройки FIFO.
+
+# 2026-11-08 — FIFO FL22: финансовые периоды и влияние на прибыль
+
+- Impact preview теперь отделяет физическую дату FIFO-порядка от финансового периода признания. Полное сопоставление sale identity digest ↔ период обязательно и входит в отпечаток preview/confirmation; периодный охват должен включать весь зависимый горизонт продаж.
+- При недоступной исходной базе/сводке показывается только кандидатная себестоимость без дельт налога и прибыли. Полный путь продолжает считать налог через canonical `TaxService`; сервис остаётся read-only до FL23.
+- FL22 code SHA `4290c961c60326e21d65559da18757466675a02f`; focused profile **37 passed**, linked FIFO/Telegram/Period Profit **521 passed**, compileall/diff-check/неизменность `data/` PASS. Только synthetic tests; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Далее FL23 — атомарное применение.
+
+# 2026-11-08 — FIFO FL21: связанные возвраты и выбытия
+
+- Поздний replay учитывает только точные возвраты с подтверждённым saleable-restock lineage и прочие движения, прошедшие существующие append-only validators. Возврат восстанавливает сохранённые исходные слои; неизвестный источник блокирует replay.
+- Несбытовые выбытия отдельны от продаж, их количества и COGS; Return COGS authorization не меняется. Продажи до новой ставки не могут получить новую стоимость; same-date transition проверяется фактическим replay и FL20-инвариантностью.
+- FL21 code SHA `5ccf00a53c06ca32983106fd1a894c925d2a9630`; 82 focused и 515 linked FIFO/Telegram/Period Profit тестов passed. Синтетическая реализация; owner-case cutoff и реальные доказательства остаются не подтверждены. Далее FL22 — финансовые периоды и расчёт налогового эффекта.
+
+# 2026-11-08 — FIFO deterministic replay FL20
+
+- `FifoCostReplayService` assesses ambiguous same-date/equal-instant event orders using the existing allocation kernel. It allows a tie only when bounded valid permutations preserve every per-event layer/cost allocation and inventory totals; order-sensitive ties return `EVENT_ORDER_UNRESOLVED` without allocations. Oversized analysis fails closed with `FIFO_REPLAY_ORDER_ANALYSIS_LIMIT`; a large simple group is accepted only when one FIFO layer provably covers it.
+- Replay output and preview fingerprint remain stable under report input-row reordering. Coverage includes date-only/timed constraints, cross-layer order sensitivity, equal instants, and large groups. No inventory write, FIFO activation, profit, tax, or bot workflow changed.
+- FL20 code SHA `be6e7959`; replay tests **21 passed**, linked FIFO/Telegram/Period Profit profile **506 passed in 20.84s**, `compileall`, `git diff --check`, and `git diff --exit-code -- data` PASS. Synthetic fixtures only; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+- Next: FL21, support linked returns and non-sale movements while preserving original return cost and existing Return COGS authorization.
+
+# 2026-11-08 — FIFO safe initial activation proposal FL19
+
+- Добавлен `FifoCostTransitionActivationProposalService`, подключённый через production `FifoCostTransitionService.build_activation_proposal`. Он объединяет case rate, opening evidence и proof-bound cutoff bridge только для review и не пишет ставку/слой/аллокацию.
+- Новая ставка 14,65 ₽ и прежняя 21 ₽ доступны как owner-entered candidate; TOTAL_LANDED остаётся без выдуманной разбивки компонентов. Неизвестный new-home quantity остаётся `None`. Owner-declared 6 982 сохраняется отдельно; accepted supply units не прибавляются второй раз поверх подтверждённого cutoff snapshot. Buckets не суммируются в физический FIFO opening.
+- Proposal проверяет case/store/SKU/revision, cutoff, stock fingerprint и preview-only условия. Несовпавший магазин получает пустые source buckets и без cutoff/watermark. При любых gaps proposal остаётся non-applicable; `fifo_opening_units=None`, `fifo_initialized` не изменяется, `ready_to_apply=False`.
+- FL19 code SHA `a9a20e00627c0644b0a6b1d5b21592a37fd53df4`; dedicated tests **6 passed**, focused bridge/transition **29 passed**, linked FIFO/Telegram/Period Profit **502 passed**; compileall/diff-check/data-preservation PASS. Тестовые данные synthetic; owner case не верифицирован.
+- Следующий этап FL20 — deterministic replay для предсказуемого FIFO порядка, без общей записи до FL23.
+
+# 2026-11-08 — FIFO physical-sale cutoff bridge FL18
+
+- FL18 добавляет отдельный read-only proof-bound bridge. Полный список identities из `/v1/finance/realization/posting` сопоставляется с точными строками физической даты/количества из owner-documented файла и отдельным подтверждением владельца семантики `PHYSICAL_OUTFLOW` для `Europe/Moscow`.
+- Bridge проверяет scope/case/revision, cutoff и stock snapshot, полный период, pagination/source proof, уникальность identity, returns/non-sale coverage и unknown stock buckets. Дата финансовой строки не трактуется как физическое выбытие; повторные финансовые строки не создают повторную продажу.
+- Выход остаётся preview-only, не пишет FIFO, налог или Period Profit. FL18 code SHA `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused **36 passed**, linked FIFO/Telegram profile **496 passed**; compileall/diff-check/data-preservation PASS. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` остаются false до завершения последующих этапов и проверки данных владельца.
+- Следующий этап — FL19: безопасный opening proposal и ставка без прежнего manual anchor, пока без применения FIFO.
+
+# 2026-11-08 — FIFO late-entry completion FL17
+
+- FL00–FL17 реализованы на уровне кода и синтетических проверок; end-to-end мост продаж, атомарное применение, полная production-приёмка и реальный owner case ещё не завершены.
+- `FifoCostTransitionReadinessService` формирует стабильную очередь требований с точным документом/действием, полями, периодом и безопасными locator-ами уже сохранённых evidence. Для owner-case список 6 982 остаётся неполным: 148 привязано к RECEIVING, 6 834 показано только как нераспределённый остаток. Неизвестное количество не считается новой поставкой.
+- Подтверждённый оборотный отчёт, заканчивающийся 05.11, даёт явный missing period 06–07.11. Если период файла только candidate, сервис просит подтверждение периода и не объявляет интервал фактически отсутствующим. `complete_through=None` всегда; никакие readiness/preview оценки не изменяют case state или FIFO.
+- Неизвестный reserved/пересечение FBS-возврата не сводится с available; точный sale/cutoff bridge остаётся обязательным. Конфликт акта выводится отдельным блокером с сохранённым fingerprint/source_as_of, если конфликтный locator доступен; синхронный source watermark не объявляется заданным SLA.
+- Reconciliation результат теперь case-bound, чтобы нельзя было повторно использовать evidence с тем же store/SKU из другого case. FL17 code SHA `df7c095b20d556c1b333f0157c6b6d6448fd1329`; focused **34 passed**, linked FIFO/Telegram **477 passed in 20.53s**; compileall, diff-check, data-preservation PASS. Следующий этап — FL18: proof-bound sales/cutoff bridge.
+
+- `FifoCostTransitionOpeningProposalService` строит read-only owner review: отдельно показывает подтверждённые stock buckets, supply declaration/status/acceptance, оборотные totals и buyer delivery/returns, не превращая 1 191/3 712/4 492 в FIFO opening. `fifo_opening_units=None`, `ready_to_apply=False`, `preview_only=True`, `is_atomic_snapshot=False`; запуск ничего не меняет.
+- Отчётное доступное количество 1 191 сохраняет FBS return 9 как подмножество; planned 600 и transit 6 234 остаются разными buckets; owner-linked 148 RECEIVING показывается отдельно, accepted остаётся неизвестным. Ведомость 4 492 + 0 − 780 − 3 712 = 0 сохраняет redeemed 775 и non-sale 5, closing buyer delivery 1 646/return transit 70. Имя файла остаётся candidate; полный период после 05.11 не подтверждён.
+- Owner facts old-home=0 и old-transit=0 показаны независимо, new-home остаётся unknown. Неизвестный cutoff, source gaps, unknown reserved/overlap и необходимость sale bridge перечислены в requirements; их детерминированная очередь реализована на FL17.
+- FL16 code SHA `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; focused linked profile **83 passed**, полный FIFO/Telegram профиль **458 passed**; compileall, diff-check, data-preservation PASS.
+- `FifoCostTransitionSupplyReconciliationService` строит раздельные declared, observed, accepted, pending и discrepancy; сохраняет capture/source-as-of, report period/provenance/fingerprint и всегда возвращает `is_atomic_snapshot=False`. MISSING/unknown не превращается в ноль или подтверждённую приёмку.
+- Контроль 6 982; owner-linked RECEIVING 148; XLSX `supplier_planned=600`, `supplier_transit=6 234`: проверен синтетически. Известный остаток owner total 6 834 — только арифметически нераспределённое количество, а принятие остаётся неизвестным.
+- FL15 focused reconciliation + supply/acceptance/stock/report parser profile: **74 passed in 3.39s**; linked FIFO/Telegram profile: **449 passed in 20.34s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS; данные не менялись. Следующий FL16 — proposal начального среза только для owner review, без изменения FIFO.
+- Новый `TelegramFifoCostReportImportService` принимает XLSX только для явно выбранного редактируемого дела. До отдельного подтверждения persistent evidence и case revision не меняются. Подтверждение привязано к tenant/store/SKU/case revision, повтор callback идемпотентен, дата имени файла остаётся `FILENAME_CANDIDATE`.
+- `FifoCostReportImportWorkerClient` запускает allowlisted parser в собственном subprocess с timeout 15 секунд и глобальным пределом 3 workers; payload evidence проверяется против 262,144-byte storage cap. XLSX-маршрут отделён от прежнего CSV-потока; oversized XLSX отклоняется до скачивания при известном Telegram-размере.
+- FL14 code SHA `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused **47 passed**, linked FIFO/Telegram/seller-cost/return profile **462 passed**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. `data/` не менялась.
+- `IMPLEMENTATION_VERIFIED: нет` для всего продукта; `OWNER_CASE_VERIFIED: нет`. Реальные файлы, БД владельца, Telegram/Ozon API и запуск бота не использовались.
+
 # 2026-11-08 — FIFO late-entry completion FL11
 
 - FL00–FL11 VERIFIED в коде исполнения, но не в production и не на owner case. `FifoCostTransitionSupplyRefreshService` выполняет active status + accepted acts под общим bounded budget до 20s/10 HTTP attempts; status observations сохраняются только после завершённого чтения.
@@ -5518,3 +5579,17 @@ Completed:
 - FC22 `DONE_WITH_GAP`: a read-only before/after service now reports FIFO units/COGS by basis and recalculates period tax/profit through the existing `TaxService`. Owner confirmation is bound to exact store/SKU/draft and source, stream, allocation, tax and impact fingerprints.
 - FIFO schema v9→v10 appends a correction audit snapshot atomically with the new rate. The former allocation projection is invalidated; Period Profit is not changed until complete replay. The synthetic path supports only one missing rate and no linked returns/non-sale outflows; production remains blocked by unreconciled historical stock/finance cutoff.
 - Linked FC22 profile: **65 passed in 3.25s**. All data used were synthetic or in pytest temporary SQLite; no live Ozon/Telegram requests or bot startup.
+# 2026-11-08 — FIFO late-entry completion FL13
+
+- FL13 добавил read-only parser отчёта «Управление остатками» для точного SKU с отдельными buckets, FBS-return subset, сверкой листа «Товар-склад» и отдельным `removed_from_sale`. Представления «Товары», warehouse detail и cluster views не складываются; `reserved` и отсутствующий removed bucket остаются unknown, общий total — только диагностика.
+- Синтетическая матрица подтверждает `available=1191` (`1182 + 9 FBS return`), `preparing=18`, `checking=5`, `removed_from_sale=41`; warehouse totals совпадают независимо. Неверный числовой product-feature отклоняется.
+- Кодовый commit FL13: `52a5b9fb3b3cf605b8c500003d48d254f1453337`. Оба parser modules — **35 passed**; связанный FIFO/Telegram FIFO профиль — **423 passed in 17.90s**; compileall, `git diff --check`, `git diff --exit-code -- data` PASS. Использовались synthetic in-memory XLSX; пользовательский файл не использовался тестами, `data/` не менялась.
+- Parser остаётся read-only: XLSX ещё не сохраняется в evidence и не подключён к Telegram; FIFO, фактическая прибыль, БД и режим расчёта не менялись. `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
+- Следующий этап FL14 — контекстный XLSX import в выбранный case с bounded worker, preview и отдельным подтверждением.
+
+# 2026-11-08 — FIFO late-entry completion FL12
+
+- FL00–FL12 VERIFIED в коде исполнения, но не в production и не на owner case. Добавлен `FifoCostReportImportService.parse_turnover_workbook`: строго читает лист «Оборотная ведомость» и выдаёт нормализованные read-only evidence только для выбранного SKU.
+- Parser различает `redeemed_units=775` и `non_sale_expense_units=5`, сверяет opening 4492 + receipts 0 − expenses 780 − closing 3712 = 0 и сохраняет buckets доставки покупателю/возврата отдельно. 3712 остаётся отчётным closing total и не подменяет доступный/физический stock.
+- FL12 commit `1f209a23`; focused synthetic profile **21 passed**, полный FIFO/Telegram FIFO профиль **409 passed in 17.21s**. `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Владелец XLSX не использовался тестами, API/UI/persistence ещё не подключены.
+- FL13 добавил 1 security regression к общему XLSX preflight: скрытые sheets отклоняются до parsing. Текущая повторная проверка: FL12 parser **22 passed**, FL13 parser **13 passed**, связанный профиль **423 passed**. Следующий этап FL14 описан выше.

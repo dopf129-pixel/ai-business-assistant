@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-11-08 — Связанные FIFO-возвраты и выбытия (FL21)
+
+- Поздний replay принимает точные поддержанные возвраты/выбытия по существующим return/non-sale validators; связанные возвраты восстанавливают исходный FIFO basis, а несбытовые движения остаются вне проданных единиц и финансового Return COGS.
+- Неизвестное происхождение по-прежнему блокирует replay. Existing Return COGS authority не меняется и защищена также при нормализации сохраняемого impact.
+- Проверки: FL21 **82 focused passed**; linked FIFO/Telegram/Period Profit **515 passed**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Synthetic-only; owner case не проверен.
+
+## 2026-11-08 — FIFO deterministic replay (FL20)
+
+- Replay permits same-date or equal-instant events only when bounded permutation checks prove identical per-event allocations. Order-dependent groups fail closed; large simple groups pass only through a conservative single-layer proof. Analysis exhaustion is an explicit blocker.
+- Added regressions for same-layer and cross-layer ties, mixed date-only/timed evidence, equal instants, large groups, and report-row permutation stability. Duplicate finance identities remain deduplicated by the FL18 bridge.
+- FL20 replay tests: **21 passed**; linked FIFO/Telegram/Period Profit profile: **506 passed in 20.84s**; `compileall`, `git diff --check`, and unchanged `data/` PASS. Synthetic-only; owner-case validation pending.
+
+## 2026-11-08 — Proof-bound FIFO cutoff bridge (FL18)
+
+- Added a read-only bridge joining exact Ozon realization identities with separately owner-documented physical sale dates/quantities and explicit confirmation of date semantics. It requires matching scope, complete periods, confirmed cutoff/stock snapshot, and linked returns/non-sale coverage.
+- Finance accrual dates are not promoted to physical outflow dates; recurring finance rows do not create duplicate physical sales. The bridge remains preview-only and does not write FIFO or Period Profit.
+- FL18 focused profile: **36 passed**; linked FIFO/Telegram profile: **496 passed**; compileall, diff-check, and data-preservation checks PASS. Owner-case validation remains pending.
+
+## 2026-11-08 — Безопасное первое предложение FIFO (FL19)
+
+- Added a read-only first-activation proposal that carries old/new unit cost and confirmed stock buckets without creating a scalar FIFO opening or enabling live FIFO. Unknown new-home quantity remains unknown; declared and accepted supply quantities are not added on top of cutoff stock.
+- Added case/store/revision, cutoff, and stock-fingerprint binding, plus cross-store redaction. Candidate cost remains visible when source gaps block the proposal; `ready_to_apply` stays false.
+- FL19: 6 dedicated regressions passed; linked FIFO/Telegram/Period Profit profile: **502 passed**; compileall, diff-check, and data-preservation PASS. Owner-case validation remains pending.
+
 ## 2026-11-06 — FIFO: read-only reconstruction of late cost transition (FC21)
 
 - Added a revision- and evidence-bound reconstruction preview for a late cost change. It replays only supported complete movement history and keeps the accepted supply-act quantity documentary; no FIFO stock, allocation, tax, or Period Profit is changed.

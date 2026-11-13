@@ -1,3 +1,59 @@
+# 2026-11-08 — FIFO FL23 atomic commit regressions
+
+- `tests/test_fifo_cost_transition_atomic_apply.py` uses a real temporary SQLite repository and the production cutoff bridge. It covers an uninitialized FIFO read-only preview, numeric N21 layers (`3×21.00 + 100×14.65`, sale 5, COGS `92.30`, remaining 98 at `14.65`), exact preview replay and conflicting payload, stale tax/bridge/stock/return evidence, and idempotent commit replay after TTL and tax-policy change.
+- The same module injects failure immediately before and after each DML write in confirmation and verifies full rollback plus READY state; initial layers with unrelated unit cost or reversed FIFO order are rejected.
+- FL23 dedicated: **10 passed**. Linked FIFO/Telegram/Period Profit profile: **531 passed**; `compileall`, `git diff --check`, and unchanged `data/` checks PASS. Temporary synthetic database only; no owner database, live API, or bot launch.
+
+# 2026-11-08 — FIFO FL22 period impact
+
+- `tests/test_fifo_cost_late_entry_impact_service.py`: physical September sale can be recognized in October/November only through exact financial sale identity mapping; full dependent-period coverage; candidate-only output without baseline/mapping; no tax/profit/delta leakage; COGS/tax/profit via canonical `TaxService`.
+- `tests/test_fifo_cost_late_entry_correction_service.py`: changing financial recognition period between preview and confirm stales the preview without writes; missing mapping cannot prepare a confirmation.
+- FL22 focused: **37 passed**. Linked FIFO/Telegram/Period Profit profile: **521 passed**. `compileall`, `git diff --check`, and unchanged `data/` passed.
+
+# 2026-11-08 — FIFO FL21: возвратная основа и несбытовые выбытия
+
+- `tests/test_fifo_cost_replay_service.py`: linked return restores original layer across late-rate boundary; non-sale outflow consumes physical FIFO but is not emitted as a sale; pre-effective sale cannot use open rate.
+- `tests/test_fifo_cost_late_entry_reconstruction_service.py`: end-to-end synthetic return restock + non-sale outflow + late rate + subsequent sale; replay preserves return basis and excludes outflow from sold COGS. Invalid-origin return remains guarded by existing return repository/normalizer tests.
+- `tests/test_fifo_cost_late_entry_impact_service.py` and `tests/test_fifo_cost_repository.py`: linked-return/outflow counts are accepted only as validated metadata, and a persisted impact cannot change Return COGS authority or include outflow in sales COGS.
+- FL21 focused replay/impact/reconstruction/return/repository profile: **82 passed in 3.33s**. Linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **515 passed in 20.94s**. `compileall`, diff-check and unchanged `data/` PASS. Synthetic only.
+
+# 2026-11-08 — FIFO deterministic replay regressions (FL20)
+
+- `tests/test_fifo_cost_replay_service.py` covers same-day sales that are invariant when one layer covers all units, cross-layer ties that remain `EVENT_ORDER_UNRESOLVED`, stable fingerprints under reversed report-row order, equal instants, mixed date-only/timed constraints, and large groups with/without a single-layer proof.
+- Replay tests: **21 passed**. Linked selection of `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, and `test_period_profit_fifo_cost_integration.py`: **506 passed in 20.84s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Synthetic only; no owner files/DB or live endpoints.
+
+# 2026-11-08 — FIFO safe initial activation regressions (FL19)
+
+- `tests/test_fifo_cost_cutoff_bridge_service.py` adds FL19 coverage for a 21.00→14.65 TOTAL_LANDED candidate with old home/transit=0 and new home unknown; source buckets and declared 6,982 remain separate; accepted supply is not double-added; no scalar opening/apply; stale case/cutoff and initialized queue block; cross-store inputs redact buckets/watermark; production transition wrapper returns the preview only.
+- FL19 dedicated selection: **6 passed**; focused bridge + transition service: **29 passed**; linked FIFO/Telegram/Period Profit profile: **502 passed**; `compileall`, `git diff --check`, unchanged `data/` PASS.
+
+# 2026-11-08 — FIFO physical-sale cutoff bridge regressions (FL18)
+
+- `tests/test_fifo_cost_cutoff_bridge_service.py` covers complete finance identity pagination, exact documented identity/date/quantity mapping, explicit owner confirmation for physical-date semantics, case/store/SKU/revision binding, cutoff boundary/timezone, report period and stock bucket completeness, unresolved returns/non-sale movements, duplicate/conflicting identities, duplicate finance rows, posting-accrual date rejection, redaction, and preview-only output.
+- Focused bridge/readiness/sale-normalizer profile: **36 passed**. Linked FIFO/Telegram profile: **496 passed**. `compileall`, `git diff --check`, and unchanged `data/` checks PASS; synthetic fixtures only.
+
+# 2026-11-08 — FIFO readiness requirements regressions (FL17)
+
+- `tests/test_fifo_cost_transition_readiness_service.py` covers exact required supply manifest (6,982 declared / 148 linked / 6,834 unassigned), confirmed 05.11 → factual 06–07.11 coverage gap, filename-candidate period confirmation without factual gap claims, unknown reserved/FBS overlap, exact sale bridge requirement, source/as-of gap without an invented freshness SLA, explicit act-binding conflict plus saved fingerprint/as-of, cutoff missing, wrong case/revision rejection, deterministic order, and unchanged `AWAITING_EVIDENCE` state.
+- `tests/test_fifo_cost_transition_supply_reconciliation_service.py` additionally checks safe conflict locator retention for binding and acceptance-quantity mismatch. FL17 linked focus: **34 passed**; full FIFO/Telegram file profile: **477 passed**.
+
+# 2026-11-08 — FIFO opening proposal regressions (FL16)
+
+- `tests/test_fifo_cost_transition_opening_proposal_service.py` covers the 148 RECEIVING owner-linked declaration with the separate 600 planned/6,234 transit report buckets; 1,191 available with FBS return 9 as a subset; 4,492/3,712 turnover controls and 775 sales + 5 non-sale outflow; buyer delivery/returns; unconfirmed candidate dates; exact owner cutoff; missing period; unbalanced/partial report; uninitialized-FIFO guard; and multiple snapshots not combined.
+- FL16 + linked FL15/report parser profile: **83 passed**; complete FIFO/Telegram profile: **458 passed**. The proposal is pure/read-only and cannot produce a FIFO opening quantity.
+
+# 2026-11-08 — FIFO supply evidence reconciliation (FL15)
+
+- `tests/test_fifo_cost_transition_supply_reconciliation_service.py` covers the synthetic 6,982 control with separate 148 RECEIVING, 600 supplier-planned, and 6,234 supplier-transit evidence; no fictitious acceptance/atomic snapshot; MISSING retaining last-known values; pending versus final discrepancy; owner/API mismatches; unknown quantities; scope and timestamp conflicts; and declaration revisions.
+- 13 new FL15 regressions; linked observation, bounded refresh, acceptance, stock report and turnover report parser profile: **74 passed in 3.39s**. Complete `test_fifo_cost_*.py` + `test_telegram_fifo_cost_*.py` profile: **449 passed in 20.34s**. Synthetic contract/data only; no owner database or live Ozon/Telegram requests.
+
+# 2026-11-08 — FIFO XLSX worker and contextual confirmation (FL14)
+
+- `tests/test_fifo_cost_report_import_worker_client.py` tests the managed child process on an in-memory turnover XLSX, malformed worker output, timeout termination, the three-slot concurrent import limit, and persisted-evidence byte-cap rejection.
+- `tests/test_telegram_fifo_cost_report_import_service.py` tests missing selection/no worker/no write, preview without persistence, explicit evidence confirmation, confirmation replay, failed-import retry, owner/size rejection, and stale-preview isolation from another active case.
+- `tests/test_fifo_cost_report_import_telegram_adapter.py` tests XLSX routing, unchanged CSV import path, opaque callback routing, and Telegram size rejection before download.
+- Focused FL14 parser/worker/runtime/adapter set: **47 passed in 3.08s**. Linked FIFO, Telegram FIFO, seller-cost and return-inventory profile: **462 passed in 20.51s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Fixtures use synthetic XLSX and `tmp_path`; no owner data/live endpoints were used.
+
 # 2026-11-08 — FIFO shared budget/checkpoint regressions (FL11)
 
 - `tests/test_fifo_cost_transition_supply_refresh_service.py` validates one parent budget across active status and act endpoints, caller budget tightening, PARTIAL resume, target found before final page, cross-page duplicate-ID conflict, timeout, 429, malformed page, repeated cursor, process restart, store/revision scope changes, and no observation/FIFO write on incomplete source.
@@ -6624,4 +6680,16 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_sales_mix_planning_service.py::test_mix_does_not_promote_one_skus_confirmed_zero_storage_to_global_zero` проверяет смесь одного SKU с подтверждённым нулём и другого с положительным STORAGE; `test_unknown_advertising_does_not_hide_confirmed_cross_docking_in_mix` сохраняет подтверждённый кросс-докинг при неизвестной рекламе. Неизвестная реклама оставляет количество/выручку и маржу до рекламы, но не выдаёт after-ad totals.
 - `tests/test_product_unit_economics_telegram_ui.py::test_unit_economics_snapshot_cache_expiration_and_insertion_are_thread_safe` управляемо синхронизирует два потока на очистке `OrderedDict` и подтверждает сериализацию конкурентных мутаций.
 - Связанный Windows профиль по scenario/current/UI/saved-plan/repository/mix/batch: **290 passed in 7.65s**. Полный Windows `pytest -q -p no:cacheprovider`: **4,416 passed in 46.01s**; `python -m compileall -q app tests` и `git diff --check` PASS. После suite `data/tasks.json` восстановлен к HEAD (SHA-1 `7fcef9d518b4dd2be4b3bb6fd307b93474f6b215`), `data/tasks.json.lock` удалён как побочный файл тестов. PR #724 SHA `fe7cb4e15dd14aaef2348c34e84c2268f8cef507` прошёл exact-head run `41332959642` (Windows, Linux, Docker build/smoke); artifact `13093764467`, digest `sha256:8bc42ef332a4c3e45bc93d8959378af2edf9e5694778bdc18576e8d2fccbd0c2`.
+
+# 2026-11-08 — FIFO stock-management import regressions (FL13)
+
+- `tests/test_fifo_cost_stock_management_import_service.py` verifies exact SKU and workbook profile, 1191 available from 1182 regular + 9 FBS-return subset, 18 preparing, 5 checking, and 41 removed-from-sale separately; it also verifies independent warehouse controls, non-additive cluster views, unknown reserved, date provenance, formulas/errors, malformed dimensions and privacy.
+- Shared XLSX preflight rejects hidden as well as extra sheets; `tests/test_fifo_cost_report_import_service.py` now has a hidden-sheet regression too.
+- Both parser modules: **35 passed in 1.69s**. All FIFO cost and Telegram FIFO tests: **423 passed in 17.90s**. `python -m compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Fixtures are synthetic in-memory workbooks; owner files, databases, Ozon/Telegram, and bot startup were not used.
+
+# 2026-11-08 — FIFO turnover import regressions (FL12)
+
+- `tests/test_fifo_cost_report_import_service.py` builds an in-memory synthetic XLSX with the verified turnover-sheet header profile and matrix 4492 + 0 − 780 − 3712 = 0. It proves sold units **775** remain separate from non-sale expenses **5**, closing buyer-delivery/return buckets stay explicit, and a second SKU is not aggregated.
+- Regression cases cover owner-confirmed vs filename-candidate/unknown dates; duplicate/missing SKU or quantity; formula and Excel-error cells; exact header casing with whitespace/NBSP normalization; fractional values; all four component totals and balance; malformed/extra columns; external relationships, relationship/ZIP traversal, ZIP entry and compression-ratio limits.
+- At the initial FL12 code SHA `1f209a23`, the focused set had **21 passed** and linked profile **409 passed**. Shared XLSX preflight hardening in FL13 adds a hidden-sheet test; current counts are **22 FL12** and **423 linked**. Fixtures use synthetic in-memory workbooks; owner files, databases, Ozon and Telegram were not accessed.
 

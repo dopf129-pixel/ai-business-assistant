@@ -8,10 +8,10 @@
 
 ## Resume
 
-Следующий этап: FL12.
-Выполненных этапов:12/36 (FL00 baseline, FL01 implementation map, FL02 typed contracts, FL03 schema v13/cipher, FL04 repository commands, FL05 pre-FIFO/fault boundaries, FL06 full-cost modes, FL07 case lifecycle, FL08 supply declarations, FL09 active observations, FL10 acceptance reconciliation и FL11 bounded refresh/checkpoint resume VERIFIED; documents, runtime integration and owner case ещё не завершены).
+Следующий этап: FL24.
+Выполненных этапов:24/36 (FL00–FL23 VERIFIED на кодовых и синтетических проверках; далее FL24–FL35: consumers, UI, acceptance, reliability и PR delivery).
 IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
-Рабочая ветка исполнения: codex/fifo-late-entry-foundation-20261107, создана от точной головы PR #727 aef1f1348fca4e7728215b73ddd32004a0540e20; PR #727 открыт, base main d8d4ba00c85acf14ba9a960f56a755fbe30b555c. PR foundation будет основан на main и включит переданные документы спецификации; не начинать от старой ветки реализации #726.
+Стек PR: foundation `codex/fifo-late-entry-foundation-20261107` закреплён на PR1 head `5b4f85881301b8d5b4a7977d67fa59e13d2647db` от main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`; текущая ветка `codex/fifo-late-entry-reconciliation-20261107` содержит FL12–FL23 и основана на exact PR1 head. Последний code checkpoint FL23 `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; code-profile: **531 passed**. FL14 `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; FL15 `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; FL16 `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; FL17 `df7c095b20d556c1b333f0157c6b6d6448fd1329`; FL18 `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; FL22 `4290c961c60326e21d65559da18757466675a02f`. Перед resume сначала читать `git rev-parse HEAD`; текущие docs checkpoint ещё предстоит закоммитить. Исходная голова задания — PR #727 `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR #727 открыт. PR3 будет основан на финальном exact head PR2. Не переписывать старую ветку реализации #726.
 Реальные Ozon/Telegram запросы, запуск бота, изменение owner DB, merge/deploy не выполнялись и не разрешены этим заданием.
 
 Перед продолжением читать git status, актуальный HEAD и последние записи ниже. Не подменять результаты тестов плановыми ожиданиями.
@@ -32,18 +32,18 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL09 | Наблюдения и missing | VERIFIED | `f2e2239a109bdc2fee45fdbe5d39bcad815c62a7`; focused 51 passed; full pytest 4907 passed; compileall/diff-check/data restore PASS |
 | FL10 | Частичная приёмка | VERIFIED | `9445d8cc`; focused 46 passed; FIFO/Telegram FIFO 379 passed; compileall/diff-check/data unchanged PASS |
 | FL11 | Бюджеты/checkpoints | VERIFIED | `66d05d38`; focused 40 passed; FIFO/Telegram FIFO 388 passed; compileall/diff-check/data unchanged PASS |
-| FL12 | Ведомость parser | NOT_STARTED | — |
-| FL13 | Остатки parser | NOT_STARTED | — |
-| FL14 | Контекстный XLSX import | NOT_STARTED | — |
-| FL15 | Сверка поставок | NOT_STARTED | — |
-| FL16 | Proposal opening | NOT_STARTED | — |
-| FL17 | Readiness и missing evidence | NOT_STARTED | — |
-| FL18 | Cutoff bridge | NOT_STARTED | — |
-| FL19 | Начальная активация proposal | NOT_STARTED | — |
-| FL20 | Deterministic replay | NOT_STARTED | — |
-| FL21 | Возвраты/выбытия | NOT_STARTED | — |
-| FL22 | Period impact | NOT_STARTED | — |
-| FL23 | Atomic apply | NOT_STARTED | — |
+| FL12 | Ведомость parser | VERIFIED | initial code `1f209a23`; current shared parser regression 22 passed; linked FIFO/Telegram FIFO profile 423 passed; compileall/diff-check/data unchanged PASS |
+| FL13 | Остатки parser | VERIFIED | code `52a5b9fb3b3cf605b8c500003d48d254f1453337`; parser modules 35 passed (22 FL12 + 13 FL13); linked FIFO/Telegram FIFO 423 passed; compileall/diff-check/data unchanged PASS |
+| FL14 | Контекстный XLSX import | VERIFIED | `58ba757b52d0d92708e8d2aaa6bb88adb666f77a`; focused 47 passed; linked FIFO/Telegram/seller-cost/returns 462 passed; compileall/diff-check/data unchanged PASS |
+| FL15 | Сверка поставок | VERIFIED | `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a`; focused 74 passed in 3.39s; FIFO/Telegram profile 449 passed in 20.34s; compileall/diff-check/data unchanged PASS |
+| FL16 | Proposal opening | VERIFIED | `a33a0792bf3142924af280c39d32df2fd7ea0b9d`; focused 83 passed in 3.65s; FIFO/Telegram profile 458 passed in 20.20s; compileall/diff-check/data unchanged PASS |
+| FL17 | Readiness и missing evidence | VERIFIED | `df7c095b20d556c1b333f0157c6b6d6448fd1329`; focused 34 passed; FIFO/Telegram profile 477 passed in 20.53s; compileall/diff-check/data unchanged PASS |
+| FL18 | Cutoff bridge | VERIFIED | `2b216dc6eeda57144c2ae0183e423e39b8a32afd`; focused 36 passed; linked FIFO/Telegram 496 passed; compileall/diff-check/data-preservation PASS; synthetic only |
+| FL19 | Начальная активация proposal | VERIFIED | `a9a20e00627c0644b0a6b1d5b21592a37fd53df4`; dedicated 6 passed; focused 29 passed; linked FIFO/Telegram/Period Profit 502 passed; compileall/diff-check/data-preservation PASS; synthetic only |
+| FL20 | Deterministic replay | VERIFIED | code `be6e7959`; 21 replay tests, linked profile 506 passed; compileall/diff/data-preservation PASS |
+| FL21 | Возвраты/выбытия | VERIFIED | code `5ccf00a53c06ca32983106fd1a894c925d2a9630`; focused 82 passed; linked FIFO/Telegram/Period Profit 515 passed; compileall/diff-check/data unchanged PASS; synthetic only |
+| FL22 | Period impact | VERIFIED | code `4290c961c60326e21d65559da18757466675a02f`; focused 37 passed, linked FIFO/Telegram/Period Profit 521 passed; compileall/diff-check/data unchanged PASS; synthetic only |
+| FL23 | Atomic apply | VERIFIED | `462c413b17a55b58d1c7fc629cd6aad287ca2fab`; dedicated 10 passed, linked profile 531 passed |
 | FL24 | Меню доFIFO | NOT_STARTED | — |
 | FL25 | Durable мастер | NOT_STARTED | — |
 | FL26 | Разные подтверждения | NOT_STARTED | — |
@@ -57,12 +57,60 @@ IMPLEMENTATION_VERIFIED: нет. OWNER_CASE_VERIFIED: нет.
 | FL34 | Полный CI | NOT_STARTED | — |
 | FL35 | Review handoff | NOT_STARTED | — |
 
+## Выполнение FL21 — 2026-11-08
+
+- Removed the blanket late-reconstruction rejection for any supported return, non-sale movement, or same-day event; the existing FIFO kernel/repository now decides completeness and order from exact persisted evidence. A saleable return remains bound by `FifoCostReturnRestockService`, exact originating sale allocation, explicit owner-confirmed recovery, and original saved layer basis. Existing Return COGS authorization is unchanged.
+- Non-sale outflow participates only as physical inventory consumption and is returned in a separate valuation field. It never changes financial sold units or per-period sales COGS. Impact/persistence validate exact counts, outflow totals, and flags that keep both Return COGS authority and sales COGS isolated.
+- Added an end-to-end synthetic reconstruction with an existing sale, owner-confirmed exact return restock, home-shortage outflow, late rate, and later sale. The return consumes its original layer basis; the new 14.65 rate applies only after 05.11; no new/unknown return lineage bypasses prior validators. A test initially attempted to UPDATE an append-only event and SQLite correctly rejected it; that invalid test mutation was removed.
+- FL21 code commit: `5ccf00a53c06ca32983106fd1a894c925d2a9630` (`Replay supported FIFO returns and outflows`). Focused replay/impact/reconstruction/return/repository selection: **82 passed in 3.33s**; linked `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **515 passed in 20.94s**; `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. Only synthetic SQLite fixtures; no owner DB/files, live API, or bot.
+- Architecture review required: core replay and repository impact contract changed (>300 LOC). `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`.
+- Next: FL22. Critical contract check before implementation: physical dates must order FIFO events while canonical financial recognition assigns COGS/tax/profit to the finance period. No current field in the FL18 physical bridge may be silently reused as financial date; missing sale-to-financial-period mapping must remain explicit and block delta.
+
+## Выполнение FL22 — 2026-11-08
+
+- `FifoCostRepository.preview_late_entry_reconstruction` теперь возвращает digest точной финансовой идентичности каждой физической продажи вместе с физической датой; reconstruction service проверяет полное взаимно-однозначное соответствие event IDs и digest-значений. Эти digests не считаются финансовым периодом сами по себе.
+- Impact service требует complete financial period summaries с полным уникальным списком sale identity digests. Он сопоставляет COGS с периодом из финансовой сводки, оставляя `physical_sale_start_date`/`physical_sale_end_date` отдельными. Mapping fingerprint включает периоды, source fingerprints и точные sale identities и входит в confirm preview binding; изменение периода между preview/confirm не пишет ставку/correction.
+- При отсутствии mapping, summary coverage или before baseline сервис выдаёт candidate COGS (по финансовым периодам только если mapping complete) с явным reason code, без tax/profit/COGS deltas. Полный путь проверяет COGS baseline и весь зависимый горизонт, использует существующий `TaxService`; физические даты не используются для финансового признания. FL22 остаётся read-only; подтверждение остаётся закрыто до FL23 atomic commit.
+- Добавлены regressions для physical September → financial October/November, fingerprint при изменении периода, полного двухмесячного горизонта, неполного mapping, недоступного baseline и отсутствия delta/tax/profit в candidate-only. FL22 focused: **37 passed in 2.56s**; linked FIFO/Telegram/Period Profit: **521 passed in 21.14s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Synthetic only; никаких пользовательских XLSX/DB, API или бота.
+- В контрактах удалено устаревшее утверждение, что любой связанный возврат/несбытовое выбытие запрещает replay; описано поведение FL21. DECISIONS не менялись: решения проектирования уже закреплены.
+- FL22 требует architecture review: добавлены новый обязательный financial mapping contract, fingerprint binding и кандидатный режим impact (>300 changed lines). Code commit `4290c961c60326e21d65559da18757466675a02f`; `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`.
+- Далее FL23: атомарное применение только при exact current source/tax/mapping/replay state и проверки восстановления после сбоев до/после каждого write.
+
+## Выполнение FL20 — 2026-11-08
+
+- Replay now compares valid permutations of ambiguous same-date/equal-instant groups using the existing allocation kernel. It permits only groups for which every bounded valid ordering preserves per-event layer/cost allocations and inventory totals. A large group bypasses enumeration only when one remaining FIFO layer provably covers every unit; order-sensitive groups return `EVENT_ORDER_UNRESOLVED`, and bounded-analysis exhaustion returns `FIFO_REPLAY_ORDER_ANALYSIS_LIMIT`.
+- Date-only rows can occur either side of timed events on the same day, while distinct timed instants retain their constraints. Preview fingerprint and per-sale output are stable under source-row reordering. Exact finance identities remain deduplicated by the already verified FL18 bridge.
+- Added regressions for invariant same-day sales, cross-layer allocation changes, mixed date-only/timed ordering, equal instants, large invariant/order-dependent groups, and reversed report-row order.
+- FL20 code commit: `be6e7959` (`Prove FIFO replay ties are allocation invariant`). Replay file: **21 passed in 0.63s**. Linked FIFO/Telegram/Period Profit profile: **506 passed in 20.84s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` PASS. No user files/DB, live API, or bot used.
+- This is a replay service architecture extension (>300 changed lines) and requires independent architecture review in the final review packet. `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; the new replay is synthetic-tested only and remains preview-only.
+- Next: FL21 — process only exactly linked supported returns and non-sale movements; preserve original return cost and existing Return COGS authorization.
+
 ## Незакрытые данные реального случая
 
 - Полный per-supply список пока не передан; известна общая отправка6982 и отдельная Беларусь148.
 - Ведомость доступна владельцу только до05.11. Наблюдение исчезающих148 не является официальным описанием всех API.
 - reserved, cross-source cutoff и привязка физических продаж ещё требуют proof/validation.
 - Новая домашняя закупка не пересчитана — допустимый UNKNOWN, не blocker создания case.
+
+## Выполнение FL12 — 2026-11-08
+
+- Добавлен `app/services/fifo_cost_report_import_service.py::FifoCostReportImportService.parse_turnover_workbook`. Он строго принимает лист «Оборотная ведомость», нормализует доказательства для точного выбранного SKU, возвращает digest файла/cell refs/parser version и явное происхождение периода: owner-confirmed, filename candidate или unknown. Файл не сохраняется; importer не пишет case/evidence и не активирует FIFO.
+- Read-only parser использует `openpyxl` `read_only=True, data_only=True` и `defusedxml`; проверяет zip до чтения (10 MiB, 100 MiB declared uncompressed, 2048 entries, ratio ≤100, macro/external relationship/path traversal rejection), листы до 50,000 строк/100 колонок, exact header case с whitespace/NBSP normalization и формулы без исполнения. В дальнейшем FL14 оборачивает parser в отдельный ограниченный subprocess с hard deadline/concurrency cap.
+- Synthetic matrix: opening 4492 + receipts 0 − expenses 780 − closing 3712 = 0; redeemed 775 не подменяется ordered units, прочие расходы 5 остаются отдельно. Closing buckets сохраняют buyer_delivery 1646 и buyer_return_transit 70; 3712 не объявляется physical/available stock. Исключённые компенсации S/AA не входят в totals. Второй SKU не агрегируется.
+- Добавлены `requirements.txt` dependencies `openpyxl>=3.1.5,<4`, `defusedxml>=0.7.1,<1` и `tests/test_fifo_cost_report_import_service.py` (synthetic in-memory workbook; owner XLSX не читается). Код commit `1f209a23` (`Parse Ozon turnover evidence for FIFO`).
+- Проверки на code SHA `1f209a23`: focused **21 passed in 1.03s**; все `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` — **409 passed in 17.21s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Временные dependencies лежат только в `.fl12-deps` и не входят в commit; удалить после выполнения всех тестов.
+- `IMPLEMENTATION_VERIFIED`: нет (контекстный импорт, отчёт остатков, bridge, replay/impact/atomic apply и runtime integration впереди). `OWNER_CASE_VERIFIED`: нет; ни owner report, ни real APIs/DB не использовались. Blocker отсутствует.
+
+## Выполнение FL13 — 2026-11-08
+
+- Добавлен `FifoCostStockManagementImportService.parse_stock_management_workbook`, read-only parser точного пятилистового отчёта «Управление остатками». Он выбирает строки по точному SKU и сохраняет отдельные buckets из авторитетного листа «Товары». «Товар-склад» сверяется отдельно и не прибавляется; «Товар-кластер» и «Кластеры» не суммируются; «Товар-склад снято с продажи» сохраняется отдельным bucket.
+- FBS `Возврат FBS` сохраняется как подмножество available: 1182 обычных + 9 FBS = 1191, без двойного добавления. Остальные synthetic controls: preparing 18, checking 5, supplier planned 600, supplier transit 6234, buyer delivery 1689, buyer return transit 43, removed-from-sale 41. Total 7532 и сумма buckets остаются диагностикой, не physical/FIFO opening; reserved — unknown без самостоятельного поля.
+- Общий XLSX preflight стал требовать точный набор видимых листов, включая запрет скрытых sheets; turnover parser получил регрессию на скрытый extra sheet. Numeric product feature и обязательные quantity cells не превращаются в unknown/zero.
+- Добавлены `app/services/fifo_cost_stock_management_import_service.py` и `tests/test_fifo_cost_stock_management_import_service.py`; расширены turnover parser/helper и его tests. Synthetic workbook воспроизводит подтверждённые labels, но не содержит owner product IDs/names. Parser не сохраняет XLSX/evidence, не вызывает API, не меняет case, FIFO, DB или прибыль и пока не подключён к Telegram.
+- Проверки после финальной правки: оба parser modules **35 passed in 1.69s**; все `tests/test_fifo_cost_*.py` + `tests/test_telegram_fifo_cost_*.py` — **423 passed in 17.90s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Проверка запущена с временными локальными библиотеками openpyxl/defusedxml, не включёнными в Git. `data/` не менялась.
+- Code commit: `52a5b9fb3b3cf605b8c500003d48d254f1453337` (`Parse Ozon stock management evidence for FIFO`). Документация будет отдельным последующим commit в PR2.
+- `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`; owner workbook использовался только для ранее записанной schema/control matrix, не в текущем parser test run. Неразрешённый бизнес-вопрос не возник.
+- Следующий этап: FL14 — contextual bounded XLSX import только после выбора case, с preview и отдельным подтверждением.
 
 ## Выполнение FL06 — 2026-11-08
 
@@ -195,10 +243,74 @@ Source readiness:
 - Commit FL11: `66d05d38` (`Bound FIFO supply refresh and resume`). Никакие source facts этого теста не трактуются как owner-case validation: `IMPLEMENTATION_VERIFIED: нет`, `OWNER_CASE_VERIFIED: нет`.
 - Следующий этап: FL12 — read-only parser оборотной ведомости с cell provenance и точными control totals.
 
+## Выполнение FL14 — 2026-11-08
+
+- Добавлен `FifoCostReportImportWorkerClient`: два фиксированных report type маршрутизируются к соответствующим read-only parser-классам в отдельном managed subprocess. Hard timeout —15 секунд, предел —3 одновременных workers; превышение размера останавливается до запуска child. Parent завершает только созданный им subprocess. Worker получает ограниченное окружение без `.env`/credentials.
+- Добавлен `TelegramFifoCostReportImportService`: короткий opaque selection ticket привязан к owner/tenant/store/SKU/case/revision/type; допускаются только DRAFT/AWAITING_EVIDENCE. XLSX без выбранного дела возвращает безопасную инструкцию до вызова parser. Валидный XLSX сначала создаёт in-memory preview; persistent evidence и case revision не меняются без отдельного подтверждения. Confirm повторно проверяет scope/state/revision и использует append-only `append_report_evidence`; стабильный idempotency key предотвращает повторную запись. Stale/failure/cancel затрагивают только собственный ticket/preview. Временные билеты имеют TTL 15 минут и bounded quotas.
+- `ReturnInventoryTelegramAdapter` и production factory внедряют runtime. `SellerCostTelegramAdapter` направляет `.xlsx` в новый flow, сохраняя `.csv` импорт; Telegram handler отклоняет XLSX >10 МиБ до скачивания, когда `file_size` доступен. Имя файла, SKU и payload не публикуются в сообщения/callbacks/logs; период имени файла хранится как candidate.
+- Добавлены `test_fifo_cost_report_import_worker_client.py`, `test_telegram_fifo_cost_report_import_service.py`, `test_fifo_cost_report_import_telegram_adapter.py`. Покрыты настоящий child-process positive path, timeout, concurrency, malformed response, persisted-evidence cap, no-selection/no-write, preview/confirm/replay, ошибка с повторной попыткой, stale/cross-case изоляция, owner/size guards, CSV preservation и pre-download rejection.
+- Code commit `58ba757b52d0d92708e8d2aaa6bb88adb666f77a` (`Add scoped FIFO workbook import confirmation`). Focused parser/worker/runtime/adapter set: **47 passed in 3.08s**; связанный FIFO/Telegram/seller-cost/return-inventory профиль: **462 passed in 20.51s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Fixtures — synthetic in-memory XLSX и `tmp_path`; owner files/DB и live APIs не использовались.
+- `IMPLEMENTATION_VERIFIED` всего продукта остаётся нет; `OWNER_CASE_VERIFIED` нет. Реальный UI выбора дела будет подключён в FL24–FL26; даты/cutoff/bridge владельца не подтверждены. Следующий этап FL15 — независимая сверка declared/observed/accepted/pending/discrepancy с сохранением времени каждого источника.
+
+## Выполнение FL15 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionSupplyReconciliationService`: owner total и известные/нераспределённые declarations; per-declaration status observation; accepted, pending и final discrepancy; отдельные stock report snapshots с period provenance, capture time, source-as-of и file fingerprint.
+- Сверка проверяет exact owner/store/SKU/case scope, declaration revisions/reference binding, timestamp conflicts и количество. Различие owner/API declaration остаётся явным; MISSING сохраняет last-known observation, но сообщает о свежести; unknown quantity не становится нулём. Статусы partial/conflict не превращаются в current acceptance.
+- Контроль `6982 = 148 + 600 + 6234`: owner-linked `148 RECEIVING` остаётся одной отдельной поставкой; `600 supplier_planned` и `6234 supplier_transit` принадлежат отдельному отчётному снимку. Известный owner remainder `6834` показан только как арифметический нераспределённый объём; он не превращён в фиктивную поставку. Принятая сумма не выводится из статуса.
+- Разные/отсутствующие `source_as_of` не схлопываются: результат всегда несёт `is_atomic_snapshot=False`, а отчётный XLSX не притворяется API-снимком. Сервис не вызывает API, не пишет базу, FIFO или прибыль.
+- Добавлен `tests/test_fifo_cost_transition_supply_reconciliation_service.py`; **13 новых regressions**. FL15 плюс observations, bounded refresh, acceptance reconciliation, stock management и turnover parser profile: **74 passed in 3.39s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Контроль синтетический; owner files/DB/live APIs не использовались.
+- Code commit `1e76cdcf17fc7cf2cf63ebb408a3bb7305f8662a` (`Reconcile FIFO supply evidence by source`). FL15 + linked source/parser tests **74 passed in 3.39s**; complete FIFO/Telegram regression profile **449 passed in 20.34s**; compileall/diff-check/data-preservation PASS. Контроль синтетический; owner files/DB/live APIs не использовались.
+- Сервис является чистым архитектурным расширением и требует независимого architecture review согласно репозиторным правилам (>300 изменённых строк / новый service). Следующий этап — FL16: proposal начального среза без изменения текущего режима.
+## Выполнение FL16 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionOpeningProposalService`. Он выводит owner review report snapshots и supply declaration/status/acceptance отдельно, сохраняет old-home=0 / old-transit=0 и new-home unknown как разные owner facts, и никогда не подменяет их единым остатком.
+- Контроль: 148 owner-linked RECEIVING остаётся отдельным declaration с accepted/pending unknown; stock XLSX содержит отдельные `supplier_planned=600`, `supplier_transit=6234`, `available=1191`, FBS-return 9 как subset. Эти снимки не складываются и не превращаются в общий confirmed accepted.
+- Turnover report сохраняет `opening_total=4492`, `receipts=0`, `expenses=780` (redeemed 775, non-sale 5), `closing=3712`, withdrawals=5, closing buyer delivery=1646 и buyer return transit=70, balance diff=0. `fifo_opening_units` остаётся `None`; нет признания closing total физическим FIFO остатком без cutoff bridge.
+- Период из имени файла остаётся candidate и выдаёт только candidate gap; owner-confirmed period может показать evidence gap. Owner-confirmed cutoff — отдельный input; неверный/отсутствующий cutoff не выводится из имени отчёта. Уже initialized FIFO блокирует proposal. Proposal содержит `preview_only=True`, `ready_to_apply=False`, `is_atomic_snapshot=False`; база, FIFO режим, прибыль и owner данные не меняются.
+- Добавлено 9 synthetic regressions в `tests/test_fifo_cost_transition_opening_proposal_service.py`. FL16 и связанные supply/stock/turnover проверки: **83 passed in 3.65s**; полный FIFO/Telegram профиль **458 passed in 20.20s**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS.
+- Code commit `a33a0792bf3142924af280c39d32df2fd7ea0b9d` (`Add FIFO opening review proposal`). Новый сервис превышает порог review (>300 изменённых строк), поэтому включить в пакет независимого architecture review. Следующий этап — FL17: deterministic readiness и missing evidence queue.
+
+## Выполнение FL17 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionReadinessService`: формирует сортированную immutable-очередь missing/confirmation/conflict требований и ссылок на сохранённые отчёты/API snapshots. Отдельно перечисляет документы/поля, видимый остаток количества, точный период и сохранённые fingerprints/capture/source-as-of. Сервис read-only: `ready_to_apply=False`, `complete_through=None`, `preview_only=True`, `is_atomic_snapshot=False`; сохраняет исходное case state.
+- Контроль поставок: owner total 6 982; указанная поставка 148 RECEIVING; остаток 6 834 остаётся нераспределённым, не превращается в fabricated supply или accepted stock. Без полного manifest готовность закрыта.
+- Период: подтверждённый turnover 04–05.11 выводит конкретно недостающие 06–07.11; `source_data_through=2026-11-05`, `complete_through=None`. Candidate filename period выводит запрос подтверждения и candidate interval, но не утверждает фактический coverage gap. Дата отчёта не становится cutoff.
+- Отдельно выдаются `STOCK_RESERVED_OR_OVERLAP_UNKNOWN`, `SALE_CUTOFF_BRIDGE_REQUIRED`, конфликт акта с fingerprint/source_as_of, source watermark mismatch, и cutoff confirmation. API lag/as-of queue использует только фактическую неатомарность/неполноту; часовой SLA не придумывается.
+- Reconciliation result теперь несёт `case_id`; proposal/readiness отвергают evidence другого case даже при совпадении owner/store/SKU/revision. Для конфликтных acceptance сохраняются безопасные redacted locators (hash, capture/source-as-of, issue codes, наличие act reference), не исходные Ozon IDs.
+- Добавлено 10 readiness regressions и 2 reconciliation regressions. Тесты: focused readiness + proposal + supply reconciliation **34 passed in 0.90s**; полный файл-профиль `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **477 passed in 20.53s**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только синтетические данные; пользовательская DB/files, real APIs и бот не использовались.
+- Code commit `df7c095b20d556c1b333f0157c6b6d6448fd1329` (`Add FIFO late-entry readiness queue`). Изменение расширяет pure service/reconciliation contracts и >300 LOC, поэтому требует architecture review. Следующий этап FL18 — отдельный proof-bound cutoff/sales bridge; реальный owner case остаётся AWAITING_EVIDENCE.
+
+## Выполнение FL18 — 2026-11-08
+
+- Добавлен `FifoCostCutoffBridgeService` и типизированные evidence DTO. Ozon `/v1/finance/realization/posting` даёт только полный набор identity (posting/SKU/offer/product); физические дата и количество берутся из точных owner-documented строк. Отдельное подтверждение владельца фиксирует семантику физического выбытия в часовом поясе магазина. Даты финансового начисления не используются для физического FIFO порядка.
+- Bridge требует точного owner/store/SKU/product/offer/case/revision scope; подтверждённый cutoff и привязанный complete stock snapshot; complete identity pagination; точное полное соответствие document rows; полный период до заявленного watermark; отсутствие необработанных возвратов/выбытий и неизвестных stock buckets. Не создаёт posting identity из номера строки или агрегатного отчёта.
+- Повторные finance identity строки дедуплицируются и не становятся повторной физической продажей. Неоднозначность, неполнота или конфликт закрывают bridge. Output — `preview_only`, без writes в FIFO, налог или Period Profit. Readiness удаляет только соответствующее требование bridge для того же case/revision; `ready_to_apply` остаётся false.
+- Интеграция использует существующий sale normalizer через production factory. Новый bridge service добавлен в production transition service, но UI и atomic apply не включены. Архитектурный класс: **Architecture Review Required** (новый service, изменённые contracts/wiring, >300 LOC).
+- FL18 code commit `2b216dc6eeda57144c2ae0183e423e39b8a32afd` (`Build proof-bound FIFO cutoff bridge`). Focused bridge/readiness/sale-normalizer: **36 passed**; linked FIFO/Telegram profile: **496 passed**; `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только synthetic fixtures, без owner files/DB и live APIs.
+- `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`; реальные строки продаж и cutoff владельца ещё не проверялись. Следующий этап FL19: ограниченное opening proposal и новая ставка без прежнего manual anchor; до общего commit — proposal-only, неизвестный домашний остаток не должен становиться запасом.
+
+## Выполнение FL19 — 2026-11-08
+
+- Добавлен pure `FifoCostTransitionActivationProposalService`; production `FifoCostTransitionService.build_activation_proposal` использует его без persistence. Candidate old/new unit cost и cost input mode берутся только из сохранённой owner-input ревизии. TOTAL_LANDED не разбивается на выдуманные purchase/delivery/packaging суммы.
+- Proposal соединяется только с тем же owner/store/SKU/product/offer/case/revision, cutoff и stock fingerprint, который лежит в cutoff bridge. Cross-store или stale input блокирует proposal и не выдаёт чужие stock buckets/watermark.
+- Документированные buckets копируются раздельно и не суммируются. Shipment declarations/accepted observations служат reconciliation evidence; `accepted_supply_units_added_to_snapshot=0`, чтобы не прибавить поставку к количеству, уже покрытому cutoff snapshot. Unknown new-home остаётся `None` и не мешает показать candidate rate, но scalar `fifo_opening_units` остаётся `None`.
+- Результат всегда `preview_only=True`, `ready_to_apply=False`; существующая FIFO очередь не инициализируется. Неустранённые требования turnover, replay и new-home остаются в output. Модуль — новый service и application contract extension, **Architecture Review Required**.
+- Dedicated FL19 selection **6 passed**; focused cutoff bridge + transition service **29 passed**; linked FIFO/Telegram/Period Profit **502 passed in 20.93s**. `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только synthetic tests/fixtures, без owner DB/files и live APIs.
+- Code commit `a9a20e00627c0644b0a6b1d5b21592a37fd53df4` (`Add safe FIFO first activation proposal`). `IMPLEMENTATION_VERIFIED=false`, `OWNER_CASE_VERIFIED=false`. Следующий этап FL20 — deterministic replay, без atomic apply.
+
+## Выполнение FL23 — 2026-11-08
+
+- `FifoCostRepository.prepare_transition_preview` поддерживает первую инициализацию только через сохранённое подтверждение cutoff: прочитанный stock report должен совпадать с bridge по fingerprint, available/reserved/old-transit/old-home totals проверяются, FBS return overlap должен быть известен и равен нулю. Стоимость начальных слоёв ограничена old/new cost; старый слой после нового отклоняется. Предпросмотр выполняет staging под savepoint и откатывает все FIFO записи до сохранения sealed preview.
+- `commit_transition_case` повторно проверяет scope, case/FIFO/allocation revisions, bridge/evidence/tax fingerprints, replay и TTL. Ставка, allocation lines, projection, immutable commit audit и APPLIED case revision записываются в одной `BEGIN IMMEDIATE`. Exact idempotent retry возвращает сохранённый commit и после TTL/изменения текущей tax policy; изменённый payload для того же ключа возвращает conflict.
+- Добавлен `tests/test_fifo_cost_transition_atomic_apply.py`: 10 regressions. N21 проверен на конечных слоях `3×21.00 + 100×14.65`; после продажи 5 COGS равен `92.30`, remaining quantity `98`, remaining cost `1435.70`, next cost `14.65`. Fault injection проходит до и после каждого DML write, проверяя полный rollback и `READY_TO_CONFIRM`; изменённые stock/tax/bridge/return, цена вне разрешённой пары и неверный порядок слоёв закрываются.
+- Изменены `app/services/fifo_cost_repository.py`, `app/services/fifo_cost_transition_store.py`; добавлен atomic apply test. Кодовый commit FL23 `462c413b17a55b58d1c7fc629cd6aad287ca2fab` (`Atomically apply FIFO late-entry transitions`). Документация этапа фиксируется отдельным commit.
+- Результаты code SHA: dedicated FL23 **10 passed in 1.73s**; связанный `test_fifo_cost*.py`, `test_telegram_fifo_cost*.py`, `test_period_profit_fifo_cost_integration.py`: **531 passed in 22.91s**; `python -m compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` PASS. Только синтетические fixtures и временная SQLite; `.fl12-deps/` сохранён, `data/` не менялась; owner database/files, live APIs и бот не использовались.
+- Класс: **Architecture Review Required** — изменены repository authority/atomic commit contract, большой кодовый diff. `IMPLEMENTATION_VERIFIED=false`; `OWNER_CASE_VERIFIED=false`. Следующий этап FL24 — открыть путь к новой партии и незавершённым изменениям до настройки FIFO.
+
 ## PR delivery
 
 | PR | Этапы | Ветка | Base | HEAD | CI |
 |---|---|---|---|---|---|
 | 1 | FL00–FL11 | codex/fifo-late-entry-foundation-20261107 | main `d8d4ba00c85acf14ba9a960f56a755fbe30b555c` | FL11 code and documentation included; exact head is the foundation branch SHA | NOT_RUN |
-| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | planned | NOT_RUN |
+| 2 | FL12–FL23 | codex/fifo-late-entry-reconciliation-20261107 | exact head of PR1 | current branch head after FL20 documentation checkpoint; CI not yet queried | NOT_RUN |
 | 3 | FL24–FL35 | codex/fifo-late-entry-integration-20261107 | exact head of PR2 | planned | NOT_RUN |
