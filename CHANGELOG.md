@@ -1,8 +1,14 @@
+# 2026-11-13 — FIFO automatic batch rule contracts (PR A)
+
+- FB03 adds immutable, scoped contracts for batch rules, SKU observations, membership decisions, coverage and read-only manifests, with independent coverage flags, exact-zero/unknown distinction, encrypted lookups and stable manifest fingerprints.
+- Targeted profile (`test_fifo_cost_batch_rule_contracts.py` plus the existing FIFO transition contracts): **21 passed**. The FB01 UI red regression remains intentionally unresolved until the wizard stage FB08; no migration or source collection is available yet.
+- Source schema boundaries and verified Ozon facts are recorded in `project_brain/FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md`.
+
 # 2026-11-13 — FIFO automatic batch rule specification
 
 - Added a Luna specification for optional manual shipment totals, per-SKU batch rules, bounded supply discovery, exact SKU quantities, grouped owner confirmation and integration with the existing FIFO workflow.
 - Stages FB00–FB31, a v17 migration plan, three dependent implementation PRs and B01–B45 acceptance cases are specified. Product implementation has not started.
-- Rule confirmation and supply enumeration do not resolve the separate R1 inventory movement coverage blocker.
+- At specification creation, product implementation had not started. Rule confirmation and supply enumeration do not resolve the separate R1 inventory movement coverage blocker.
 
 # 2026-11-13 — FIFO review fixes R18–R20
 

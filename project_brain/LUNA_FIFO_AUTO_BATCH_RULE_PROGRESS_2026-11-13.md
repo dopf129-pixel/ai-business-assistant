@@ -7,8 +7,8 @@
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.
 - Spec branch: codex/fifo-auto-batch-rule-spec-20261113.
 - Product baseline: main 7965dcddffa50bd4e0f175cd18c32929b6a845d0.
-- Implementation branch/HEAD: codex/fifo-auto-batch-foundation-20261113; FB00 checkpoint `c46ec239`, FB01/FB02 документационные коммиты выполняются.
-- Следующий этап: FB03. FB00–FB02 зафиксированы; FB01 содержит ожидаемо красную baseline-регрессию до FB08.
+- Implementation branch/HEAD: codex/fifo-auto-batch-foundation-20261113; FB00 checkpoint `c46ec239`, latest work is FB03 contracts.
+- Следующий этап: FB04 after committing FB03. FB00–FB02 closed; FB01 baseline remains expected red until FB08.
 - Прежняя untracked .fl12-deps/ сохранена, не добавлять в Git.
 - Рабочая копия: изолированный Codex worktree; Desktop-папка с работающим ботом не открывалась для разработки.
 - Исходный `git status`: только `?? .fl12-deps/`; staged и tracked diff отсутствовали. Каталог .fl12-deps содержит 6 элементов, сохранён и исключён из изменений.
@@ -27,7 +27,7 @@
 | FB00 | DONE | `56c7c24a`; progress journal | `git status` подтвердил отсутствие tracked/staged edits на старте; `.fl12-deps/` сохранён; пять tracked data hashes записаны; base/main=7965dcdd; Desktop bot не открывался. `git diff --check` PASS. |
 | FB01 | DONE | `c47c63c2`; `tests/test_fifo_cost_batch_rule_regressions.py` | B01/B02 baseline red зафиксирован в Windows Python 3.12: **1 failed** на точной причине — `не знаю` отклоняется как неверное количество; saved case сохраняет `declared_shipped_units=None`, revision 6, FIFO queue не инициализируется. Краснота ожидаема до FB08. B23 будет покрыт после реализации typed controls/manifest в FB07/FB17. |
 | FB02 | DONE | `project_brain/FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md`; два synthetic fixtures | Проверены официальные страницы Ozon и текущие локальные wrappers. Подтверждено только bundle concept `supply_id`+`bundle_id` и наличие SKU/quantity, list/get v3 и crossdock `arrival_date=null`; точная raw schema/states/pagination/bundle response/dispatch date не раскрыты и оставлены NOT_VERIFIED. Fixtures проходят JSON parsing/маркер проверки; `git diff --check` PASS. Реальных запросов нет. |
-| FB03 | NOT_STARTED | — | — |
+| FB03 | IN_PROGRESS | `app/services/fifo_cost_batch_rule_contracts.py`; `tests/test_fifo_cost_batch_rule_contracts.py`; CHANGELOG/CURRENT_STATE/TEST_MAP/DECISIONS | New contract tests: **8 passed**; together with existing `tests/test_fifo_cost_transition_contracts.py`: **21 passed**. `compileall` and `git diff --check` PASS. Includes separate per-supply/aggregate quantity bounds; no I/O or persistence introduced. |
 | FB04 | NOT_STARTED | — | — |
 | FB05 | NOT_STARTED | — | — |
 | FB06 | NOT_STARTED | — | — |

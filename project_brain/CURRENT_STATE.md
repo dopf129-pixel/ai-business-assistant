@@ -1,9 +1,15 @@
+# 2026-11-13 — FIFO automatic batch rule implementation in progress
+
+- Implementation PR A is being developed from spec PR #733 on `codex/fifo-auto-batch-foundation-20261113`. FB00–FB02 are complete; FB03 adds typed immutable contracts. This is not a complete or deployable feature: v17 persistence, optional-total UI, source adapter, and production wiring remain outstanding.
+- The official-source contract marks raw bundle schema, complete state enum, and dispatch-date proof as unverified. Synthetic adapter fixtures are not raw Ozon payloads.
+- R1 inventory movement coverage remains a separate hard gate. No live API, owner data, Desktop bot, merge, or deployment has been used.
+
 # 2026-11-13 — Next FIFO work: automatic batch membership (specification only)
 
 - Product baseline: main 7965dcdd. Added LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md and an unstarted progress journal for FB00–FB31.
 - Owner request: subsequent shipments of the same SKU belong to the new batch until the next confirmed cost boundary; remove the continuously maintained mandatory manual total.
 - The specification separates owner rule confirmation, source supply coverage and factual FIFO readiness. Automatic grouping requires proven dispatch timing or an exact grouped owner selection.
-- All implementation stages remain NOT_STARTED. R1 remains open. No owner data, live API or running bot was changed by this specification.
+- At specification creation, implementation stages were NOT_STARTED. R1 remains open. No owner data, live API or running bot was changed by that specification-only change.
 
 # 2026-11-13 — FIFO review fixes R18–R20
 

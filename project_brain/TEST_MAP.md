@@ -2,8 +2,9 @@
 
 - Specification: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md, matrix B01–B45.
 - Planned coverage: nullable totals and wizard resume; scoped rules/v17 migration; supply states/pagination/SKU composition; cumulative acceptance/dedup; budgets/checkpoints; grouped confirmation; unchanged cutoff/R1 gates; exact apply/retry; old costs/frozen plans.
-- These tests are planned, not implemented or executed. Luna records actual names/results in LUNA_FIFO_AUTO_BATCH_RULE_PROGRESS_2026-11-13.md.
-- This change is documentation only; no local product test run is required for the specification.
+- Implemented so far: `tests/test_fifo_cost_batch_rule_contracts.py` covers immutable rule/observation/decision/coverage/manifest validators and passes **8 tests**; together with `tests/test_fifo_cost_transition_contracts.py`, the focused profile passes **21 tests**. `tests/test_fifo_cost_batch_rule_regressions.py::test_unknown_total_opens_auto_rule_preview_without_owner_consent` is the expected red FB01 baseline and currently demonstrates the quantity prompt failure.
+- `tests/fixtures/fifo_cost_batch_source/` contains only synthetic normalized adapter shapes; these are not raw Ozon examples.
+- Remaining B01–B45 cases are planned and linked to the per-stage mapping in `LUNA_FIFO_AUTO_BATCH_RULE_PROGRESS_2026-11-13.md`.
 
 # 2026-11-13 — FIFO review fixes R18–R20
 
