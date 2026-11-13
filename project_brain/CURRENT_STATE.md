@@ -1,7 +1,8 @@
 # 2026-11-13 — FIFO automatic batch rule implementation in progress
 
-- Implementation PR A is being developed from spec PR #733 on `codex/fifo-auto-batch-foundation-20261113`. FB00–FB04 are complete: source boundaries and typed contracts are recorded; additive SQLite v17 stores scoped rule/observation/decision/control evidence and CAS scan checkpoints. `supply_total_mode` round-trips through case payloads; legacy payloads and rows default to `LEGACY_OWNER_TOTAL`; no case auto-switches.
-- This remains an incomplete, non-deployable feature: rule preview/confirmation, optional-total UI, source adapter, manifest, and production wiring are outstanding. FB01's baseline regression remains intentionally red until FB08.
+- Implementation PR A is being developed from spec PR #733 on `codex/fifo-auto-batch-foundation-20261113`. FB00–FB05 are complete: source boundaries and typed contracts are recorded; additive SQLite v17 stores scoped rule/observation/decision/control evidence and CAS scan checkpoints; owner rule preview and confirmation use exact case/rule-head CAS and durable idempotency. Legacy cases remain in `LEGACY_OWNER_TOTAL` until confirmed.
+- Rule confirmation changes only the case supply-total mode and appends owner rule evidence. It never writes FIFO rates, layers, events, allocations, or COGS. Successor confirmation atomically closes the prior local-date interval and appends the next rule. Preview tickets are bounded, process-local, and expire in 15 minutes; persisted receipts support retry after restart.
+- This remains an incomplete, non-deployable feature: optional-total UI, source adapter, manifest, and production wiring are outstanding. FB01's baseline regression remains intentionally red until FB08.
 - The official-source contract marks raw bundle schema, complete state enum, and dispatch-date proof as unverified. Synthetic adapter fixtures are not raw Ozon payloads.
 - R1 inventory movement coverage remains a separate hard gate. No live API, owner data, Desktop bot, merge, or deployment has been used.
 

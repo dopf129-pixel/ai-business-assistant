@@ -2999,3 +2999,8 @@ Summary Report теперь включает:
 - Добавлен read-only parser узкого профиля «Оборотная ведомость» с проверкой точного SKU, периода, component totals и баланса. Проданные единицы и прочие расходы остаются раздельными; closing balance не объявляется физически доступным остатком.
 - XLSX preflight ограничивает архив, строки/колонки, compression ratio, макросы, внешние ссылки и traversal; формулы не исполняются. Добавлены `openpyxl` и `defusedxml` как runtime requirements.
 - Синтетическая fixture; общий XLSX preflight hardening FL13 добавил regression для скрытого листа, поэтому теперь 22 проверки FL12. Parser пока не подключён к Telegram и не сохраняет отчёт.
+# 2026-11-13 — FIFO automatic batch rule confirmation (PR A, FB05)
+
+- Added an exact-scope, immutable preview and atomic owner confirmation for per-SKU batch cost rules. Confirmation binds the saved case revision, cost, zero old-home/transit facts, store timezone, boundary date and first-day supply policy; successor rules close the prior interval before the new rule is appended.
+- Confirmation changes only the case's `supply_total_mode` and appends rule evidence. It does not write FIFO rates, layers, events, allocations or COGS. A bounded in-memory preview expires after 15 minutes; persisted idempotency receipts make identical retries safe after process restart.
+- Targeted linked profile: **91 passed** across batch contracts/service/store, transition contracts/store/service/apply and v13/v16 migration tests. Full pytest and exact-SHA CI remain planned for FB10.

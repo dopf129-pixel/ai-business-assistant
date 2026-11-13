@@ -430,8 +430,12 @@ class FifoCostBatchSupplyStore:
         rows = connection.execute(
             """SELECT rule_id, rule_revision, policy_version, start_local_date,
                       store_timezone, start_day_policy, new_unit_cost_rub,
-                      event_kind, end_local_date_exclusive, rule_fingerprint,
-                      confirmed_at_utc, applied_rate_reference, recorded_at
+                      cost_input_fingerprint, old_home_confirmed_zero,
+                      old_transit_confirmed_zero, boundary_supply_digests_json,
+                      predecessor_rule_id, predecessor_rule_revision, event_kind,
+                      end_local_date_exclusive, owner_confirmation_fingerprint,
+                      rule_fingerprint, applied_rate_reference, idempotency_key,
+                      payload_fingerprint, confirmed_at_utc, recorded_at
                FROM fifo_cost_batch_rule_revisions
                WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
                  AND store_id=? AND sku=? AND scope_fingerprint=?
@@ -442,6 +446,34 @@ class FifoCostBatchSupplyStore:
             ),
         ).fetchall()
         return tuple(dict(row) for row in rows)
+
+    @classmethod
+    def read_rule_idempotency(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, idempotency_key: str,
+    ) -> dict | None:
+        """Read the exact scoped rule command receipt for retry handling."""
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        cls._validate_opaque(idempotency_key)
+        case = cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        )
+        if case is None:
+            return None
+        row = connection.execute(
+            """SELECT rule_event_id, rule_id, rule_revision,
+                      owner_confirmation_fingerprint, payload_fingerprint
+               FROM fifo_cost_batch_rule_revisions
+               WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
+                 AND store_id=? AND sku=? AND scope_fingerprint=?
+                 AND idempotency_key=?""",
+            (
+                case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope),
+                idempotency_key,
+            ),
+        ).fetchone()
+        return dict(row) if row is not None else None
 
     @classmethod
     def read_scan_checkpoint(

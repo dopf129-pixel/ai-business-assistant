@@ -162,6 +162,99 @@ class BatchRuleRevision:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchRuleInput:
+    start_local_date: str
+    start_day_policy: BatchStartDayPolicy
+    boundary_supply_digests: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "start_local_date", normalize_date_only(self.start_local_date))
+        if not isinstance(self.start_day_policy, BatchStartDayPolicy):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        boundary = _digest_tuple(self.boundary_supply_digests, max_items=MAX_SCAN_SUPPLIES)
+        if self.start_day_policy is BatchStartDayPolicy.EXPLICIT_SUPPLY_SET and not boundary:
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        object.__setattr__(self, "boundary_supply_digests", boundary)
+
+
+@dataclass(frozen=True, slots=True)
+class BatchRulePreview:
+    preview_id: str
+    scope: ScopeIdentity
+    case_id: str
+    expected_case_revision: int
+    rule_id: str
+    rule_revision: int
+    expected_rule_head_revision: int
+    close_active_rule_revision: int | None
+    predecessor_rule_id: str | None
+    predecessor_rule_revision: int | None
+    start_local_date: str
+    store_timezone: str
+    start_day_policy: BatchStartDayPolicy
+    new_unit_cost_rub: Decimal
+    cost_input_fingerprint: str
+    old_home_confirmed_zero: bool
+    old_transit_confirmed_zero: bool
+    boundary_supply_digests: tuple[str, ...]
+    rule_head_fingerprint: str
+    preview_fingerprint: str
+    created_at_utc: str
+    expires_at_utc: str
+
+    def __post_init__(self) -> None:
+        _opaque(self.preview_id)
+        if not isinstance(self.scope, ScopeIdentity):
+            _invalid(TransitionReasonCode.SCOPE_INVALID)
+        _opaque(self.case_id)
+        if type(self.expected_case_revision) is not int or self.expected_case_revision < 1:
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        _opaque(self.rule_id)
+        for name in ("rule_revision", "expected_rule_head_revision"):
+            value = getattr(self, name)
+            if type(value) is not int or not 0 <= value <= MAX_RULE_REVISIONS:
+                _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if self.rule_revision < 1:
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if self.close_active_rule_revision is not None and (
+            type(self.close_active_rule_revision) is not int
+            or self.close_active_rule_revision < 1
+        ):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if (self.predecessor_rule_id is None) != (self.predecessor_rule_revision is None):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if self.predecessor_rule_id is not None:
+            _opaque(self.predecessor_rule_id)
+            if type(self.predecessor_rule_revision) is not int or self.predecessor_rule_revision < 1:
+                _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        object.__setattr__(self, "start_local_date", normalize_date_only(self.start_local_date))
+        object.__setattr__(self, "store_timezone", normalize_store_timezone(self.store_timezone))
+        if not isinstance(self.start_day_policy, BatchStartDayPolicy):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        cost = normalize_money(self.new_unit_cost_rub)
+        if cost <= Decimal("0.00"):
+            _invalid(TransitionReasonCode.MONEY_INVALID)
+        object.__setattr__(self, "new_unit_cost_rub", cost)
+        object.__setattr__(self, "cost_input_fingerprint", normalize_digest(self.cost_input_fingerprint))
+        if type(self.old_home_confirmed_zero) is not bool or not self.old_home_confirmed_zero:
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if type(self.old_transit_confirmed_zero) is not bool or not self.old_transit_confirmed_zero:
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        object.__setattr__(
+            self, "boundary_supply_digests",
+            _digest_tuple(self.boundary_supply_digests, max_items=MAX_SCAN_SUPPLIES),
+        )
+        object.__setattr__(self, "rule_head_fingerprint", normalize_digest(self.rule_head_fingerprint))
+        object.__setattr__(self, "preview_fingerprint", normalize_digest(self.preview_fingerprint))
+        created = normalize_utc_timestamp(self.created_at_utc)
+        expires = normalize_utc_timestamp(self.expires_at_utc)
+        if expires <= created:
+            _invalid(TransitionReasonCode.TIMESTAMP_INVALID)
+        object.__setattr__(self, "created_at_utc", created)
+        object.__setattr__(self, "expires_at_utc", expires)
+
+
+@dataclass(frozen=True, slots=True)
 class SupplySkuObservation:
     scope: ScopeIdentity
     record_key: str
