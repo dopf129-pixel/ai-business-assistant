@@ -3003,4 +3003,4 @@ Transport chunking is not a financial fact and must not make unchanged frozen ec
 
 Status:
 
-Implemented in the existing collection, evidence and Telegram import services. Linked regression profile: 116 passed; full isolated pytest: 5,288 passed in 73.96s. `compileall`, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Hosted exact-head CI runs after publication. R1 complete-movement-source remains open.
+Implemented in the existing collection, evidence and Telegram import services. Linked regression profile: 116 passed; full isolated pytest: 5,288 passed in 73.96s. `compileall`, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702). R1 complete-movement-source remains open.

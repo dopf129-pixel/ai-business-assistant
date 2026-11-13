@@ -3,7 +3,7 @@
 - Monthly finance snapshot fingerprints now use date-keyed daily source hashes plus monthly Period Profit totals, so replaying the same month with different API chunk sizes does not change the source seal. Pre-v2 snapshots remain compatible only when their original chunk fingerprint is reproduced exactly.
 - A corrected owner CSV can be explicitly selected as the current physical-sales version. The confirmation binds the exact superseded fingerprint set; previous evidence stays append-only in history, while unresolved legacy multi-version sets fail closed.
 - Physical-sales CSV import now requires the owner to declare the full coverage interval before upload. Empty days remain in the declared period; the preview shows that interval separately from the first/last dates present in rows.
-- Verification: linked FIFO regression profile **116 passed**; full isolated pytest **5,288 passed in 73.96s**; compileall, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Exact-head hosted CI runs after publication; R1 complete-movement-source blocker remains open.
+- Verification: linked FIFO regression profile **116 passed**; full isolated pytest **5,288 passed in 73.96s**; compileall, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702) on Windows/Linux and production Docker build/runtime smoke. R1 complete-movement-source blocker remains open.
 
 # 2026-11-13 — FIFO review corrections R9–R11
 

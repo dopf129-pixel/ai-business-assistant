@@ -3,7 +3,7 @@
 - Monthly snapshot source fingerprints are independent of request chunking; they bind each daily finance-cache value by date together with monthly Period Profit totals. Pre-v2 freezes are accepted only when their legacy chunk-bound digest is reproduced exactly.
 - Owner-imported physical-sales evidence keeps every confirmed CSV immutable. Replacing the active version requires an explicit confirmation that binds the full prior fingerprint set; old multi-version evidence without an owner selection fails closed.
 - CSV coverage is entered as a full date interval before upload, so periods with no sale rows at the first/last day remain represented. The preview distinguishes declared coverage from dates actually present in rows.
-- Verification: linked FIFO profile **116 passed**; full isolated pytest **5,288 passed in 73.96s**; compileall, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Hosted exact-head CI runs after publication. R1 remains a hard blocker; no owner case, real API, Telegram bot, merge or deployment was verified/performed.
+- Verification: linked FIFO profile **116 passed**; full isolated pytest **5,288 passed in 73.96s**; compileall, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Implementation SHA `89a8efd68674c28a9fd7f4584a6f180b69c7f8fe` passed exact-head Verify run [#43399966702](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43399966702) on Windows/Linux and Docker smoke. R1 remains a hard blocker; no owner case, real API, Telegram bot, merge or deployment was verified/performed.
 
 # 2026-11-13 — FIFO review corrections R9–R11
 
