@@ -14,6 +14,8 @@ from test_fifo_cost_cutoff_bridge_service import (
     _build as build_cutoff_bridge,
     _confirmation,
     _document_payload,
+    _finance_batch,
+    _movement_coverage,
     _proposal,
     _stock_report as _base_stock_report,
 )
@@ -82,29 +84,48 @@ def _turnover_report():
     )
 
 
-def _bridge_inputs(case, stock):
+def _bridge_inputs(case, stock, post_cutoff_sales=None, complete_through=COMPLETE_THROUGH):
     from test_fifo_cost_cutoff_bridge_service import _document as parse_document
 
-    document = parse_document(payload=_document_payload(rows=[
-        {
-            "posting_number": "posting-before", "finance_sku": SCOPE.sku,
-            "quantity": 2, "physical_effective_date": "2026-11-05",
-            "row_reference": "A17",
-        },
-        {
-            "posting_number": "posting-after", "finance_sku": SCOPE.sku,
-            "quantity": 5, "physical_effective_date": "2026-11-08",
-            "row_reference": "A18",
-        },
-    ]), scope=SCOPE, case_id=CASE_ID)
+    sales = post_cutoff_sales or [{
+        "posting_number": "posting-after",
+        "finance_sku": SCOPE.sku,
+        "quantity": 5,
+        "physical_effective_date": "2026-11-08",
+    }]
+    rows = [{
+        "posting_number": "posting-before", "finance_sku": SCOPE.sku,
+        "quantity": 2, "physical_effective_date": "2026-11-05",
+        "row_reference": "A17",
+    }]
+    rows.extend({
+        **sale,
+        "row_reference": f"A{18 + index}",
+    } for index, sale in enumerate(sales))
+    document = parse_document(
+        payload=_document_payload(rows=rows, period_to=complete_through),
+        scope=SCOPE, case_id=CASE_ID,
+    )
+    finance_rows = [
+        {"order": {"posting_number": row["posting_number"]}, "item": {
+            "sku": SCOPE.sku, "offer_id": SCOPE.offer_id,
+            "product_id": SCOPE.product_id,
+        }}
+        for row in rows
+    ]
     proposal = _proposal(case=case, stock=stock, cutoff=CUTOFF)
     return build_cutoff_bridge(
         case=case,
         stock_evidence=stock,
         proposal=proposal,
+        finance_batch=_finance_batch(
+            response={"error": False, "rows": finance_rows},
+            period_to=complete_through,
+        ),
         physical_sale_document=document,
         owner_confirmation=_confirmation(document),
-        requested_complete_through=COMPLETE_THROUGH,
+        movement_coverage=_movement_coverage(complete_through=complete_through),
+        requested_complete_through=complete_through,
     )
 
 
@@ -174,8 +195,11 @@ def _initial_cutover(stock):
     }
 
 
-def _prepared_repository(tmp_path, *, db_path=None):
-    clock = [datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc)]
+def _prepared_repository(
+    tmp_path, *, db_path=None, post_cutoff_sales=None,
+    complete_through=COMPLETE_THROUGH,
+):
+    clock = [datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)]
     repository = FifoCostRepository(
         db_path=db_path or tmp_path / "transition-atomic.sqlite",
         now_provider=lambda: clock[0],
@@ -183,9 +207,24 @@ def _prepared_repository(tmp_path, *, db_path=None):
     tenant = set_current_tenant_user_id(TENANT)
     stock = _stock_report()
     case = _open_case(repository, stock)
-    bridge = _bridge_inputs(case, stock)
+    bridge = _bridge_inputs(
+        case, stock, post_cutoff_sales=post_cutoff_sales,
+        complete_through=complete_through,
+    )
     assert bridge.status == "READY"
-    impact = _impact("105.00", "92.30")
+    sale_units = sum(
+        item["quantity"] for item in (post_cutoff_sales or [{"quantity": 5}])
+    )
+    baseline_cogs = Decimal(sale_units * 21).quantize(Decimal("0.01"))
+    candidate_cogs = (
+        Decimal("63.00") + Decimal(max(0, sale_units - 3)) * Decimal("14.65")
+    ).quantize(Decimal("0.01"))
+    impact = _impact(format(baseline_cogs, ".2f"), format(candidate_cogs, ".2f"))
+    impact["complete_through"] = complete_through
+    impact["preview_fingerprint"] = FifoCostRepository._sha256({
+        key: value for key, value in impact.items()
+        if key not in {"error", "code", "preview_fingerprint"}
+    })
     cutover = _initial_cutover(stock)
     prepared = repository.prepare_transition_preview(
         case_id=CASE_ID, store_id=STORE, product_id=SCOPE.product_id,
@@ -524,7 +563,7 @@ def test_ordinary_fifo_rate_change_remains_available_after_one_late_transition(t
     from services.fifo_cost_source_normalizer import FifoStockSnapshot
 
     repository, tenant, _stock, bridge, impact, _cutover, prepared, clock = (
-        _prepared_repository(tmp_path)
+        _prepared_repository(tmp_path, complete_through="2026-11-10")
     )
     try:
         applied = _commit(repository, bridge, impact, prepared)
@@ -572,6 +611,267 @@ def test_ordinary_fifo_rate_change_remains_available_after_one_late_transition(t
         assert [item["unit_cost_rub"] for item in updated["rates"]] == [
             "14.65", "9.50",
         ]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_fr09_replays_three_rates_from_prefix_and_publishes_atomically(
+    tmp_path, monkeypatch,
+):
+    from services.fifo_cost_rate_service import FifoCostRateService
+    from services.fifo_cost_source_normalizer import FifoStockSnapshot
+
+    sales = [
+        {"posting_number": "mr01-sale", "finance_sku": SCOPE.sku,
+         "quantity": 5, "physical_effective_date": "2026-11-08"},
+        {"posting_number": "mr02-sale", "finance_sku": SCOPE.sku,
+         "quantity": 110, "physical_effective_date": "2026-11-10"},
+        {"posting_number": "mr03-sale", "finance_sku": SCOPE.sku,
+         "quantity": 10, "physical_effective_date": "2026-11-12"},
+    ]
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, _clock = (
+        _prepared_repository(
+            tmp_path, post_cutoff_sales=sales, complete_through="2026-11-12",
+        )
+    )
+    try:
+        applied = _commit(repository, bridge, impact, prepared)
+        assert applied["error"] is False, applied
+        history = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert history["error"] is False
+        assert history["latest_allocation"]["replayed_remaining_layers"] is not None
+
+        rate_service = FifoCostRateService(repository)
+        stock_r2 = FifoStockSnapshot(
+            status="COMPLETE", source_status="COMPLETE",
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            captured_at="2026-11-09T12:00:00Z", source_as_of=None,
+            pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=108, reserved_units=0, available_units=108,
+            transit_units=0, transit_status="DISJOINT_CONFIRMED",
+            source_fingerprint="b" * 64, issue_codes=(), anchor_eligible=False,
+        )
+        r2_preview = rate_service.preview_new_cost(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            effective_date="2026-11-09", unit_cost_rub="16.00",
+            cost_input_mode="TOTAL_LANDED", old_home_units=0,
+            expected_revision=history["revision"], stock_snapshot=stock_r2,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert r2_preview["error"] is False, r2_preview
+        assert r2_preview["rate_reconciliation"]["older_finite_units"] == 98
+        assert r2_preview["rate_reconciliation"]["prior_rate_units"] == 10
+        before_failed_commit = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        persist_allocation = repository._persist_allocation_revision_rows
+
+        def persist_then_fail(*args, **kwargs):
+            persist_allocation(*args, **kwargs)
+            raise ValueError("FIFO_RATE_BALANCE_MISMATCH")
+
+        with monkeypatch.context() as patcher:
+            patcher.setattr(
+                repository, "_persist_allocation_revision_rows", persist_then_fail,
+            )
+            failed_commit = rate_service.confirm_new_cost(
+                preview_id=r2_preview["preview_id"],
+                active_preview_id=r2_preview["preview_id"],
+                idempotency_key="mr-public-rate-two-001",
+            )
+        assert failed_commit == {
+            "error": True, "code": "FIFO_RATE_BALANCE_MISMATCH",
+        }
+        after_failed_commit = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert after_failed_commit["revision"] == before_failed_commit["revision"]
+        assert after_failed_commit["rates"] == before_failed_commit["rates"]
+        assert after_failed_commit["rate_reconciliations"] == before_failed_commit[
+            "rate_reconciliations"
+        ]
+        assert after_failed_commit["projection"] == before_failed_commit["projection"]
+        assert after_failed_commit["latest_allocation"]["revision"] == (
+            before_failed_commit["latest_allocation"]["revision"]
+        )
+
+        r2_commit = rate_service.confirm_new_cost(
+            preview_id=r2_preview["preview_id"],
+            active_preview_id=r2_preview["preview_id"],
+            idempotency_key="mr-public-rate-two-001",
+        )
+        assert r2_commit["error"] is False, r2_commit
+        after_r2 = FifoCostRepository(
+            db_path=tmp_path / "transition-atomic.sqlite",
+        ).read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert after_r2["projection"]["queue_complete"] is True
+        assert after_r2["latest_allocation"]["stale"] is False
+        assert after_r2["latest_allocation"]["stream_revision"] == after_r2["revision"]
+        assert after_r2["latest_allocation"]["replayed_rate_balances"][-1][
+            "remaining_units"
+        ] is None
+
+        stock_r3 = replace(
+            stock_r2, captured_at="2026-11-11T12:00:00Z",
+            fbo_units=7, available_units=7, source_fingerprint="c" * 64,
+        )
+        r3_preview = rate_service.preview_new_cost(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            effective_date="2026-11-11", unit_cost_rub="18.00",
+            cost_input_mode="TOTAL_LANDED", old_home_units=0,
+            expected_revision=after_r2["revision"], stock_snapshot=stock_r3,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert r3_preview["error"] is False, r3_preview
+        assert r3_preview["rate_reconciliation"]["older_finite_units"] == 0
+        assert r3_preview["rate_reconciliation"]["prior_rate_units"] == 7
+        r3_commit = rate_service.confirm_new_cost(
+            preview_id=r3_preview["preview_id"],
+            active_preview_id=r3_preview["preview_id"],
+            idempotency_key="mr-public-rate-three-001",
+        )
+        assert r3_commit["error"] is False, r3_commit
+
+        final_repository = FifoCostRepository(
+            db_path=tmp_path / "transition-atomic.sqlite",
+        )
+        final_history = final_repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert [row["unit_cost_rub"] for row in final_history["rates"]] == [
+            "14.65", "16.00", "18.00",
+        ]
+        assert [
+            (row["older_finite_units"], row["prior_rate_units"])
+            for row in final_history["rate_reconciliations"]
+        ] == [(98, 10), (0, 7)]
+        assert final_history["projection"]["queue_complete"] is True
+        assert final_history["latest_allocation"]["stale"] is False
+        assert final_history["latest_allocation"]["stream_revision"] == final_history["revision"]
+        assert [row["remaining_units"] for row in final_history[
+            "latest_allocation"]["replayed_rate_balances"]] == [0, 0, None]
+
+        connection = final_repository.get_connection()
+        try:
+            stream_id = connection.execute(
+                "SELECT stream_id FROM fifo_cost_streams WHERE store_id=?",
+                (STORE,),
+            ).fetchone()[0]
+            allocation_id = connection.execute(
+                "SELECT allocation_id FROM fifo_cost_allocations "
+                "WHERE stream_id=? ORDER BY revision DESC LIMIT 1",
+                (stream_id,),
+            ).fetchone()[0]
+            cogs_by_day = connection.execute(
+                """SELECT e.effective_date, lines.total_cost_rub
+                   FROM (
+                       SELECT allocation_id, event_id, total_cost_rub
+                       FROM fifo_cost_allocation_lines
+                       UNION ALL
+                       SELECT allocation_id, event_id, total_cost_rub
+                       FROM fifo_cost_allocation_rate_lines
+                   ) AS lines
+                   JOIN fifo_cost_events AS e ON e.event_id=lines.event_id
+                   WHERE lines.allocation_id=? AND e.event_kind='PHYSICAL_SALE'
+                   ORDER BY e.effective_date, e.event_id, lines.total_cost_rub""",
+                (allocation_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        by_day = {}
+        for effective_date, amount in cogs_by_day:
+            by_day[effective_date] = by_day.get(
+                effective_date, Decimal("0.00"),
+            ) + Decimal(amount)
+        assert [
+            (day, format(amount, ".2f")) for day, amount in by_day.items()
+        ] == [
+            ("2026-11-08", "92.30"),
+            ("2026-11-10", "1614.20"),
+            ("2026-11-12", "166.00"),
+        ]
+        assert sum(Decimal(row[1]) for row in cogs_by_day) == Decimal("1872.50")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_fr09_rejects_stock_drop_without_a_complete_movement_bridge(tmp_path):
+    from services.fifo_cost_rate_service import FifoCostRateService
+    from services.fifo_cost_source_normalizer import FifoStockSnapshot
+
+    repository, tenant, _stock, bridge, impact, _cutover, prepared, _clock = (
+        _prepared_repository(tmp_path, complete_through="2026-11-12")
+    )
+    try:
+        applied = _commit(repository, bridge, impact, prepared)
+        assert applied["error"] is False, applied
+        history = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        rate_service = FifoCostRateService(repository)
+        stock = FifoStockSnapshot(
+            status="COMPLETE", source_status="COMPLETE",
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            captured_at="2026-11-09T12:00:00Z", source_as_of=None,
+            pagination_complete=True, pages_read=1, total_items=1,
+            fbo_units=108, reserved_units=0, available_units=108,
+            transit_units=0, transit_status="DISJOINT_CONFIRMED",
+            source_fingerprint="d" * 64, issue_codes=(), anchor_eligible=False,
+        )
+        r2 = rate_service.preview_new_cost(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            effective_date="2026-11-09", unit_cost_rub="16.00",
+            cost_input_mode="TOTAL_LANDED", old_home_units=0,
+            expected_revision=history["revision"], stock_snapshot=stock,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert r2["error"] is False, r2
+        r2_commit = rate_service.confirm_new_cost(
+            preview_id=r2["preview_id"], active_preview_id=r2["preview_id"],
+            idempotency_key="mr-unexplained-rate-two-001",
+        )
+        assert r2_commit["error"] is False, r2_commit
+        after_r2 = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+
+        lower_stock = replace(
+            stock, captured_at="2026-11-11T12:00:00Z",
+            fbo_units=7, available_units=7, source_fingerprint="e" * 64,
+        )
+        r3 = rate_service.preview_new_cost(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            effective_date="2026-11-11", unit_cost_rub="18.00",
+            cost_input_mode="TOTAL_LANDED", old_home_units=0,
+            expected_revision=after_r2["revision"], stock_snapshot=lower_stock,
+            owner_confirms_reconciliation_scope=True,
+        )
+        assert r3 == {
+            "error": True, "code": "FIFO_RATE_STOCK_DISCREPANCY",
+        }
+        unchanged = repository.read_cost_history_snapshot(
+            store_id=STORE, product_id=SCOPE.product_id,
+            offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        assert unchanged["revision"] == after_r2["revision"]
+        assert len(unchanged["rates"]) == 2
     finally:
         reset_current_tenant_user_id(tenant)
 

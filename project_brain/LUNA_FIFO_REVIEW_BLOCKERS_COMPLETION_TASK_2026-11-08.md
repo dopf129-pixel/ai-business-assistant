@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna: завершить FIFO replay и production-путь применения
 
-Подготовлено: 08.11.2026; редакционная проверка: 09.11.2026. Этапы FR00–FR31. Статус: задание подготовлено; выполнение не начато.
+Подготовлено: 08.11.2026; редакционная проверка: 09.11.2026. Этапы FR00–FR31. Статус исполнения и Resume: в [журнале этапов](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md); FR00–FR10 завершены, следующий этап FR11.
 
 Продолжает [FL00–FL35](LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md) и [Decision 066](DECISIONS_066.md). Это исправляющее задание для двух незакрытых замечаний review. Архитектура, алгоритм, бизнес-правила и критерии приёмки ниже зафиксированы. Luna реализует их небольшими изменениями; новый способ учёта не выбирает.
 
@@ -83,8 +83,9 @@ Tracked baseline: CHANGELOG; fifo_cost_cutoff_bridge_service; fifo_cost_reposito
 9. Owner факт имеет owner provenance. Confirm не доказывает неизвестную семантику/пагинацию API.
 10. Physical date задаёт FIFO order; financial recognition — period profit/tax. TaxService и Return COGS authorization сохраняют свои ответственности.
 11. Return восстанавливает исходную cost basis, но не автоматически признаёт Return COGS в прибыли.
-12. Пересчёт создаёт новую allocation revision. Applied preview/evidence/saved plans не переписываются.
-13. Реальный случай владельца остаётся USER_VALIDATION_PENDING/SOURCE_BLOCKED до собственной сверки. Недостающие реальные документы не блокируют synthetic implementation.
+12. Owner-approved partial-return costing: when source evidence links a return to the sale but not to an individual unit, assign returned units to the latest original FIFO allocation lines first. Earlier partial returns consume that latest-first capacity before later returns. This is a deterministic costing convention, not physical-unit evidence. A full-sale return preserves original allocation order.
+13. Пересчёт создаёт новую allocation revision. Applied preview/evidence/saved plans не переписываются.
+14. Реальный случай владельца остаётся USER_VALIDATION_PENDING/SOURCE_BLOCKED до собственной сверки. Недостающие реальные документы не блокируют synthetic implementation.
 
 ## 5. Фиксированная архитектура и контракты
 
@@ -247,7 +248,7 @@ Synthetic controls не применяются к owner store. Все boundaries
 | MR01 | Cutoff 06.11: finite 3×21 и 100×14.65; R1=14.65 на границе 07.11; sale 5 от 08.11 | COGS 92.30 = 3×21 + 2×14.65; finite remaining 98 |
 | MR02 | Затем R2=16: stock 108, existing finite 98, residual R1=10; sale 110 после boundary | Материализовано ровно 10 residual; COGS 108×14.65 + 2×16 = 1614.20; finite 0, open R2 quantity unknown |
 | MR03 | Затем R3=18: stock 7, finite 0, residual R2=7; sale 10 | Stock 108→7 допустим с полным bridge; COGS 7×16 + 3×18 = 166.00; aggregate MR01–MR03 = 1872.50 |
-| MR04 | После MR03 return 1 из двух open R2 units продажи MR02 | Finite restored unit 16 в позиции return; sales COGS сама не уменьшается |
+| MR04 | После MR03 return 1 из двух open R2 units продажи MR02 | По owner-approved latest-allocation-first convention finite restored unit 16 в позиции return; sales COGS сама не уменьшается |
 | MR05 | Продать restored unit MR04 | COGS 16; aggregate 1888.50; origin lineage сохранена |
 | MR06 | Независимая ветка от opening MR01: outflow 1 из слоя 21, затем sale 5 | Outflow 21 отдельно; sales COGS 2×21 + 3×14.65 = 85.95 |
 | MR07 | Finite 0, open 14.65; подтверждённая sale 4 после boundary | COGS 58.60; known physical quantity остаётся unknown; outflow без finite proof blocked |
@@ -321,7 +322,7 @@ MR01–MR05 выполнить на одной цепочке и новом repo
 
 **FR10 — возвраты и непродажные движения.** Зависимости: FR09.
 
-Провести существующие ReturnInventory/non-sale services через temporal replay. Проверить частичный возврат, повтор, превышение исходного количества, origin из закрытой ставки, события до/после границы и неоднозначный день. MR04–MR06 и отрицательные сценарии сохраняют exact lineage, Return COGS authorization и исключение outflow из sales COGS. Blanket-отказ по наличию любого возврата запрещён.
+Провести существующие ReturnInventory/non-sale services через temporal replay. Проверить частичный возврат по owner-approved latest-allocation-first policy, повтор, превышение исходного количества, origin из закрытой ставки, события до/после границы и неоднозначный день. MR04–MR06 и отрицательные сценарии сохраняют exact lineage, Return COGS authorization и исключение outflow из sales COGS. Blanket-отказ по наличию любого возврата запрещён.
 
 **FR11 — потребители нескольких ставок.** Зависимости: FR10.
 

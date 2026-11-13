@@ -1,9 +1,51 @@
+# 2026-11-10 — FIFO FR11: preserve the proven open-rate next cost
+
+- A complete replay with one active open rate and no finite rate-balance rows now preserves that rate as the next-unit cost with unknown remaining quantity. Missing balances for multiple or reconciled rates still fail closed. Production-assembly regressions are delivered with the dependent production workflow PR.
+
+# 2026-11-09 — FIFO FR11: multi-rate readers use replay balances
+
+- Current cost and history now use per-rate residuals from the same current, complete allocation revision as the FIFO layers. Historical rate-boundary quantities remain distinguishable from stock still on hand; proven zero balances stay visible without becoming a next-unit layer.
+- Telegram history and CSV distinguish `RATE_BOUNDARY` quantities from post-replay balances. The open rate remains quantity-unknown, and incomplete/stale multi-rate replay keeps the current FIFO result blocked.
+- FR11 targeted history/current/Period Profit/export/frozen-plan profile: **79 passed in 4.66s**. Local synthetic verification only; merge, deployment, bot launch, live API calls and owner-case validation remain out of scope.
+
+# 2026-11-09 — FIFO FR10: exact return lineage for multi-rate allocations
+
+- Return restocks restore exact historical FIFO bases from both legacy layers and rate-derived allocation lines. The owner-approved mixed-basis partial-return rule assigns units to the latest original FIFO allocation lines first, accounting for earlier returns; full returns preserve original allocation order. This is deterministic cost attribution, not physical-unit evidence. Restored rate-derived units retain lineage when sold again, and non-sale outflows remain separate from sales COGS.
+- FR10 MR04–MR06 and linked regressions pass; full-suite and exact-head CI remain scheduled for FR30.
+
 # 2026-11-08 — FIFO late-entry review corrections
 
 - Same-file owner period confirmation now persists as a separate immutable report-period decision, so an imported report can be confirmed without rewriting or colliding with its original evidence.
 - Cutoff bridge movement checks now preserve supported, exact linked return/non-sale evidence and reject ambiguous origins, duplicated quantities, and unsupported transfer movements. An ordinary cost change after a late-entry replay is accepted only after the current persisted allocation is independently rebuilt and reconciled.
 - READY cases reopen read-only after a process restart. Historical finance SKU aliases are accepted only with a seller-confirmed mapping bound to the current product/offer; otherwise the bridge remains blocked.
 - Review follow-up is **not merge-ready**: the production Telegram factory still does not assemble a cutoff bridge or inject atomic apply, and replay still rejects multiple active cost rates. No current-head CI has run for these local corrections.
+
+# 2026-11-09 — FIFO temporal boundary contracts
+
+- Added immutable, validated rate-boundary and dated-boundary values for the upcoming multi-rate FIFO replay. The existing single-rate allocation interface remains available. Replay behavior is still in progress; see the FIFO review-blocker execution journal for stage results.
+
+# 2026-11-09 — FIFO multi-rate allocation kernel
+
+- Extended the pure FIFO allocation path to replay confirmed rate changes, materialize only a reconciled predecessor residual, preserve rate lineage for returns, and leave the active open-rate quantity unknown. The temporal replay adapter is the next stage.
+
+# 2026-11-09 — FIFO temporal multi-rate replay
+
+- Added proof-ordered, store-local rate boundaries to FIFO replay with bounded ambiguity checks, stable duplicate handling, complete-through gating, and fingerprinted per-rate balances. Existing single-rate preview callers remain supported.
+
+# 2026-11-09 — FIFO transition evidence schema v16
+
+- Added additive append-only storage for typed transition evidence, exact owner confirmations, and allocation balances by cost-rate lineage. The migration keeps planning `PRAGMA user_version` unchanged and preserves existing v15 period confirmations.
+- Added owner/tenant/store/case and exact confirmation-scope foreign keys, evidence-kind and size constraints, physical-document row/ciphertext bounds, per-case aggregate quotas, lookup indexes, and immutable triggers. Legacy schema and rollback regressions pass.
+
+# 2026-11-09 — FIFO ordinary rate changes after late entry (FR09)
+
+- Rate-change previews now reconcile stock against a complete prefix replay at the selected store-local date; they no longer compare against future-period remaining stock. Lower snapshots are accepted only when fully explained by confirmed sales, non-sale outflows, and saleable returns.
+- A successful transition atomically persists the new rate, reconciliation, replay allocation, and final projection. Unexplained movements and incomplete mapping evidence fail closed; intermediate projection state does not expose cost from the wrong replay horizon.
+
+# 2026-11-09 — FIFO repository multi-rate replay (FR08)
+
+- Connected the repository allocation, validation, persistence, remaining-balance reader and source fingerprint to a complete, evidence-backed chain of active cost rates. Legacy single-rate fingerprints remain byte-for-byte compatible; incomplete multi-rate chains fail closed.
+- Added a synthetic three-rate repository regression covering persisted replay balances, restart reads, guard readiness, missing reconciliation/mapping and stale mapping evidence.
 
 # 2026-11-08 — FIFO FL34–FL35: exact stack checks and review packet
 

@@ -1,7 +1,7 @@
-# 2026-11-09 — FIFO blocker completion specification prepared
+# 2026-11-10 — FIFO review-blocker execution FR00–FR11
 
-- Prepared execution specification and empty progress log: [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), [Resume/progress](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). The task fixes temporal multi-rate replay and a durable production bridge/preview/atomic-apply path, with contracts, MR01–MR22 numeric/behavior controls and dependent PR packaging.
-- This is documentation preparation only. Existing local review corrections remain uncommitted and must be preserved first. Implementation has not started; PR #730 remains NOT READY TO MERGE; owner validation remains pending. Previous pytest/CI results do not verify the future FR implementation.
+- Executing [FR00–FR31 task](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_TASK_2026-11-08.md), with Resume in [progress journal](LUNA_FIFO_REVIEW_BLOCKERS_COMPLETION_PROGRESS_2026-11-08.md). FR00–FR11 are complete. A single proven open rate remains a next-unit cost when its quantity is unknown and no finite rate-balance row is expected; incomplete multi-rate projections still fail closed. History, exports and Period Profit use the same complete replay revision. FR10 retains exact mixed-rate return basis and the owner-approved latest-allocation-first partial-return convention.
+- The first hosted PR #731 run exposed this FR11 edge and three FR24 production-builder regressions staged too early. The open-rate behavior is fixed; production-builder regressions are kept with their implementation in dependent PR #732. Current-head hosted reruns are recorded in the progress journal. Owner case remains unvalidated; no owner data, live API or bot launch was used.
 
 # 2026-11-08 — FIFO review corrections in progress
 

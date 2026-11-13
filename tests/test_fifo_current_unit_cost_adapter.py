@@ -327,7 +327,7 @@ def test_optional_product_id_enrichment_cannot_start_a_second_fifo_stream(tmp_pa
     assert enriched["code"] == "FIFO_IDENTITY_CONFLICT"
 
 
-def test_quantity_basis_materializes_reconciled_prior_rate_as_a_finite_fifo_layer(tmp_path):
+def test_quantity_basis_blocks_rate_materialization_without_reconciled_cutoff_bridge(tmp_path):
     token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
         repository = _repository(tmp_path)
@@ -377,33 +377,18 @@ def test_quantity_basis_materializes_reconciled_prior_rate_as_a_finite_fifo_laye
             packaging_cost_rub="0.00", old_home_units=50, expected_revision=2,
             stock_snapshot=stock, owner_confirms_reconciliation_scope=True,
         )
-        assert second["error"] is False
-        assert second["rate_reconciliation"]["prior_rate_units"] == 200
-        assert rates.confirm_new_cost(
-            preview_id=second["preview_id"], active_preview_id=second["preview_id"],
-            idempotency_key="quantity-basis-rate-three",
-        )["error"] is False
-
-        result = _adapter(repository).resolve_current_cost(
-            IDENTITY, store_id="store-a", as_of_date="2026-11-07",
+        assert second["error"] is True
+        assert second["code"] == "FIFO_RATE_REPLAY_REQUIRED"
+        history = FifoCostHistoryService(repository).get_sku_history(
+            **IDENTITY, store_id="store-a",
         )
+        assert history["error"] is False
+        assert len(history["rates"]) == 1
     finally:
         reset_current_tenant_user_id(token)
 
-    basis = result["cost_basis"]["quantity_allocation_basis"]
-    assert basis["status"] == "AVAILABLE"
-    assert [(row["quantity"], row["unit_cost_rub"], row["kind"]) for row in basis["layers"]] == [
-        (150, "20.00", "FINITE_LAYER"),
-        (200, "25.00", "RECONCILED_RATE"),
-    ]
-    assert basis["open_rate"] == {
-        "unit_cost_rub": "30.00", "effective_date": "2026-11-07",
-    }
-    assert basis["revision"] == result["cost_revision"]
-    assert basis["factual_period_profit_eligible"] is False
 
-
-def test_zero_stock_cutoff_is_persisted_and_reconciled_old_rate_is_next_fifo_layer(tmp_path):
+def test_zero_stock_rate_cannot_become_finite_without_reconciled_cutoff_bridge(tmp_path):
     token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
     try:
         repository = _repository(tmp_path)
@@ -456,31 +441,14 @@ def test_zero_stock_cutoff_is_persisted_and_reconciled_old_rate_is_next_fifo_lay
             expected_revision=1, stock_snapshot=stock,
             owner_confirms_reconciliation_scope=True,
         )
-        assert second["error"] is False, second
-        assert second["rate_reconciliation"]["prior_rate_units"] == 100
-        assert rates.confirm_new_cost(
-            preview_id=second["preview_id"], active_preview_id=second["preview_id"],
-            idempotency_key="zero-cutoff-second-rate",
-        )["error"] is False
-
-        result = adapter.resolve_current_cost(
-            IDENTITY, store_id="store-a", as_of_date="2026-11-07",
+        assert second == {"error": True, "code": "FIFO_RATE_REPLAY_REQUIRED"}
+        history = FifoCostHistoryService(repository).get_sku_history(
+            **IDENTITY, store_id="store-a",
         )
+        assert history["error"] is False
+        assert len(history["rates"]) == 1
     finally:
         reset_current_tenant_user_id(token)
-
-    basis = result["cost_basis"]["quantity_allocation_basis"]
-    assert result["cost_per_unit_rub"] == "20.00"
-    assert result["cost_basis"]["next_unit_cost_basis"] == "RECONCILED_RATE_LAYER"
-    assert result["cost_basis"]["cutoff_date"] == "2026-11-06"
-    assert basis["status"] == "AVAILABLE"
-    assert basis["layers"] == [{
-        "sequence": 1, "kind": "RECONCILED_RATE", "quantity": 100,
-        "unit_cost_rub": "20.00", "effective_date": "2026-11-06",
-    }]
-    assert basis["open_rate"] == {
-        "unit_cost_rub": "30.00", "effective_date": "2026-11-07",
-    }
 
 
 def test_current_unit_cost_uses_remaining_layer_from_fresh_completed_replay():

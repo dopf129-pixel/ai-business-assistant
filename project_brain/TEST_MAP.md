@@ -1,3 +1,57 @@
+# 2026-11-10 — FIFO FR11 open-rate current-cost regression
+
+- `tests/test_fifo_late_entry_current_consumers.py::test_draft_keeps_legacy_cost_and_applied_revision_refreshes_unit_economics_cache` now passes after a complete single-open-rate replay with no finite `replayed_rate_balances`; the current cost is preserved while its remaining quantity stays unknown. Missing balances for later/multiple rates continue to fail closed.
+- The production-workflow red regressions are scheduled with their implementation in dependent PR #732 instead of failing independently in PR #731.
+
+# 2026-11-09 — FIFO FR11: readers, exports, and frozen plans
+
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr11_history_current_cost_export_and_period_profit_use_replayed_rates` verifies that a fresh repository instance exposes one consistent replay revision through history, current cost, Telegram CSV and Period Profit; exact mixed-rate COGS is 1872.50 ₽, two closed rate balances are zero, and the 18 ₽ open-rate quantity stays unknown.
+- `tests/test_fifo_cost_repository_multi_rate_replay.py::test_fr10_partial_return_restores_last_fifo_basis_for_mr04_mr05` also verifies history after return/restock and resale. `tests/test_fifo_cost_history_service.py::test_history_preserves_proven_zero_rate_balance_without_making_it_next_unit` keeps a zero residual visible but excludes it as a finite next unit.
+- `tests/test_fifo_current_unit_cost_adapter.py` rejects rate materialization without a reconciled cutoff bridge. Linked FR11 profile: **79 passed in 4.66s**, including `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export`; synthetic local verification, not full-suite/CI.
+
+# 2026-11-09 — FIFO ordinary rate changes after late entry (FR09)
+
+- `tests/test_fifo_cost_transition_atomic_apply.py::test_fr09_replays_three_rates_from_prefix_and_publishes_atomically` exercises public `FifoCostRateService` preview/confirm calls for the 21.00 → 14.65 → 16.00 → 18.00 history, including rollback after injected allocation-write failure, restart reads, exact per-day COGS and finite/open balances. The neighboring negative test rejects an unexplained stock drop.
+- `tests/test_fifo_cost_rate_service.py` now requires complete current prefix replay for every non-initial rate and verifies incomplete or unbridged history remains blocked.
+- Linked FR04–FR09 repository/allocation/rate/return/schema profile: **136 passed in 7.79s**. `compileall`, `git diff --check` and the five-file user-data hash manifest pass. Local synthetic verification; exact-head CI remains FR30.
+
+# 2026-11-09 — FIFO review blocker tests (FR02–FR05)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py`: captures the exact MR01–MR03 rate-boundary contract, including proven residual materialization, multi-rate FIFO arithmetic and temporal replay. The initial replay-adapter cases remain deferred to FR06; the pure kernel matrix now passes.
+- `tests/test_fifo_cost_transition_production_workflow.py`: captures the absent durable evidence reader, common production workflow builder, ApplyService wiring and physical-sales import route. Initial red baseline fails on the current code and must pass only after FR12–FR27. These tests are not a passing CI claim; they must be separated into the dependent PR scope as recorded in the FR progress journal.
+- Initial baseline: six expected failures in 1.28s. No skip/xfail; temporary SQLite only. Later results must be recorded against their exact code SHA.
+
+# 2026-11-09 — FIFO temporal boundary DTOs (FR04)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py` now validates typed rate boundary values, finite/missing balance distinctions, money and digest constraints, explicit date/timezone boundary forms, and compatibility of the existing single-open-rate allocation API.
+- Isolated linked profile: **70 passed, 2 deselected**; only MR02/MR03 replay-result cases are deferred to FR05–FR06. `compileall` passed for the touched service/test modules. This is a local stage result, not full-suite or CI verification.
+
+# 2026-11-09 — FIFO multi-rate allocation kernel (FR05)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py` covers pure MR01–MR07 arithmetic and invariants: only proven residual is materialized, per-rate basis and open quantity remain explicit, return lineage survives a rate close, and non-sale outflow never draws from an unknown rate.
+- Linked pure kernel and prior allocator/replay tests: **77 passed, 2 deselected in 1.30s**; only the FR06 dated-adapter replay tests were deselected. Compileall and diff-check pass. No database or external source was used.
+
+# 2026-11-09 — FIFO temporal multi-rate replay (FR06)
+
+- `tests/test_fifo_cost_temporal_rate_replay.py` verifies local end-of-day semantics, exact timestamp timezone conversion, fail-closed same-instant ambiguity, stable permutations, identical duplicate page collapse, conflicting duplicates, and `complete_through` gating.
+- Linked temporal, existing replay and allocation profile: **86 passed in 1.39s**. Compileall, `git diff --check` and tracked `data/` integrity pass. This is a local targeted result, not full-suite or remote CI verification.
+
+# 2026-11-09 — FIFO transition evidence schema v16 (FR07)
+
+- `tests/test_fifo_cost_transition_schema_v16.py` verifies fresh v16, true additive v15→v16 objects, v12/v13/v14/v15 upgrade paths, rollback after injected DDL-stage failure, period-confirmation preservation, exact tenant/store/case FK scope, immutable evidence/confirmation rows, ciphertext requirements, physical-document bounds, 100-version and 64 MiB aggregate quotas, and nullable current-rate balance storage.
+- `tests/test_fifo_cost_transition_schema_v13.py` keeps prior v12 rate-table rebuild, v13 cutoff-mapping, and v14 period-confirmation migration coverage aligned with the new current schema version.
+- Combined v16/schema migration and FR04–FR06 replay profile: **104 passed in 2.78s**. Touched-file compileall, `git diff --check`, and tracked `data/` integrity passed. Local targeted evidence only; exact-head CI and full suite remain for FR30.
+
+# 2026-11-09 — FIFO return lineage on multi-rate allocations (FR10)
+
+- `tests/test_fifo_cost_repository_multi_rate_replay.py` exercises the public return-restock service against rate-derived sale lines: full return across multiple bases restores exact costs/lineage; MR04 returns one of two R2 units from the mixed-basis MR02 sale using the owner-approved latest-allocation-first convention; MR05 resells that unit at 16 ₽ without changing earlier sales COGS. Repeated partial returns exhaust the latest basis before moving to the prior basis; over-return remains rejected. The same profile verifies finite non-sale outflow remains separate from sales COGS.
+- Return selection is deterministic cost attribution, not physical-unit proof. Return COGS authorization/recognition remains independent. Linked FR10 FIFO profile: **142 passed in 9.07s**; compileall and `git diff --check` pass. Full suite and remote CI remain pending.
+
+# 2026-11-09 — FIFO repository multi-rate replay (FR08)
+
+- `tests/test_fifo_cost_repository_multi_rate_replay.py` checks a synthetic three-rate chain through repository replay/persistence and a fresh repository reader, including exact allocation costs, materialized predecessor balances, current unknown balance and publication guard. Negative cases cover a missing reconciliation, missing cutoff mapping, and a mapping revision changed after preview.
+- Linked repository, allocator, replay, rate, schema, late-entry, atomic-apply and return regressions: **134 passed in 7.34s**. Changed modules compile; `git diff --check` and five owner-data hash checks pass. All mutable database fixtures are under `tmp_path`; this is local targeted verification, not full-suite/remote CI or owner-case validation.
+
 # 2026-11-08 — FIFO review-fix regression map
 
 - `tests/test_fifo_cost_transition_store.py` and `tests/test_fifo_cost_transition_schema_v13.py`: schema v15 stores the owner-confirmed period decision separately from the original report; same-file period confirmation is idempotent and does not mutate original evidence.

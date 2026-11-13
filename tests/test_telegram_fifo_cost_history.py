@@ -511,7 +511,7 @@ def test_empty_fifo_history_csv_keeps_mode_column_alignment(tmp_path):
         ))
         assert len(rows) == 2
         assert len(rows[0]) == len(rows[1])
-        assert rows[0][8] == "Режим разбивки"
+        assert rows[0][9] == "Режим разбивки"
     finally:
         reset_current_tenant_user_id(tenant)
 

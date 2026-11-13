@@ -98,9 +98,10 @@ class FifoCostReturnRestockService:
             store_id=store_id, product_id=product_id, offer_id=offer_id, sku=sku,
             events=[event], source=source,
             expected_revision=guard["stream_revision"],
+            validate_return_basis=True,
         )
         if preview.get("error") is True:
-            return preview
+            return self._blocked(preview.get("code"))
         return {
             "error": False,
             "code": "FIFO_RETURN_RESTOCK_PREVIEW_READY",
