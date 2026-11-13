@@ -511,6 +511,14 @@ def test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket(
             expected_case_revision=case_revision,
         )
         assert selection.get("code") == "FIFO_PHYSICAL_SALES_UPLOAD_SELECTED", selection
+        coverage = physical_importer.handle_period_text(
+            user_id="owner-fr27",
+            text="2026-11-05 — 2026-11-08",
+            expected_case_id=case_id,
+            expected_scope=scope,
+            expected_case_revision=case_revision,
+        )
+        assert coverage.get("code") == "FIFO_PHYSICAL_SALES_PERIOD_SET", coverage
         physical_csv = (
             FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\n"
             f"synthetic-pre-cutoff;{IDENTITY['sku']};1;2026-11-05;row-pre-cutoff\n"

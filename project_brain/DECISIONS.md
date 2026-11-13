@@ -2977,3 +2977,30 @@ The user should be able to fix supported gaps without silently switching product
 Status:
 
 Implemented in the existing query formatter, assistant/keyboard routing, seller-cost flow and adapter. MA17 linked profile: 98 passed; full pytest and exact-head CI remain pending.
+
+---
+
+## Decision 056
+
+Date:
+
+2026-11-13
+
+Topic:
+
+FIFO finance snapshot stability and owner-selected physical-sales CSV versions
+
+Decision:
+
+- New monthly finance snapshot fingerprints are independent of API request chunk boundaries. Bind every daily finance-cache value to its ISO date and combine that ordered set with canonical monthly Period Profit totals. Replaying a frozen month with different page sizes or request budgets must not append a duplicate snapshot or change the case revision.
+- A pre-v2 frozen snapshot may be replayed only when its exact historical chunk-based fingerprint is reproduced. Never infer the old chunk layout from timestamps or aggregate equality.
+- Physical-sales CSV evidence is append-only and partial. A corrected file becomes current only after a separate owner confirmation bound to its own fingerprint and the complete sorted set of previously confirmed fingerprints it supersedes. Preserve older documents; multiple legacy confirmations without an explicit selection remain a conflict.
+- The owner declares the CSV's complete coverage interval before upload. Coverage boundaries are not derived from the first/last dated rows; the preview displays both owner-declared coverage and row-date bounds. The period must cover the case dispatch date.
+
+Reason:
+
+Transport chunking is not a financial fact and must not make unchanged frozen economics conflict after restart. At the same time, a digest from the old format cannot prove an unknown chunk layout. Physical-sales corrections and their coverage need explicit owner provenance; silently choosing by timestamp or dropping zero-sale dates can alter FIFO replay.
+
+Status:
+
+Implemented in the existing collection, evidence and Telegram import services. Linked regression profile: 116 passed; full isolated pytest: 5,288 passed in 73.96s. `compileall`, diff check, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Hosted exact-head CI runs after publication. R1 complete-movement-source remains open.

@@ -1,3 +1,10 @@
+# 2026-11-13 — FIFO review corrections R12–R14
+
+- Monthly finance snapshot fingerprints now use date-keyed daily source hashes plus monthly Period Profit totals, so replaying the same month with different API chunk sizes does not change the source seal. Pre-v2 snapshots remain compatible only when their original chunk fingerprint is reproduced exactly.
+- A corrected owner CSV can be explicitly selected as the current physical-sales version. The confirmation binds the exact superseded fingerprint set; previous evidence stays append-only in history, while unresolved legacy multi-version sets fail closed.
+- Physical-sales CSV import now requires the owner to declare the full coverage interval before upload. Empty days remain in the declared period; the preview shows that interval separately from the first/last dates present in rows.
+- Verification: linked FIFO regression profile **116 passed**; full isolated pytest **5,288 passed in 73.96s**; compileall, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Exact-head hosted CI runs after publication; R1 complete-movement-source blocker remains open.
+
 # 2026-11-13 — FIFO review corrections R9–R11
 
 - Late-entry profit is now candidate-only when the monthly SKU cost cannot be exactly reconciled to the FIFO sale-identity subset. A monthly aggregate is no longer treated as proof that the difference belongs to unaffected same-SKU sales.

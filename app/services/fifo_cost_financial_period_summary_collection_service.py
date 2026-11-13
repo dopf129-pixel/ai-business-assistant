@@ -39,7 +39,8 @@ class _Checkpoint:
     period_index: int
     next_date: str
     totals: tuple[tuple[str, str], ...]
-    chunk_fingerprints: tuple[str, ...]
+    daily_source_fingerprints: tuple[tuple[str, str], ...]
+    legacy_chunk_fingerprints: tuple[str, ...]
     expires_at: float
 
 
@@ -176,7 +177,21 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                 if not isinstance(cached, dict) or len(cached) != days:
                     issue = "FIFO_PERIOD_SUMMARY_DAILY_SOURCE_INCOMPLETE"
                     break
-                source_fp = source_fingerprint({
+                chunk_daily_fingerprints = self._daily_source_fingerprints(
+                    cached, cursor, chunk_end,
+                )
+                if chunk_daily_fingerprints is None:
+                    issue = "FIFO_PERIOD_SUMMARY_DAILY_SOURCE_INCOMPLETE"
+                    break
+                daily_sources = dict(state.daily_source_fingerprints)
+                if any(
+                    day in daily_sources and daily_sources[day] != fingerprint
+                    for day, fingerprint in chunk_daily_fingerprints
+                ):
+                    issue = "FIFO_PERIOD_SUMMARY_DAILY_SOURCE_CONFLICT"
+                    break
+                daily_sources.update(chunk_daily_fingerprints)
+                legacy_chunk_fingerprint = source_fingerprint({
                     "finance_daily_cache": self._fingerprint_value(cached),
                     "period_profit": self._summary_material(summary),
                 })
@@ -197,7 +212,8 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                     state.period_index,
                     after.isoformat() if after <= end else end.isoformat(),
                     tuple(sorted(totals.items())),
-                    (*state.chunk_fingerprints, source_fp),
+                    tuple(sorted(daily_sources.items())),
+                    (*state.legacy_chunk_fingerprints, legacy_chunk_fingerprint),
                     self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
                 )
                 days_collected += days
@@ -219,9 +235,11 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                         period_profit_summary=month_summary,
                         reconstruction=reconstruction,
                         sale_identity_digests=list(digest_map[period]),
-                        daily_source_fingerprint=source_fingerprint(
-                            list(candidate_state.chunk_fingerprints),
-                        ),
+                        daily_source_fingerprint=source_fingerprint({
+                            "version": 2,
+                            "finance_daily_cache": candidate_state.daily_source_fingerprints,
+                            "period_profit_month_totals": candidate_state.totals,
+                        }),
                         tax_policy_fingerprint=policy["fingerprint"],
                     )
                     if built.get("error") is True:
@@ -233,8 +251,26 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                         # it is byte-for-byte equivalent to the durable freeze.
                         # It must not append the immutable month a second time.
                         if persisted.source_fingerprint != built["summary"].source_fingerprint:
-                            issue = "FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT"
-                            break
+                            # Pre-v2 snapshots used request-chunk boundaries in
+                            # their digest. Preserve strict replay when the old
+                            # exact schedule is reproduced, but never treat a
+                            # different legacy digest as equivalent.
+                            legacy = self.snapshot_builder.build_snapshot(
+                                period_profit_summary=month_summary,
+                                reconstruction=reconstruction,
+                                sale_identity_digests=list(digest_map[period]),
+                                daily_source_fingerprint=source_fingerprint(
+                                    list(candidate_state.legacy_chunk_fingerprints),
+                                ),
+                                tax_policy_fingerprint=policy["fingerprint"],
+                            )
+                            if (
+                                legacy.get("error") is True
+                                or persisted.source_fingerprint
+                                    != legacy["summary"].source_fingerprint
+                            ):
+                                issue = "FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT"
+                                break
                         next_case_revision = state.expected_case_revision
                     else:
                         stored = evidence_service.record_period_profit_summary(
@@ -259,7 +295,7 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                     )
                     state = _Checkpoint(
                         binding, periods, mapping, next_case_revision,
-                        next_index, next_date, (), (),
+                        next_index, next_date, (), (), (),
                         self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
                     )
                 else:
@@ -598,6 +634,21 @@ class FifoCostFinancialPeriodSummaryCollectionService:
         return material
 
     @classmethod
+    def _daily_source_fingerprints(cls, cached, start, end):
+        """Fingerprint each day independently so call chunking cannot change a month seal."""
+        expected_days = []
+        current = start
+        while current <= end:
+            expected_days.append(current.isoformat())
+            current += timedelta(days=1)
+        if not isinstance(cached, dict) or set(cached) != set(expected_days):
+            return None
+        return tuple(
+            (day, source_fingerprint(cls._fingerprint_value(cached[day])))
+            for day in expected_days
+        )
+
+    @classmethod
     def _fingerprint_value(cls, value):
         """Normalize JSON-like API values to the strict fingerprint contract."""
         if value is None or type(value) in (bool, int, str):
@@ -634,7 +685,7 @@ class FifoCostFinancialPeriodSummaryCollectionService:
         return _Checkpoint(
             binding, periods, mapping, expected_case_revision, 0,
             self._month_bounds(periods[0])[0].isoformat(),
-            (), (), self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
+            (), (), (), self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
         )
 
     def _take_checkpoint(

@@ -6,6 +6,9 @@ from cryptography.fernet import Fernet
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_transition_evidence_service import (
+    FifoCostTransitionEvidenceService,
+)
 from services.fifo_cost_transition_review_service import FifoCostTransitionReviewService
 from services.fifo_cost_report_import_service import FifoCostReportImportService
 from services.fifo_cost_stock_management_import_service import FifoCostStockManagementImportService
@@ -372,6 +375,14 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
         selected = runtime.handle_callback(101, action)
         assert selected["code"] == "FIFO_PHYSICAL_SALES_UPLOAD_SELECTED"
         assert runtime.has_physical_sales_document_selection(101) is True
+        missing_period = runtime.preflight_physical_sales_document(
+            101, "physical-sales.csv", 300,
+        )
+        assert missing_period["code"] == "FIFO_PHYSICAL_SALES_PERIOD_REQUIRED"
+        invalid_period = runtime.handle_text(101, "2026-11-06 — 2026-11-08")
+        assert invalid_period["code"] == "FIFO_PHYSICAL_SALES_PERIOD_DOES_NOT_COVER_DISPATCH"
+        period_set = runtime.handle_text(101, "2026-11-05 — 2026-11-09")
+        assert period_set["code"] == "FIFO_PHYSICAL_SALES_PERIOD_SET"
 
         bad_file = runtime.preflight_physical_sales_document(
             101, "wrong.xlsx", 200,
@@ -384,8 +395,8 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
 
         content = (
             FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
-            "posting-111;3921245627;2;2026-11-05;source-row-1\r\n"
-            "posting-222;3921245627;3;2026-11-06;source-row-2\r\n"
+            "posting-111;3921245627;2;2026-11-06;source-row-1\r\n"
+            "posting-222;3921245627;3;2026-11-08;source-row-2\r\n"
         ).encode("utf-8")
         preflight = runtime.preflight_physical_sales_document(
             101, "physical-sales.csv", len(content),
@@ -396,6 +407,8 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
         )
         assert preview["code"] == "FIFO_PHYSICAL_SALES_PREVIEW_READY"
         assert "Строк: 2 · единиц: 5" in preview["message"]
+        assert "Период покрытия по вашему указанию: 2026-11-05 — 2026-11-09" in preview["message"]
+        assert "Даты в строках CSV: 2026-11-06 — 2026-11-08" in preview["message"]
         assert "PARTIAL" in preview["message"]
         assert "posting-111" not in preview["message"]
         save_callback = preview["keyboard"]["buttons"][0]["callback"]
@@ -405,7 +418,7 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
         saved = runtime.handle_physical_sales_callback(101, save_callback)
         assert saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED", saved
         assert saved["error"] is False
-        assert "Теперь отдельно подтвердите" in saved["message"]
+        assert "Отдельно подтвердите" in saved["message"]
         confirm_callback = saved["keyboard"]["buttons"][0]["callback"]
         assert len(confirm_callback.encode("utf-8")) <= 64
         assert "case_" not in confirm_callback and "posting-111" not in confirm_callback
@@ -438,6 +451,67 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
         assert item["confirmations"][-1]["confirmation_kind"] == "PHYSICAL_SALES"
         assert item["payload"]["semantics"] == "PHYSICAL_OUTFLOW"
         assert "posting-111" not in repr(item["payload"])
+        reread = physical_import.evidence_service.read_document(
+            repository=repository,
+            case_id=runtime._sessions["101"]["case_id"],
+            scope=runtime._physical_sales_scope("101", runtime._sessions["101"]),
+            evidence_id=item["evidence_id"],
+        )
+        assert reread["error"] is False, reread
+        assert reread["preview"]["period_from"] == "2026-11-05"
+        assert reread["preview"]["period_to"] == "2026-11-09"
+
+        # Uploading a corrected CSV does not overwrite the first immutable row.
+        # The owner explicitly selects the new version as current, superseding
+        # every previously confirmed file by its exact evidence fingerprint.
+        documents = runtime._documents_prompt("101")
+        replace_action = next(
+            button["callback"] for button in documents["keyboard"]["buttons"]
+            if button["text"].startswith("🧾 Добавить подтверждение физических продаж")
+        )
+        runtime.handle_callback(101, replace_action)
+        assert runtime.handle_text(101, "2026-11-05 — 2026-11-09")["code"] == (
+            "FIFO_PHYSICAL_SALES_PERIOD_SET"
+        )
+        corrected_content = (
+            FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
+            "posting-111;3921245627;1;2026-11-06;source-row-1-corrected\r\n"
+            "posting-222;3921245627;2;2026-11-08;source-row-2-corrected\r\n"
+        ).encode("utf-8")
+        corrected_preview = runtime.handle_physical_sales_document(
+            101, corrected_content, "physical-sales-corrected.csv",
+        )
+        corrected_saved = runtime.handle_physical_sales_callback(
+            101, corrected_preview["keyboard"]["buttons"][0]["callback"],
+        )
+        assert corrected_saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED"
+        assert "будут заменены выбором этого файла: 1" in corrected_saved["message"]
+        replace_callback = corrected_saved["keyboard"]["buttons"][0]["callback"]
+        corrected_confirmed = runtime.handle_physical_sales_callback(
+            101, replace_callback,
+        )
+        assert corrected_confirmed["code"] == "FIFO_PHYSICAL_SALES_CONFIRMED"
+        assert "1 ранее подтверждённых версий оставлены в истории" in corrected_confirmed["message"]
+
+        versions = repository.read_transition_bridge_evidence(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT", include_sensitive_payload=True,
+        )
+        assert versions["error"] is False and len(versions["items"]) == 2
+        assert all(item["completeness"] == "PARTIAL" for item in versions["items"])
+        current_case = transitions.get_case(
+            case_id=runtime._sessions["101"]["case_id"], **IDENTITY,
+        )
+        resolver = FifoCostTransitionEvidenceService(transitions)
+        active = resolver._read_physical_document(
+            case_id=runtime._sessions["101"]["case_id"], identity=IDENTITY,
+            scope=runtime._physical_sales_scope("101", runtime._sessions["101"]),
+            case=transitions._case_from_payload(current_case["case"]),
+        )
+        assert active["error"] is False, active
+        assert {row.quantity for row in active["document"].rows} == {1, 2}
+        assert active["document"].period_from == "2026-11-05"
+        assert active["document"].period_to == "2026-11-09"
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -476,6 +550,9 @@ def test_switching_fifo_case_invalidates_old_physical_preview_without_closing_ei
             if item["callback"].startswith("fifo_transition:physical_sales:")
         )
         runtime.handle_callback(101, select)
+        assert runtime.handle_text(101, "2026-11-05 — 2026-11-06")["code"] == (
+            "FIFO_PHYSICAL_SALES_PERIOD_SET"
+        )
         content = (
             FifoCostPhysicalSalesImportService.TEMPLATE_HEADER + "\r\n"
             "posting-111;3921245627;1;2026-11-05;source-row-1\r\n"

@@ -248,6 +248,18 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
                 keyboard=self._field_confirmation_keyboard(session["candidate_token"]),
             )
+        if session.get("step") == "physical_sales":
+            if self.physical_sales_import_service is None:
+                return self._failure(
+                    "Загрузка физических продаж временно недоступна. FIFO-дело не изменено."
+                )
+            return self.physical_sales_import_service.handle_period_text(
+                user_id=user_id,
+                text=text,
+                expected_case_id=session["case_id"],
+                expected_scope=self._physical_sales_scope(owner, session),
+                expected_case_revision=session["case_revision"],
+            )
         if session.get("step") == "opening_composition":
             return self._handle_opening_composition_text(owner, session, text)
         if session.get("step") == "finance_identity_period":

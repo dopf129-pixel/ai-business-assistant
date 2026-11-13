@@ -1370,6 +1370,10 @@ def _validate_transition_confirmation_fields(
         allowed_key_sets.add(_CONFIRMATION_PAYLOAD_KEYS[kind] | {
             "new_home_quantity_status",
         })
+    elif kind is TransitionEvidenceConfirmationKind.PHYSICAL_SALES:
+        allowed_key_sets.add(_CONFIRMATION_PAYLOAD_KEYS[kind] | {
+            "selected_as_current", "supersedes_evidence_fingerprints",
+        })
     if key_set not in allowed_key_sets:
         _fail(TransitionReasonCode.CONTRACT_INVALID)
     result = dict(value)
@@ -1381,6 +1385,16 @@ def _validate_transition_confirmation_fields(
     }
     for key in digest_fields & result.keys():
         result[key] = normalize_digest(result[key])
+    if "supersedes_evidence_fingerprints" in result:
+        values = result["supersedes_evidence_fingerprints"]
+        if not isinstance(values, (list, tuple)) or len(values) > 100:
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        normalized_values = [normalize_digest(item) for item in values]
+        if normalized_values != sorted(set(normalized_values)):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
+        result["supersedes_evidence_fingerprints"] = normalized_values
+    if "selected_as_current" in result and result["selected_as_current"] is not True:
+        _fail(TransitionReasonCode.CONTRACT_INVALID)
     for key in ("period_from", "period_to", "complete_through", "cutoff_date",
                 "opening_date", "effective_date", "effective_from"):
         if key in result:

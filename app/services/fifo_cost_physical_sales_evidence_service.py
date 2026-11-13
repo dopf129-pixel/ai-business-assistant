@@ -201,6 +201,48 @@ class FifoCostPhysicalSalesEvidenceService:
             "confirmed": loaded["confirmed"],
             "confirmation_id": loaded["confirmation_id"],
             "confirmed_fields": loaded["confirmed_fields"],
+            "confirmation_revision": loaded["confirmation_revision"],
+        }
+
+    def list_confirmed_documents(self, *, repository, case_id, scope):
+        """Return safe summaries of confirmed CSV versions for an owner decision."""
+        if not isinstance(scope, ScopeIdentity):
+            return self._error("FIFO_TRANSITION_SCOPE_MISMATCH")
+        listed = repository.read_transition_bridge_evidence(
+            case_id=case_id, store_id=scope.store_id,
+            product_id=scope.product_id, offer_id=scope.offer_id, sku=scope.sku,
+            evidence_kind=self.EVIDENCE_KIND, limit=100,
+            include_sensitive_payload=True,
+        )
+        if listed.get("error"):
+            return listed
+        items = listed.get("items")
+        if not isinstance(items, list) or len(items) > 100:
+            return self._error("FIFO_PHYSICAL_SALES_EVIDENCE_LIMIT_REACHED")
+        documents = []
+        for item in items:
+            read = self.read_document(
+                repository=repository, case_id=case_id, scope=scope,
+                evidence_id=item.get("evidence_id"),
+            )
+            if read.get("error"):
+                return read
+            if read.get("confirmed") is True:
+                documents.append({
+                    "evidence_id": read["evidence_id"],
+                    "payload_fingerprint": read["payload_fingerprint"],
+                    "confirmation_revision": read["confirmation_revision"],
+                    "preview": read["preview"],
+                })
+        return {
+            "error": False,
+            "code": "FIFO_PHYSICAL_SALES_CONFIRMED_VERSIONS_FOUND",
+            "documents": tuple(sorted(
+                documents,
+                key=lambda value: (
+                    value["confirmation_revision"], value["payload_fingerprint"],
+                ),
+            )),
         }
 
     def confirm_document(
@@ -209,6 +251,7 @@ class FifoCostPhysicalSalesEvidenceService:
         expected_document_fingerprint, expected_rows_fingerprint,
         expected_identity_fingerprint, expected_row_count,
         period_from, period_to, timezone_name, semantics, idempotency_key,
+        select_as_current=False, expected_superseded_evidence_fingerprints=None,
     ):
         """Confirm all rows and provenance only after exact durable reconstruction."""
         loaded = self.read_document(
@@ -236,6 +279,28 @@ class FifoCostPhysicalSalesEvidenceService:
             "timezone": period["timezone"],
             "semantics": self.SEMANTICS,
         }
+        if type(select_as_current) is not bool:
+            return self._error("FIFO_PHYSICAL_SALES_VERSION_SELECTION_INVALID")
+        if select_as_current:
+            listed = self.list_confirmed_documents(
+                repository=repository, case_id=case_id, scope=scope,
+            )
+            if listed.get("error"):
+                return listed
+            superseded = tuple(sorted(
+                item["payload_fingerprint"]
+                for item in listed["documents"]
+                if item["evidence_id"] != evidence_id
+            ))
+            if (
+                expected_superseded_evidence_fingerprints is not None
+                and tuple(expected_superseded_evidence_fingerprints) != superseded
+            ):
+                return self._error("FIFO_PHYSICAL_SALES_VERSION_SELECTION_STALE")
+            expected_fields.update({
+                "selected_as_current": True,
+                "supersedes_evidence_fingerprints": list(superseded),
+            })
         if (
             expected_document_fingerprint != document.document_fingerprint
             or expected_rows_fingerprint != document.row_references_fingerprint
@@ -287,6 +352,7 @@ class FifoCostPhysicalSalesEvidenceService:
             "unit_count": document.unit_count,
             "document_fingerprint": document.document_fingerprint,
             "rows_fingerprint": document.row_references_fingerprint,
+            "selected_as_current": select_as_current,
         }
 
     def _reconstruct_item(self, item, scope):
@@ -343,16 +409,51 @@ class FifoCostPhysicalSalesEvidenceService:
         for value in item.get("confirmations", []):
             if value.get("confirmation_kind") != self.CONFIRMATION_KIND.value:
                 continue
-            if value.get("confirmed_fields") != expected_fields:
+            confirmed_fields = value.get("confirmed_fields")
+            if not isinstance(confirmed_fields, dict) or any(
+                confirmed_fields.get(key) != expected
+                for key, expected in expected_fields.items()
+            ):
                 return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            selection_keys = set(confirmed_fields) - set(expected_fields)
+            if selection_keys not in (
+                set(), {"selected_as_current", "supersedes_evidence_fingerprints"},
+            ):
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            if selection_keys and (
+                confirmed_fields.get("selected_as_current") is not True
+                or not isinstance(
+                    confirmed_fields.get("supersedes_evidence_fingerprints"),
+                    (list, tuple),
+                )
+            ):
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            if selection_keys:
+                try:
+                    TransitionEvidenceConfirmation(
+                        confirmation_kind=self.CONFIRMATION_KIND,
+                        confirmed_fields=confirmed_fields,
+                    )
+                except (TypeError, ValueError):
+                    return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
             matching.append(value)
-        latest = matching[-1] if matching else None
+        revisions = [
+            value.get("expected_case_revision") for value in matching
+        ]
+        if any(type(value) is not int or value < 1 for value in revisions):
+            return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+        if len(revisions) != len(set(revisions)):
+            return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+        latest = max(matching, key=lambda value: value["expected_case_revision"]) if matching else None
         return {
             "error": False,
             "document": document,
             "confirmed": latest is not None,
             "confirmation_id": latest.get("confirmation_id") if latest else None,
             "confirmed_fields": dict(latest["confirmed_fields"]) if latest else None,
+            "confirmation_revision": (
+                latest.get("expected_case_revision") if latest else None
+            ),
         }
 
     def _read_case(self, *, repository, case_id, scope):

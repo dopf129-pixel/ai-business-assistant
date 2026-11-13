@@ -617,6 +617,60 @@ def test_multi_month_collection_persists_through_real_case_revision_cas(
         reset_current_tenant_user_id(tenant)
 
 
+def test_restart_with_different_chunking_and_http_budget_revalidates_same_snapshots():
+    reconstruction, finance = _multi_month_inputs()
+    evidence = _Evidence()
+    products = _inputs()[2]
+    policy = _inputs()[1]
+    service = FifoCostFinancialPeriodSummaryCollectionService()
+    token = None
+    for _ in range(100):
+        result = service.collect(
+            case_id="case-fr20-1", identity=IDENTITY,
+            expected_case_revision=evidence.case_revision,
+            reconstruction=reconstruction, finance_batch=finance,
+            products=products, tax_policy_result=policy,
+            summary_reader=_reader, finance_service=_FinanceCache(),
+            evidence_service=evidence, continuation_token=token,
+            days_per_call=1, http_attempt_budget=1,
+        )
+        assert result["error"] is False, result
+        token = result["continuation_token"]
+        if token is None:
+            break
+
+    assert result["status"] == "COMPLETE", result
+    assert len(evidence.saved) == 2
+    frozen_summaries = tuple(item["summary"] for item in evidence.saved)
+    revision_after_freeze = evidence.case_revision
+
+    # A new collector has no original chunk schedule. Re-read the same dated
+    # facts in four-day chunks and with a larger request budget; v2 fingerprints
+    # must remain independent of those transport boundaries.
+    restarted = FifoCostFinancialPeriodSummaryCollectionService()
+    token = None
+    for _ in range(100):
+        result = restarted.collect(
+            case_id="case-fr20-1", identity=IDENTITY,
+            expected_case_revision=revision_after_freeze,
+            reconstruction=reconstruction, finance_batch=finance,
+            products=products, tax_policy_result=policy,
+            summary_reader=_reader, finance_service=_FinanceCache(),
+            evidence_service=evidence, continuation_token=token,
+            existing_summaries=frozen_summaries,
+            days_per_call=4, http_attempt_budget=10,
+        )
+        assert result["error"] is False, result
+        token = result["continuation_token"]
+        if token is None:
+            break
+
+    assert result["status"] == "COMPLETE", result
+    assert result["issue_code"] is None
+    assert evidence.case_revision == revision_after_freeze
+    assert len(evidence.saved) == 2
+
+
 def test_collection_rejects_non_month_finance_identity_rows():
     batch = _finance_batch()
     invalid_row = FifoFinanceSaleIdentity(

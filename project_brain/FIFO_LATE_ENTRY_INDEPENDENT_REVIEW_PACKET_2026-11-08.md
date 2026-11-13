@@ -1,5 +1,13 @@
 # FIFO late-entry completion — independent review packet
 
+## Independent follow-up review R12–R14 — 2026-11-13
+
+- **R12 / chunk-dependent monthly snapshot fingerprint:** new v2 fingerprints are date-keyed over daily finance-cache entries plus monthly Period Profit totals. A regression freezes two months using one-day chunks/request cap 1, then replays using four-day chunks/cap 10; frozen summaries are reused without duplicate writes or revision change. Legacy snapshots from the old chunk-bound format are accepted only if the exact old fingerprint is recreated; the implementation does not guess an unknown historical schedule.
+- **R13 / corrected owner CSV cannot replace current evidence:** every CSV remains immutable. The user receives a separate explicit “confirm and choose current” action; the confirmation is bound to the new document and the complete prior confirmed fingerprint set and revalidated against current case revision. Historical evidence remains stored. Legacy sets with multiple confirmed documents but no owner selection stay blocked.
+- **R14 / missing zero-sale edge dates:** the owner must enter the entire CSV coverage interval before upload. The importer no longer infers coverage from min/max sale-row dates and shows the declared interval separately from row dates. The window must cover the dispatch date.
+- Local verification: linked FIFO profile **116 passed**; the focused R12/R13/R14 paths **4 passed**; full isolated pytest **5,288 passed in 73.96s**. `compileall`, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded owner data and used a synthetic tax policy. Hosted exact-head CI runs after publication; the integration failure from the first linked run was fixed before the green rerun.
+- **R1 stays open:** no complete supported movement ledger or owner-case proof has been established. These corrections do not make the owner's case READY/APPLIED and do not justify merge on their own.
+
 ## Independent follow-up review R9–R11 — 2026-11-13
 
 - **R9 / baseline attribution:** Period Profit exposes full-month SKU COGS, not COGS attributed to each affected finance identity. The impact now stays candidate-only unless full-month SKU COGS exactly equals the reconstructed baseline subset; it no longer labels an unproven difference as earlier same-SKU cost. Exact per-identity attribution is not implemented, so incomplete attribution cannot produce a profit delta.

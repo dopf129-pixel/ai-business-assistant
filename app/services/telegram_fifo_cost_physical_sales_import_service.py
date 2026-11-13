@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date
 from hashlib import sha256
+import re
 from threading import RLock
 from time import monotonic
 from uuid import uuid4
@@ -74,6 +76,8 @@ class TelegramFifoCostPhysicalSalesImportService:
                 "scope": scope,
                 "revision": expected_case_revision,
                 "timezone": timezone_name,
+                "period_from": None,
+                "period_to": None,
                 "token": token,
                 "expires_at": now + self.TTL_SECONDS,
                 "preview_token": None,
@@ -81,12 +85,91 @@ class TelegramFifoCostPhysicalSalesImportService:
             self._active[(owner, tenant)] = token
             self._trim(self._selections, self.MAX_SELECTIONS)
         return self._result(
-            "Отправьте CSV по шаблону физических продаж в течение 15 минут. "
-            "В файле должны быть только известные физические даты выбытия. "
-            "Даты из финансового отчёта сюда не подставляйте. Сначала будет предпросмотр; "
-            "файл сохранится только после отдельного нажатия. Это owner-imported "
-            "частичное свидетельство, оно не подтверждает полноту продаж.",
+            "Сначала укажите полный период, который покрывает CSV, включая дни без продаж. "
+            "Формат: 2026-11-05 — 2026-11-09. После этого отправьте CSV в течение 15 минут. "
+            "Даты из финансового отчёта не подставляйте как физические даты. "
+            "Файл будет показан до сохранения и останется частичным свидетельством.",
             code="FIFO_PHYSICAL_SALES_UPLOAD_SELECTED",
+        )
+
+    def handle_period_text(
+        self, *, user_id, text, expected_case_id, expected_scope,
+        expected_case_revision,
+    ):
+        """Accept the owner-declared full coverage window, not the min/max row dates."""
+        owner, tenant, error = self._identity(user_id, expected_scope)
+        if error:
+            return error
+        now = self._monotonic()
+        with self._lock:
+            self._purge(now)
+            selection = self._active_selection(owner, tenant)
+            if selection is None:
+                return self._result(
+                    "Выбор CSV истёк. Откройте действие заново; текст не сохранён.",
+                    code="FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                )
+            if (
+                selection.get("case_id") != expected_case_id
+                or selection.get("scope") != expected_scope
+                or selection.get("revision") != expected_case_revision
+            ):
+                return self._result(
+                    "Период относится к другому или изменённому FIFO-делу. Дело не изменено.",
+                    code="FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                )
+        if selection.get("period_from") is not None:
+            return self._result(
+                "Полный период уже задан. Теперь отправьте выбранный CSV; границы покрытия не выводятся из строк.",
+                code="FIFO_PHYSICAL_SALES_PERIOD_ALREADY_SET",
+            )
+        match = re.fullmatch(
+            r"\s*(\d{4}-\d{2}-\d{2})\s*(?:—|–|\s+-\s+)\s*(\d{4}-\d{2}-\d{2})\s*",
+            str(text or ""),
+        )
+        if match is None:
+            return self._result(
+                "Введите обе границы периода в формате YYYY-MM-DD — YYYY-MM-DD. "
+                "Укажите также крайние дни, в которые не было продаж.",
+                code="FIFO_PHYSICAL_SALES_PERIOD_INVALID",
+            )
+        period_from, period_to = match.groups()
+        try:
+            start = date.fromisoformat(period_from)
+            end = date.fromisoformat(period_to)
+            if start.isoformat() != period_from or end.isoformat() != period_to or end < start:
+                raise ValueError
+        except ValueError:
+            return self._result(
+                "Даты периода неверны. Используйте реальные календарные даты и порядок от начала к концу.",
+                code="FIFO_PHYSICAL_SALES_PERIOD_INVALID",
+            )
+        current = self._read_case(expected_case_id, expected_scope)
+        if not self._case_matches(current, expected_scope, expected_case_revision):
+            return self._result(
+                "FIFO-дело изменилось. Период не сохранён; откройте дело заново.",
+                code="FIFO_PHYSICAL_SALES_SELECTION_STALE",
+            )
+        dispatch_date = (current.get("case") or {}).get("dispatch_date")
+        if not isinstance(dispatch_date, str) or not period_from <= dispatch_date <= period_to:
+            return self._result(
+                "Период должен покрывать дату отправки из FIFO-дела. Период не сохранён.",
+                code="FIFO_PHYSICAL_SALES_PERIOD_DOES_NOT_COVER_DISPATCH",
+            )
+        with self._lock:
+            active = self._active_selection(owner, tenant)
+            if active is None or active.get("token") != selection.get("token"):
+                return self._result(
+                    "Выбор CSV изменился. Период не сохранён; откройте действие заново.",
+                    code="FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                )
+            active["period_from"] = period_from
+            active["period_to"] = period_to
+            active["expires_at"] = self._monotonic() + self.TTL_SECONDS
+        return self._result(
+            f"Период покрытия сохранён: {period_from} — {period_to}. "
+            "Теперь отправьте CSV. Дни без строк продаж останутся частью заданного периода.",
+            code="FIFO_PHYSICAL_SALES_PERIOD_SET",
         )
 
     def has_active_selection(self, *, user_id):
@@ -127,6 +210,12 @@ class TelegramFifoCostPhysicalSalesImportService:
                 return self._result(
                     "Выбор файла относится к другому или изменённому делу. Файл не загружен.",
                     code="FIFO_PHYSICAL_SALES_SELECTION_STALE",
+                    selected=True,
+                )
+            if selection.get("period_from") is None or selection.get("period_to") is None:
+                return self._result(
+                    "Сначала укажите полный период покрытия CSV сообщением YYYY-MM-DD — YYYY-MM-DD.",
+                    code="FIFO_PHYSICAL_SALES_PERIOD_REQUIRED",
                     selected=True,
                 )
         if not isinstance(filename, str) or not filename.lower().endswith(".csv"):
@@ -212,10 +301,15 @@ class TelegramFifoCostPhysicalSalesImportService:
                 code=code,
             )
         document = parsed.document
+        if selection.get("period_from") is None or selection.get("period_to") is None:
+            return self._result(
+                "Сначала укажите полный период покрытия CSV. Файл не сохранён.",
+                code="FIFO_PHYSICAL_SALES_PERIOD_REQUIRED",
+            )
         preview = self.evidence_service.preview_document(
             document=document,
-            period_from=document.period_from,
-            period_to=document.period_to,
+            period_from=selection["period_from"],
+            period_to=selection["period_to"],
             timezone_name=selection["timezone"],
         )
         if preview.get("error"):
@@ -279,7 +373,7 @@ class TelegramFifoCostPhysicalSalesImportService:
         if len(parts) != 3 or parts[0] != self.CALLBACK_PREFIX:
             return {"error": False, "handled": False, "read_only_ozon": True}
         action, token = parts[1:]
-        if action not in {"save", "confirm", "cancel"} or not self._valid_token(token):
+        if action not in {"save", "select", "cancel"} or not self._valid_token(token):
             return self._error("FIFO_PHYSICAL_SALES_CALLBACK_INVALID")
         now = self._monotonic()
         key = (owner, tenant, token)
@@ -396,11 +490,13 @@ class TelegramFifoCostPhysicalSalesImportService:
             if selection is not None:
                 selection["revision"] = saved["case_revision"]
                 selection["expires_at"] = preview["expires_at"]
-            callback = self._callback("confirm", preview["token"])
-        return self._saved_result(preview, saved, confirm_callback=callback)
+        return self._saved_result(preview, saved)
 
     def _confirm_preview(self, owner, tenant, key, preview):
         saved = preview["saved"]
+        selection = preview.get("version_selection")
+        if not isinstance(selection, tuple):
+            return self._saved_result(preview, saved, replayed=True)
         current = self._read_case(preview["case_id"], preview["scope"])
         if not self._case_matches(current, preview["scope"], saved["case_revision"]):
             return self._result(
@@ -422,14 +518,20 @@ class TelegramFifoCostPhysicalSalesImportService:
             period_to=preview["preview"]["period_to"],
             timezone_name=preview["timezone"],
             semantics="PHYSICAL_OUTFLOW",
-            idempotency_key=self._confirm_idempotency_key(preview, saved),
+            idempotency_key=self._confirm_idempotency_key(
+                preview, saved, selection,
+            ),
+            select_as_current=True,
+            expected_superseded_evidence_fingerprints=selection,
         )
         if result.get("error"):
             return result
         response = self._result(
             f"Подтверждены сведения физического CSV: {saved['row_count']} строк, "
             f"{saved['unit_count']} единиц, даты {preview['preview']['period_from']} — "
-            f"{preview['preview']['period_to']}. Документ остаётся частичным: "
+            f"{preview['preview']['period_to']}. Этот файл выбран текущей версией; "
+            f"{len(selection)} ранее подтверждённых версий оставлены в истории. "
+            "Документ остаётся частичным: "
             "полнота всех продаж и движений этим подтверждением не доказана.",
             code="FIFO_PHYSICAL_SALES_CONFIRMED",
         )
@@ -446,14 +548,53 @@ class TelegramFifoCostPhysicalSalesImportService:
                     self._active.pop(owner_scope, None)
         return response
 
-    def _saved_result(self, preview, saved, *, confirm_callback=None, replayed=False):
-        callback = confirm_callback or self._callback("confirm", preview["token"])
+    def _saved_result(self, preview, saved, *, replayed=False):
+        listed = self.evidence_service.list_confirmed_documents(
+            repository=self.repository, case_id=preview["case_id"],
+            scope=preview["scope"],
+        )
+        if listed.get("error"):
+            retry_callback = self._callback("save", preview["token"])
+            return self._result(
+                "CSV сохранён, но не удалось перечитать предыдущие подтверждённые версии. "
+                "Ничего не выбрано текущим; повторите проверку.",
+                code="FIFO_PHYSICAL_SALES_VERSION_SELECTION_UNAVAILABLE",
+                selected=True,
+            ) | {"keyboard": self._keyboard(
+                ("Повторить проверку", retry_callback),
+                ("Отменить подтверждение", self._callback("cancel", preview["token"])),
+            )}
+        superseded = tuple(sorted(
+            item["payload_fingerprint"]
+            for item in listed["documents"]
+            if item["evidence_id"] != saved["evidence_id"]
+        ))
+        preview["version_selection"] = superseded
+        previous = [
+            item for item in listed["documents"]
+            if item["evidence_id"] != saved["evidence_id"]
+        ]
+        selection_callback = self._callback("select", preview["token"])
+        previous_summary = ""
+        if previous:
+            visible = previous[:5]
+            previous_summary = (
+                "\nРанее подтверждённые версии, которые будут заменены выбором этого файла: "
+                f"{len(previous)}.\n"
+                + "\n".join(
+                    f"• {item['preview']['period_from']} — {item['preview']['period_to']}: "
+                    f"{item['preview']['row_count']} строк, {item['preview']['unit_count']} шт."
+                    for item in visible
+                )
+                + ("\n• Остальные версии также останутся в истории." if len(previous) > len(visible) else "")
+            )
         message = (
             f"Документ сохранён: {saved['row_count']} строк, {saved['unit_count']} единиц, "
-            f"даты {preview['preview']['period_from']} — {preview['preview']['period_to']}.\n"
-            "Теперь отдельно подтвердите, что строки описывают физическое выбытие товара "
-            "и что даты/количества известны вам. Это owner-imported частичное свидетельство; "
-            "оно не подтверждает полноту покрытия."
+            f"покрытие {preview['preview']['period_from']} — {preview['preview']['period_to']}.\n"
+            "Отдельно подтвердите физический смысл строк и выберите этот CSV текущей версией. "
+            "При замене предыдущие файлы сохранятся в истории."
+            f"{previous_summary}\n"
+            "Подтверждение не доказывает полноту продаж и движений."
         )
         return {
             "error": False,
@@ -461,7 +602,12 @@ class TelegramFifoCostPhysicalSalesImportService:
             "code": "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED",
             "message": message,
             "keyboard": self._keyboard(
-                ("✅ Подтвердить строки и смысл", callback),
+                (
+                    "✅ Подтвердить и выбрать текущим"
+                    if not previous else
+                    f"✅ Заменить {len(previous)} подтвержд. верс. и выбрать текущим",
+                    selection_callback,
+                ),
                 ("Отказаться от подтверждения", self._callback("cancel", preview["token"])),
             ),
             "replayed": replayed,
@@ -473,7 +619,8 @@ class TelegramFifoCostPhysicalSalesImportService:
         return (
             "Предпросмотр физических продаж\n"
             f"Строк: {preview['row_count']} · единиц: {preview['unit_count']}\n"
-            f"Период строк: {preview['period_from']} — {preview['period_to']}\n"
+            f"Период покрытия по вашему указанию: {preview['period_from']} — {preview['period_to']}\n"
+            f"Даты в строках CSV: {preview['row_date_from']} — {preview['row_date_to']}\n"
             "Источник: файл, предоставленный владельцем; тип свидетельства — PARTIAL.\n"
             "Подтверждение означает, что вы проверили строки, физические даты и количества. "
             "Оно не доказывает, что документ содержит все продажи, возвраты и иные движения. "
@@ -580,12 +727,13 @@ class TelegramFifoCostPhysicalSalesImportService:
         return "physical-sales-" + digest
 
     @staticmethod
-    def _confirm_idempotency_key(preview, saved):
+    def _confirm_idempotency_key(preview, saved, superseded=()):
         digest = sha256(
             "\0".join((
                 saved["evidence_fingerprint"], saved["document_fingerprint"],
                 saved["rows_fingerprint"], preview["preview"]["period_from"],
                 preview["preview"]["period_to"], preview["timezone"],
+                *superseded,
             )).encode("utf-8")
         ).hexdigest()
         return "physconf-" + digest

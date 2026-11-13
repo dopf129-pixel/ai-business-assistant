@@ -1,3 +1,10 @@
+# 2026-11-13 — FIFO review corrections R12–R14
+
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_restart_with_different_chunking_and_http_budget_revalidates_same_snapshots` restarts after immutable monthly freezes, changes daily request chunking from 1 to 4 days and request budget from 1 to 10, and verifies the same source fingerprints are reused without duplicate snapshots/revision writes.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` verifies coverage is owner-entered before upload, excludes a too-short window that misses dispatch, preserves no-sale edge days in the preview, and lets an explicitly confirmed corrected CSV supersede the prior version while retaining both records.
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` now traverses the updated period-entry step before the physical CSV preview; both missing and explicitly supplied receiving-bucket cases remain covered.
+- Linked FIFO profile: **116 passed**; full isolated pytest: **5,288 passed in 73.96s**. `compileall`, diff check, and unchanged tracked `data/` passed. The disposable test copy excluded owner data and used a synthetic tax policy. Hosted exact-head CI runs after publication.
+
 # 2026-11-13 — FIFO review corrections R9–R11
 
 - `tests/test_fifo_cost_late_entry_impact_service.py::test_late_entry_blocks_when_subset_cogs_cannot_be_proven_against_month_total` confirms the 100/130/150 ₽ partial-subset scenario remains candidate-only; no profit delta is produced without identity-level canonical COGS.

@@ -974,7 +974,8 @@ class FifoCostTransitionEvidenceService:
             return self._error("FIFO_PHYSICAL_SALES_EVIDENCE_LIMIT_REACHED")
         if not items:
             return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_MISSING")
-        candidates = []
+        confirmed_documents = {}
+        selection_events = []
         found_unconfirmed = False
         for item in items:
             read = self.physical_sales_service.read_document(
@@ -990,23 +991,88 @@ class FifoCostTransitionEvidenceService:
                 value for value in item.get("confirmations", ())
                 if value.get("confirmation_kind")
                 == TransitionEvidenceConfirmationKind.PHYSICAL_SALES.value
-                and value.get("confirmed_fields") == read.get("confirmed_fields")
             ]
             if not confirmations:
                 return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT")
-            document_period_from = item.get("period_from")
+            revisions = [value.get("expected_case_revision") for value in confirmations]
+            if any(type(value) is not int or value < 1 for value in revisions):
+                return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT")
+            if len(revisions) != len(set(revisions)):
+                return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT")
+            fingerprint = item.get("payload_fingerprint")
             if (
-                isinstance(document_period_from, str)
-                and document_period_from <= (case.dispatch_date or document_period_from)
+                not isinstance(fingerprint, str) or len(fingerprint) != 64
+                or any(char not in "0123456789abcdef" for char in fingerprint)
             ):
-                candidates.append((item, read, confirmations[-1]))
-        if len(candidates) != 1:
-            if not candidates and found_unconfirmed:
+                return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT")
+            confirmed_documents[fingerprint] = {
+                "item": item,
+                "read": read,
+                "first_confirmation_revision": min(revisions),
+                "latest_confirmation": max(
+                    confirmations, key=lambda value: value["expected_case_revision"],
+                ),
+            }
+            for confirmation in confirmations:
+                fields = confirmation.get("confirmed_fields")
+                if isinstance(fields, dict) and fields.get("selected_as_current") is True:
+                    superseded = fields.get("supersedes_evidence_fingerprints")
+                    if not isinstance(superseded, (list, tuple)):
+                        return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT")
+                    selection_events.append((
+                        confirmation["expected_case_revision"], fingerprint,
+                        tuple(superseded), confirmation,
+                    ))
+            document_period_from = item.get("period_from")
+            if not isinstance(document_period_from, str):
+                return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT")
+        if not confirmed_documents:
+            if found_unconfirmed:
                 return self._error("FIFO_PHYSICAL_SALES_CONFIRMATION_REQUIRED")
-            if not candidates:
-                return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_MISSING")
+            return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_MISSING")
+
+        selected_fingerprint = None
+        selected_confirmation = None
+        if selection_events:
+            event_revisions = [event[0] for event in selection_events]
+            if len(event_revisions) != len(set(event_revisions)):
+                return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_CONFLICT")
+            for revision, fingerprint, superseded, _confirmation in selection_events:
+                expected_superseded = tuple(sorted(
+                    prior_fingerprint
+                    for prior_fingerprint, prior in confirmed_documents.items()
+                    if prior_fingerprint != fingerprint
+                    and prior["first_confirmation_revision"] < revision
+                ))
+                if superseded != expected_superseded:
+                    return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_CONFLICT")
+            latest_selection = max(selection_events, key=lambda event: event[0])
+            latest_revision, selected_fingerprint, _superseded, selected_confirmation = latest_selection
+            if any(
+                value["first_confirmation_revision"] > latest_revision
+                for key, value in confirmed_documents.items()
+                if key != selected_fingerprint
+            ):
+                return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_CONFLICT")
+        elif len(confirmed_documents) == 1:
+            selected_fingerprint = next(iter(confirmed_documents))
+            selected_confirmation = confirmed_documents[selected_fingerprint]["latest_confirmation"]
+        else:
+            # Legacy evidence has no owner-selected active version. Never guess
+            # by captured_at, evidence_revision, or database insertion order.
             return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_CONFLICT")
-        item, read, confirmed = candidates[0]
+
+        selected = confirmed_documents.get(selected_fingerprint)
+        if selected is None:
+            return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_CONFLICT")
+        item, read = selected["item"], selected["read"]
+        document_period_from = item.get("period_from")
+        if (
+            not isinstance(document_period_from, str)
+            or document_period_from > (case.dispatch_date or document_period_from)
+        ):
+            return self._error("FIFO_PHYSICAL_SALES_DOCUMENT_MISSING")
+        confirmed = selected_confirmation
         document = read["document"]
         try:
             bridge_rows = tuple(FifoDocumentedPhysicalSaleRow(

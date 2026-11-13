@@ -1,5 +1,13 @@
 # FIFO review blockers — журнал FR00–FR31
 
+## 2026-11-13 — повторный review R12–R14: исправления локально внесены
+
+- **R12 / monthly fingerprint и границы запросов:** новый fingerprint строится из хешей каждого дня, привязанных к ISO-дате, и месячных итогов Period Profit. Regression действительно фиксирует месяц сначала однодневными запросами/лимитом 1, а после перезапуска — четырёхдневными/лимитом 10; immutable snapshot повторно используется без append и изменения revision. Формат до v2 остаётся проверяемым только при точном воспроизведении прежнего chunk fingerprint; неизвестный старый график не угадывается.
+- **R13 / исправление подтверждённого CSV:** владелец сохраняет корректирующий документ как новую immutable запись и отдельной кнопкой выбирает его текущим. Подтверждение связывает новый fingerprint с полным набором прежних подтверждённых версий; CAS/повторная проверка отклоняют устаревший список. История не удаляется, legacy-конфликт нескольких версий не разрешается выбором по времени.
+- **R14 / полное покрытие CSV:** перед файлом владелец вводит обе календарные границы покрытия. Дни без строк сохраняются в периоде; предпросмотр раздельно показывает coverage и крайние даты строк. Окно должно покрыть дату отправки из FIFO-дела.
+- Ревизии тестов прошли локально: связанный профиль **116 passed**; ключевые 4 сценария **4 passed**; полный `pytest` в отдельной копии без owner data **5,288 passed in 73.96s** с синтетической налоговой политикой. `compileall`, `git diff --check`, tracked `data/` equality — PASS. Hosted exact-head CI ожидает публикации. `.fl12-deps/` сохранён и не staged.
+- **R1 остаётся hard blocker:** полный подтверждённый источник движений и реальный owner case по-прежнему не доказаны; эти исправления не заявляют фактическую готовность применения. Слияние, запуск бота и живые API не выполнялись.
+
 ## 2026-11-13 — повторный review R9–R11: исправления внесены
 
 - **R9 / subset COGS:** the Period Profit snapshot is a monthly SKU aggregate, not a per-sale baseline. Impact now remains `CANDIDATE_ONLY` unless its baseline COGS exactly matches the reconstructed identity subset. This avoids assigning a difference to other same-SKU sales without evidence. Identity-level COGS attribution remains future work; no profit result is claimed when it cannot be proven.
