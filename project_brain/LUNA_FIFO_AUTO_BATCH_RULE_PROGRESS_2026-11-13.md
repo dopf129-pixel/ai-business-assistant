@@ -7,8 +7,8 @@
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.
 - Spec branch: codex/fifo-auto-batch-rule-spec-20261113.
 - Product baseline: main 7965dcddffa50bd4e0f175cd18c32929b6a845d0.
-- Implementation branch/HEAD: codex/fifo-auto-batch-foundation-20261113; FB00 checkpoint `56c7c24a`.
-- Следующий этап: FB01. Завершён FB00; продуктовые изменения пока не начаты.
+- Implementation branch/HEAD: codex/fifo-auto-batch-foundation-20261113; latest checkpoint `c46ec239`.
+- Следующий этап: FB01. FB00 закрыт; feature regression is being established.
 - Прежняя untracked .fl12-deps/ сохранена, не добавлять в Git.
 - Рабочая копия: изолированный Codex worktree; Desktop-папка с работающим ботом не открывалась для разработки.
 - Исходный `git status`: только `?? .fl12-deps/`; staged и tracked diff отсутствовали. Каталог .fl12-deps содержит 6 элементов, сохранён и исключён из изменений.
@@ -25,7 +25,7 @@
 | Этап | Статус | Коммит / файлы | Проверки и фактический результат |
 |---|---|---|---|
 | FB00 | DONE | `56c7c24a`; progress journal | `git status` подтвердил отсутствие tracked/staged edits на старте; `.fl12-deps/` сохранён; пять tracked data hashes записаны; base/main=7965dcdd; Desktop bot не открывался. `git diff --check` PASS. |
-| FB01 | NOT_STARTED | — | — |
+| FB01 | IN_PROGRESS | добавлен `tests/test_fifo_cost_batch_rule_regressions.py` | B01 red regression выполнен в Windows Python 3.12 через `PYTHONPATH=app`: **1 failed** на текущем исходном коде, фактически отклоняется `не знаю` как «Введите положительное количество…» вместо auto rule preview. Первая попытка без `PYTHONPATH` невалидна (test import error), штатный CI использует `PYTHONPATH=app`. |
 | FB02 | NOT_STARTED | — | — |
 | FB03 | NOT_STARTED | — | — |
 | FB04 | NOT_STARTED | — | — |
