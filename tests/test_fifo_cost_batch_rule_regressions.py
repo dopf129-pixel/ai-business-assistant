@@ -53,12 +53,6 @@ def test_unknown_total_opens_auto_rule_preview_without_owner_consent(tmp_path):
         # a batch rule or apply a FIFO rate.
         preview = runtime.handle_text(101, "не знаю")
         assert preview["error"] is False, preview
-        assert "провер" in preview["message"].lower()
-        assert any(
-            "подтверд" in button["text"].lower()
-            for button in preview["keyboard"]["buttons"]
-        )
-
         saved = transitions.list_cases(
             store_id=IDENTITY["store_id"], sku=IDENTITY["sku"],
         )["cases"][0]
@@ -66,5 +60,11 @@ def test_unknown_total_opens_auto_rule_preview_without_owner_consent(tmp_path):
         assert saved["case_revision"] == 6
         assert saved["state"] == "DRAFT"
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
+
+        assert "провер" in preview["message"].lower()
+        assert any(
+            "подтверд" in button["text"].lower()
+            for button in preview["keyboard"]["buttons"]
+        )
     finally:
         reset_current_tenant_user_id(tenant)
