@@ -139,6 +139,99 @@ def test_new_rate_preview_keeps_unknown_quantity_separate_and_does_not_write(
         connection.close()
 
 
+def test_component_and_total_landed_rate_share_amount_contract_and_keep_nulls(
+    scoped_rate_service,
+):
+    repository, service = scoped_rate_service
+    components_preview = _preview(
+        service,
+        purchase_cost_rub="10.00",
+        delivery_cost_rub="3.00",
+        packaging_cost_rub="1.65",
+    )
+    assert components_preview["error"] is False
+    assert components_preview["unit_cost_rub"] == "14.65"
+    assert components_preview["cost_input_mode"] == "COMPONENTS"
+
+    total_preview = _preview(
+        service,
+        cost_input_mode="TOTAL_LANDED",
+        unit_cost_rub="14.65",
+        purchase_cost_rub=None,
+        delivery_cost_rub=None,
+        packaging_cost_rub=None,
+    )
+    assert total_preview["error"] is False
+    assert total_preview["unit_cost_rub"] == components_preview["unit_cost_rub"]
+    assert total_preview["cost_input_mode"] == "TOTAL_LANDED"
+    assert total_preview["purchase_cost_rub"] is None
+    assert total_preview["delivery_cost_rub"] is None
+    assert total_preview["packaging_cost_rub"] is None
+
+    committed = service.confirm_new_cost(
+        preview_id=total_preview["preview_id"],
+        active_preview_id=total_preview["preview_id"],
+        idempotency_key="total-landed-rate01",
+    )
+    assert committed["error"] is False
+
+    connection = repository.get_connection()
+    try:
+        row = connection.execute(
+            "SELECT unit_cost_rub, cost_input_mode, purchase_cost_rub, "
+            "delivery_cost_rub, packaging_cost_rub FROM fifo_cost_rate_changes"
+        ).fetchone()
+        assert tuple(row) == ("14.65", "TOTAL_LANDED", None, None, None)
+    finally:
+        connection.close()
+
+    history = repository.read_cost_history_snapshot(**IDENTITY)
+    assert history["error"] is False
+    assert history["rates"][0]["cost_input_mode"] == "TOTAL_LANDED"
+    assert history["rates"][0]["unit_cost_rub"] == "14.65"
+    assert history["rates"][0]["purchase_cost_rub"] is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    [
+        (
+            {"cost_input_mode": "UNKNOWN", "unit_cost_rub": "14.65"},
+            "FIFO_RATE_COST_INPUT_INVALID",
+        ),
+        (
+            {
+                "cost_input_mode": "TOTAL_LANDED",
+                "unit_cost_rub": "14.65",
+                "purchase_cost_rub": "10.00",
+            },
+            "FIFO_RATE_COST_INPUT_INVALID",
+        ),
+        (
+            {"cost_input_mode": "COMPONENTS", "unit_cost_rub": "14.64"},
+            "FIFO_RATE_COST_INPUT_INVALID",
+        ),
+        ({"purchase_cost_rub": None}, "FIFO_RATE_COMPONENTS_REQUIRED"),
+    ],
+)
+def test_rate_cost_mode_rejects_mixed_or_incomplete_inputs_before_write(
+    scoped_rate_service, overrides, code,
+):
+    repository, service = scoped_rate_service
+    result = _preview(service, **overrides)
+    assert result == {"error": True, "code": code}
+    connection = repository.get_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_rate_changes"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT revision FROM fifo_cost_streams"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
 def test_first_rate_rejects_old_home_count_larger_than_confirmed_finite_stock(
     scoped_rate_service,
 ):

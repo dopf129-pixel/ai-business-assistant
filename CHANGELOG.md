@@ -1,3 +1,72 @@
+
+# 2026-11-08 — Ограниченное обновление FIFO-поставок (FL11)
+
+- Добавлен `FifoCostTransitionSupplyRefreshService`, который связывает чтение активного статуса, деталей заказа и принятых актов под общий бюджет шага не более 20 секунд и 10 HTTP-попыток.
+- Checkpoint привязан к owner/store/SKU/case/declaration/reference/revision. Найденная на частичной странице поставка сохраняет только progress, не публикуя complete observation до полного чтения; restart и смена scope работают fail closed.
+- Сохранён privacy contract: публичный manifest не раскрывает reference digest или ID. Новый flow read-only и не изменяет FIFO/прибыль.
+
+# 2026-11-08 — Сверка частичной FIFO-приёмки (FL10)
+
+- Добавлен pure reconciliation service для нормализованных актов одной точной поставки/SKU. Кумулятивные 40→70→100 и повторный stale snapshot 70 дают 100, а два разных акта остаются раздельно идентифицируемыми и суммируются один раз.
+- Более новый неполный источник сохраняет последнее количество, но снимает claim полноты. Финальная недостача создаёт discrepancy и требует подтверждённого движения; уменьшение 100→90 требует документальной коррекции. Конфликт SKU/превышение декларации блокируют результат. Сервис не пишет inventory/FIFO.
+- Отмена поставки сохраняет cost declaration link. Проверки: FL10 focused **46 passed**; FIFO/Telegram FIFO **379 passed**; compileall/diff-check/data-preservation PASS.
+
+# 2026-11-08 — Наблюдения активных FIFO-поставок (FL09)
+
+- Добавлен отдельный ограниченный collector по всем известным статусам заявок Seller API v3. Найденная активная поставка возвращает только статус и scoped digest; количества приёмки не выводятся из статуса.
+- Полное завершённое чтение без поставки даёт `MISSING`; неполная пагинация возвращает `PARTIAL` и continuation без отрицательного факта. Неизвестный статус сохраняется как безопасный raw token и нормализуется в `UNKNOWN`.
+- Append-only `SupplyObservation` привязан к той же owner/store/type/ID декларации. MISSING хранит null количества с reason/provenance и не стирает объявленные или ранее частично принятые единицы. Legacy `find_supply_by_id` остаётся COMPLETED-only.
+- Проверки: FL09 focused **51 passed**; полный `pytest` **4907 passed**; compileall/diff-check PASS. Тестовый `data/tasks.json` восстановлен; `data/` совпадает с Git.
+
+# 2026-11-08 — FIFO supply declarations and undistributed totals (FL08)
+
+- Added typed ORDER/SUPPLY declarations for an exact owner/store/SKU case. Lookup references are stored only as a scope/type-separated digest plus existing Fernet ciphertext; without the cipher, the declaration is retained with `LOOKUP_REFERENCE_UNAVAILABLE` and lookup is unavailable.
+- Duplicate references, cross-SKU reuse, and known declarations exceeding the owner total fail closed. The manifest reports an undistributed remainder as a number and never invents a virtual supply.
+- Verification: focused declaration/contracts/store/service profile **38 passed**; complete FIFO + Telegram FIFO profile **358 passed**; compileall, diff-check, and `git diff --exit-code -- data` PASS.
+
+# 2026-11-08 — FIFO transition case lifecycle (FL07)
+
+- Added typed application operations for creating, editing, cancelling, reading, and listing late-entry cases. Case updates/cancellation append immutable revisions and support exact idempotent retries.
+- The existing repository now lists cases within the active tenant/store and enforces one active transition per store/SKU inside `BEGIN IMMEDIATE`; simultaneous competing creates cannot both succeed. Dispatch date remains owner evidence and does not create a FIFO cutoff, event, or rate.
+- Verification: focused transition lifecycle/store/schema profile **25 passed**; complete FIFO cost + Telegram FIFO profile **352 passed**; compileall, diff-check, and `git diff --exit-code -- data` PASS.
+
+# 2026-11-08 — FIFO rate inputs support TOTAL_LANDED (FL06)
+
+- Existing rate-entry service now accepts either the existing `COMPONENTS` breakdown or one explicit `TOTAL_LANDED` amount. Mixed/incomplete inputs fail closed; the same amount normalizes to the same unit cost.
+- `TOTAL_LANDED` stores the full unit amount and SQL `NULL` for all unknown component fields. FIFO history and CSV explicitly show that the breakdown was not provided; prior migrated rates remain `COMPONENTS`.
+- Verification: focused rate/history/schema profile **59 passed**; full FIFO cost + Telegram FIFO profile **348 passed**; compileall, diff-check, and `git diff --exit-code -- data` PASS.
+
+# 2026-11-07 — FIFO pending case fault boundaries
+
+- Добавлены fault-injection regressions для создания/изменения case и append declaration/observation/report: сбой после промежуточных SQL writes полностью откатывает строки и revision.
+- Canonical Period Profit на временной SQLite подтверждает, что сохранение новой цены до начальной FIFO оставляет legacy mode/history и фактический синтетический результат неизменными.
+- FL05: 69 focused и 370 связанных tests прошли; compileall/diff-check PASS; `data/` не менялась.
+
+# 2026-11-07 — FIFO transition repository commands
+
+- Добавлены tenant-scoped сохранение/чтение transition case и append-only командные методы `append_supply_declaration`, `append_supply_observation`, `append_report_evidence` с CAS и идемпотентностью.
+- Квоты на 20 активных случаев в store, 100 declarations и 2000 observations на case отклоняют лишнюю запись, сохраняя прежнюю ревизию и evidence. Ciphertext lookup-reference не выдаётся при чтении; сырые ID поставок не попадают в payload.
+- FL04 проверен на isolated SQLite: 63 focused и 357 связанных FIFO/Telegram tests прошли. До-FIFO case не создаёт очередь. Данные владельца, live DB и реальные API не использовались.
+
+# 2026-11-07 — FIFO late-entry completion started
+
+- FL00 baseline and FL01 implementation map are recorded for the late-entry workflow. No runtime behavior, financial data, or owner data changed.
+
+# 2026-11-07 — FIFO transition contracts
+
+- Added typed transition/supply/stock/report DTOs, reason codes, fail-closed source-coverage checks and explicit UTC/date-only/money normalization. Contract-only scope; no database, FIFO behavior, Period Profit or owner data changed. FL03 is next.
+
+# 2026-11-07 — FIFO late-entry schema v13
+
+- Added seven tenant-scoped transition evidence tables and migrated FIFO storage from schema v12 to v13 in the existing SQLite database. Existing cost rows migrate as `COMPONENTS`; `TOTAL_LANDED` uses null component values rather than fabricated cost splits.
+- Extracted a shared Fernet provider backed by the existing `OZON_CREDENTIAL_MASTER_KEY`; credential repository behavior and stored credentials remain unchanged. Missing/invalid keys fail closed for encrypted lookup values.
+- Added v13 schema, migration preservation, child-FK, rollback, future-version, tenant-isolation, cost-mode and cipher regressions. No real owner or live database was accessed.
+
+# 2026-11-07 — Подготовлено задание завершения позднего FIFO-ввода
+
+- Добавлено исполнимое ТЗ FL00–FL35 для сохранения новой себестоимости до настройки FIFO, сопровождения незавершённых поставок, импорта двух отчётов и подтверждаемого атомарного пересчёта.
+- Зафиксированы contracts/state machine, правила полной себестоимости без выдуманной разбивки, границы source proof, 40 числовых/сценарных проверок и журнал продолжения. Реализация этих этапов ещё не начата.
+
 # 2026-11-07 — Исправлены два перехода из активного FIFO ввода
 
 - Валидная загрузка CSV себестоимости закрывает старые FIFO мастера после открытия preview, сохраняя сам preview до явного подтверждения. Отклонённый файл не меняет активный ввод.

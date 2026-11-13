@@ -1,3 +1,80 @@
+# 2026-11-08 — FIFO shared budget/checkpoint regressions (FL11)
+
+- `tests/test_fifo_cost_transition_supply_refresh_service.py` validates one parent budget across active status and act endpoints, caller budget tightening, PARTIAL resume, target found before final page, cross-page duplicate-ID conflict, timeout, 429, malformed page, repeated cursor, process restart, store/revision scope changes, and no observation/FIFO write on incomplete source.
+- `tests/test_fifo_cost_source_collection_service.py` confirms source checkpoint scope mismatch does not consume the valid continuation. `tests/test_fifo_cost_transition_supply_declarations.py` preserves the safe public manifest contract: IDs and digests remain absent.
+- Focused wrapper/source/declaration profile: **40 passed in 1.77s**. FIFO+Telegram FIFO profile on code SHA `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a`: **388 passed in 16.26s**. `compileall -q app tests`, `git diff --check` and `git diff --exit-code -- data` PASS; details are in the FL11 progress journal.
+
+# 2026-11-08 — FIFO partial acceptance/correction regressions (FL10)
+
+- `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py` covers cumulative 40→70→100, stale duplicate 70 after 100, repeated act/page representation, two distinct act refs, non-final pending quantity, final 98/100 discrepancy=2, 100→90 correction review, newer PARTIAL freshness, same-time conflict, SKU mismatch, over-declaration and invalid inputs.
+- `tests/test_fifo_cost_transition_observations.py::test_cancelled_supply_observation_keeps_its_cost_declaration_link` proves CANCELLED status evidence does not delete the declaration or activate FIFO.
+- Focused FL10 plus normalizer/observation profile: **46 passed**. All `tests/test_fifo_cost_*.py` and `tests/test_telegram_fifo_cost_*.py`: **379 passed**. Compileall, diff-check and `git diff --exit-code -- data` PASS; fixtures use `tmp_path` and synthetic API payloads.
+
+# 2026-11-08 — FIFO active supply observation regressions (FL09)
+
+- `tests/test_fifo_cost_source_collection_service.py` verifies the legacy COMPLETED-only lookup stays stable; the new active lookup recognizes receiving, explicit complete MISSING, incomplete pagination continuation, and unknown status without silent filtering. HTTP attempts/pages/deadline are bounded.
+- `tests/test_fifo_cost_transition_observations.py` verifies a durable declared 148 survives a missing aggregate row, prior partial accepted quantity remains, no quantity/receipt is synthesized, and cross-declaration references are rejected.
+- Focused FL09 profile: **51 passed in 3.03s**. Full `pytest -q`: **4907 passed in 52.36s**. Compileall and diff-check PASS; test artifact `data/tasks.json` restored and `data/` matches Git. Tests use temporary repositories and synthetic source responses.
+
+# 2026-11-08 — FIFO supply declaration regressions (FL08)
+
+- `tests/test_fifo_cost_transition_supply_declarations.py` verifies `6234 + 600 + 148 = 6982`, numeric undistributed remainder with no synthetic supply, duplicate and mixed-SKU rejection, same numeric ID in another store, ORDER/SUPPLY separation and ACT rejection, encrypted lookup redaction, and preserved owner facts when the cipher key is missing.
+- `tests/test_fifo_cost_transition_store.py` covers atomic reference/quantity guards with append-only evidence, CAS/idempotency and quotas. Contract tests require `LOOKUP_REFERENCE_UNAVAILABLE` whenever the optional ciphertext is absent.
+- Focused transition declaration/contracts/store/service profile: **38 passed**. Full FIFO and Telegram FIFO profile: **358 passed**. Compileall, `git diff --check`, and `git diff --exit-code -- data` PASS; database fixtures use `tmp_path`.
+
+# 2026-11-08 — FIFO transition case lifecycle regressions (FL07)
+
+- `tests/test_fifo_cost_transition_service.py` verifies create/edit/cancel revisions, exact idempotent update/cancel retry, durable read after service/repository restart, unknown new-home quantity retained with reason/provenance, dispatch date not activating FIFO, and terminal case audit preservation.
+- The same tests verify one active case per store/SKU, independence of another SKU, simultaneous competing creates serialized to one winner, and list filtering by tenant/store/SKU.
+- FL07 focused profile (transition service/store/schema) — **25 passed**; complete `test_fifo_cost_*.py` plus `test_telegram_fifo_cost_*.py` profile — **352 passed**. All DB fixtures are under `tmp_path`; project `data/` remains unchanged.
+
+# 2026-11-08 — FIFO total landed rate regressions (FL06)
+
+- `tests/test_fifo_cost_rate_service.py::test_component_and_total_landed_rate_share_amount_contract_and_keep_nulls` verifies equal normalized `14.65` totals for component input (`10 + 3 + 1.65`) and total input, mode-bound persistence with null components, snapshot readback, and no extra FIFO layer/event.
+- `test_rate_cost_mode_rejects_mixed_or_incomplete_inputs_before_write` covers unsupported mode, total plus fake component, component total mismatch, and missing component. The existing v12 migration test asserts legacy rows still read as `COMPONENTS`.
+- `tests/test_telegram_fifo_cost_history.py::test_total_landed_history_and_csv_never_invent_component_breakdown` verifies user-facing history and CSV show `TOTAL_LANDED` with blank component cells; `test_empty_fifo_history_csv_keeps_mode_column_alignment` checks the empty export schema.
+- FL06 focused profile: **59 passed**; all FIFO cost and Telegram FIFO tests: **348 passed**. Fixtures use `tmp_path`; `data/` is unchanged.
+
+# 2026-11-07 — FIFO pending case safety regressions (FL05)
+
+- `tests/test_fifo_cost_transition_store.py::test_injected_failure_rolls_back_each_transition_write` injects SQLite failure after partial SQL writes for case create/update, declaration, observation, and report. It verifies rows and current revision are rolled back.
+- `test_pending_transition_keeps_legacy_mode_history_and_period_profit` exercises real temporary `FifoCostRepository`, `FifoCostPeriodProfitSourceService`, and canonical `PeriodProfitEffectiveCostSaleQuantitySummaryService` with bounded synthetic finance/cost inputs. Pending new landed cost cannot initialize FIFO or change the cost mode, history, 21 ₽ unit cost, or 53 ₽ profit.
+- FL05 profile: six focused FIFO transition/schema/repository/backup/cipher modules — **69 passed in 4.00s**. Wider FIFO/Telegram/Period Profit regression profile (32 modules) — **370 passed in 14.40s**.
+- All storage is under `tmp_path`; no live API, bot process, or owner database is used.
+
+# 2026-11-07 — FIFO transition repository tests (FL04)
+
+- `tests/test_fifo_cost_transition_store.py` covers durable case read after restart without queue initialization; case revision CAS and idempotency replay/conflict; one winner under concurrent writes; append/read declaration, supply observations, and report evidence; safe lookup-reference redaction; append-only enforcement; cross-tenant isolation; and quota failure preserving the current revision/evidence.
+- Focused profile: `test_fifo_cost_transition_store.py`, `test_fifo_cost_transition_schema_v13.py`, `test_fifo_cost_transition_contracts.py`, FIFO repository, backup/restore, and credential persistence — **63 passed in 3.80s**.
+- Related regression profile: all `test_fifo_cost_*.py`, `test_telegram_fifo_cost*.py`, FIFO navigation regressions, seller-cost confirmation, and credential persistence — **357 passed in 13.95s**.
+- All database fixtures use temporary paths. No bot launch, live API, or owner data is involved.
+
+# 2026-11-07 — План приёмки завершения позднего FIFO-ввода
+
+- Подготовлено ТЗ LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md (FL00–FL35) и независимая матрица N01–N40 в FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md.
+- На момент подготовки задания были запланированы tests для durable transition store/service, supply observations, bounded XLSX imports, cutoff bridge, atomic apply, restart/backup и production UI wiring. Фактические этапы ниже отделяют сделанное от оставшегося.
+- Проверка документационного PR не является выполнением FL00–FL35 или подтверждением источников реального магазина.
+
+# 2026-11-07 — FL00/FL01 baseline и карта швов
+
+- До runtime изменений профиль FIFO repository/allocation/anchor/rate/replay/sources/late-entry/supply/returns/Period Profit/Telegram: **307 passed in 10.96s**; `compileall` и `git diff --check` PASS.
+- `project_brain/FL01_IMPLEMENTATION_MAP.md` связывает требования с действующими owners/production wiring и профильными regression tests. Static check проверил 27 Python code/test paths, missing=0.
+- Пять существующих файлов `data/` (3,168 bytes) не менялись; aggregate manifest SHA-256 до/после `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
+- Новые переходные сервисы и их tests пока не реализованы; статический map check не считается runtime verification.
+
+# 2026-11-07 — FL02 typed FIFO transition contracts
+
+- `app/services/fifo_cost_transition_contracts.py` задаёт scope/metadata, строгие деньги и количества, date-only/UTC timestamp, timezone и injected clock, unknown-value reason/provenance, total-vs-components cost, transition/supply/stock/report DTO, source-coverage proof и preview binding.
+- `tests/test_fifo_cost_transition_contracts.py`: **13 passed**. Совместно с прежним FIFO/Telegram FIFO regression профилем: **320 passed in 10.87s**. Проверены bool/float rejection, explicit zero, nullable+reason/provenance, stale/partial source proof, ownership source kind, immutable evidence, даты/часовые пояса и Decimal HALF_UP.
+- `python -m compileall -q app tests`, `git diff --check` PASS. `data/` manifest полностью совпадает с FL00: 5 файлов / 3,168 bytes / SHA-256 `e9687fed6ce42852eb4398a7425b83b1c544613bf3f4d67d58753c8533d00730`.
+- Контракты не являются доказательством реальной полноты Ozon или cutoff; новый store/migration и runtime wiring ещё не реализованы.
+
+# 2026-11-07 — FL03 FIFO transition schema v13 и общий cipher
+
+- `tests/test_fifo_cost_transition_schema_v13.py` проверяет создание новой схемы, режимы `COMPONENTS`/`TOTAL_LANDED`, точное сохранение v12 rate-row digest, custom indexes/triggers, rate child foreign keys, `foreign_key_check`, rollback после injected DDL failure с возвратом `foreign_keys=ON`, отказ для future schema v14, tenant/store/SKU scope и fail-closed Fernet key handling.
+- Обновлён `tests/test_fifo_cost_repository.py`: historical v11 upgrade теперь утверждает актуальную версию schema 13.
+- Связанный профиль: schema v13 + FIFO repository + backup/restore + credential persistence: **41 passed in 2.30s**. Полный профиль связанных FIFO service/Telegram regressions — **348 passed in 12.78s**. Новая таблица ReportEvidence и шифрование пока не используются бизнес-командами; их repository API реализуется в FL04.
+
 # 2026-11-07 — FIFO CSV и resume navigation regressions
 
 - `tests/test_fifo_telegram_navigation_regressions.py` дополнен реальными `TelegramSellerCostUpdateService`, `SellerCostTableService`, `FifoCostRepository`, FIFO history/rate services и `AssistantButtonHandlerService`: валидный CSV preview закрывает старый FIFO input, оставаясь подтверждаемым; отклонённый CSV сохраняет FIFO input; действительный возврат к unit-economics SKU закрывает FIFO input; stale return ticket его сохраняет.

@@ -23,12 +23,22 @@ from services.fifo_cost_allocation_service import (
     FifoSaleEvent,
 )
 from services.fifo_cost_replay_service import FifoCostReplayService, FifoDatedAllocationEvent
+from services.fifo_cost_transition_contracts import (
+    CostInputMode,
+    ReportEvidence,
+    SupplyDeclaration,
+    SupplyObservation,
+    TransitionCase,
+    TransitionMetadata,
+    TransitionState,
+)
+from services.fifo_cost_transition_store import FifoCostTransitionStore
 from services.tenant_context import get_current_tenant_user_id
 from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 12
+    SCHEMA_VERSION = 13
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
     MAX_EVENT_QUANTITY = 100_000
@@ -96,6 +106,13 @@ class FifoCostRepository:
         "fifo_cost_late_entry_drafts",
         "fifo_cost_late_entry_corrections",
         "fifo_cost_rate_cancellations",
+        "fifo_cost_transition_cases",
+        "fifo_cost_transition_case_revisions",
+        "fifo_cost_supply_declarations",
+        "fifo_cost_supply_observations",
+        "fifo_cost_report_evidence",
+        "fifo_cost_transition_previews",
+        "fifo_cost_transition_commits",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -118,6 +135,12 @@ class FifoCostRepository:
         "fifo_cost_late_entry_drafts",
         "fifo_cost_late_entry_corrections",
         "fifo_cost_rate_cancellations",
+        "fifo_cost_transition_case_revisions",
+        "fifo_cost_supply_declarations",
+        "fifo_cost_supply_observations",
+        "fifo_cost_report_evidence",
+        "fifo_cost_transition_previews",
+        "fifo_cost_transition_commits",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -143,6 +166,189 @@ class FifoCostRepository:
             connection.close()
             raise
         return connection
+
+    def save_transition_case(self, *, case, expected_revision, idempotency_key):
+        """Persist an owner draft without initializing or mutating the FIFO stream."""
+        if not isinstance(case, TransitionCase):
+            return self._error("FIFO_TRANSITION_CASE_INVALID")
+        if type(expected_revision) is not int or expected_revision < 0:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        if case.state not in {
+            TransitionState.DRAFT,
+            TransitionState.AWAITING_EVIDENCE,
+            TransitionState.CANCELLED,
+        } or (case.state is TransitionState.CANCELLED and expected_revision == 0):
+            return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+        scope, _identity = self._transition_metadata_scope(case.metadata)
+        if scope.get("error"):
+            return scope
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.save_case(
+                connection, case, scope,
+                expected_revision=expected_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def cancel_transition_case(self, *, case, expected_revision, idempotency_key):
+        if not isinstance(case, TransitionCase) or case.state is not TransitionState.CANCELLED:
+            return self._error("FIFO_TRANSITION_CASE_NOT_READY")
+        return self.save_transition_case(
+            case=case, expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+        )
+
+    def read_transition_case(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_case(
+                connection, case_id, scope, identity,
+            )
+        except (sqlite3.Error, OSError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def list_transition_cases(
+        self, *, store_id, sku=None,
+        states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
+    ):
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        try:
+            normalized_store = self._safe_identity_part(store_id, "store_id", 128)
+            normalized_sku = (
+                self._safe_identity_part(sku, "sku", 64) if sku is not None else None
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return self._error("FIFO_TRANSITION_LIMIT_INVALID")
+        if not isinstance(states, (tuple, list)) or not states:
+            return self._error("FIFO_TRANSITION_STATE_FILTER_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.list_cases(
+                connection, scope, store_id=normalized_store,
+                sku=normalized_sku, states=tuple(states), limit=limit,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def append_supply_declaration(
+        self, *, declaration, expected_case_revision, idempotency_key,
+    ):
+        if not isinstance(declaration, SupplyDeclaration):
+            return self._error("FIFO_TRANSITION_DECLARATION_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        scope, _identity = self._transition_metadata_scope(declaration.metadata)
+        if scope.get("error"):
+            return scope
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_declaration(
+                connection, declaration, scope,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def append_supply_observation(
+        self, *, case_id, observation, expected_case_revision, idempotency_key,
+    ):
+        if not isinstance(observation, SupplyObservation):
+            return self._error("FIFO_TRANSITION_OBSERVATION_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        scope, _identity = self._transition_metadata_scope(observation.metadata)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_observation(
+                connection, case_id, observation, scope,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def append_report_evidence(
+        self, *, case_id, report, expected_case_revision, idempotency_key,
+    ):
+        if not isinstance(report, ReportEvidence):
+            return self._error("FIFO_TRANSITION_REPORT_INVALID")
+        if type(expected_case_revision) is not int or expected_case_revision < 1:
+            return self._error("FIFO_TRANSITION_REVISION_INVALID")
+        if not self._valid_transition_idempotency_key(idempotency_key):
+            return self._error("FIFO_TRANSITION_IDEMPOTENCY_KEY_INVALID")
+        scope, _identity = self._transition_metadata_scope(report.metadata)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        return self._run_transition_write(
+            lambda connection: FifoCostTransitionStore.append_report(
+                connection, case_id, report, scope,
+                expected_case_revision=expected_case_revision,
+                idempotency_key=idempotency_key,
+                recorded_at=self._iso(self._now()),
+            )
+        )
+
+    def read_transition_evidence(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        kind, limit=100,
+    ):
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_TRANSITION_CASE_ID_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            return FifoCostTransitionStore.read_evidence(
+                connection, case_id, scope, identity, kind=kind, limit=limit,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
 
     def read_cost_history_snapshot(
         self, *, store_id, product_id=None, offer_id=None, sku,
@@ -227,6 +433,7 @@ class FifoCostRepository:
             } for row in layer_rows]
             rate_rows = connection.execute(
                 """SELECT r.rate_change_id, r.rate_sequence, r.effective_date, r.unit_cost_rub,
+                          r.cost_input_mode,
                           r.purchase_cost_rub, r.delivery_cost_rub,
                           r.packaging_cost_rub, r.owner_old_home_units,
                           r.recorded_at, r.captured_at, s.provenance,
@@ -253,6 +460,7 @@ class FifoCostRepository:
                 "sequence": row["rate_sequence"],
                 "effective_date": row["effective_date"],
                 "unit_cost_rub": row["unit_cost_rub"],
+                "cost_input_mode": row["cost_input_mode"],
                 "purchase_cost_rub": row["purchase_cost_rub"],
                 "delivery_cost_rub": row["delivery_cost_rub"],
                 "packaging_cost_rub": row["packaging_cost_rub"],
@@ -3107,8 +3315,9 @@ class FifoCostRepository:
 
     def preview_cost_rate_change(
         self, *, store_id, product_id=None, offer_id=None, sku,
-        effective_date, purchase_cost_rub, delivery_cost_rub,
-        packaging_cost_rub, owner_old_home_units, expected_revision,
+        effective_date, purchase_cost_rub=None, delivery_cost_rub=None,
+        packaging_cost_rub=None, cost_input_mode=CostInputMode.COMPONENTS,
+        unit_cost_rub=None, owner_old_home_units, expected_revision,
         zero_stock_evidence=None, stock_snapshot=None,
         owner_confirms_reconciliation_scope=False,
         late_entry_correction_preview=None,
@@ -3134,16 +3343,35 @@ class FifoCostRepository:
                 or self._normalize_date(effective_date) != effective_date
             ):
                 return self._error("FIFO_RATE_EFFECTIVE_DATE_INVALID")
+            try:
+                mode = CostInputMode(cost_input_mode)
+            except (TypeError, ValueError):
+                return self._error("FIFO_RATE_COST_INPUT_INVALID")
             components = {
                 "purchase_cost_rub": self._normalize_money(purchase_cost_rub),
                 "delivery_cost_rub": self._normalize_money(delivery_cost_rub),
                 "packaging_cost_rub": self._normalize_money(packaging_cost_rub),
             }
-            if any(value is None for value in components.values()):
-                return self._error("FIFO_RATE_COMPONENTS_REQUIRED")
-            unit_cost = sum(
-                (Decimal(value) for value in components.values()), Decimal("0.00"),
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            normalized_unit_cost = self._normalize_money(unit_cost_rub)
+            if mode is CostInputMode.COMPONENTS:
+                if any(value is None for value in components.values()):
+                    return self._error("FIFO_RATE_COMPONENTS_REQUIRED")
+                unit_cost = sum(
+                    (Decimal(value) for value in components.values()), Decimal("0.00"),
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if (
+                    normalized_unit_cost is not None
+                    and normalized_unit_cost != format(unit_cost, ".2f")
+                ):
+                    return self._error("FIFO_RATE_COST_INPUT_INVALID")
+            else:
+                if normalized_unit_cost is None or any(
+                    value is not None for value in components.values()
+                ):
+                    return self._error("FIFO_RATE_COST_INPUT_INVALID")
+                unit_cost = Decimal(normalized_unit_cost)
+                if late_entry_correction_preview is not None:
+                    return self._error("FIFO_LATE_ENTRY_COST_MODE_UNSUPPORTED")
             if unit_cost > Decimal("1000000000"):
                 return self._error("FIFO_MONEY_INPUT_INVALID")
             if type(owner_old_home_units) is not int or not 0 <= owner_old_home_units <= self.MAX_COMMAND_UNITS:
@@ -3415,6 +3643,7 @@ class FifoCostRepository:
             payload = {
                 "identity_fingerprint": identity_fingerprint,
                 "effective_date": effective_date,
+                "cost_input_mode": mode.value,
                 **components,
                 "unit_cost_rub": format(unit_cost, ".2f"),
                 "owner_old_home_units": owner_old_home_units,
@@ -3498,6 +3727,7 @@ class FifoCostRepository:
                 "rate_sequence": stream_snapshot["rate_sequence"],
                 "effective_date": effective_date,
                 "unit_cost_rub": format(unit_cost, ".2f"),
+                "cost_input_mode": mode.value,
                 **components,
                 "owner_old_home_units": owner_old_home_units,
                 "finite_units_at_anchor": stream_snapshot["known_quantity"],
@@ -3789,16 +4019,17 @@ class FifoCostRepository:
                 connection.execute(
                     """INSERT INTO fifo_cost_rate_changes (
                         rate_change_id, stream_id, stream_revision, rate_sequence,
-                        effective_date, unit_cost_rub, purchase_cost_rub,
+                        effective_date, unit_cost_rub, cost_input_mode, purchase_cost_rub,
                         delivery_cost_rub, packaging_cost_rub,
                         owner_old_home_units, source_id, source_fingerprint,
                         payload_fingerprint, idempotency_key, recorded_at,
                         captured_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         rate_change_id, normalized["stream_id"], next_revision,
                         normalized["stream_snapshot"]["rate_sequence"],
                         payload["effective_date"], payload["unit_cost_rub"],
+                        payload["cost_input_mode"],
                         payload["purchase_cost_rub"], payload["delivery_cost_rub"],
                         payload["packaging_cost_rub"], payload["owner_old_home_units"],
                         normalized["source_id"], normalized["source"]["source_fingerprint"],
@@ -4834,6 +5065,77 @@ class FifoCostRepository:
         for scope in expired:
             self._ACTIVE_PREVIEWS.pop(scope, None)
 
+    def _transition_metadata_scope(self, metadata):
+        if not isinstance(metadata, TransitionMetadata):
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID"), None
+        scope = self._tenant_scope(metadata.scope.store_id)
+        if scope.get("error"):
+            return scope, None
+        tenant_id = str(get_current_tenant_user_id() or "").strip()
+        owner_id, scoped_store = split_store_tenant_scope(tenant_id)
+        if (owner_id != metadata.scope.owner_id
+                or scoped_store != metadata.scope.store_id):
+            return self._error("FIFO_TRANSITION_SCOPE_MISMATCH"), None
+        try:
+            identity = self._normalize_identity(
+                metadata.scope.store_id, metadata.scope.product_id,
+                metadata.scope.offer_id, metadata.scope.sku, 1,
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID"), None
+        return scope, identity
+
+    def _normalize_transition_read_identity(
+        self, store_id, *, product_id=None, offer_id=None, sku,
+    ):
+        try:
+            return self._normalize_identity(
+                store_id, product_id, offer_id, sku, 1,
+            )
+        except ValueError:
+            return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+
+    @staticmethod
+    def _valid_transition_case_id(value):
+        return (
+            isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{8,96}", value) is not None
+        )
+
+    @staticmethod
+    def _valid_transition_idempotency_key(value):
+        return (
+            isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", value) is not None
+        )
+
+    def _run_transition_write(self, operation):
+        connection = None
+        try:
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            result = operation(connection)
+            if result.get("error"):
+                connection.rollback()
+                return result
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_EVIDENCE_CONFLICT")
+        except (sqlite3.Error, OSError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
+        except (TypeError, ValueError, OverflowError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_TRANSITION_PAYLOAD_INVALID")
+        finally:
+            if connection is not None:
+                connection.close()
+
     @staticmethod
     def _error(code):
         return {"error": True, "code": code}
@@ -4863,6 +5165,93 @@ class FifoCostRepository:
                        ADD COLUMN inventory_cutoff TEXT"""
                 )
             cls._backfill_zero_stock_inventory_cutoffs(connection)
+        if version > 0 and version < 13:
+            rate_columns = tuple(
+                str(row[1]) for row in
+                connection.execute("PRAGMA table_info(fifo_cost_rate_changes)")
+            )
+            if "cost_input_mode" not in rate_columns:
+                cls._rebuild_rate_changes_v13(connection, rate_columns)
+
+    @classmethod
+    def _rebuild_rate_changes_v13(cls, connection, old_columns):
+        """Rebuild v12 rates while preserving every row, FK edge and SQL object."""
+        expected_columns = (
+            "rate_change_id", "stream_id", "stream_revision", "rate_sequence",
+            "effective_date", "unit_cost_rub", "purchase_cost_rub",
+            "delivery_cost_rub", "packaging_cost_rub", "owner_old_home_units",
+            "source_id", "source_fingerprint", "payload_fingerprint",
+            "idempotency_key", "recorded_at", "captured_at",
+        )
+        if tuple(old_columns) != expected_columns:
+            raise sqlite3.DatabaseError("unsupported FIFO rate table shape")
+        if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 0:
+            raise sqlite3.DatabaseError("FIFO v13 rebuild requires foreign keys disabled")
+
+        preserved_objects = connection.execute(
+            """SELECT type, sql FROM sqlite_master
+               WHERE tbl_name='fifo_cost_rate_changes'
+                 AND type IN ('index', 'trigger') AND sql IS NOT NULL
+               ORDER BY type, name"""
+        ).fetchall()
+        connection.execute(
+            """CREATE TABLE fifo_cost_rate_changes_v13 (
+                rate_change_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
+                stream_revision INTEGER NOT NULL CHECK(stream_revision >= 1),
+                rate_sequence INTEGER NOT NULL CHECK(rate_sequence >= 1),
+                effective_date TEXT NOT NULL,
+                unit_cost_rub TEXT NOT NULL,
+                cost_input_mode TEXT NOT NULL DEFAULT 'COMPONENTS'
+                    CHECK(cost_input_mode IN ('COMPONENTS', 'TOTAL_LANDED')),
+                purchase_cost_rub TEXT,
+                delivery_cost_rub TEXT,
+                packaging_cost_rub TEXT,
+                owner_old_home_units INTEGER NOT NULL CHECK(
+                    owner_old_home_units >= 0 AND owner_old_home_units <= 1000000
+                ),
+                source_id TEXT NOT NULL REFERENCES fifo_cost_sources(source_id),
+                source_fingerprint TEXT NOT NULL,
+                payload_fingerprint TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                UNIQUE(stream_id, rate_sequence),
+                UNIQUE(stream_id, idempotency_key),
+                CHECK(
+                    (cost_input_mode='COMPONENTS'
+                     AND purchase_cost_rub IS NOT NULL
+                     AND delivery_cost_rub IS NOT NULL
+                     AND packaging_cost_rub IS NOT NULL)
+                    OR
+                    (cost_input_mode='TOTAL_LANDED'
+                     AND purchase_cost_rub IS NULL
+                     AND delivery_cost_rub IS NULL
+                     AND packaging_cost_rub IS NULL)
+                )
+            )"""
+        )
+        connection.execute(
+            """INSERT INTO fifo_cost_rate_changes_v13 (
+                   rate_change_id, stream_id, stream_revision, rate_sequence,
+                   effective_date, unit_cost_rub, cost_input_mode,
+                   purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+                   owner_old_home_units, source_id, source_fingerprint,
+                   payload_fingerprint, idempotency_key, recorded_at, captured_at
+               )
+               SELECT rate_change_id, stream_id, stream_revision, rate_sequence,
+                      effective_date, unit_cost_rub, 'COMPONENTS',
+                      purchase_cost_rub, delivery_cost_rub, packaging_cost_rub,
+                      owner_old_home_units, source_id, source_fingerprint,
+                      payload_fingerprint, idempotency_key, recorded_at, captured_at
+               FROM fifo_cost_rate_changes"""
+        )
+        connection.execute("DROP TABLE fifo_cost_rate_changes")
+        connection.execute(
+            "ALTER TABLE fifo_cost_rate_changes_v13 RENAME TO fifo_cost_rate_changes"
+        )
+        for item in preserved_objects:
+            connection.execute(item["sql"])
 
     @classmethod
     def _backfill_zero_stock_inventory_cutoffs(cls, connection):
@@ -5677,8 +6066,24 @@ class FifoCostRepository:
 
     def _initialize_schema(self, connection):
         """Create the additive FIFO schema atomically and reject unknown versions."""
-        connection.execute("BEGIN IMMEDIATE")
+        version_before_transaction = self._read_schema_version(connection)
+        rate_columns = {
+            str(row[1]) for row in
+            connection.execute("PRAGMA table_info(fifo_cost_rate_changes)")
+        }
+        needs_rate_rebuild = (
+            0 < version_before_transaction < self.SCHEMA_VERSION
+            and "cost_input_mode" not in rate_columns
+        )
+        foreign_keys_disabled = False
         try:
+            if needs_rate_rebuild:
+                connection.execute("PRAGMA foreign_keys=OFF")
+                foreign_keys_disabled = True
+                if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 0:
+                    raise sqlite3.DatabaseError("could not disable FIFO migration foreign keys")
+
+            connection.execute("BEGIN IMMEDIATE")
             version = self._read_schema_version(connection)
             if version > self.SCHEMA_VERSION:
                 raise sqlite3.DatabaseError("unsupported FIFO cost schema version")
@@ -5701,10 +6106,19 @@ class FifoCostRepository:
                     (self.SCHEMA_VERSION,),
                 )
             self._validate_schema_metadata(connection)
+            if version < self.SCHEMA_VERSION:
+                violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+                if violations:
+                    raise sqlite3.DatabaseError("FIFO schema migration foreign key check failed")
             connection.commit()
         except Exception:
             connection.rollback()
             raise
+        finally:
+            if foreign_keys_disabled:
+                connection.execute("PRAGMA foreign_keys=ON")
+                if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+                    raise sqlite3.DatabaseError("could not restore FIFO migration foreign keys")
 
     @staticmethod
     def _read_schema_version(connection):
@@ -5884,9 +6298,11 @@ class FifoCostRepository:
                 rate_sequence INTEGER NOT NULL CHECK(rate_sequence >= 1),
                 effective_date TEXT NOT NULL,
                 unit_cost_rub TEXT NOT NULL,
-                purchase_cost_rub TEXT NOT NULL,
-                delivery_cost_rub TEXT NOT NULL,
-                packaging_cost_rub TEXT NOT NULL,
+                cost_input_mode TEXT NOT NULL DEFAULT 'COMPONENTS'
+                    CHECK(cost_input_mode IN ('COMPONENTS', 'TOTAL_LANDED')),
+                purchase_cost_rub TEXT,
+                delivery_cost_rub TEXT,
+                packaging_cost_rub TEXT,
                 owner_old_home_units INTEGER NOT NULL CHECK(
                     owner_old_home_units >= 0 AND owner_old_home_units <= 1000000
                 ),
@@ -5897,7 +6313,18 @@ class FifoCostRepository:
                 recorded_at TEXT NOT NULL,
                 captured_at TEXT NOT NULL,
                 UNIQUE(stream_id, rate_sequence),
-                UNIQUE(stream_id, idempotency_key)
+                UNIQUE(stream_id, idempotency_key),
+                CHECK(
+                    (cost_input_mode='COMPONENTS'
+                     AND purchase_cost_rub IS NOT NULL
+                     AND delivery_cost_rub IS NOT NULL
+                     AND packaging_cost_rub IS NOT NULL)
+                    OR
+                    (cost_input_mode='TOTAL_LANDED'
+                     AND purchase_cost_rub IS NULL
+                     AND delivery_cost_rub IS NULL
+                     AND packaging_cost_rub IS NULL)
+                )
             );
 
             CREATE TABLE IF NOT EXISTS fifo_cost_rate_reconciliations (
@@ -6130,6 +6557,155 @@ class FifoCostRepository:
                 PRIMARY KEY(command_id, event_order),
                 UNIQUE(command_id, event_id)
             );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_transition_cases (
+                case_id TEXT PRIMARY KEY,
+                schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL,
+                product_id TEXT,
+                offer_id TEXT,
+                sku TEXT NOT NULL,
+                current_revision INTEGER NOT NULL CHECK(current_revision >= 1),
+                current_state TEXT NOT NULL CHECK(current_state IN (
+                    'DRAFT', 'AWAITING_EVIDENCE', 'READY_TO_CONFIRM', 'APPLIED', 'CANCELLED'
+                )),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                CHECK(product_id IS NOT NULL OR offer_id IS NOT NULL),
+                UNIQUE(tenant_fingerprint, store_id, case_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_transition_case_revisions (
+                revision_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                case_revision INTEGER NOT NULL CHECK(case_revision >= 1),
+                schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+                state TEXT NOT NULL CHECK(state IN (
+                    'DRAFT', 'AWAITING_EVIDENCE', 'READY_TO_CONFIRM', 'APPLIED', 'CANCELLED'
+                )),
+                payload_json TEXT NOT NULL CHECK(length(payload_json) <= 262144),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 128),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(case_id, case_revision),
+                UNIQUE(case_id, idempotency_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_supply_declarations (
+                declaration_row_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                declaration_id TEXT NOT NULL,
+                declaration_revision INTEGER NOT NULL CHECK(declaration_revision >= 1),
+                reference_kind TEXT NOT NULL CHECK(reference_kind IN ('ORDER', 'SUPPLY')),
+                reference_digest TEXT NOT NULL CHECK(length(reference_digest) = 64),
+                encrypted_lookup_reference TEXT CHECK(
+                    encrypted_lookup_reference IS NULL OR length(encrypted_lookup_reference) <= 4096
+                ),
+                declared_shipped_units INTEGER CHECK(
+                    declared_shipped_units IS NULL OR
+                    (declared_shipped_units >= 0 AND declared_shipped_units <= 1000000)
+                ),
+                dispatch_date TEXT,
+                provenance TEXT NOT NULL CHECK(provenance = 'OWNER_INPUT'),
+                payload_json TEXT NOT NULL CHECK(length(payload_json) <= 65536),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                recorded_at TEXT NOT NULL,
+                UNIQUE(case_id, declaration_id, declaration_revision)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_supply_observations (
+                observation_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                declaration_id TEXT NOT NULL,
+                declaration_revision INTEGER NOT NULL CHECK(declaration_revision >= 1),
+                captured_at TEXT NOT NULL,
+                source_as_of TEXT,
+                raw_status TEXT,
+                normalized_status TEXT NOT NULL CHECK(normalized_status IN (
+                    'DECLARED', 'AT_DROPOFF', 'IN_TRANSIT', 'RECEIVING',
+                    'PARTIALLY_ACCEPTED', 'ACCEPTED', 'CANCELLED', 'UNKNOWN'
+                )),
+                declared_quantity INTEGER CHECK(
+                    declared_quantity IS NULL OR
+                    (declared_quantity >= 0 AND declared_quantity <= 1000000)
+                ),
+                accepted_quantity INTEGER CHECK(
+                    accepted_quantity IS NULL OR
+                    (accepted_quantity >= 0 AND accepted_quantity <= 1000000)
+                ),
+                accepted_quantity_kind TEXT CHECK(
+                    accepted_quantity_kind IS NULL OR
+                    accepted_quantity_kind IN ('CUMULATIVE', 'DOCUMENT_LINES')
+                ),
+                act_reference_digest TEXT CHECK(
+                    act_reference_digest IS NULL OR length(act_reference_digest) = 64
+                ),
+                act_version_digest TEXT CHECK(
+                    act_version_digest IS NULL OR length(act_version_digest) = 64
+                ),
+                presence TEXT NOT NULL CHECK(presence IN ('PRESENT', 'MISSING')),
+                completeness TEXT NOT NULL CHECK(completeness IN ('COMPLETE', 'PARTIAL', 'UNKNOWN')),
+                scope_complete INTEGER NOT NULL CHECK(scope_complete IN (0, 1)),
+                pagination_complete INTEGER NOT NULL CHECK(pagination_complete IN (0, 1)),
+                source_kind TEXT NOT NULL CHECK(source_kind = 'OZON_API'),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                payload_json TEXT NOT NULL CHECK(length(payload_json) <= 65536),
+                UNIQUE(case_id, declaration_id, observation_id),
+                CHECK((accepted_quantity IS NULL) = (accepted_quantity_kind IS NULL)),
+                CHECK(presence <> 'MISSING' OR
+                      (declared_quantity IS NULL AND accepted_quantity IS NULL))
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_report_evidence (
+                report_evidence_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                report_type TEXT NOT NULL CHECK(report_type IN ('STOCK_MANAGEMENT', 'TURNOVER')),
+                period_from TEXT,
+                period_to TEXT,
+                period_provenance TEXT NOT NULL CHECK(period_provenance IN (
+                    'FILENAME_CANDIDATE', 'OWNER_CONFIRMED', 'API_AS_OF', 'UNKNOWN'
+                )),
+                captured_at TEXT NOT NULL,
+                file_sha256 TEXT NOT NULL CHECK(length(file_sha256) = 64),
+                parser_version TEXT NOT NULL,
+                source_kind TEXT NOT NULL CHECK(source_kind IN ('OWNER_IMPORTED', 'OZON_API')),
+                completeness TEXT NOT NULL CHECK(completeness IN ('COMPLETE', 'PARTIAL', 'UNKNOWN')),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                cell_references_json TEXT NOT NULL CHECK(length(cell_references_json) <= 262144),
+                normalized_fields_json TEXT NOT NULL CHECK(length(normalized_fields_json) <= 262144),
+                UNIQUE(case_id, report_type, file_sha256)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_transition_previews (
+                preview_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                case_revision INTEGER NOT NULL CHECK(case_revision >= 1),
+                fifo_revision INTEGER NOT NULL CHECK(fifo_revision >= 0),
+                allocation_revision INTEGER NOT NULL CHECK(allocation_revision >= 0),
+                evidence_set_fingerprint TEXT NOT NULL CHECK(length(evidence_set_fingerprint) = 64),
+                tax_policy_fingerprint TEXT NOT NULL CHECK(length(tax_policy_fingerprint) = 64),
+                preview_fingerprint TEXT NOT NULL CHECK(length(preview_fingerprint) = 64),
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL CHECK(length(payload_json) <= 262144),
+                UNIQUE(case_id, preview_fingerprint)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_transition_commits (
+                commit_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL REFERENCES fifo_cost_transition_cases(case_id),
+                case_revision INTEGER NOT NULL CHECK(case_revision >= 1),
+                preview_id TEXT NOT NULL UNIQUE
+                    REFERENCES fifo_cost_transition_previews(preview_id),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 128),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                complete_through TEXT,
+                committed_at TEXT NOT NULL,
+                UNIQUE(case_id, idempotency_key)
+            );
             """
         for statement in statements.split(";"):
             if statement.strip():
@@ -6158,6 +6734,22 @@ class FifoCostRepository:
                 ON fifo_cost_late_entry_drafts(stream_id, recorded_at, draft_id);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_rate_cancellations_stream
                 ON fifo_cost_rate_cancellations(stream_id, stream_revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_case_scope
+                ON fifo_cost_transition_cases(
+                    tenant_fingerprint, store_id, sku, updated_at, case_id
+                );
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_revisions_case
+                ON fifo_cost_transition_case_revisions(case_id, case_revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_supply_declarations_case
+                ON fifo_cost_supply_declarations(case_id, declaration_id, declaration_revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_supply_observations_case
+                ON fifo_cost_supply_observations(case_id, declaration_id, captured_at);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_report_evidence_case
+                ON fifo_cost_report_evidence(case_id, report_type, captured_at);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_previews_expiry
+                ON fifo_cost_transition_previews(case_id, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_commits_case
+                ON fifo_cost_transition_commits(case_id, committed_at);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_physical_sale_identity
                 ON fifo_cost_events(stream_id, source_identity_digest)
                 WHERE event_kind='PHYSICAL_SALE' AND source_identity_digest IS NOT NULL;
@@ -6222,24 +6814,86 @@ class FifoCostRepository:
                 "PRAGMA table_info(fifo_cost_rate_cancellations)"
             )
         }
-        if "stream_revision" not in allocation_columns or not {
-            "allocation_id", "line_number", "event_id", "rate_change_id",
-            "quantity", "unit_cost_rub", "total_cost_rub",
-        } <= rate_line_columns or not {
-            "draft_id", "stream_id", "expected_revision", "evidence_fingerprint",
-            "owner_effective_date", "accepted_units", "unit_cost_rub",
-            "payload_fingerprint", "recorded_at",
-        } <= late_entry_columns or not {
-            "correction_id", "stream_id", "stream_revision", "draft_id",
-            "rate_change_id", "effective_date", "unit_cost_rub", "reason_code",
-            "preview_fingerprint", "reconstruction_fingerprint",
-            "source_set_fingerprint", "allocation_revision",
-            "tax_policy_fingerprint", "period_source_fingerprints_json",
-            "impact_json", "idempotency_key", "recorded_at",
-        } <= correction_columns or not {
-            "cancellation_id", "stream_id", "stream_revision", "rate_change_id",
-            "rate_sequence", "effective_date", "reason_code", "preview_fingerprint",
-            "source_set_fingerprint", "idempotency_key", "recorded_at",
-        } <= cancellation_columns:
+        rate_columns = {
+            str(item[1])
+            for item in connection.execute(
+                "PRAGMA table_info(fifo_cost_rate_changes)"
+            )
+        }
+        transition_required_columns = {
+            "fifo_cost_transition_cases": {
+                "case_id", "owner_fingerprint", "tenant_fingerprint", "store_id",
+                "sku", "current_revision", "current_state",
+            },
+            "fifo_cost_transition_case_revisions": {
+                "revision_id", "case_id", "case_revision", "payload_json",
+                "payload_fingerprint", "idempotency_key",
+            },
+            "fifo_cost_supply_declarations": {
+                "declaration_row_id", "case_id", "declaration_id",
+                "declaration_revision", "reference_kind", "reference_digest",
+                "encrypted_lookup_reference", "declared_shipped_units",
+            },
+            "fifo_cost_supply_observations": {
+                "observation_id", "case_id", "declaration_id", "captured_at",
+                "normalized_status", "presence", "completeness", "source_kind",
+                "source_fingerprint",
+            },
+            "fifo_cost_report_evidence": {
+                "report_evidence_id", "case_id", "report_type", "period_from",
+                "period_to", "file_sha256", "normalized_fields_json",
+            },
+            "fifo_cost_transition_previews": {
+                "preview_id", "case_id", "case_revision", "preview_fingerprint",
+                "expires_at",
+            },
+            "fifo_cost_transition_commits": {
+                "commit_id", "case_id", "case_revision", "preview_id",
+                "idempotency_key", "payload_fingerprint", "committed_at",
+            },
+        }
+        actual_transition_columns = {
+            table: {
+                str(item[1])
+                for item in connection.execute(f"PRAGMA table_info({table})")
+            }
+            for table in transition_required_columns
+        }
+        legacy_schema_valid = (
+            "stream_revision" in allocation_columns
+            and {
+                "allocation_id", "line_number", "event_id", "rate_change_id",
+                "quantity", "unit_cost_rub", "total_cost_rub",
+            } <= rate_line_columns
+            and {
+                "draft_id", "stream_id", "expected_revision", "evidence_fingerprint",
+                "owner_effective_date", "accepted_units", "unit_cost_rub",
+                "payload_fingerprint", "recorded_at",
+            } <= late_entry_columns
+            and {
+                "correction_id", "stream_id", "stream_revision", "draft_id",
+                "rate_change_id", "effective_date", "unit_cost_rub", "reason_code",
+                "preview_fingerprint", "reconstruction_fingerprint",
+                "source_set_fingerprint", "allocation_revision",
+                "tax_policy_fingerprint", "period_source_fingerprints_json",
+                "impact_json", "idempotency_key", "recorded_at",
+            } <= correction_columns
+            and {
+                "cancellation_id", "stream_id", "stream_revision", "rate_change_id",
+                "rate_sequence", "effective_date", "reason_code", "preview_fingerprint",
+                "source_set_fingerprint", "idempotency_key", "recorded_at",
+            } <= cancellation_columns
+        )
+        transition_schema_valid = (
+            "cost_input_mode" in rate_columns
+            and {
+                "purchase_cost_rub", "delivery_cost_rub", "packaging_cost_rub",
+            } <= rate_columns
+            and all(
+                required <= actual_transition_columns[table]
+                for table, required in transition_required_columns.items()
+            )
+        )
+        if not legacy_schema_valid or not transition_schema_valid:
             raise sqlite3.DatabaseError("invalid FIFO repository schema")
 

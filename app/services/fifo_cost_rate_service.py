@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_transition_contracts import CostInputMode
 
 
 class FifoCostRateService:
@@ -24,9 +25,11 @@ class FifoCostRateService:
         offer_id=None,
         sku,
         effective_date,
-        purchase_cost_rub,
-        delivery_cost_rub,
-        packaging_cost_rub,
+        purchase_cost_rub=None,
+        delivery_cost_rub=None,
+        packaging_cost_rub=None,
+        cost_input_mode=CostInputMode.COMPONENTS,
+        unit_cost_rub=None,
         old_home_units,
         expected_revision,
         zero_stock_snapshot=None,
@@ -58,6 +61,8 @@ class FifoCostRateService:
             purchase_cost_rub=purchase_cost_rub,
             delivery_cost_rub=delivery_cost_rub,
             packaging_cost_rub=packaging_cost_rub,
+            cost_input_mode=cost_input_mode,
+            unit_cost_rub=unit_cost_rub,
             owner_old_home_units=old_home_units,
             expected_revision=expected_revision,
             zero_stock_evidence=zero_stock_evidence,

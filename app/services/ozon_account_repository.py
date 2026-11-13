@@ -2,7 +2,9 @@ import os
 import sqlite3
 from pathlib import Path
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken
+
+from services.tenant_cipher_provider import get_tenant_fernet
 
 
 DB_NAME = "ozon_assistant.db"
@@ -53,13 +55,7 @@ class OzonAccountRepository:
         return conn
 
     def _fernet(self):
-        key = str(self.master_key or "").strip().encode("utf-8")
-        if not key:
-            return None
-        try:
-            return Fernet(key)
-        except Exception:
-            return None
+        return get_tenant_fernet(self.master_key)
 
     def _create_table(self):
         conn = self._connection()

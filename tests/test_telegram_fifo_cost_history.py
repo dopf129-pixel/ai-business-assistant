@@ -1,3 +1,5 @@
+import csv
+import io
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
@@ -162,6 +164,88 @@ def test_fifo_history_export_is_read_only_redacted_and_revision_bound(tmp_path):
         stale = ui.handle_callback(101, export_callback)
         assert stale["error"] is True
         assert stale["code"] == "FIFO_HISTORY_CALLBACK_STALE"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_total_landed_history_and_csv_never_invent_component_breakdown(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history = _anchored_history(tmp_path)
+        rates = FifoCostRateService(repository)
+        preview = rates.preview_new_cost(
+            **IDENTITY,
+            effective_date="2026-11-07",
+            cost_input_mode="TOTAL_LANDED",
+            unit_cost_rub="14.65",
+            purchase_cost_rub=None,
+            delivery_cost_rub=None,
+            packaging_cost_rub=None,
+            old_home_units=0,
+            expected_revision=1,
+        )
+        assert preview["error"] is False, preview
+        committed = rates.confirm_new_cost(
+            preview_id=preview["preview_id"],
+            active_preview_id=preview["preview_id"],
+            idempotency_key="history-total-landed01",
+        )
+        assert committed["error"] is False, committed
+
+        ui = TelegramFifoCostHistoryService(history)
+        ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        card = ui.handle_callback(101, ticket["callback"])
+        history_callback = next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["callback"].split(":")[1] == "history"
+        )
+        history_result = ui.handle_callback(101, history_callback)
+        assert "14.65 ₽/шт." in history_result["message"]
+        assert (
+            "полная себестоимость; разбивка компонентов не указана"
+            in history_result["message"]
+        )
+        assert "закупка None" not in history_result["message"]
+        assert "доставка None" not in history_result["message"]
+
+        export_callback = next(
+            button["callback"] for button in history_result["keyboard"]["buttons"]
+            if button["callback"].split(":")[1] == "export"
+        )
+        exported = ui.handle_callback(101, export_callback)
+        assert exported["error"] is False, exported
+        records = list(csv.DictReader(
+            io.StringIO(exported["file_content"].lstrip("\ufeff")),
+            delimiter=";",
+        ))
+        total_rate = next(row for row in records if row["Тип записи"] == "OPEN_RATE")
+        assert total_rate["Себестоимость за шт., ₽"] == "14.65"
+        assert total_rate["Режим разбивки"] == "TOTAL_LANDED"
+        assert total_rate["Закупка, ₽"] == ""
+        assert total_rate["Доставка, ₽"] == ""
+        assert total_rate["Упаковка, ₽"] == ""
+        assert "None" not in exported["file_content"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_empty_fifo_history_csv_keeps_mode_column_alignment(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository = FifoCostRepository(db_path=tmp_path / "empty-fifo-history.sqlite")
+        history = FifoCostHistoryService(repository)
+        snapshot = history.get_sku_history(**IDENTITY)
+        ui = TelegramFifoCostHistoryService(history)
+        exported = ui._export_history({"snapshot": snapshot, "sku": IDENTITY["sku"]})
+        assert exported["error"] is False, exported
+        rows = list(csv.reader(
+            io.StringIO(exported["file_content"].lstrip("\ufeff")), delimiter=";",
+        ))
+        assert len(rows) == 2
+        assert len(rows[0]) == len(rows[1])
+        assert rows[0][8] == "Режим разбивки"
     finally:
         reset_current_tenant_user_id(tenant)
 

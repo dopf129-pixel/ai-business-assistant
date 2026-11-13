@@ -15,6 +15,10 @@ from typing import Callable
 from uuid import uuid4
 
 from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
+from services.fifo_cost_transition_contracts import (
+    SupplyReferenceKind,
+    supply_reference_digest,
+)
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
     activate_period_profit_trace,
@@ -46,6 +50,7 @@ class _SupplySearchCheckpoint:
     seen_order_fingerprints: tuple[str, ...]
     pages_checked: int
     source_fingerprint: str
+    matched_supply: tuple[str, str] | None
     expires_at: float
 
 
@@ -77,6 +82,8 @@ def _singleflight_collection(action):
                 "store": store_id,
                 "identity": list(identity),
                 "resource": resource,
+                "transition_case_id": values.get("transition_case_id"),
+                "transition_case_revision": values.get("transition_case_revision"),
             })
             if key is None:
                 return method(self, *args, **kwargs)
@@ -122,10 +129,25 @@ class FifoCostSourceCollectionService:
     MAX_DETAILS_BATCH_SIZE = 50
     MAX_REQUEST_TIMEOUT_SECONDS = 8.0
     MAX_REQUEST_TOTAL_TIMEOUT_SECONDS = 10.0
+    MAX_ACTIVE_SUPPLY_TIME_BUDGET_SECONDS = 20.0
     CHECKPOINT_TTL_SECONDS = 600.0
     MAX_CHECKPOINTS = 256
     MAX_INFLIGHT_COLLECTIONS = 64
     MAX_SEEN_ROWS = 10_000
+    ACTIVE_SUPPLY_STATES = (
+        "DATA_FILLING",
+        "READY_TO_SUPPLY",
+        "ACCEPTED_AT_SUPPLY_WAREHOUSE",
+        "IN_TRANSIT",
+        "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+        "REPORTS_CONFIRMATION_AWAITING",
+        "REPORT_REJECTED",
+        "COMPLETED",
+        "REJECTED_AT_SUPPLY_WAREHOUSE",
+        "CANCELLED",
+        "OVERDUE",
+        "UNSPECIFIED",
+    )
     _ID = re.compile(r"^[0-9]{1,19}$")
     _CURSOR = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
 
@@ -258,6 +280,395 @@ class FifoCostSourceCollectionService:
             stock_snapshot=snapshot,
         )
 
+    @_singleflight_collection("active_supply")
+    def observe_active_supply_by_id(
+        self,
+        supply_id,
+        *,
+        owner_id,
+        identity,
+        store_id,
+        tenant_scope,
+        operation_trace=None,
+        checkpoint_token=None,
+        transition_case_id=None,
+        transition_case_revision=None,
+        max_pages_per_call=MAX_DIAGNOSTIC_PAGES_PER_CALL,
+        http_attempt_budget=MAX_DIAGNOSTIC_HTTP_ATTEMPTS,
+        time_budget_seconds=20.0,
+    ) -> FifoSourceCollectionResult:
+        """Observe one declared supply across active and terminal order states.
+
+        Unlike ``find_supply_by_id`` this method does not require a completed
+        order or an accepted act. It returns status only; missing quantities
+        remain unknown and a negative result is authoritative only after a
+        complete paginated lookup.
+        """
+
+        started = self.monotonic_clock()
+        normalized_supply_id = self._identifier(supply_id)
+        normalized_owner = self._text(owner_id, 128)
+        normalized_identity = self._identity(identity)
+        normalized_store = self._text(store_id, 128)
+        normalized_tenant = self._text(tenant_scope, 128)
+        normalized_case_id = self._text(transition_case_id, 128) if transition_case_id is not None else None
+        normalized_case_revision = self._bounded_integer(
+            transition_case_revision, minimum=1, maximum=1_000_000,
+        ) if transition_case_revision is not None else None
+        case_scope_valid = (
+            (transition_case_id is None and transition_case_revision is None)
+            or (normalized_case_id is not None and normalized_case_revision is not None)
+        )
+        normalized_reference_digest = (
+            supply_reference_digest(
+                owner_id=normalized_owner,
+                store_id=normalized_store,
+                reference_kind=SupplyReferenceKind.SUPPLY,
+                reference_id=normalized_supply_id,
+            )
+            if normalized_owner and normalized_store and normalized_supply_id
+            else None
+        )
+        attempts_limit, seconds_limit = self._limits(
+            http_attempt_budget, time_budget_seconds,
+            default_attempts=self.MAX_DIAGNOSTIC_HTTP_ATTEMPTS,
+            maximum_attempts=self.MAX_DIAGNOSTIC_HTTP_ATTEMPTS,
+        )
+        page_limit = self._bounded_integer(
+            max_pages_per_call, minimum=1,
+            maximum=self.MAX_DIAGNOSTIC_PAGES_PER_CALL,
+        )
+        if (
+            normalized_supply_id is None
+            or normalized_owner is None
+            or normalized_reference_digest is None
+            or normalized_identity is None
+            or normalized_store is None
+            or normalized_tenant is None
+            or not case_scope_valid
+            or attempts_limit is None
+            or seconds_limit is None
+            or page_limit is None
+        ):
+            return self._result(
+                status="INVALID", source_status="CONFLICT", attempts=0,
+                cap=attempts_limit or 0, started=started,
+                issues=("FIFO_ACTIVE_SUPPLY_LOOKUP_INPUT_INVALID",),
+            )
+
+        scope_fingerprint = self._fingerprint({
+            "action": "active_supply_status",
+            "tenant": normalized_tenant,
+            "store": normalized_store,
+            "identity": list(normalized_identity),
+            "declaration_reference_digest": normalized_reference_digest,
+            "transition_case_id": normalized_case_id,
+            "transition_case_revision": normalized_case_revision,
+        })
+        state, state_error = self._take_checkpoint(
+            checkpoint_token, scope_fingerprint=scope_fingerprint,
+        )
+        if state_error:
+            return self._result(
+                status="CONFLICT", source_status="CONFLICT", attempts=0,
+                cap=attempts_limit, started=started, issues=(state_error,),
+            )
+        if checkpoint_token is None:
+            state["source_fingerprint"] = self._fingerprint({
+                "source": "fifo-active-supply-status:v1",
+                "scope": scope_fingerprint,
+            })
+        if state["pages_checked"] >= self.MAX_TOTAL_SUPPLY_PAGES:
+            return self._result(
+                status="PARTIAL", source_status="PARTIAL", attempts=0,
+                cap=attempts_limit, started=started,
+                fingerprint=state["source_fingerprint"],
+                issues=("FIFO_ACTIVE_SUPPLY_SEARCH_PAGE_LIMIT",),
+            )
+
+        trace = self._new_trace(
+            "fifo_active_supply_observation",
+            min(seconds_limit, self.MAX_ACTIVE_SUPPLY_TIME_BUDGET_SECONDS),
+            attempts_limit,
+            operation_trace,
+        )
+        token = activate_period_profit_trace(trace)
+        attempts = 0
+        pages_this_call = 0
+        status = "PARTIAL"
+        source_status = "PARTIAL"
+        issues: list[str] = []
+        final_fingerprint = state["source_fingerprint"]
+        snapshot = None
+        continuation = None
+        found = state.get("matched_supply") is not None
+        matched_supply = state.get("matched_supply")
+        try:
+            while pages_this_call < page_limit:
+                if trace.is_cancelled():
+                    status = "UNAVAILABLE"
+                    source_status = "UNAVAILABLE"
+                    issues.append("FIFO_SOURCE_CANCELLED")
+                    break
+                if trace.remaining_seconds() <= 0:
+                    issues.append("FIFO_SOURCE_TIME_BUDGET_EXHAUSTED")
+                    break
+                if attempts >= attempts_limit:
+                    issues.append("FIFO_SOURCE_HTTP_BUDGET_EXHAUSTED")
+                    break
+
+                page, used, reason = self._call(
+                    trace,
+                    "get_supply_orders_list",
+                    list(self.ACTIVE_SUPPLY_STATES),
+                    last_id=state["cursor"],
+                    limit=self.MAX_PAGE_SIZE,
+                    sort_by="ORDER_STATE_UPDATED_AT",
+                    sort_dir="DESC",
+                    max_http_attempts=attempts_limit - attempts,
+                )
+                attempts += used
+                if page is None or self._failed_response(page):
+                    issues.append(reason or self._safe_error_code(
+                        page, "FIFO_ACTIVE_SUPPLY_LIST_UNAVAILABLE",
+                    ))
+                    break
+                page_ids = self._order_ids(page.get("order_ids"))
+                if page_ids is None:
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_LIST_INVALID")
+                    break
+                cursor, cursor_valid = self._cursor(page.get("last_id"))
+                if not cursor_valid:
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_CURSOR_INVALID")
+                    break
+                if not page_ids:
+                    if cursor is not None:
+                        status = "CONFLICT"
+                        source_status = "CONFLICT"
+                        issues.append("FIFO_ACTIVE_SUPPLY_CURSOR_WITH_EMPTY_PAGE")
+                    else:
+                        final_fingerprint = self._fingerprint({
+                            "previous": final_fingerprint,
+                            "terminal_empty_page": True,
+                        })
+                        source_status = "COMPLETE"
+                        if matched_supply is not None:
+                            found = True
+                            status = "PRESENT"
+                            snapshot = self.normalizer.normalize_active_supply_snapshot(
+                                supply_reference_digest=normalized_reference_digest,
+                                store_id=normalized_store,
+                                captured_at=self._now_utc(),
+                                source_fingerprint=final_fingerprint,
+                                presence="PRESENT",
+                                raw_status=matched_supply[1],
+                                order_id=matched_supply[0],
+                                scope_complete=True,
+                                pagination_complete=True,
+                                source_status="COMPLETE",
+                                issue_codes=issues,
+                            )
+                        else:
+                            status = "MISSING"
+                            snapshot = self.normalizer.normalize_active_supply_snapshot(
+                                supply_reference_digest=normalized_reference_digest,
+                                store_id=normalized_store,
+                                captured_at=self._now_utc(),
+                                source_fingerprint=final_fingerprint,
+                                presence="MISSING",
+                                raw_status=None,
+                                order_id=None,
+                                scope_complete=True,
+                                pagination_complete=True,
+                                source_status="COMPLETE",
+                            )
+                        issues.extend(snapshot.issue_codes)
+                    break
+                if cursor is None and len(page_ids) >= self.MAX_PAGE_SIZE:
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_CURSOR_MISSING")
+                    break
+                cursor_digest = self._digest("CURSOR", cursor) if cursor is not None else None
+                if cursor is not None and (
+                    cursor == state["cursor"]
+                    or cursor_digest in state["seen_cursor_fingerprints"]
+                ):
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_CURSOR_NOT_ADVANCING")
+                    break
+                page_order_fingerprints = tuple(
+                    self._digest("ORDER", order_id) for order_id in page_ids
+                )
+                if len(set(page_order_fingerprints)) != len(page_order_fingerprints):
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_DUPLICATE_ORDER_ID")
+                    break
+                if set(page_order_fingerprints).intersection(state["seen_order_fingerprints"]):
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_ORDER_REPEATED_ACROSS_PAGES")
+                    break
+                if len(state["seen_order_fingerprints"]) + len(page_order_fingerprints) > self.MAX_SEEN_ROWS:
+                    status = "PARTIAL"
+                    source_status = "PARTIAL"
+                    issues.append("FIFO_ACTIVE_SUPPLY_SEARCH_ROW_LIMIT")
+                    break
+
+                orders, used, reason = self._load_order_details(
+                    trace, page_ids,
+                    max_http_attempts=attempts_limit - attempts,
+                )
+                attempts += used
+                if orders is None:
+                    issues.append(reason or "FIFO_ACTIVE_SUPPLY_DETAILS_UNAVAILABLE")
+                    break
+                final_fingerprint = self._fingerprint({
+                    "previous": final_fingerprint,
+                    "page": self._page_fingerprint(page_ids, orders),
+                })
+                pages_this_call += 1
+                state["pages_checked"] += 1
+                state["seen_order_fingerprints"].extend(page_order_fingerprints)
+                matches = self._matching_supply_orders(orders, normalized_supply_id)
+                if matches is None:
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_ORDER_STRUCTURE_INVALID")
+                    break
+                if len(matches) > 1:
+                    status = "CONFLICT"
+                    source_status = "CONFLICT"
+                    issues.append("FIFO_ACTIVE_SUPPLY_ID_AMBIGUOUS")
+                    break
+                if matches:
+                    if matched_supply is not None:
+                        status = "CONFLICT"
+                        source_status = "CONFLICT"
+                        issues.append("FIFO_ACTIVE_SUPPLY_ID_AMBIGUOUS")
+                        break
+                    order, supply = matches[0]
+                    order_id = self._identifier(order.get("order_id"))
+                    if order_id is None:
+                        status = "CONFLICT"
+                        source_status = "CONFLICT"
+                        issues.append("FIFO_ACTIVE_SUPPLY_ORDER_ID_INVALID")
+                        break
+                    order_state = self._safe_enum(order.get("state"))
+                    if order_state not in self.ACTIVE_SUPPLY_STATES:
+                        issues.append("FIFO_ACTIVE_SUPPLY_ORDER_STATE_UNKNOWN")
+                    matched_supply = (order_id, supply.get("state"))
+                    state["matched_supply"] = matched_supply
+                    if cursor is None:
+                        found = True
+                        snapshot = self.normalizer.normalize_active_supply_snapshot(
+                            supply_reference_digest=normalized_reference_digest,
+                            store_id=normalized_store,
+                            captured_at=self._now_utc(),
+                            source_fingerprint=final_fingerprint,
+                            presence="PRESENT",
+                            raw_status=matched_supply[1],
+                            order_id=matched_supply[0],
+                            scope_complete=True,
+                            pagination_complete=True,
+                            source_status="COMPLETE",
+                            issue_codes=issues,
+                        )
+                        issues.extend(snapshot.issue_codes)
+                        source_status = snapshot.source_status
+                        status = snapshot.status
+                        break
+                    state["cursor"] = cursor
+                    if cursor_digest is not None:
+                        state["seen_cursor_fingerprints"].append(cursor_digest)
+                    status = "PARTIAL"
+                    source_status = "PARTIAL"
+                    continue
+
+                state["cursor"] = cursor
+                if cursor_digest is not None:
+                    state["seen_cursor_fingerprints"].append(cursor_digest)
+                if cursor is None:
+                    source_status = "COMPLETE"
+                    if matched_supply is not None:
+                        found = True
+                        status = "PRESENT"
+                        snapshot = self.normalizer.normalize_active_supply_snapshot(
+                            supply_reference_digest=normalized_reference_digest,
+                            store_id=normalized_store,
+                            captured_at=self._now_utc(),
+                            source_fingerprint=final_fingerprint,
+                            presence="PRESENT",
+                            raw_status=matched_supply[1],
+                            order_id=matched_supply[0],
+                            scope_complete=True,
+                            pagination_complete=True,
+                            source_status="COMPLETE",
+                            issue_codes=issues,
+                        )
+                    else:
+                        status = "MISSING"
+                        snapshot = self.normalizer.normalize_active_supply_snapshot(
+                            supply_reference_digest=normalized_reference_digest,
+                            store_id=normalized_store,
+                            captured_at=self._now_utc(),
+                            source_fingerprint=final_fingerprint,
+                            presence="MISSING",
+                            raw_status=None,
+                            order_id=None,
+                            scope_complete=True,
+                            pagination_complete=True,
+                            source_status="COMPLETE",
+                        )
+                    issues.extend(snapshot.issue_codes)
+                    break
+
+            if status == "PARTIAL" and not issues and state["pages_checked"] >= self.MAX_TOTAL_SUPPLY_PAGES:
+                issues.append("FIFO_ACTIVE_SUPPLY_SEARCH_PAGE_LIMIT")
+        finally:
+            reset_period_profit_trace(token)
+
+        if status == "PARTIAL" and attempts == 0 and pages_this_call == 0 and state["pages_checked"] == 0:
+            status = "UNAVAILABLE"
+            source_status = "UNAVAILABLE"
+        if status == "PARTIAL" and not trace.is_cancelled():
+            continuation = self._save_checkpoint(
+                _SupplySearchCheckpoint(
+                    scope_fingerprint=scope_fingerprint,
+                    cursor=state["cursor"],
+                    seen_cursor_fingerprints=tuple(state["seen_cursor_fingerprints"]),
+                    seen_order_fingerprints=tuple(state["seen_order_fingerprints"]),
+                    pages_checked=state["pages_checked"],
+                    source_fingerprint=final_fingerprint,
+                    matched_supply=matched_supply,
+                    expires_at=self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
+                )
+            )
+            if continuation is None:
+                issues.append("FIFO_ACTIVE_SUPPLY_CHECKPOINT_UNAVAILABLE")
+        if trace.is_cancelled():
+            continuation = None
+            snapshot = None
+            status = "UNAVAILABLE"
+            source_status = "UNAVAILABLE"
+        return self._result(
+            status=status,
+            source_status=source_status,
+            attempts=attempts,
+            cap=attempts_limit,
+            started=started,
+            fingerprint=final_fingerprint,
+            issues=tuple(dict.fromkeys(issues)),
+            supply_snapshot=snapshot,
+            continuation=continuation,
+        )
+
     @_singleflight_collection("supply")
     def find_supply_by_id(
         self,
@@ -268,6 +679,8 @@ class FifoCostSourceCollectionService:
         tenant_scope,
         operation_trace=None,
         checkpoint_token=None,
+        transition_case_id=None,
+        transition_case_revision=None,
         max_pages_per_call=MAX_DIAGNOSTIC_PAGES_PER_CALL,
         http_attempt_budget=MAX_DIAGNOSTIC_HTTP_ATTEMPTS,
         time_budget_seconds=MAX_ELAPSED_SECONDS,
@@ -284,6 +697,14 @@ class FifoCostSourceCollectionService:
         normalized_identity = self._identity(identity)
         normalized_store = self._text(store_id, 128)
         normalized_tenant = self._text(tenant_scope, 128)
+        normalized_case_id = self._text(transition_case_id, 128) if transition_case_id is not None else None
+        normalized_case_revision = self._bounded_integer(
+            transition_case_revision, minimum=1, maximum=1_000_000,
+        ) if transition_case_revision is not None else None
+        case_scope_valid = (
+            (transition_case_id is None and transition_case_revision is None)
+            or (normalized_case_id is not None and normalized_case_revision is not None)
+        )
         attempts_limit, seconds_limit = self._limits(
             http_attempt_budget, time_budget_seconds,
             default_attempts=self.MAX_DIAGNOSTIC_HTTP_ATTEMPTS,
@@ -298,6 +719,7 @@ class FifoCostSourceCollectionService:
             or normalized_identity is None
             or normalized_store is None
             or normalized_tenant is None
+            or not case_scope_valid
             or attempts_limit is None
             or seconds_limit is None
             or page_limit is None
@@ -313,6 +735,8 @@ class FifoCostSourceCollectionService:
             "store": normalized_store,
             "identity": list(normalized_identity),
             "supply_ref": self._digest("SUPPLY", normalized_supply_id),
+            "transition_case_id": normalized_case_id,
+            "transition_case_revision": normalized_case_revision,
         })
         state, state_error = self._take_checkpoint(
             checkpoint_token,
@@ -551,6 +975,7 @@ class FifoCostSourceCollectionService:
                     seen_order_fingerprints=tuple(state["seen_order_fingerprints"]),
                     pages_checked=state["pages_checked"],
                     source_fingerprint=final_fingerprint,
+                    matched_supply=None,
                     expires_at=self.monotonic_clock() + self.CHECKPOINT_TTL_SECONDS,
                 )
             )
@@ -647,19 +1072,22 @@ class FifoCostSourceCollectionService:
         if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
             return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_INVALID"
         with self._checkpoint_lock:
-            checkpoint = self._checkpoints.pop(token, None)
-        if checkpoint is None:
-            return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_STALE"
-        if checkpoint.expires_at <= self.monotonic_clock():
-            return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_EXPIRED"
-        if checkpoint.scope_fingerprint != scope_fingerprint:
-            return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_SCOPE_MISMATCH"
+            checkpoint = self._checkpoints.get(token)
+            if checkpoint is None:
+                return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_STALE"
+            if checkpoint.expires_at <= self.monotonic_clock():
+                self._checkpoints.pop(token, None)
+                return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_EXPIRED"
+            if checkpoint.scope_fingerprint != scope_fingerprint:
+                return self._empty_state(), "FIFO_SUPPLY_CHECKPOINT_SCOPE_MISMATCH"
+            self._checkpoints.pop(token, None)
         return {
             "cursor": checkpoint.cursor,
             "seen_cursor_fingerprints": list(checkpoint.seen_cursor_fingerprints),
             "seen_order_fingerprints": list(checkpoint.seen_order_fingerprints),
             "pages_checked": checkpoint.pages_checked,
             "source_fingerprint": checkpoint.source_fingerprint,
+            "matched_supply": checkpoint.matched_supply,
         }, None
 
     def _save_checkpoint(self, checkpoint):
@@ -685,6 +1113,7 @@ class FifoCostSourceCollectionService:
             "seen_order_fingerprints": [],
             "pages_checked": 0,
             "source_fingerprint": hashlib.sha256(b"fifo-supply-search-v1").hexdigest(),
+            "matched_supply": None,
         }
 
     @classmethod

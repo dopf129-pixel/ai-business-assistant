@@ -26,3 +26,11 @@ The repository has dated seller cost history, mutable current-cost projection, P
 ## Status
 
 Accepted for implementation within the user-approved FC00–FC35 task; independent review is required before merge. The factual cutoff gate remains blocked pending sanitized owner validation.
+
+## Addendum — 2026-11-07: durable late-entry cases
+
+- Extend this same `FifoCostRepository` and `fifo_cost_schema` boundary to schema v13. Seven transition-case/evidence/preview/commit tables remain in the existing tenant-local `ozon_assistant.db`; do not create a separate database or change Planning Workspace's `PRAGMA user_version`/schema owner.
+- Rebuild `fifo_cost_rate_changes` transactionally for the new `cost_input_mode`. Existing rows are carried forward unchanged as `COMPONENTS`; `TOTAL_LANDED` is represented with null component columns. Never invent component splits for a previously recorded total cost.
+- Encrypted supply lookup references reuse the credential Fernet key through a shared provider. No new key or secret store is introduced. If the existing key is unavailable or invalid, preserve the non-secret case evidence as awaiting evidence and do not persist a plaintext lookup reference.
+- The v12→v13 migration disables foreign-key enforcement only on its own SQLite connection before `BEGIN IMMEDIATE`, restores indexes/triggers, performs `foreign_key_check` before commit, rolls back on any failure, and restores foreign-key enforcement in `finally`. Credential storage format/behavior and existing FIFO history remain unchanged.
+- This is a scoped extension of Decision 066, not a new source of accounting truth. It does not close the historical inventory cutoff gate or authorize factual Period Profit integration.

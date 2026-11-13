@@ -1,3 +1,71 @@
+# 2026-11-08 — FIFO late-entry completion FL11
+
+- FL00–FL11 VERIFIED в коде исполнения, но не в production и не на owner case. `FifoCostTransitionSupplyRefreshService` выполняет active status + accepted acts под общим bounded budget до 20s/10 HTTP attempts; status observations сохраняются только после завершённого чтения.
+- Partial pagination/timeout сохраняют checkpoint progress, связанный с owner/store/SKU/case/declaration/reference/revision. Найденная до последней страницы поставка продолжается, а межстраничный duplicate ID конфликтует. Restart и scope mismatch безопасно блокируют старый continuation; reference digest остаётся скрытым в public manifest.
+- FL11 commit `66d05d38`; focused wrapper/source/declaration **40 passed**; полный FIFO/Telegram FIFO профиль **388 passed in 16.26s** на SHA `66d05d381b3981c767fcd2fd4c4d057c7b1bd50a`. `compileall`, `git diff --check` и `git diff --exit-code -- data` PASS; следующий FL12 — parser оборотной ведомости.
+
+# 2026-11-08 — FIFO late-entry completion FL10
+
+- FL00–FL10 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL10 добавил `FifoCostSupplyAcceptanceReconciliationService`: кумулятивные accepted totals выбираются как latest (40→70→100 остаётся 100), повтор акта/снимка не удваивает результат, а два разных акта остаются в digest refs раздельно.
+- Более свежий PARTIAL не обнуляет последний complete accepted count, но возвращает PARTIAL и блокирует финальную discrepancy. Снижение 100→90 требует документальной коррекции; final accepted ниже declared показывает unaccepted quantity и action code без автоматического inventory/FIFO движения. Отмена status observation не удаляет declaration.
+- FL10 commit `9445d8cc`; focused 46 passed; весь FIFO/Telegram FIFO профиль 379 passed; compileall/diff-check/data unchanged PASS. Следующий FL11: общий бюджет чтения, checkpoints и безопасное resume.
+
+# 2026-11-08 — FIFO late-entry completion FL09
+
+- FL00–FL09 VERIFIED. `FifoCostSourceCollectionService.observe_active_supply_by_id` наблюдает активные статусы отдельно от старого COMPLETED-only lookup, пишет append-only PRESENT/MISSING observations и возвращает continuation при PARTIAL. Только полная пагинация подтверждает MISSING; отсутствующая строка не становится нулём и не стирает декларацию/частичную приёмку.
+- Неизвестный статус сохраняется как безопасный raw token и нормализуется в UNKNOWN. FL09 code commit `f2e2239a`; focused 51 passed; full `pytest -q` 4907 passed; compileall/diff-check/data restored PASS.
+
+# 2026-11-08 — FIFO late-entry completion FL08
+
+- FL00–FL08 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. `FifoCostTransitionService` now persists exact typed ORDER/SUPPLY declarations; existing `FifoCostRepository` enforces same-store reference uniqueness, SKU consistency, and the case-level owner quantity inside the write transaction.
+- Lookup IDs are never returned by the service: persistence contains only a scope/type-separated digest and optional existing Fernet ciphertext. Missing key preserves owner quantities and marks lookup unavailable. The owner total minus known declared supplies is reported as `undistributed_units`; there is no synthetic supply ID.
+- FL08 code commit: `363cc5e899f7d01c682e7f4dc8a62a03977b708c`. Verification: focused **38 passed**, all FIFO/Telegram FIFO **358 passed**, compileall/diff-check/data-preservation checks PASS. Next FL09: active-supply observations and explicit MISSING status. `IMPLEMENTATION_VERIFIED` and `OWNER_CASE_VERIFIED` remain false.
+
+# 2026-11-08 — FIFO late-entry completion FL07
+
+- FL00–FL07 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. New `FifoCostTransitionService` coordinates typed case create/update/cancel/read/list through existing `FifoCostRepository`. Every update or cancellation writes an append-only case revision; exact retries are idempotent.
+- Active case uniqueness is enforced atomically by tenant/store/SKU inside the repository transaction. Read/list APIs remain tenant/store/SKU scoped. Dispatch date is stored as a date-only owner fact and does not initialize FIFO, cutoff, allocation, or profit mode.
+- FL07 code commit: `5254efafe05e197564a4913c5123373ca0db13c2`. Verification: focused **25 passed**, complete FIFO/Telegram FIFO **352 passed**, compileall/diff-check PASS; `data/` unchanged. Next FL08: declarations for concrete supplies and encrypted lookup references. `IMPLEMENTATION_VERIFIED` and `OWNER_CASE_VERIFIED` remain false.
+
+# 2026-11-08 — FIFO late-entry completion FL06
+
+- FL00–FL06 VERIFIED on `codex/fifo-late-entry-foundation-20261107`. Rate entry supports `COMPONENTS` and `TOTAL_LANDED` through one monetary amount contract. The validated pair `10.00 + 3.00 + 1.65` / `14.65` yields equal `14.65 ₽/unit`; total-only records persist null component amounts.
+- Rate history and CSV identify `TOTAL_LANDED` and do not render `14.65` as purchase cost or missing parts as zero. Schema migration tests retain historical rate mode as `COMPONENTS`. Existing FIFO calculations continue to consume the canonical `unit_cost_rub`.
+- FL06 code commit: `08472f865dedabcda3edf2c4b2e68bfc9ab2465d`. Verification: focused **59 passed**, full FIFO/Telegram FIFO **348 passed**, compileall/diff-check PASS; `data/` unchanged. Next FL07: durable case application service. `IMPLEMENTATION_VERIFIED` and `OWNER_CASE_VERIFIED` remain false.
+
+# 2026-11-07 — FIFO late-entry completion FL05 fault boundaries
+
+- FL00–FL05 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL05 добавляет сбойные границы для create/update case и всех evidence append: каждый injected SQL fault после частичной записи оставляет количество строк и case revision прежними.
+- Сохранение pending case до FIFO проверено через настоящий `FifoCostRepository`, `FifoCostPeriodProfitSourceService` и canonical Period Profit summary на synthetic finance/cost sources: cost mode остаётся LEGACY, FIFO history не создаётся, себестоимость 21 ₽ и прибыль 53 ₽ совпадают до/после.
+- FL05 targeted profile — 69 passed; связанный FIFO/Telegram/Period Profit профиль — 370 passed; compileall/diff-check PASS; пять `data/` файлов (3,168 bytes) не менялись.
+- Следующий этап: FL06 — `TOTAL_LANDED` / `COMPONENTS` единый amount contract и сохранение полной себестоимости без ложной компонентной разбивки.
+
+# 2026-11-07 — FIFO late-entry completion FL04 repository commands
+
+- FL00–FL04 VERIFIED на `codex/fifo-late-entry-foundation-20261107`. FL04 добавляет scoped append/read/CAS/idempotency для cases и evidence на существующем `FifoCostRepository`; append-only evidence и case revisions выполняются одной repository-транзакцией.
+- Проверены restart чтения, очередь ещё не создана, replay/conflict, параллельный CAS, tenant isolation, safe ciphertext read и квоты 20/100/2000 с сохранением последней committed state. 63 focused tests и 357 связанных FIFO/Telegram tests прошли; compileall и diff-check PASS.
+- `data/` не менялась (`git status --short -- data` пусто). Никакая реальная owner DB или Ozon/Telegram API не использовалась. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` ещё false.
+- Следующий этап: FL05 — fault injection каждой записи и доказательство, что pending case до FIFO не меняет legacy/history/actual profit.
+
+# 2026-11-07 — FIFO late-entry completion FL00–FL02
+
+- Исполнительная ветка `codex/fifo-late-entry-foundation-20261107` ответвлена от точного PR #727 head `aef1f1348fca4e7728215b73ddd32004a0540e20`; PR спецификации открыт на `main` `d8d4ba00c85acf14ba9a960f56a755fbe30b555c`.
+- FL00 VERIFIED: исходный FIFO regression профиль **307 passed**; FL01 VERIFIED: карта integration seams, 27 code/test paths. FL02 VERIFIED: typed transition contracts, **13 new tests** и combined FIFO profile **320 passed**; compileall/diff-check PASS. Пять файлов `data/` побайтно/по manifest совпадают с исходной точкой.
+- Начата runtime реализация только валидации DTO; repository/migration/UI/финансовая интеграция ещё не изменялись. Следующий этап FL03 — schema v13 и общий cipher provider. `IMPLEMENTATION_VERIFIED` и `OWNER_CASE_VERIFIED` пока false; реальные ID поставок и cutoff не подтверждены.
+
+# 2026-11-07 — FIFO late-entry FL03 schema v13
+
+- `FifoCostRepository` теперь владеет семью transition evidence таблицами в существующей tenant-local SQLite базе; FIFO schema version — 13. Миграция 12→13 сохраняет прежние rate values, индексы, триггеры и child FK edges; прежние ставки читаются как `COMPONENTS`. Для `TOTAL_LANDED` компоненты остаются `NULL`.
+- Общий `tenant_cipher_provider` использует только существующий Fernet key contract `OZON_CREDENTIAL_MASTER_KEY`; `OzonAccountRepository` делегирует ему создание cipher без смены формата и контракта credentials.
+- FL03 VERIFIED: новый migration/cipher profile вместе с существующими repository/backup/credential tests — 41 passed; partial-DDL rollback, future schema refusal и tenant scope проверены на временных SQLite. `data/` и live DB не читались/не изменялись. Следующий этап FL04 — repository commands для case/evidence. IMPLEMENTATION_VERIFIED и OWNER_CASE_VERIFIED остаются false.
+
+# 2026-11-07 — подготовлено ТЗ завершения позднего ввода FIFO
+
+- PR #726 слит в main d8d4ba00; владелец обновил локального бота. Реальный случай новой партии в пути выявил незавершённый путь: поздний мастер требует принятую поставку и сохраняет только черновик.
+- Подготовлено LUNA_FIFO_LATE_ENTRY_COMPLETION_TASK_2026-11-07.md: 36 этапов FL00–FL35, фиксированные контракты, durable case до начальной FIFO, TOTAL_LANDED стоимость, учёт исчезающих при приёмке наблюдений, импорт отчётов, cutoff bridge и атомарное применение.
+- Журнал LUNA_FIFO_LATE_ENTRY_COMPLETION_PROGRESS_2026-11-07.md: все этапы NOT_STARTED. Числовая матрица N01–N40 в FIFO_LATE_ENTRY_CASE_AND_ACCEPTANCE_2026-11-07.md. Implementation и owner-case readiness разделены; фактический source gate не снимается спецификацией.
+- Это документационная подготовка. Runtime, реальные FIFO-записи, прибыль, Ozon/Telegram и данные владельца не изменены. План сдачи — три зависимых PR, независимый review; без merge/deploy/реального запуска при исполнении.
+
 # 2026-11-07 — исправлены две FIFO-навигации по результатам review PR #726
 
 - После успешного CSV preview старые FIFO rate/late/anchor черновики закрываются; CSV черновик остаётся активным для проверки и подтверждения. Невалидный CSV не очищает текущий FIFO ввод.
