@@ -185,6 +185,30 @@ def test_physical_csv_is_encrypted_restartable_and_confirmed_separately(tmp_path
             product_id=SCOPE.product_id, offer_id=SCOPE.offer_id, sku=SCOPE.sku,
         )["case_revision"] == 2
 
+        # A new upload/preview after restart has a new capture timestamp and
+        # idempotency attempt, but identical immutable CSV coverage. Reuse the
+        # saved evidence instead of conflicting on captured_at.
+        reuploaded = service.save_document(
+            repository=restarted, case_id="case_fr14_0001", scope=SCOPE,
+            filename="physical-sales.csv", payload=RAW_CSV, document=document,
+            **PERIOD, timezone_name=TIMEZONE,
+            captured_at="2026-11-09T10:46:00Z",
+            expected_case_revision=2,
+            idempotency_key="save-fr14-physical-new-preview",
+        )
+        assert reuploaded["error"] is False, reuploaded
+        assert reuploaded["replayed"] is True
+        assert reuploaded["evidence_id"] == saved["evidence_id"]
+        assert reuploaded["payload_fingerprint"] == saved["payload_fingerprint"]
+        assert reuploaded["case_revision"] == 2
+        all_physical = restarted.read_transition_bridge_evidence(
+            case_id="case_fr14_0001", store_id=STORE,
+            product_id=SCOPE.product_id, offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            evidence_kind="PHYSICAL_SALES_DOCUMENT", limit=10,
+        )
+        assert all_physical["error"] is False
+        assert len(all_physical["items"]) == 1
+
         confirmed = _confirm(service, restarted, saved, saved["preview"])
         assert confirmed["error"] is False, confirmed
         assert confirmed["confirmed"] is True

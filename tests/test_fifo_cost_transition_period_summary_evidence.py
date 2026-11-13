@@ -114,7 +114,7 @@ def test_period_profit_summary_snapshot_is_encrypted_and_rehydrates_after_restar
         reset_current_tenant_user_id(tenant)
 
 
-def test_conflicting_frozen_summaries_for_same_financial_period_fail_closed(
+def test_latest_corrected_frozen_summary_is_selected_and_history_is_retained(
     tmp_path, monkeypatch,
 ):
     monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"))
@@ -122,7 +122,7 @@ def test_conflicting_frozen_summaries_for_same_financial_period_fail_closed(
     now = lambda: datetime(2026, 12, 2, 12, tzinfo=timezone.utc)
     database = tmp_path / "period-summary-conflict.sqlite"
     try:
-        _repository, transition, case_id = _make_case(database, now)
+        repository, transition, case_id = _make_case(database, now)
         evidence = FifoCostTransitionEvidenceService(transition)
         first = evidence.record_period_profit_summary(
             case_id=case_id, identity=IDENTITY, summary=_summary(),
@@ -143,9 +143,19 @@ def test_conflicting_frozen_summaries_for_same_financial_period_fail_closed(
             expected_case_revision=_revision(transition, case_id),
         )
         assert loaded["error"] is False, loaded
-        assert "FINANCIAL_PERIOD_SUMMARY_VERSION_CONFLICT" in (
+        assert "FINANCIAL_PERIOD_SUMMARY_VERSION_CONFLICT" not in (
             loaded["missing_requirements"]
         )
-        assert loaded["bundle"].period_summaries == ()
+        assert len(loaded["bundle"].period_summaries) == 1
+        selected = loaded["bundle"].period_summaries[0]
+        assert selected.source_fingerprint == "e" * 64
+        assert str(selected.revenue_rub) == "1001.00"
+        history = repository.read_transition_bridge_evidence(
+            case_id=case_id, **IDENTITY,
+            evidence_kind=TransitionBridgeEvidenceKind.PERIOD_SUMMARY_SNAPSHOT,
+            limit=10,
+        )
+        assert history["error"] is False, history
+        assert len(history["items"]) == 2
     finally:
         reset_current_tenant_user_id(tenant)

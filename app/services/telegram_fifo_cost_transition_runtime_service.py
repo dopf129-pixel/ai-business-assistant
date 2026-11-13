@@ -554,6 +554,7 @@ class TelegramFifoCostTransitionRuntimeService:
             isinstance(result, dict) and result.get("error") is False
             and result.get("code") in {
                 "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED",
+                "FIFO_PHYSICAL_SALES_VERSION_SELECTION_UNAVAILABLE",
                 "FIFO_PHYSICAL_SALES_CONFIRMED",
             }
         ):

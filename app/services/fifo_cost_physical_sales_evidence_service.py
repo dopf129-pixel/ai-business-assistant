@@ -101,6 +101,65 @@ class FifoCostPhysicalSalesEvidenceService:
         case_timezone = case["case_timezone"]
         if case_timezone != period["timezone"]:
             return self._error("FIFO_TRANSITION_TIMEZONE_MISMATCH")
+
+        # The idempotency payload includes captured_at, so a fresh upload of
+        # the same file after the Telegram preview expires is not an exact
+        # repository replay. Reuse the verified immutable row instead of
+        # appending a timestamp-only version or triggering an idempotency
+        # conflict. The raw CSV is re-read and parsed before it is reused.
+        existing = repository.read_transition_bridge_evidence(
+            case_id=case_id, store_id=scope.store_id,
+            product_id=scope.product_id, offer_id=scope.offer_id, sku=scope.sku,
+            evidence_kind=self.EVIDENCE_KIND, limit=100,
+            include_sensitive_payload=False,
+        )
+        if existing.get("error"):
+            return existing
+        existing_items = existing.get("items")
+        if not isinstance(existing_items, list) or len(existing_items) > 100:
+            return self._error("FIFO_PHYSICAL_SALES_EVIDENCE_LIMIT_REACHED")
+        matches = []
+        for item in existing_items:
+            public_payload = item.get("payload")
+            if (
+                not isinstance(public_payload, dict)
+                or public_payload.get("document_fingerprint")
+                    != document.document_fingerprint
+                or item.get("period_from") != period["period_from"]
+                or item.get("period_to") != period["period_to"]
+                or public_payload.get("timezone") != period["timezone"]
+            ):
+                continue
+            loaded = self.read_document(
+                repository=repository, case_id=case_id, scope=scope,
+                evidence_id=item.get("evidence_id"),
+            )
+            if loaded.get("error"):
+                return loaded
+            if loaded.get("document") != document:
+                return self._error("FIFO_TRANSITION_EVIDENCE_CORRUPT")
+            matches.append((item, loaded))
+        if matches:
+            item, _loaded = max(
+                matches,
+                key=lambda pair: pair[0].get("evidence_revision", 0),
+            )
+            return {
+                "error": False,
+                "code": "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED",
+                "evidence_id": item["evidence_id"],
+                "evidence_revision": item["evidence_revision"],
+                "payload_fingerprint": item["payload_fingerprint"],
+                "case_revision": existing.get("case_revision"),
+                "state": existing.get("state"),
+                "replayed": True,
+                "preview": self.preview_document(
+                    document=document,
+                    period_from=period["period_from"],
+                    period_to=period["period_to"],
+                    timezone_name=period["timezone"],
+                ),
+            }
         try:
             metadata = TransitionMetadata(
                 scope=scope,

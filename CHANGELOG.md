@@ -1,3 +1,9 @@
+# 2026-11-13 — FIFO review fixes R15–R17
+
+- Re-uploading an identical physical-sales CSV after its preview expires now reuses the verified immutable evidence row, even when the new upload has a different capture timestamp. Corrected financial-period snapshots append a new version; readers select the latest valid evidence revision for each month while retaining prior versions. Telegram refreshes its case revision after a save succeeds but version selection temporarily fails.
+- Added regression coverage for repeat upload after restart, corrected reconstruction/monthly snapshot replay, append-only latest-version selection, and retry after a transient confirmed-document read failure.
+- Local linked verification: **102 passed** across physical-sales import/evidence, financial-period snapshot collection/evidence, impact, apply, production workflow, and Telegram runtime. Exact-head hosted CI is pending publication of this commit.
+
 # 2026-11-13 — FIFO review corrections R12–R14
 
 - Monthly finance snapshot fingerprints now use date-keyed daily source hashes plus monthly Period Profit totals, so replaying the same month with different API chunk sizes does not change the source seal. Pre-v2 snapshots remain compatible only when their original chunk fingerprint is reproduced exactly.

@@ -1,3 +1,11 @@
+# 2026-11-13 — FIFO review fixes R15–R17
+
+- `tests/test_fifo_cost_physical_sales_evidence_service.py::test_physical_csv_is_encrypted_restartable_and_confirmed_separately` verifies re-uploading the same CSV with a new capture timestamp reuses the original immutable evidence row without increasing the case revision.
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_corrected_reconstruction_appends_new_month_snapshot_version` verifies stale snapshots are not treated as current after a reconstruction correction and that a new immutable month version is appended.
+- `tests/test_fifo_cost_transition_period_summary_evidence.py::test_latest_corrected_frozen_summary_is_selected_and_history_is_retained` verifies evidence selects the highest revision per month while both immutable versions remain readable.
+- `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` injects a one-time confirmed-document list failure after save and verifies retry refreshes the runtime session before confirmation.
+- Linked changed-service and consumer profile: **102 passed**. Exact-head hosted CI pending publication.
+
 # 2026-11-13 — FIFO review corrections R12–R14
 
 - `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_restart_with_different_chunking_and_http_budget_revalidates_same_snapshots` restarts after immutable monthly freezes, changes daily request chunking from 1 to 4 days and request budget from 1 to 10, and verifies the same source fingerprints are reused without duplicate snapshots/revision writes.

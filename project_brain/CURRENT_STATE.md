@@ -1,3 +1,10 @@
+# 2026-11-13 — FIFO review fixes R15–R17
+
+- The same physical-sales CSV can now be uploaded again after a preview expires or the process restarts: the service verifies and reuses the exact encrypted evidence instead of making a timestamp-only append or returning an idempotency conflict.
+- When reconstruction, tax policy, or the sale-identity set changes, stale monthly snapshots stay immutable in history and are excluded from the new collection. The collector re-reads and appends a current snapshot; evidence loading selects the highest valid evidence revision per financial month.
+- A transient failure while reading older confirmed CSV versions no longer leaves the Telegram session at an obsolete case revision. The retry action refreshes the session and can continue the explicit owner selection flow.
+- Verification: linked FIFO workflow profile **102 passed**; `git diff --check` and tracked `data/` equality pass. Hosted exact-head CI is pending publication. `.fl12-deps/` remains untouched and untracked.
+
 # 2026-11-13 — FIFO review corrections R12–R14
 
 - Monthly snapshot source fingerprints are independent of request chunking; they bind each daily finance-cache value by date together with monthly Period Profit totals. Pre-v2 freezes are accepted only when their legacy chunk-bound digest is reproduced exactly.

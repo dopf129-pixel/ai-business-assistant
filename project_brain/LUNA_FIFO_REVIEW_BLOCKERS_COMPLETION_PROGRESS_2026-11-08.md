@@ -1,5 +1,13 @@
 # FIFO review blockers — журнал FR00–FR31
 
+## 2026-11-13 — повторный review R15–R17: исправления внесены
+
+- **R15 / повторная загрузка CSV:** после истечения preview или перезапуска загрузка того же файла и покрытия теперь проверяет сохранённую encrypted-запись и возвращает её как replay, не создавая timestamp-only версию и не сталкиваясь с конфликтом idempotency payload.
+- **R16 / исправление источника месячного snapshot:** сохранённый месяц переиспользуется только при совпадении fingerprint реконструкции, налоговой политики и точного набора sale identity digests. Несовпадающий snapshot остаётся в append-only истории; месяц перечитывается и записывается новой immutable-версией. Evidence reader выбирает последнюю проверенную revision для месяца.
+- **R17 / временный сбой после записи:** Telegram runtime обновляет revision сессии также при `FIFO_PHYSICAL_SALES_VERSION_SELECTION_UNAVAILABLE`; кнопка повтора может перечитать список и продолжить подтверждение.
+- Регрессии прошли: **102 passed** в связанном профиле из 10 файлов (physical-sales import/evidence, month collection/evidence, impact, apply, production workflow, Telegram runtime). `git diff --check` и отсутствие изменений в tracked `data/` проверены. Hosted exact-head CI будет запущен после публикации исправлений.
+- `.fl12-deps/` сохранён вне Git. Реальные Ozon/Telegram-вызовы, запуск бота, owner data, merge и deployment не выполнялись.
+
 ## 2026-11-13 — повторный review R12–R14: исправления локально внесены
 
 - **R12 / monthly fingerprint и границы запросов:** новый fingerprint строится из хешей каждого дня, привязанных к ISO-дате, и месячных итогов Period Profit. Regression действительно фиксирует месяц сначала однодневными запросами/лимитом 1, а после перезапуска — четырёхдневными/лимитом 10; immutable snapshot повторно используется без append и изменения revision. Формат до v2 остаётся проверяемым только при точном воспроизведении прежнего chunk fingerprint; неизвестный старый график не угадывается.

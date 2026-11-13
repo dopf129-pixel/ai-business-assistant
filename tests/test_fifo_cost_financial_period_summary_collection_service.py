@@ -671,6 +671,55 @@ def test_restart_with_different_chunking_and_http_budget_revalidates_same_snapsh
     assert len(evidence.saved) == 2
 
 
+def test_corrected_reconstruction_appends_new_month_snapshot_version():
+    reconstruction, policy, products = _inputs()
+    finance = _finance_batch()
+    evidence = _Evidence()
+    collector = FifoCostFinancialPeriodSummaryCollectionService()
+    token = None
+    for _ in range(40):
+        initial = collector.collect(
+            case_id="case-fr20-1", identity=IDENTITY,
+            expected_case_revision=evidence.case_revision,
+            reconstruction=reconstruction, finance_batch=finance,
+            products=products, tax_policy_result=policy,
+            summary_reader=_reader, finance_service=_FinanceCache(),
+            evidence_service=evidence, continuation_token=token,
+        )
+        assert initial["error"] is False, initial
+        token = initial["continuation_token"]
+        if token is None:
+            break
+    assert initial["status"] == "COMPLETE", initial
+    assert len(evidence.saved) == 1
+    old_snapshot = evidence.saved[0]["summary"]
+    revision_after_old_snapshot = evidence.case_revision
+
+    corrected = {**reconstruction, "preview_fingerprint": "f" * 64}
+    restarted = FifoCostFinancialPeriodSummaryCollectionService()
+    token = None
+    for _ in range(40):
+        refreshed = restarted.collect(
+            case_id="case-fr20-1", identity=IDENTITY,
+            expected_case_revision=evidence.case_revision,
+            reconstruction=corrected, finance_batch=finance,
+            products=products, tax_policy_result=policy,
+            summary_reader=_reader, finance_service=_FinanceCache(),
+            evidence_service=evidence, continuation_token=token,
+            existing_summaries=(old_snapshot,),
+        )
+        assert refreshed["error"] is False, refreshed
+        token = refreshed["continuation_token"]
+        if token is None:
+            break
+
+    assert refreshed["status"] == "COMPLETE", refreshed
+    assert refreshed["issue_code"] is None
+    assert len(evidence.saved) == 2
+    assert evidence.case_revision == revision_after_old_snapshot + 1
+    assert evidence.saved[-1]["summary"].reconstruction_fingerprint == "f" * 64
+
+
 def test_collection_rejects_non_month_finance_identity_rows():
     batch = _finance_batch()
     invalid_row = FifoFinanceSaleIdentity(

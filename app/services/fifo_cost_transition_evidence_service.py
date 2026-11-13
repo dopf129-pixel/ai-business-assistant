@@ -760,6 +760,8 @@ class FifoCostTransitionEvidenceService:
                 or not isinstance(period_to, str)
                 or len(period_from) < 7
                 or period_from[:7] != period_to[:7]
+                or type(item.get("evidence_revision")) is not int
+                or item["evidence_revision"] < 1
             ):
                 return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
             period = period_from[:7]
@@ -791,13 +793,17 @@ class FifoCostTransitionEvidenceService:
             except (TypeError, ValueError, KeyError, OverflowError):
                 return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_INVALID")
             existing = by_period.get(period)
-            if existing is not None and existing.source_fingerprint != summary.source_fingerprint:
+            revision = item["evidence_revision"]
+            if existing is None or revision > existing[0]:
+                by_period[period] = (revision, summary)
+            elif revision == existing[0] and summary != existing[1]:
                 return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT")
-            by_period[period] = summary
 
         if not by_period:
             return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_MISSING")
-        summaries = tuple(by_period[period] for period in sorted(by_period))
+        summaries = tuple(
+            by_period[period][1] for period in sorted(by_period)
+        )
         return {
             "error": False,
             "code": "FIFO_PERIOD_SUMMARY_SNAPSHOTS_READY",

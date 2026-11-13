@@ -110,10 +110,22 @@ class FifoCostFinancialPeriodSummaryCollectionService:
                 return self._error("FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE")
             persisted_by_period = {}
             for item in existing_summaries:
-                if (
-                    item.period not in digest_map
-                    or item.period in persisted_by_period
-                ):
+                if item.period not in digest_map:
+                    # A correction may change the set of financial months.
+                    # Older immutable snapshots remain in evidence history,
+                    # but are no longer part of this reconstruction.
+                    continue
+                current_binding = (
+                    item.reconstruction_fingerprint
+                        == reconstruction.get("preview_fingerprint")
+                    and item.tax_policy_fingerprint == policy["fingerprint"]
+                    and item.sale_identity_digests == tuple(digest_map[item.period])
+                )
+                if not current_binding:
+                    # Recollect stale months and append a new immutable
+                    # snapshot; never overwrite the prior evidence.
+                    continue
+                if item.period in persisted_by_period:
                     return self._error("FIFO_PERIOD_SUMMARY_SNAPSHOT_CONFLICT")
                 persisted_by_period[item.period] = item
             mapping = tuple((month, tuple(digest_map[month])) for month in periods)

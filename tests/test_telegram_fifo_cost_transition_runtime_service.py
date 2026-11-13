@@ -349,10 +349,25 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
                     filename=filename, payload=payload, scope=scope,
                 )
 
+        class OneTransientConfirmedListFailure(FifoCostPhysicalSalesEvidenceService):
+            def __init__(self):
+                super().__init__()
+                self.fail_once = True
+
+            def list_confirmed_documents(self, **kwargs):
+                if self.fail_once:
+                    self.fail_once = False
+                    return {
+                        "error": True,
+                        "code": "FIFO_TRANSITION_STORAGE_UNAVAILABLE",
+                    }
+                return super().list_confirmed_documents(**kwargs)
+
+        physical_evidence = OneTransientConfirmedListFailure()
         physical_import = TelegramFifoCostPhysicalSalesImportService(
             repository=repository,
             worker=Worker(),
-            evidence_service=FifoCostPhysicalSalesEvidenceService(),
+            evidence_service=physical_evidence,
             now_provider=lambda: datetime(2026, 11, 9, 12, tzinfo=timezone.utc),
         )
         runtime = TelegramFifoCostTransitionRuntimeService(
@@ -415,7 +430,14 @@ def test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separ
         assert len(save_callback.encode("utf-8")) <= 64
         assert "case_" not in save_callback and "posting-111" not in save_callback
 
-        saved = runtime.handle_physical_sales_callback(101, save_callback)
+        unavailable = runtime.handle_physical_sales_callback(101, save_callback)
+        assert unavailable["code"] == (
+            "FIFO_PHYSICAL_SALES_VERSION_SELECTION_UNAVAILABLE"
+        ), unavailable
+        assert unavailable["error"] is False
+        assert runtime._sessions["101"]["case_revision"] == 8
+        retry_callback = unavailable["keyboard"]["buttons"][0]["callback"]
+        saved = runtime.handle_physical_sales_callback(101, retry_callback)
         assert saved["code"] == "FIFO_PHYSICAL_SALES_DOCUMENT_SAVED", saved
         assert saved["error"] is False
         assert "Отдельно подтвердите" in saved["message"]
