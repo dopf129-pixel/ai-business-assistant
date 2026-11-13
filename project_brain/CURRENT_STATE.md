@@ -1,3 +1,10 @@
+# 2026-11-13 — Next FIFO work: automatic batch membership (specification only)
+
+- Product baseline: main 7965dcdd. Added LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md and an unstarted progress journal for FB00–FB31.
+- Owner request: subsequent shipments of the same SKU belong to the new batch until the next confirmed cost boundary; remove the continuously maintained mandatory manual total.
+- The specification separates owner rule confirmation, source supply coverage and factual FIFO readiness. Automatic grouping requires proven dispatch timing or an exact grouped owner selection.
+- All implementation stages remain NOT_STARTED. R1 remains open. No owner data, live API or running bot was changed by this specification.
+
 # 2026-11-13 — FIFO review fixes R18–R20
 
 - Physical-sales owner confirmation keys now bind the exact saved case revision, so a deliberate re-selection of an identical document is a new confirmation operation; document evidence itself remains append-only and reused.
