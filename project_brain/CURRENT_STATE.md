@@ -1,3 +1,9 @@
+# 2026-11-13 — FIFO review corrections R9–R11
+
+- Impact calculation refuses to turn a monthly SKU aggregate mismatch into an invented “unaffected same-SKU cost”; it returns candidate-only until COGS for the exact affected identities is proven. The complete finance export is bound to a typed ready cutoff bridge and only exact post-cutoff identities enter monthly snapshots. The expired-preview audit marker is excluded from source-evidence fingerprinting, so a fresh prepare can reuse unchanged frozen evidence.
+- Regressions cover unsafe COGS attribution, exact pre/post cutoff partition and rejection of an incomplete bridge mapping, plus repository-backed prepare/expire/reopen/prepare using the same saved summary.
+- Verification: targeted profile **59 passed**; full isolated pytest **5,287 passed in 92.32s**; `compileall`, `git diff --check`, and tracked `data/` equality passed. The full-suite copy excluded owner data and used a synthetic tax policy. Hosted status is tracked on PR #732. R1 remains a hard source blocker; no owner case, live API, bot launch, merge or deployment is claimed.
+
 # 2026-11-11 — FIFO follow-up review R6–R8 fixed locally
 
 - Initial FIFO composition accepts a confirmed finite count of new-party units at home and creates the matching new-cost home layer. New-party transit quantity is retained separately in encrypted composition metadata, shown to the owner, and never counted as FIFO transit or stock before accepted receipt.

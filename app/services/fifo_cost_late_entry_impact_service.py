@@ -178,16 +178,19 @@ class FifoCostLateEntryImpactService:
                     outflow_value=outflow_value,
                     mapping_fingerprint=mapping_fingerprint,
                 )
-            if before_cost > monthly_sku_cost:
+            # The month snapshot contains one SKU aggregate, while the FIFO
+            # replay can cover only a subset of its sale identities. Without
+            # a canonical COGS breakdown for those exact identities, the
+            # difference cannot safely be attributed to unaffected sales.
+            # Keep the impact candidate-only until that partition is proven.
+            if before_cost != monthly_sku_cost:
                 return self._candidate_only(
                     reconstruction, reason="FIFO_PERIOD_COGS_BASELINE_MISMATCH",
                     candidate_total=candidate_total, candidate_periods=[],
                     outflow_value=outflow_value,
                     mapping_fingerprint=mapping_fingerprint,
                 )
-            # Replace only the reconstructed sale-identity subset. All other
-            # COGS, including other same-SKU sales in this month, remain intact.
-            other_cost = total_cost - before_cost
+            other_cost = total_cost - monthly_sku_cost
             if other_cost < Decimal("-0.01"):
                 return self._blocked("FIFO_PERIOD_COST_RECONCILIATION_CONFLICT")
             other_cost = max(Decimal("0.00"), other_cost)

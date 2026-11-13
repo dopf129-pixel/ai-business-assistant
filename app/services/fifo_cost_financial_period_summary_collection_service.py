@@ -68,7 +68,7 @@ class FifoCostFinancialPeriodSummaryCollectionService:
 
     def collect(
         self, *, case_id, identity, expected_case_revision, reconstruction,
-        finance_batch, products, tax_policy_result, summary_reader,
+        finance_batch, cutoff_bridge=None, products, tax_policy_result, summary_reader,
         finance_service, evidence_service, continuation_token=None,
         days_per_call=MAX_DAYS_PER_CALL, http_attempt_budget=MAX_HTTP_ATTEMPTS,
         time_budget_seconds=MAX_SECONDS, parent_trace=None,
@@ -97,7 +97,11 @@ class FifoCostFinancialPeriodSummaryCollectionService:
             policy = self.impact_service._normalize_policy(tax_policy_result)
             if isinstance(policy, str):
                 return self._error(policy)
-            digest_map = self._digests_by_period(reconstruction, finance_batch, identity)
+            digest_map = self._digests_by_period(
+                reconstruction, finance_batch, identity,
+                cutoff_bridge=cutoff_bridge, case_id=case_id,
+                expected_case_revision=expected_case_revision,
+            )
             if isinstance(digest_map, str):
                 return self._error(digest_map)
             periods = tuple(sorted(digest_map))
@@ -286,7 +290,10 @@ class FifoCostFinancialPeriodSummaryCollectionService:
         }
 
     @classmethod
-    def _digests_by_period(cls, reconstruction, finance_batch, identity):
+    def _digests_by_period(
+        cls, reconstruction, finance_batch, identity, *, cutoff_bridge=None,
+        case_id=None, expected_case_revision=None,
+    ):
         if (
             reconstruction.get("error") is not False
             or reconstruction.get("code") not in {
@@ -313,7 +320,7 @@ class FifoCostFinancialPeriodSummaryCollectionService:
             for value in expected
         ):
             return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
-        grouped, seen = {}, set()
+        rows_by_digest = {}
         for row in finance_batch.rows:
             period = getattr(row, "financial_period", None)
             if not isinstance(period, str) or not cls._PERIOD.fullmatch(period):
@@ -341,13 +348,156 @@ class FifoCostFinancialPeriodSummaryCollectionService:
             if not isinstance(result, dict) or result.get("error") is not False:
                 return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
             digest = result.get("source_identity_digest")
-            if not isinstance(digest, str) or not cls._DIGEST.fullmatch(digest) or digest in seen:
+            if (
+                not isinstance(digest, str)
+                or not cls._DIGEST.fullmatch(digest)
+                or digest in rows_by_digest
+            ):
                 return "FIFO_FINANCIAL_PERIOD_MAPPING_CONFLICT"
-            seen.add(digest)
-            grouped.setdefault(period, []).append(digest)
-        if seen != expected:
+            rows_by_digest[digest] = period
+
+        if cutoff_bridge is None:
+            # Compatibility for callers whose batch is already restricted to
+            # the reconstructed sales. Unknown rows remain a hard failure.
+            if set(rows_by_digest) != expected:
+                return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+            included = expected
+        else:
+            partitions = cls._cutoff_sale_identity_partitions(
+                cutoff_bridge, finance_batch, case_id=case_id,
+                expected_case_revision=expected_case_revision,
+            )
+            if isinstance(partitions, str):
+                return partitions
+            pre_cutoff, post_cutoff = partitions
+            # The complete finance export must map exactly to the bridge, and
+            # the reconstructed FIFO ledger must cover exactly its post-cutoff
+            # sales. Only then can pre-cutoff rows be excluded from COGS.
+            if (
+                set(rows_by_digest) != pre_cutoff | post_cutoff
+                or expected != post_cutoff
+            ):
+                return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+            included = post_cutoff
+
+        grouped = {}
+        for digest in included:
+            grouped.setdefault(rows_by_digest[digest], []).append(digest)
+        if not grouped:
             return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
         return {period: tuple(sorted(values)) for period, values in grouped.items()}
+
+    @classmethod
+    def _cutoff_sale_identity_partitions(
+        cls, cutoff_bridge, finance_batch, *, case_id=None,
+        expected_case_revision=None,
+    ):
+        from services.fifo_cost_cutoff_bridge_service import (
+            FifoCutoffBridgeEvent,
+            FifoCutoffBridgeResult,
+        )
+
+        if (
+            not isinstance(cutoff_bridge, FifoCutoffBridgeResult)
+            or getattr(cutoff_bridge, "status", None) != "READY"
+            or cutoff_bridge.ready_for_fifo_event is not True
+            or cutoff_bridge.preview_only is not True
+            or getattr(cutoff_bridge, "scope", None)
+                != getattr(getattr(finance_batch, "metadata", None), "scope", None)
+            or (
+                case_id is not None
+                and getattr(cutoff_bridge, "case_id", None) != case_id
+            )
+            or (
+                expected_case_revision is not None
+                and getattr(cutoff_bridge, "case_revision", None)
+                    != expected_case_revision
+            )
+        ):
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        if not cls._DIGEST.fullmatch(str(cutoff_bridge.source_set_fingerprint or "")):
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        cutoff = getattr(cutoff_bridge, "cutoff_date", None)
+        if (
+            not isinstance(cutoff, str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff)
+        ):
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        try:
+            if date.fromisoformat(cutoff).isoformat() != cutoff:
+                return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        except ValueError:
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        complete_through = getattr(cutoff_bridge, "complete_through", None)
+        if (
+            not isinstance(complete_through, str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", complete_through)
+            or complete_through < cutoff
+        ):
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        try:
+            if date.fromisoformat(complete_through).isoformat() != complete_through:
+                return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        except ValueError:
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+
+        pre_cutoff, post_cutoff = set(), set()
+        for target, events, condition in (
+            (
+                pre_cutoff,
+                getattr(cutoff_bridge, "pre_cutoff_outflows", None),
+                lambda day: day <= cutoff,
+            ),
+            (
+                post_cutoff,
+                getattr(cutoff_bridge, "post_cutoff_events", None),
+                lambda day: day > cutoff,
+            ),
+        ):
+            if not isinstance(events, tuple):
+                return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+            for event in events:
+                if not isinstance(event, FifoCutoffBridgeEvent):
+                    return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+                digest = getattr(event, "source_identity_digest", None)
+                effective_date = getattr(event, "physical_effective_date", None)
+                if (
+                    not isinstance(digest, str)
+                    or not cls._DIGEST.fullmatch(digest)
+                    or digest in pre_cutoff
+                    or digest in post_cutoff
+                    or not isinstance(effective_date, str)
+                    or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", effective_date)
+                    or not condition(effective_date)
+                ):
+                    return "FIFO_FINANCIAL_PERIOD_MAPPING_CONFLICT"
+                try:
+                    if date.fromisoformat(effective_date).isoformat() != effective_date:
+                        return "FIFO_FINANCIAL_PERIOD_MAPPING_CONFLICT"
+                except ValueError:
+                    return "FIFO_FINANCIAL_PERIOD_MAPPING_CONFLICT"
+                target.add(digest)
+        if not pre_cutoff and not post_cutoff:
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+
+        mappings = getattr(cutoff_bridge, "finance_to_sale_identity_mappings", None)
+        source_fingerprint = getattr(finance_batch, "source_fingerprint", None)
+        if not isinstance(mappings, tuple):
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        mapped = set()
+        for item in mappings:
+            if (
+                not isinstance(item, tuple) or len(item) != 2
+                or not isinstance(item[0], str)
+                or not cls._DIGEST.fullmatch(item[0])
+                or item[1] != source_fingerprint
+                or item[0] in mapped
+            ):
+                return "FIFO_FINANCIAL_PERIOD_MAPPING_CONFLICT"
+            mapped.add(item[0])
+        if mapped != pre_cutoff | post_cutoff:
+            return "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+        return pre_cutoff, post_cutoff
 
     @classmethod
     def _valid_chunk(cls, summary, start, end, identity):

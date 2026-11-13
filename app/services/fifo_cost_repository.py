@@ -2961,6 +2961,7 @@ class FifoCostRepository:
             if key not in {
                 "case_revision", "state", "updated_at", "_command_fingerprint",
                 "last_preview", "last_commit", "last_evidence",
+                "last_expired_preview_reopen",
             }
         }
         rows = {}

@@ -1,5 +1,13 @@
 # FIFO late-entry completion — independent review packet
 
+## Independent follow-up review R9–R11 — 2026-11-13
+
+- **R9 / baseline attribution:** Period Profit exposes full-month SKU COGS, not COGS attributed to each affected finance identity. The impact now stays candidate-only unless full-month SKU COGS exactly equals the reconstructed baseline subset; it no longer labels an unproven difference as earlier same-SKU cost. Exact per-identity attribution is not implemented, so incomplete attribution cannot produce a profit delta.
+- **R10 / cutoff mapping:** the production collector receives the exact typed READY `FifoCutoffBridgeResult`. It requires a complete bijection between the finance batch and pre/post cutoff bridge identities, exact reconstruction-to-post-cutoff equality, matching source fingerprint/scope/case revision, and valid physical dates. It aggregates only post-cutoff identities; it does not silently drop unknown finance rows.
+- **R11 / reopen marker:** the `last_expired_preview_reopen` audit marker is excluded from evidence fingerprints. A repository-backed regression covers a fresh prepare, TTL expiry, exact CAS reopen, and second prepare with the same immutable month snapshot and reconstruction fingerprint.
+- Local verification: linked FIFO profile **59 passed**, full isolated pytest **5,287 passed in 92.32s**, compileall and diff checks passed, and tracked `data/` is unchanged. Full-suite test copy excluded owner data and used a synthetic tax policy. PR #732 checks should be consulted for hosted exact-head status.
+- **R1 remains open:** no supported complete inventory movement ledger has been established; the owner's real cutoff case remains unverified. This packet does not claim factual FIFO COGS or readiness to apply the owner's case.
+
 ## Owner-confirmed cutoff receiving follow-up — 2026-11-10
 
 - The owner approved manual entry only for the missing `supplier_receiving` bucket. The Telegram path binds the nonnegative whole-number entry to one tenant/store/SKU case, the exact saved one-day stock report and cutoff; explicit zero is preserved. It is not represented as Ozon data, and no current act/status date is backdated.

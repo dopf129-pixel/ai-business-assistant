@@ -1,8 +1,12 @@
+from dataclasses import replace
 from datetime import date, timedelta
 
 from cryptography.fernet import Fernet
 
 from services.fifo_cost_cutoff_bridge_service import (
+    FifoCutoffBridgeEvent,
+    FifoCutoffBridgeResult,
+    FifoCutoffDescriptor,
     FifoFinanceSaleIdentity,
     FifoFinanceSaleIdentityBatch,
 )
@@ -149,6 +153,97 @@ def _inputs():
         "offer_id": IDENTITY["offer_id"], "sku": IDENTITY["sku"],
     }]
     return reconstruction, policy, products
+
+
+def test_financial_period_mapping_partitions_full_batch_by_verified_cutoff_bridge():
+    batch = _finance_batch()
+    pre_row = FifoFinanceSaleIdentity(
+        posting_number="synthetic-pre-cutoff-sale",
+        finance_sku=IDENTITY["sku"], offer_id=IDENTITY["offer_id"],
+        product_id=IDENTITY["product_id"], financial_period=PERIOD,
+    )
+    post_row = batch.rows[0]
+    full_batch = FifoFinanceSaleIdentityBatch(
+        metadata=batch.metadata, source_fingerprint=batch.source_fingerprint,
+        period_from=batch.period_from, period_to=batch.period_to,
+        source_as_of=batch.source_as_of, proof=batch.proof,
+        rows=(pre_row, post_row),
+    )
+
+    def digest(row):
+        return FifoCostSaleEvidenceNormalizer.build_identity_digest(
+            store_id=IDENTITY["store_id"], posting_number=row.posting_number,
+            finance_sku=row.finance_sku, identity={
+                "mapping_confirmed": True,
+                "offer_id": IDENTITY["offer_id"],
+                "product_id": IDENTITY["product_id"],
+            },
+        )["source_identity_digest"]
+
+    pre_digest, post_digest = digest(pre_row), digest(post_row)
+    reconstruction = {
+        "error": False, "code": "FIFO_LATE_ENTRY_RECONSTRUCTION_READY",
+        "before_complete": True, "preview_fingerprint": "b" * 64,
+        "sale_identity_digests_by_event": {"event-post": post_digest},
+    }
+    case_id = "case-fr20"
+    cutoff_descriptor = FifoCutoffDescriptor(
+        metadata=TransitionMetadata(
+            scope=batch.metadata.scope,
+            source_kind=EvidenceSourceKind.OWNER_INPUT,
+            completeness=EvidenceCompleteness.COMPLETE,
+            source_fingerprint="c" * 64,
+        ),
+        case_id=case_id, case_revision=3, cutoff_date="2026-11-06",
+        timezone="Europe/Moscow", precision="STORE_LOCAL_DATE",
+        boundary="END_OF_LOCAL_DATE",
+    )
+    bridge = FifoCutoffBridgeResult(
+        status="READY", scope=batch.metadata.scope, case_id=case_id,
+        case_revision=3, cutoff_descriptor=cutoff_descriptor,
+        complete_through="2026-11-30", confirmed_stock_buckets={},
+        pre_cutoff_outflows=(FifoCutoffBridgeEvent(
+            source_identity_digest=pre_digest, quantity=1,
+            physical_effective_date="2026-11-05",
+            finance_source_fingerprint=batch.source_fingerprint,
+            document_fingerprint="d" * 64,
+            document_row_reference="pre-row-1",
+        ),),
+        post_cutoff_events=(FifoCutoffBridgeEvent(
+            source_identity_digest=post_digest, quantity=1,
+            physical_effective_date="2026-11-08",
+            finance_source_fingerprint=batch.source_fingerprint,
+            document_fingerprint="d" * 64,
+            document_row_reference="post-row-1",
+        ),),
+        finance_to_sale_identity_mappings=(
+            (pre_digest, batch.source_fingerprint),
+            (post_digest, batch.source_fingerprint),
+        ),
+        linked_returns_non_sale_movements=(),
+        source_set_fingerprint="e" * 64,
+        unresolved_issues=(), provenance_by_basis={}, ready_for_fifo_event=True,
+    )
+
+    mapped = FifoCostFinancialPeriodSummaryCollectionService._digests_by_period(
+        reconstruction, full_batch, IDENTITY, cutoff_bridge=bridge,
+        case_id="case-fr20", expected_case_revision=3,
+    )
+    assert mapped == {PERIOD: (post_digest,)}
+    assert FifoCostFinancialPeriodSummaryCollectionService._digests_by_period(
+        reconstruction, full_batch, IDENTITY,
+    ) == "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
+
+    incomplete_bridge = replace(
+        bridge, finance_to_sale_identity_mappings=(
+            (post_digest, batch.source_fingerprint),
+        ),
+    )
+    assert FifoCostFinancialPeriodSummaryCollectionService._digests_by_period(
+        reconstruction, full_batch, IDENTITY,
+        cutoff_bridge=incomplete_bridge, case_id="case-fr20",
+        expected_case_revision=3,
+    ) == "FIFO_FINANCIAL_PERIOD_MAPPING_UNAVAILABLE"
 
 
 class _FinanceCache:

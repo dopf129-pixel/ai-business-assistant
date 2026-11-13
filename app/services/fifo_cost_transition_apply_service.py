@@ -544,6 +544,7 @@ class FifoCostTransitionApplyService:
                     expected_case_revision=expected_case_revision,
                     reconstruction=reconstruction,
                     finance_batch=bundle.finance_batch,
+                    cutoff_bridge=cutoff_bridge,
                     products=products,
                     tax_policy_result=tax_policy,
                     summary_reader=summary_reader,

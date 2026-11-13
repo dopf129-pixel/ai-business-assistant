@@ -1,3 +1,10 @@
+# 2026-11-13 — FIFO review corrections R9–R11
+
+- `tests/test_fifo_cost_late_entry_impact_service.py::test_late_entry_blocks_when_subset_cogs_cannot_be_proven_against_month_total` confirms the 100/130/150 ₽ partial-subset scenario remains candidate-only; no profit delta is produced without identity-level canonical COGS.
+- `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_financial_period_mapping_partitions_full_batch_by_verified_cutoff_bridge` validates a typed READY bridge partitions a complete two-row batch into one proven pre-cutoff row and one reconstructed post-cutoff row. It also verifies an omitted pre-cutoff mapping and missing bridge do not silently discard data.
+- `tests/test_fifo_cost_transition_apply_service.py::test_reprepare_after_expired_preview_reuses_frozen_month_without_fingerprint_drift` drives repository-backed prepare → expiry → exact CAS reopen → prepare and checks the old monthly snapshot remains bound to the unchanged reconstruction fingerprint.
+- Result: linked four-file profile **59 passed**; full isolated pytest **5,287 passed in 92.32s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. The disposable suite excluded project `data/` and used a synthetic tax policy. Hosted status is tracked on PR #732. The R1 complete-movement-source blocker remains open.
+
 # 2026-11-11 — FIFO follow-up review R6–R8 regressions
 
 - `tests/test_fifo_cost_transition_service.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, and `tests/test_telegram_fifo_cost_transition_runtime_service.py` cover known new-lot home stock, separately retained new-lot transit, exact cutover validation, and fresh resealing after an expired READY preview on restart. The expired seal cannot write FIFO and the replacement still requires owner confirmation.

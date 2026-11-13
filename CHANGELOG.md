@@ -1,3 +1,10 @@
+# 2026-11-13 — FIFO review corrections R9–R11
+
+- Late-entry profit is now candidate-only when the monthly SKU cost cannot be exactly reconciled to the FIFO sale-identity subset. A monthly aggregate is no longer treated as proof that the difference belongs to unaffected same-SKU sales.
+- Financial-period collection now partitions the complete finance batch through the typed, ready cutoff bridge. It verifies exact coverage of pre- and post-cutoff identities and collects summaries only for the reconstructed post-cutoff set; unknown or incomplete rows fail closed.
+- Reopening an expired READY preview no longer changes the evidence fingerprint. Added a real repository/service regression for prepare → expiry → reopen → prepare with the same frozen month snapshot.
+- Verification: targeted FIFO profile **59 passed**; full isolated pytest **5,287 passed in 92.32s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. The full-suite copy excluded owner data and used only a synthetic tax policy. R1 movement-source coverage remains blocked; hosted checks are tracked on PR #732.
+
 # 2026-11-11 — FIFO follow-up review R6–R8
 
 - Opening composition now records a known new-party home quantity as a separate FIFO layer. New-party transit remains separately labelled and is excluded from FIFO until accepted; durable composition, proposal, and atomic cutover validate both boundaries.

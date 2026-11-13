@@ -1,5 +1,13 @@
 # FIFO review blockers — журнал FR00–FR31
 
+## 2026-11-13 — повторный review R9–R11: исправления внесены
+
+- **R9 / subset COGS:** the Period Profit snapshot is a monthly SKU aggregate, not a per-sale baseline. Impact now remains `CANDIDATE_ONLY` unless its baseline COGS exactly matches the reconstructed identity subset. This avoids assigning a difference to other same-SKU sales without evidence. Identity-level COGS attribution remains future work; no profit result is claimed when it cannot be proven.
+- **R10 / finance identity mapping:** production collector now receives the exact typed READY cutoff bridge. It proves the complete finance batch equals the bridge's pre+post identity set, verifies bridge provenance/scope/revision and that reconstructed sale identities equal the post-cutoff partition, then snapshots only those post-cutoff identities. Missing/unknown rows remain a hard blocker.
+- **R11 / expired preview fingerprint:** `last_expired_preview_reopen` is transition metadata, excluded from evidence fingerprint inputs. A repository-backed regression covers prepare, TTL expiry, exact reopen, and fresh prepare using the unchanged frozen monthly snapshot; FIFO still requires separate apply confirmation.
+- Verification: targeted profile **59 passed**; full isolated pytest **5,287 passed in 92.32s**; compileall, `git diff --check`, and tracked `data/` equality passed. Full-suite copy excluded owner data, used a synthetic tax configuration, and copied the available `.fl12-deps/` only for test runtime; `.fl12-deps/` in the worktree remains untracked and must stay uncommitted. Hosted status is tracked on PR #732.
+- **R1 remains a hard blocker:** complete supported movement-ledger evidence and the owner's factual case have not been proven. No merge, deployment, live Ozon/Telegram request or bot launch was performed.
+
 ## 2026-11-11 — повторный review R6–R8: реализация и локальная проверка
 
 - **R6 / opening composition:** explicit new-party home units are now carried into the new-cost home layer when owner-confirmed. New-party transit is retained separately in the durable composition and shown in Telegram, but never copied into the FIFO transit layer. Service, durable reader, proposal, activation fingerprint, apply cutover, and repository validators enforce exact totals and conflicts.

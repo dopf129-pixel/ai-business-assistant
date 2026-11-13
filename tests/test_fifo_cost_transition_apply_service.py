@@ -56,8 +56,9 @@ NONE_POLICY = {
 
 
 class _ReadyReview:
-    def __init__(self, *, initialized=False):
+    def __init__(self, *, initialized=False, case_revision=3):
         self.initialized = initialized
+        self.case_revision = case_revision
 
     def assess(
         self, *, case_id, identity, for_transition_prepare=False,
@@ -68,8 +69,8 @@ class _ReadyReview:
         assert for_transition_prepare is True
         return {
             "error": False,
-            "case_revision": 3,
-            "current_case_revision": 4,
+            "case_revision": self.case_revision,
+            "current_case_revision": self.case_revision + 1,
             "case_state": "READY_TO_CONFIRM",
             "readiness": SimpleNamespace(status="PREVIEW_READY", requirements=()),
             "proposal": object(),
@@ -87,7 +88,7 @@ class _SavedEvidence:
         self, *, case_id, identity, expected_case_revision,
         require_opening_composition=True, sealed_preview_id=None,
     ):
-        assert expected_case_revision == 3
+        assert expected_case_revision == self.bundle.case.case_revision
         return {
             "error": False, "code": "FIFO_TRANSITION_EVIDENCE_LOADED",
             "case_revision": expected_case_revision,
@@ -136,7 +137,7 @@ def _service(
     )
     transition.read_confirmed_opening_composition = lambda *, case_id, **identity: {
         "error": False,
-        "case_revision": 3,
+        "case_revision": cutover["case_revision"],
         "stock_report_fingerprint": cutover["stock_report_fingerprint"],
         "layers": cutover["layers"],
         "confirmed": True,
@@ -155,9 +156,12 @@ def _service(
     )
 
 
-def _bundle(period_summaries=()):
+def _bundle(period_summaries=(), *, case_revision=3):
     case = _case(CASE_ID, sku=SCOPE.sku, owner=OWNER, store=STORE)
-    case = replace(case, metadata=replace(case.metadata, scope=SCOPE), case_revision=3)
+    case = replace(
+        case, metadata=replace(case.metadata, scope=SCOPE),
+        case_revision=case_revision,
+    )
     return FifoCostTransitionEvidenceBundle(
         case=case,
         period_summaries=tuple(period_summaries),
@@ -294,6 +298,66 @@ def test_exact_expired_ready_preview_reopens_with_cas_and_no_fifo_write(tmp_path
         after = _transition_no_write_snapshot(repository)
         assert after["fifo_counts"] == baseline["fifo_counts"]
         assert after["case_revision"] == 5
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_reprepare_after_expired_preview_reuses_frozen_month_without_fingerprint_drift(
+    tmp_path,
+):
+    repository, tenant, _stock, bridge, _impact, cutover, _prepared, clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    try:
+        original_reconstruction = _reconstruct(repository, bridge, cutover)
+        assert original_reconstruction["error"] is False, original_reconstruction
+        frozen_summary = _make_period_summary(original_reconstruction)
+        initial_service = _service(
+            repository, bridge, cutover,
+            _bundle((frozen_summary,)), clock,
+        )
+        initial = initial_service.prepare(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=3,
+            idempotency_key="prepare-apply-service-0001",
+        )
+        assert initial["code"] == "FIFO_TRANSITION_PREVIEW_READY", initial
+        assert initial["impact_preview"]["reconstruction_fingerprint"] == (
+            frozen_summary.reconstruction_fingerprint
+        )
+
+        clock[0] += timedelta(hours=1)
+        reopened = initial_service.reopen_expired_preview(
+            case_id=CASE_ID, identity=IDENTITY, expected_case_revision=4,
+            preview_id=initial["preview_id"],
+            preview_fingerprint=initial["preview_fingerprint"],
+            idempotency_key="reopen-expired-preview-0001",
+        )
+        assert reopened["code"] == "FIFO_TRANSITION_PREVIEW_REOPENED", reopened
+        assert reopened["case_revision"] == 5
+
+        current_bridge = replace(
+            bridge, case_revision=5,
+            cutoff_descriptor=replace(bridge.cutoff_descriptor, case_revision=5),
+        )
+        current_cutover = {**cutover, "case_revision": 5}
+        replay_service = _service(
+            repository, current_bridge, current_cutover,
+            _bundle((frozen_summary,), case_revision=5), clock,
+            review_service=_ReadyReview(case_revision=5),
+        )
+        refreshed = replay_service.prepare(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=5,
+            idempotency_key="prepare-after-expired-reopen-0001",
+        )
+
+        assert refreshed["code"] == "FIFO_TRANSITION_PREVIEW_READY", refreshed
+        assert refreshed["impact_preview"]["reconstruction_fingerprint"] == (
+            initial["impact_preview"]["reconstruction_fingerprint"]
+        )
+        assert refreshed["impact_preview"]["code"] == "FIFO_LATE_ENTRY_IMPACT_READY"
+        assert refreshed["case_revision"] == 6
     finally:
         reset_current_tenant_user_id(tenant)
 
