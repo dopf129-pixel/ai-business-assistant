@@ -3,7 +3,7 @@
 - The same physical-sales CSV can now be uploaded again after a preview expires or the process restarts: the service verifies and reuses the exact encrypted evidence instead of making a timestamp-only append or returning an idempotency conflict.
 - When reconstruction, tax policy, or the sale-identity set changes, stale monthly snapshots stay immutable in history and are excluded from the new collection. The collector re-reads and appends a current snapshot; evidence loading selects the highest valid evidence revision per financial month.
 - A transient failure while reading older confirmed CSV versions no longer leaves the Telegram session at an obsolete case revision. The retry action refreshes the session and can continue the explicit owner selection flow.
-- Verification: linked FIFO workflow profile **102 passed**; `git diff --check` and tracked `data/` equality pass. Hosted exact-head CI is pending publication. `.fl12-deps/` remains untouched and untracked.
+- Verification: linked FIFO workflow profile **102 passed**; `git diff --check` and tracked `data/` equality pass. Verify run [#43408293179](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43408293179) passed on implementation SHA `6e629c9fe06d1063c999019e8d3ca81fe0d03b71` (Linux/Windows full suites, compile, Linux Docker build/runtime smoke, SHA-bound report). `.fl12-deps/` remains untouched and untracked.
 
 # 2026-11-13 — FIFO review corrections R12–R14
 

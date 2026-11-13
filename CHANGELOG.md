@@ -2,7 +2,7 @@
 
 - Re-uploading an identical physical-sales CSV after its preview expires now reuses the verified immutable evidence row, even when the new upload has a different capture timestamp. Corrected financial-period snapshots append a new version; readers select the latest valid evidence revision for each month while retaining prior versions. Telegram refreshes its case revision after a save succeeds but version selection temporarily fails.
 - Added regression coverage for repeat upload after restart, corrected reconstruction/monthly snapshot replay, append-only latest-version selection, and retry after a transient confirmed-document read failure.
-- Local linked verification: **102 passed** across physical-sales import/evidence, financial-period snapshot collection/evidence, impact, apply, production workflow, and Telegram runtime. Exact-head hosted CI is pending publication of this commit.
+- Local linked verification: **102 passed** across physical-sales import/evidence, financial-period snapshot collection/evidence, impact, apply, production workflow, and Telegram runtime. Verify run [#43408293179](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43408293179) passed on implementation SHA `6e629c9fe06d1063c999019e8d3ca81fe0d03b71`: Linux and Windows full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report. A documentation-only status sync is being published separately.
 
 # 2026-11-13 — FIFO review corrections R12–R14
 

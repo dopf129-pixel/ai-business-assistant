@@ -4,7 +4,7 @@
 - `tests/test_fifo_cost_financial_period_summary_collection_service.py::test_corrected_reconstruction_appends_new_month_snapshot_version` verifies stale snapshots are not treated as current after a reconstruction correction and that a new immutable month version is appended.
 - `tests/test_fifo_cost_transition_period_summary_evidence.py::test_latest_corrected_frozen_summary_is_selected_and_history_is_retained` verifies evidence selects the highest revision per month while both immutable versions remain readable.
 - `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` injects a one-time confirmed-document list failure after save and verifies retry refreshes the runtime session before confirmation.
-- Linked changed-service and consumer profile: **102 passed**. Exact-head hosted CI pending publication.
+- Linked changed-service and consumer profile: **102 passed**. Verify run [#43408293179](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43408293179) passed on implementation SHA `6e629c9fe06d1063c999019e8d3ca81fe0d03b71`, including Linux/Windows full suites, compile, Linux Docker build/runtime smoke, and SHA-bound report.
 
 # 2026-11-13 — FIFO review corrections R12–R14
 
