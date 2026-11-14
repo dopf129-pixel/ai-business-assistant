@@ -4,7 +4,7 @@ Date: 2026-11-14
 Branch: `codex/fifo-auto-batch-sources-20261113`  
 Target base: `codex/fifo-auto-batch-foundation-20261113` at PR A checkpoint `305a892d1c3ef730f0796ff9cb8059c8582c0713`  
 PR: [#735 — Add FIFO automatic supply source and manifest](https://github.com/dopf129-pixel/ai-business-assistant/pull/735) (draft, stacked on PR A).  
-Published implementation/docs checkpoint: `fdd62a59ff9da483bd1b17e164626fd0bdd3287b`. Verify run [43616178291](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43616178291) passed for that exact SHA (Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report). This handoff is now being finalized with documentation-only changes; the resulting new PR head requires a fresh exact-SHA Verify run before the package is final.  
+Final PR B head: `c1d21fa21b837b054dcb664b0bdcb375a4dd84a4`. Verify run [43616962922](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43616962922) passed for that exact SHA: Windows and Linux full suites, compile, Linux production Docker build/runtime smoke, SHA-bound report and artifact upload. The earlier implementation checkpoint `fdd62a59ff9da483bd1b17e164626fd0bdd3287b` also passed run [43616178291](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43616178291).
 Classification: architecture review required (new source, normalization, checkpoint, deduplication, and manifest modules; schema v18; cross-service contracts).
 
 ## Scope delivered by PR B
@@ -15,7 +15,7 @@ FB11–FB18 add a bounded read-only supply scan boundary using existing Ozon lis
 
 - Windows Python 3.12 disposable-copy full suite: **5,405 passed in 99.02s**; `compileall app` passed. The copy excluded `.git`, `.venv`, real `data/`, and `.env`; it used only a synthetic `USN_INCOME` 6% policy, sanitized `.env.example`, and the preserved dependency bundle. Test runtime storage was confined to the disposable copy. One preliminary attempt had 8 isolation-setup failures because it set a storage-root override and excluded the sanitized example file; the corrected clean run passed without code changes.
 - Linked FIFO batch source/normalizer/acceptance/checkpoint/dedup/manifest/schema plus existing cross-docking and planning cross-docking regressions: **233 passed in 9.62s**.
-- Changed modules and linked tests compiled; `git diff --check` passed; `git diff --exit-code -- data` passed. `.fl12-deps/` remains untracked and excluded. PR B exact-head hosted CI is pending until publication.
+- Changed modules and linked tests compiled; `git diff --check` passed; `git diff --exit-code -- data` passed. `.fl12-deps/` remains untracked and excluded. PR B exact-head hosted CI passed on `c1d21fa21b837b054dcb664b0bdcb375a4dd84a4`.
 - No live Ozon/Telegram request, local Desktop bot, owner DB, merge, or deployment was used.
 
 ## Source capability matrix and unresolved source gaps
