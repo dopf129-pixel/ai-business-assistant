@@ -7023,3 +7023,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_fifo_cost_transition_supply_reconciliation_service.py` covers missing receiving observations retaining the last known value without zeroing, later present refresh without duplicate receipt, pending vs final discrepancy, and acceptance bound to exact declaration digest. Linked profile including source collection, batch contracts and store: **98 passed**.
 
 # 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
+# `tests/test_fifo_cost_batch_bundle_normalizer.py` and `tests/test_fifo_cost_batch_supply_source.py` cover exact SKU selection, planned versus shipped quantity, partial/unknown/explicit zero, wrong scope and references, and fail-closed source behavior while the raw bundle schema is unverified. FB13 linked profile: **81 passed**.
+# 2026-11-14 — FIFO automatic batch evidence deduplication (FB16)
+
+- `tests/test_fifo_cost_batch_supply_deduplicator.py` covers deterministic scoped `SUPPLY+SKU` keys; repeated page/capture deduplication; current source version; cumulative acceptance replay and correction review; owner/API provenance separation; supply and ORDER control reconciliation without double-counting; unresolved parent controls; wrong scope/key and same-fingerprint content conflicts; and declaration revision conflicts.
+- Linked synthetic Windows/Python 3.12 profile across batch source, normalizer, acceptance reconciliation, scan checkpoint, deduplicator, and schema regressions: **142 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Tests use synthetic values and temporary databases; no live Ozon/Telegram call or owner-data access.

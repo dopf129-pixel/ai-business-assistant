@@ -3066,3 +3066,8 @@ Summary Report теперь включает:
 - Added an exact-scope, immutable preview and atomic owner confirmation for per-SKU batch cost rules. Confirmation binds the saved case revision, cost, zero old-home/transit facts, store timezone, boundary date and first-day supply policy; successor rules close the prior interval before the new rule is appended.
 - Confirmation changes only the case's `supply_total_mode` and appends rule evidence. It does not write FIFO rates, layers, events, allocations or COGS. A bounded in-memory preview expires after 15 minutes; persisted idempotency receipts make identical retries safe after process restart.
 - Targeted linked profile: **91 passed** across batch contracts/service/store, transition contracts/store/service/apply and v13/v16 migration tests. Full pytest and exact-SHA CI remain planned for FB10.
+# 2026-11-14 — FIFO automatic batch evidence deduplication (PR B, FB16)
+
+- Added a pure canonical `SUPPLY+SKU` reconciliation boundary for API observations and owner declarations. It preserves the two evidence sources and revision references, chooses one current supply observation, and reports quantity/date conflicts for review.
+- An owner `ORDER` declaration remains a separate control over its child supplies; it is never counted as another supply or copied into child quantities. Cumulative acceptance snapshots retain the known maximum and flag a novel decrease for review.
+- FB16 does not publish scan coverage, build a ready manifest, persist source rows, or make FIFO/accounting writes. Local linked source/acceptance/dedup profile: **142 passed**; `compileall`, `git diff --check`, and tracked `data/` equality passed.

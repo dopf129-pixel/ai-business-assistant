@@ -5815,3 +5815,8 @@ Completed:
 - FB14 linked synthetic Windows/Python 3.12 profile: **98 passed**. The new automatic source still has not wired act requests or published batch observations; FB15 handles durable source checkpoint/publication. No live API or bot was used.
 
 # 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
+# Added typed SKU-composition normalization while the raw Ozon bundle schema remains unverified. Empty/raw/partial input stays UNKNOWN/PARTIAL; no live bundle request or manifest was created. See the source contract for the remaining gaps.
+# 2026-11-14 — FIFO automatic batch evidence deduplication (FB16)
+
+- Added a pure reconciliation layer that canonicalizes exact scoped `SUPPLY+SKU`, links matching owner and API evidence without merging provenance, keeps one ORDER control above its child supplies, and fails closed on quantity/date/fingerprint conflicts. Cumulative acceptance snapshots preserve the last known maximum and require review for novel decreases.
+- FB16 linked synthetic profile: **142 passed**; compilation, whitespace validation, and tracked `data/` equality passed. The result is not yet integrated into scan publishing or manifest readiness; no production FIFO/COGS write and no live API/bot call occurred. Continue at FB17.

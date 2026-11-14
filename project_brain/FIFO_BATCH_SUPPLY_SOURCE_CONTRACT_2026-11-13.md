@@ -54,3 +54,9 @@ The fixture files under `tests/fixtures/fifo_cost_batch_source/` are explicitly 
 - Existing adapter and synthetic tests: `app/api/ozon_client.py`, `tests/test_experimental_supply_act_diagnostic.py`, `tests/test_cross_docking_supply_source.py`, and `app/services/fifo_cost_source_collection_service.py`.
 
 The source gap is a real implementation limitation, not a reason to invent an API contract. Independent rule, storage, and UI work may proceed behind the strict adapter boundary.
+
+## FB16 — owner/API supply deduplication boundary
+
+`FifoCostBatchSupplyDeduplicator` is a pure linker over typed, already-normalized evidence. One canonical record is keyed by exact owner/store/product/offer/SKU scope plus the opaque supply digest. Seller API observations retain their `OZON_API` provenance, owner declarations retain `OWNER_INPUT` provenance and declaration revisions, and matching values are compared rather than summed. ORDER declarations remain separate parent controls; if child supplies are not linked, the control stays unresolved or unverifiable and never becomes an extra supply.
+
+The layer deduplicates repeated observations by source fingerprint, uses the latest captured content only for a stable canonical supply identity, and preserves cumulative accepted quantity without treating a repeated older snapshot as a new decrease. A novel decrease, fingerprint/content conflict, mapping conflict, wrong scope, declared-versus-shipped quantity conflict, or proven dispatch-date conflict requires review. An `API_ONLY` or `OWNER_ONLY` record is not evidence that the source set is complete. This result is not a scan-coverage or readiness claim; FB17 owns totals and coverage. No rows are persisted and no FIFO/accounting state is changed.
