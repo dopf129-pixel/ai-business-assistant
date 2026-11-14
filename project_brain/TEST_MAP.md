@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch manifest readiness bridge (FB24)
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py` seeds a temporary tenant-scoped SQLite case, confirms a synthetic automatic rule, persists a published scan through the production checkpoint API, and verifies the read service rebuilds a typed manifest with planned/shipped composition, accepted unknown, source provenance, and source-profile issues preserved.
+- The same module verifies a newer partial scan blocks fallback to an older published scan; `tests/test_fifo_cost_transition_review_service.py::test_legacy_case_does_not_consult_automatic_batch_manifest_provider` verifies legacy cases do not enter the new source path. Review assertions confirm the typed manifest fingerprint appears as saved readiness evidence while apply remains blocked and FIFO events/layers/allocations stay empty.
+- `tests/test_fifo_cost_transition_production_workflow.py` asserts one shared manifest reader is wired into the production review factory. Linked manifest/readiness/review/apply/store/checkpoint/production profile: **77 passed**; all FIFO batch-specific tests: **124 passed**. No live Ozon/Telegram calls or owner data were used.
+
 # 2026-11-14 — FIFO automatic batch Telegram card and bounded refresh (FB21)
 
 - `tests/test_fifo_cost_batch_rule_regressions.py` covers rendering the current-rule card without network access, refresh binding to the exact tenant/store/SKU/case/rule revision, bounded source invocation and continuation UI, stale ticket rejection, duplicate replay, cross-tenant cached-result rejection, retry failure retaining the last successful read, safe error wording, privacy, and no FIFO state change. “Проверить найденные” does not make an Ozon call or infer exact SKU membership.

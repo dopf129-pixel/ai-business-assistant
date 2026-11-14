@@ -135,6 +135,13 @@ def test_production_workflow_builder_wires_durable_evidence_review_apply_and_run
     ]
     assert workflow["runtime_service"].period_profit_service is period_profit_service
     assert workflow["review_service"].evidence_service is workflow["evidence_service"]
+    assert workflow["review_service"].automatic_batch_manifest_service is workflow[
+        "batch_manifest_read_service"
+    ]
+    assert workflow["batch_manifest_read_service"].repository is repository
+    assert workflow["batch_manifest_read_service"].manifest_builder is workflow[
+        "batch_manifest_builder"
+    ]
     assert workflow["review_service"].transition_service is transition
     assert workflow["evidence_service"].repository is repository
     assert workflow["apply_service"].repository is repository

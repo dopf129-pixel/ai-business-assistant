@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch readiness uses newest persisted manifest (FB24)
+
+- Production readiness now rehydrates the typed supply manifest from exact owner/store/product/offer/SKU scoped evidence and the active rule. It verifies the latest scan set seal and uses only a matching PUBLISHED scan; a newer partial/failed scan, ambiguous timestamp tie, source mismatch, or stale observation set leaves the manifest unavailable rather than reusing old data.
+- Readiness keeps source coverage, unknown quantities, provenance and incomplete acceptance visible. A manifest can resolve only the automatic supply-manifest input; movement coverage, physical receipt timing, cutoff bridge, finance, tax, and R1 remain independent gates. Legacy total mode stays on the prior path.
+- Synthetic FB24 linked profile: **77 passed**; full FIFO batch-specific profile: **124 passed**. No live Ozon/Telegram calls, FIFO write, bot launch, merge, or deployment. Raw seller source semantics and R1 remain unverified. Next: FB25 prepare/apply seals.
+
 # 2026-11-15 — FIFO automatic batch follow-up supplies and next cost boundary
 
 - FB23 verifies multiple bounded refreshes can add later target-SKU supply observations under the existing confirmed price and automatic mode without a repeated total. The legacy `declared_shipped_units` remains unknown; bundle quantities remain planned composition; no FIFO movement, layer, allocation, or COGS row is written.

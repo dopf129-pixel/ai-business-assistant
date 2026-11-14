@@ -627,14 +627,14 @@ class FifoCostBatchRuleService:
         cost_input_fingerprint, boundary_supply_digests,
         predecessor_rule_id, predecessor_rule_revision, event_kind,
         end_local_date_exclusive, owner_confirmation_fingerprint,
-        confirmed_at_utc,
+        confirmed_at_utc, policy_version=1, applied_rate_reference=None,
     ) -> BatchRuleRevision:
         payload = {
             "scope": cls._scope_payload(scope),
             "case_id": case_id,
             "rule_id": rule_id,
             "rule_revision": rule_revision,
-            "policy_version": 1,
+            "policy_version": policy_version,
             "start_local_date": start_local_date,
             "store_timezone": store_timezone,
             "start_day_policy": start_day_policy.value,
@@ -649,14 +649,14 @@ class FifoCostBatchRuleService:
             "end_local_date_exclusive": end_local_date_exclusive,
             "owner_confirmation_fingerprint": owner_confirmation_fingerprint,
             "confirmed_at_utc": confirmed_at_utc,
-            "applied_rate_reference": None,
+            "applied_rate_reference": applied_rate_reference,
         }
         return BatchRuleRevision(
             scope=scope,
             case_id=case_id,
             rule_id=rule_id,
             rule_revision=rule_revision,
-            policy_version=1,
+            policy_version=policy_version,
             start_local_date=start_local_date,
             store_timezone=store_timezone,
             start_day_policy=start_day_policy,
@@ -672,7 +672,7 @@ class FifoCostBatchRuleService:
             owner_confirmation_fingerprint=owner_confirmation_fingerprint,
             confirmed_at_utc=confirmed_at_utc,
             rule_fingerprint=cls._digest(payload),
-            applied_rate_reference=None,
+            applied_rate_reference=applied_rate_reference,
         )
 
     @staticmethod

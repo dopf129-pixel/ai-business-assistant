@@ -86,6 +86,29 @@ def test_readiness_rebuild_is_scoped_read_only_and_never_marks_ready(tmp_path):
         reset_current_tenant_user_id(tenant)
 
 
+def test_legacy_case_does_not_consult_automatic_batch_manifest_provider(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
+    try:
+        _repository, history, transition, runtime, _review = _services(tmp_path)
+        case_id = _create_case(runtime)
+
+        class ManifestProvider:
+            def read_current_manifest(self, **_kwargs):
+                raise AssertionError("legacy review must not read automatic batch evidence")
+
+        review = FifoCostTransitionReviewService(
+            transition, history,
+            automatic_batch_manifest_service=ManifestProvider(),
+        )
+        result = review.assess(case_id=case_id, identity=IDENTITY)
+
+        assert result["error"] is False, result
+        assert result["automatic_batch_manifest_status"] is None
+        assert result["ready_to_apply"] is False
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_readiness_can_reopen_ready_case_without_marking_it_applicable(tmp_path, monkeypatch):
     tenant = set_current_tenant_user_id(make_store_tenant_scope("101", "store-a"))
     try:

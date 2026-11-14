@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch manifest in readiness (FB24)
+
+- Connected the existing typed manifest builder to the current read-only FIFO readiness review through a scoped SQLite read service. Review reconstructs only the newest published scan that matches the active rule and saved owner decisions; a newer partial/failing scan, ambiguous equal-time scans, stale set fingerprint, missing data, or storage error cannot fall back to an older result.
+- Kept source provenance and unknown counts in the typed manifest. Declared bundle composition remains separate from shipped/accepted evidence; no supply quantity is converted to inventory movement, FIFO layer, allocation, or COGS. Legacy cases do not read the automatic manifest provider.
+- Synthetic SQLite/readiness profile: **77 passed**; complete FIFO batch-specific profile: **124 passed**. Compile, diff, and tracked-data integrity checks are recorded in the FB24 progress journal. Raw Ozon status/date/history profile and R1 remain unverified.
+
 # 2026-11-15 — FIFO automatic batch follow-up supplies and cost boundaries (FB23)
 
 - Verified that a later explicit supply refresh appends the newly observed target-SKU composition under the existing confirmed rule without asking for another price or lifetime total. The original price, `declared_shipped_units=None`, and all FIFO movement tables remain unchanged; quantities from the bundle remain planned composition and dispatch date remains unknown.
