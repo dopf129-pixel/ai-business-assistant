@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
+
+- Added a read-only, typed normalization boundary for per-SKU supply composition. It selects only the exact scoped SKU, validates a consistent supply/order reference, rejects duplicate mappings, and preserves planned quantity, shipped quantity, and explicit-zero provenance independently.
+- The raw Ozon bundle request/response schema and planned-versus-shipped semantics remain unverified. `get_supply_composition` therefore checks the exact tenant/case/rule basis and returns `UNKNOWN` with zero HTTP attempts; it does not inspect guessed JSON fields or convert an empty/partial source to zero. No observations or manifests are persisted.
+- FB13 linked synthetic Windows/Python 3.12 profile: **81 passed**; modified service and test modules compile. Full suite and hosted PR B CI have not yet run on this change. R1/cutoff and physical receipt timing remain independent blockers.
+
 # 2026-11-14 — FIFO automatic batch rule implementation in progress
 
 - FIFO automatic batch PR A is complete on exact head `305a892d1c3ef730f0796ff9cb8059c8582c0713`; its Verify run #43596110972 passed. PR B is in progress on `codex/fifo-auto-batch-sources-20261113`. FB00–FB10 in PR A establish typed contracts, additive SQLite v17 evidence, owner rule preview/confirmation, deterministic membership classification, optional dated controls, compatible Telegram choices, readiness gates and an isolated full-suite checkpoint. Legacy cases remain in `LEGACY_OWNER_TOTAL` until an owner confirms automatic mode.

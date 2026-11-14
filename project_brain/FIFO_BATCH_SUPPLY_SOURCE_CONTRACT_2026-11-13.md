@@ -1,14 +1,14 @@
 # FIFO automatic batch supply source contract
 
-Checked: 2026-11-13. This note separates official Ozon claims from existing client adapters and synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
+Checked: 2026-11-14. This note separates official Ozon claims from existing client adapters and synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
 
 ## Officially confirmed
 
 | Operation / fact | Confirmed information | Source |
 |---|---|---|
-| `POST /v3/supply-order/list` | Ozon's guide calls this the method for listing available supplies/orders. The guide does not expose the complete request/response JSON or a complete raw state enum in readable text. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-integratsiia-metodov-Seller-API-FBO-so-skanerom/) |
-| `POST /v3/supply-order/get` | The guide says it obtains data for a known `supply_id`; a separate Ozon notice says this v3 method replaces v2. No full schema is visible in the public page rendering used for this check. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-integratsiia-metodov-Seller-API-FBO-so-skanerom/), [v2 to v3 migration notice](https://dev.ozon.ru/news/643-Izmeneniia-v-metodakh-dlia-zaiavok-na-postavku-v-Seller-API/) |
-| `POST /v1/supply-order/bundle` | Ozon's guide explicitly says its request uses `supply_id` and `bundle_id`, and its result contains product SKUs and quantities (also barcodes and cargo restrictions). This does not reveal the complete JSON keys, types, relation of `bundle_id` to nested supplies, or a pagination contract. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-integratsiia-metodov-Seller-API-FBO-so-skanerom/) |
+| `POST /v3/supply-order/list` | Ozon's guide calls this the method for listing available supplies/orders. The guide does not expose the complete request/response JSON or a complete raw state enum in readable text. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-po-integratsii-metodov-Seller-API-FBO-so-skanerom/) |
+| `POST /v3/supply-order/get` | The guide says it obtains data for a known `supply_id`; a separate Ozon notice says this v3 method replaces v2. No full schema is visible in the public page rendering used for this check. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-po-integratsii-metodov-Seller-API-FBO-so-skanerom/), [v2 to v3 migration notice](https://dev.ozon.ru/news/643-Izmeneniia-v-metodakh-dlia-zaiavok-na-postavku-v-Seller-API/) |
+| `POST /v1/supply-order/bundle` | Ozon's guide explicitly says its request uses `supply_id` and `bundle_id`, and its result contains product SKUs and quantities (also barcodes and cargo restrictions). This does not reveal the complete JSON keys, types, relation of `bundle_id` to nested supplies, or a pagination contract. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-po-integratsii-metodov-Seller-API-FBO-so-skanerom/) |
 | Cross-docking `arrival_date` | From 2026-02-16, `storage_warehouse.arrival_date` is returned as null for the affected cross-docking methods. It cannot prove dispatch or receipt date. The notice also introduces `macrolocal_cluster_id` and says `warehouse_id` loses relevance for cross-docking. | [FBO supply API change notice](https://dev.ozon.ru/news/647-Izmeneniia-v-metodakh-Seller-API-pri-rabote-s-postavkami-FBO/) |
 
 The official API reference `https://docs.ozon.ru/api/seller/` rendered without readable operation schemas in this review. No live seller request was made. No user credentials or seller responses were used.
@@ -25,6 +25,10 @@ The official API reference `https://docs.ozon.ru/api/seller/` rendered without r
 These are the current application's validated interfaces and synthetic test shapes. They do not prove the authoritative raw Seller API schema, completeness of a list cursor over history, or actual dispatch timing.
 
 FB12 implementation uses the wrapper contract only: list pages are requested at no more than 100 IDs; detail calls contain at most 50 orders; each order must match exactly one requested ID and expose a nested supplies list before its supply references are counted. A shorter page with no `last_id` is terminal only for this local wrapper; a full page without a cursor stays partial. Overlapping order IDs are deduplicated and flagged. This does not verify raw response semantics or full historical coverage. The current continuation is a bounded process-local transport checkpoint, not durable scan evidence.
+
+FB13 implementation adds `FifoCostBatchBundleNormalizer` as a typed boundary over the existing `SupplySkuObservation` contract. It only maps exact owner/store/SKU observations sharing one supply and order digest, rejects duplicate SKU/record mappings, and keeps planned and shipped composition quantities separate. It requires explicit-zero provenance for zero quantities and preserves partial quantities as `PARTIAL`. This normalizer never parses a raw bundle dictionary.
+
+`FifoCostBatchSupplySourceService.get_supply_composition` validates the current exact tenant/case/rule and then returns `UNKNOWN` / `FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED` with zero HTTP attempts. No `/v1/supply-order/bundle` wrapper/body was added. This is intentional until the raw JSON key/type contract, bundle-to-supply binding, and planned-versus-shipped semantics are verified. No source rows or manifest are persisted at FB13.
 
 ## Unverified fields / safe adapter behavior
 
@@ -43,7 +47,7 @@ The fixture files under `tests/fixtures/fifo_cost_batch_source/` are explicitly 
 
 ## Evidence reviewed
 
-- Ozon for Developers, “Гайд: интеграция методов Seller API FBO со сканером”, published 2026-06-10; confirms list/get use and the `supply_id` + `bundle_id` bundle request concept and SKU/quantity result.
+- Ozon for Developers, “Гайд: интеграция методов Seller API FBO со сканером”, published 2026-06-10; confirms list/get use and the `supply_id` + `bundle_id` bundle request concept and SKU/quantity result. The page text still does not expose exact response keys/types or semantics sufficient for a typed raw adapter.
 - Ozon for Developers, “Изменения в методах Seller API при работе с поставками FBO”, published 2026-01-19; cross-dock `storage_warehouse.arrival_date` is null from 2026-02-16.
 - Ozon for Developers, “Изменения в методах Seller API для работы с заявками на поставку”, published 2025-11-20; v2 list/get were to be replaced by v3.
 - Existing adapter and synthetic tests: `app/api/ozon_client.py`, `tests/test_experimental_supply_act_diagnostic.py`, `tests/test_cross_docking_supply_source.py`, and `app/services/fifo_cost_source_collection_service.py`.

@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (PR B, FB13)
+
+- Added a typed normalizer for already-verified per-SKU observations. It matches the exact owner/store/SKU and supply/order references, keeps planned and shipped quantities separate, rejects duplicate mappings, and distinguishes proven zero from missing data.
+- Because Ozon's public guide does not expose the exact bundle JSON schema or quantity semantics, the source entry point validates the current case/rule and returns `UNKNOWN` without making an HTTP request. Empty, raw/unverified, or partial compositions never become a zero or a confirmed total.
+- FB13 linked synthetic profile: **81 passed**. Changed modules compile. No production bundle request, live API, or bot was used.
+
 # 2026-11-14 — FIFO automatic batch order/details scan (PR B, FB12)
 
 - Extended the bounded adapter to follow the local v3 list cursor, read each unique order's nested supplies, and batch order details at no more than 50 IDs per request. Overlapping pages are deduplicated but flagged as a changing source; repeated cursors and malformed identity coverage fail closed. A full 100-row page without a cursor is never called complete.

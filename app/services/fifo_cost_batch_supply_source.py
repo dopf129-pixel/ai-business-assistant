@@ -1,8 +1,8 @@
-"""Bounded, non-publishing source entry point for automatic FIFO supply scans.
+"""Bounded, read-only source entry point for automatic FIFO supply evidence.
 
-This stage intentionally reads at most one list page. The raw state profile,
-terminal-cursor proof, nested supply mapping, and dispatch-date fields remain
-unverified, so a successful transport can only produce PARTIAL coverage.
+Order-list/details scans use the local wrapper contracts and remain partial
+until raw state/cursor/date coverage is verified. The bundle schema is also
+unverified, so composition requests return UNKNOWN without HTTP.
 """
 
 from __future__ import annotations
@@ -15,6 +15,10 @@ import threading
 from time import monotonic
 from uuid import uuid4
 
+from services.fifo_cost_batch_bundle_normalizer import (
+    FifoCostBatchBundleNormalizer,
+    FifoCostBatchSupplyCompositionResult,
+)
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
 from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
 from services.fifo_cost_source_normalizer import FifoCostSourceNormalizer
@@ -59,8 +63,10 @@ class _BatchScanCheckpoint:
 class FifoCostBatchSupplySourceService:
     """Validate scope and collect bounded order-list/details evidence.
 
-    No source response is returned or persisted. FB12+ owns strict response
-    SKU composition, normalization, durable checkpoints, and publication.
+    Raw source responses are never returned or persisted. Bundle composition
+    stays UNKNOWN until its exact raw schema and semantics are verified; a
+    pure typed normalizer handles only a future verified adapter result.
+    Durable checkpoints and publication are handled by later stages.
     """
 
     TIME_BUDGET_SECONDS = 20.0
@@ -91,6 +97,49 @@ class FifoCostBatchSupplySourceService:
         self.monotonic_clock = monotonic_clock
         self._checkpoints: dict[str, _BatchScanCheckpoint] = {}
         self._checkpoint_lock = threading.RLock()
+
+    def get_supply_composition(
+        self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,
+        rule_revision: int, supply_ref_digest: str,
+    ) -> FifoCostBatchSupplyCompositionResult:
+        """Return explicit UNKNOWN until the raw bundle schema is verified.
+
+        The public guide confirms the bundle concept but not enough of its JSON
+        contract to issue a safe request or assign planned/shipped semantics.
+        This entry point validates the exact tenant/case/rule and intentionally
+        performs no HTTP call. A future verified adapter must normalize typed
+        observations before the pure bundle normalizer is used.
+        """
+        if (
+            not isinstance(supply_ref_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", supply_ref_digest)
+        ):
+            return FifoCostBatchBundleNormalizer.unknown(
+                "FIFO_BATCH_BUNDLE_SUPPLY_REFERENCE_INVALID",
+                status="CONFLICT", source_status="CONFLICT",
+            )
+        basis = self.rule_service.read_collection_basis(
+            scope, case_id, expected_case_revision, rule_revision,
+        )
+        if basis.get("error"):
+            code = str(basis.get("code") or "")
+            conflict = (
+                "CONFLICT" if code.endswith("CONFLICT") or code.endswith("MISMATCH")
+                else "BLOCKED"
+            )
+            return FifoCostBatchBundleNormalizer.unknown(
+                code if code.startswith("FIFO_") else
+                "FIFO_BATCH_BUNDLE_COLLECTION_BASIS_UNAVAILABLE",
+                case_revision=(expected_case_revision
+                               if type(expected_case_revision) is int else None),
+                rule_revision=(rule_revision if type(rule_revision) is int else None),
+                status=conflict, source_status=conflict,
+            )
+        return FifoCostBatchBundleNormalizer.unknown(
+            "FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED",
+            case_revision=basis["case_revision"],
+            rule_revision=basis["rule_revision"],
+        )
 
     def collect_supplies(
         self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,

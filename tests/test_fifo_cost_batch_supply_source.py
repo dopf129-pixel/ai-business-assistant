@@ -83,6 +83,10 @@ class _FakeOzon:
             records.append(record)
         return {"orders": records}
 
+    def get_supply_order_bundle(self, *args, **options):
+        self.calls.append(("bundle", {"args": tuple(args), **options}))
+        return {"items": []}
+
 
 def _case():
     return TransitionCase(
@@ -190,6 +194,64 @@ def test_collect_uses_one_allowlisted_bounded_page_and_returns_partial_only(
             ).fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint(
+    tmp_path, monkeypatch,
+):
+    repo, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch,
+    )
+    try:
+        result = source.get_supply_composition(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], "a" * 64,
+        )
+
+        assert result.status == "UNKNOWN"
+        assert result.source_status == "NOT_VERIFIED"
+        assert result.read_only is True
+        assert result.actual_http_attempts == 0
+        assert result.case_revision == confirmed["case_revision"]
+        assert result.rule_revision == confirmed["rule_revision"]
+        assert result.planned_quantity is None
+        assert result.shipped_quantity is None
+        assert result.issue_codes == ("FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED",)
+        assert ozon.calls == []
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_observations",
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_scans",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_bundle_source_rejects_invalid_supply_reference_before_any_http(
+    tmp_path, monkeypatch,
+):
+    _repo, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch,
+    )
+    try:
+        result = source.get_supply_composition(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], "not-a-digest",
+        )
+
+        assert result.status == "CONFLICT"
+        assert result.issue_codes == (
+            "FIFO_BATCH_BUNDLE_SUPPLY_REFERENCE_INVALID",
+        )
+        assert result.actual_http_attempts == 0
+        assert ozon.calls == []
     finally:
         reset_current_tenant_user_id(tenant_token)
 

@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
+
+- `tests/test_fifo_cost_batch_bundle_normalizer.py` covers exact SKU selection from mixed-SKU normalized rows (including row-order invariance), planned versus shipped quantities, partial composition, empty/raw/unverified input, explicit zero versus unknown, wrong scope/supply/order, duplicate mappings, and unsupported profile behavior.
+- `tests/test_fifo_cost_batch_supply_source.py::test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint` verifies the source validates its current case/rule then returns `UNKNOWN` with zero HTTP attempts and no persistence; the invalid-reference test verifies fail-closed validation before network access.
+- Linked FB13 profile: **81 passed** across bundle normalizer, bounded source, batch contracts/rules/classifier/store, and readiness tests. `compileall` passed on changed Python modules; no full-suite claim is made.
+
 # 2026-11-14 — FIFO automatic batch rule verification through FB10
 
 - FB09 adds readiness regressions in `tests/test_fifo_cost_transition_readiness_service.py`: AUTO without a manifest reports a source gap without requiring an owner total; empty/partial manifests and unknown quantities remain incomplete; a complete scoped manifest removes only the supply-manifest requirement; a wrong case is rejected; dated-control mode cannot fall through the legacy-total path. The complete fixture deliberately has no physical receipt timestamp, leaving R1/cutoff independent. Linked readiness/review/transition/apply/cutoff bridge/batch-contract profile: **81 passed**; module compilation, `git diff --check`, and tracked `data/` equality pass.
