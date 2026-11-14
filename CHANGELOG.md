@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch acceptance verification (PR B, FB14)
+
+- Reused and re-verified the existing act normalizer and cumulative acceptance reconciler rather than adding a competing implementation. Repeated act snapshots deduplicate, independent acts sum, newer incomplete reads retain the last known accepted quantity without claiming a complete result, and decreasing totals require documented correction review.
+- Missing act evidence stays unknown; explicit zero requires its own evidence. Act document dates and API capture times remain documentary only; normalized receipt `effective_at` stays unset. This verification does not yet connect act reads or publish batch observations.
+- FB14 linked synthetic profile: **98 passed** across source collection/normalization, acceptance and transition reconciliation, and batch contracts/store.
+
 # 2026-11-14 — FIFO automatic batch SKU composition boundary (PR B, FB13)
 
 - Added a typed normalizer for already-verified per-SKU observations. It matches the exact owner/store/SKU and supply/order references, keeps planned and shipped quantities separate, rejects duplicate mappings, and distinguishes proven zero from missing data.

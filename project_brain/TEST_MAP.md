@@ -7010,3 +7010,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Regression cases cover owner-confirmed vs filename-candidate/unknown dates; duplicate/missing SKU or quantity; formula and Excel-error cells; exact header casing with whitespace/NBSP normalization; fractional values; all four component totals and balance; malformed/extra columns; external relationships, relationship/ZIP traversal, ZIP entry and compression-ratio limits.
 - At the initial FL12 code SHA `1f209a23`, the focused set had **21 passed** and linked profile **409 passed**. Shared XLSX preflight hardening in FL13 adds a hidden-sheet test; current counts are **22 FL12** and **423 linked**. Fixtures use synthetic in-memory workbooks; owner files, databases, Ozon and Telegram were not accessed.
 
+# 2026-11-14 — FIFO automatic batch acceptance verification (FB14)
+
+- `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py` covers cumulative 40/70/100, stale duplicate snapshots, independent act sums, duplicate act replay, explicit zero vs missing act evidence, partial/newer incomplete reads, downward correction review, and SKU/declaration conflicts.
+- `tests/test_fifo_cost_source_normalizer.py` covers act-summary/product-line reconciliation, multiple partial acts, exact SKU matching, correction/duplicate representation, incomplete/unknown act states, missing act as EMPTY rather than zero, and documentary `created_date` with `effective_at is None`.
+- `tests/test_fifo_cost_transition_supply_reconciliation_service.py` covers missing receiving observations retaining the last known value without zeroing, later present refresh without duplicate receipt, pending vs final discrepancy, and acceptance bound to exact declaration digest. Linked profile including source collection, batch contracts and store: **98 passed**.
+
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)

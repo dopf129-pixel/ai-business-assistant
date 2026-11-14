@@ -5802,3 +5802,10 @@ Completed:
 - FL25 code SHA `6be4485eca93bfd94e903bc3576913a2e0d86b2a`; linked FIFO/Telegram/Period Profit profile **537 passed**; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Все тестовые данные синтетические. Реальный case владельца не применён и не подтверждён.
 
 # 2026-11-08 — FIFO FL24: переход к поздней партии до настройки очереди
+# 2026-11-14 — FIFO automatic batch acceptance verification (FB14)
+
+- Reused the existing `FifoCostSourceNormalizer` and `FifoCostSupplyAcceptanceReconciliationService`; no duplicate act parser or acceptance algorithm was needed. The existing transition reconciler preserves last-known accepted receiving when a newer supply row disappears, rather than assigning zero.
+- Reverified cumulative 40→70→100, independent partial acts, duplicate snapshots, pending partial acceptance, explicit zero vs missing act, and decrease correction requiring review. Act `created_date` is documentary only and `FifoSupplyActSnapshot.effective_at` remains `None`; accepted units are not a physical receipt date.
+- FB14 linked synthetic Windows/Python 3.12 profile: **98 passed**. The new automatic source still has not wired act requests or published batch observations; FB15 handles durable source checkpoint/publication. No live API or bot was used.
+
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)

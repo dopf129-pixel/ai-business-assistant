@@ -20,7 +20,8 @@ The official API reference `https://docs.ozon.ru/api/seller/` rendered without r
 - `get_supply_orders_list(states, last_id=None, limit<=100, sort_by, sort_dir, ...)` posts to `/v3/supply-order/list` with `filter.states`, `limit`, `sort_by`, `sort_dir`, and optional `last_id`. The adapter currently normalizes the response to `order_ids` and `last_id`.
 - `get_supply_orders_details(order_ids<=50, ...)` posts to `/v3/supply-order/get` with `order_ids`. The adapter returns an `orders` collection to callers.
 - Existing code consumers inspect nested order `supplies` containing `supply_id`, `state`, and sometimes `is_crossdock`. Existing cross-docking logic deliberately scopes to `COMPLETED`; its narrower status/window semantics must not be reused as proof of general batch coverage.
-- Existing act methods and normalizers can reconcile acceptance; tested product fields include `sku_info.sku`, `declared_quantity`, `approved_quantity`, and `fact_quantity`. Missing `fact_quantity` is not zero.
+- Existing act methods and normalizers can reconcile acceptance; tested product fields include `sku_info.sku`, `declared_quantity`, `approved_quantity`, and `fact_quantity`. Missing `fact_quantity` is not zero. The existing reconciler deduplicates repeated cumulative snapshots, sums distinct acts, preserves a last known accepted amount beneath a newer partial read, and requires review for a decrease.
+- An act `created_date` and an API capture timestamp are not physical receipt timestamps; the normalized `FifoSupplyActSnapshot.effective_at` is deliberately unset. FB14 revalidated these existing semantics, but did not wire act acquisition into the new automatic batch source.
 
 These are the current application's validated interfaces and synthetic test shapes. They do not prove the authoritative raw Seller API schema, completeness of a list cursor over history, or actual dispatch timing.
 
