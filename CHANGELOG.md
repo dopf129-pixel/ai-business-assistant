@@ -1,7 +1,7 @@
 # 2026-11-14 — FIFO automatic batch PR A local checkpoint (FB10)
 
 - In an isolated disposable copy with project `data/` and secrets excluded, the full Windows/Python 3.12 suite passed: **5,346 passed in 95.82s**. The copy used a synthetic tax policy and the preserved `.fl12-deps/` only as test libraries.
-- `compileall` passed in the same copy. This is local verification for tested tree `74ffefcd`; exact-SHA hosted CI for the final PR head remains pending.
+- `compileall` passed in the same copy. Local verification covered tree `74ffefcd`. Hosted Verify run [#43595401017](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43595401017) passed Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report generation for PR head `0803bd0dbb0285e30b3296c7d2e7a22dda028ecb`.
 
 # 2026-11-14 — FIFO automatic batch manifest readiness (PR A, FB09)
 
