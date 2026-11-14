@@ -34,6 +34,13 @@ Accepted for implementation within the user-approved FC00–FC35 task; independe
 - Until raw state and cursor coverage are verified, successful transport stays `PARTIAL`. Do not return or persist raw payload/IDs or infer complete coverage. Production wiring, pagination/details, bundle normalization, checkpoint and manifest publication remain later implementation stages.
 - The list/details adapter caps list pages at 100 and detail batches at 50. It deduplicates overlapping order and supply references and reports source mutation; a full 100-row page without a cursor is never terminal. Its interim continuation is memory-only, single-use, 30-minute and bound to exact case/rule scope. Durable encrypted checkpoints remain a separate stage.
 
+## Addendum — 2026-11-14: durable automatic batch scan checkpoints (FB15)
+
+- Keep scan persistence in the FIFO-owned SQLite repository. Schema v18 adds only immutable scan-to-observation links on top of the v17 rule/observation schema; it does not create FIFO rates, layers, events, allocations, or COGS.
+- Encrypt resumable cursor state with the existing tenant Fernet key. Bind each revision to the exact owner/store/SKU/case revision, batch rule, source-profile fingerprint, and requested date window; expire resumable checkpoints after 30 minutes.
+- Commit each page's immutable observations, scan links, and mutable checkpoint CAS in one transaction. A restart resumes from the latest committed checkpoint revision; a retry must not duplicate evidence. Missing keys, stale scope/rule/source/window, expiry, and CAS conflicts fail closed.
+- A durable checkpoint is transport progress, not proof of complete source history, batch membership, SKU quantity, or physical receipt. Production source wiring and manifest publication remain separate stages.
+
 ## Addendum — 2026-11-09: temporal rate boundaries and durable evidence
 
 - Continue the same tenant-scoped FIFO repository, allocation kernel, replay and `fifo_cost_schema`. A later cost change is a proof-bound temporal boundary; it does not create a purchase quantity. At that boundary, materialize only the independently reconciled residual of the previously open rate behind older finite FIFO balances, then activate the new open rate. Never infer a residual from future sales or apply the latest rate retroactively.

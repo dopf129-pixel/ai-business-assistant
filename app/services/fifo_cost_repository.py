@@ -48,7 +48,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 17
+    SCHEMA_VERSION = 18
     MAX_RATE_CHAIN = 100_000
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
@@ -149,6 +149,7 @@ class FifoCostRepository:
         "fifo_cost_batch_membership_decisions",
         "fifo_cost_batch_membership_decision_observations",
         "fifo_cost_batch_supply_scans",
+        "fifo_cost_batch_scan_observations",
         "fifo_cost_batch_total_controls",
     )
 
@@ -188,6 +189,7 @@ class FifoCostRepository:
         "fifo_cost_batch_supply_observations",
         "fifo_cost_batch_membership_decisions",
         "fifo_cost_batch_membership_decision_observations",
+        "fifo_cost_batch_scan_observations",
         "fifo_cost_batch_total_controls",
     )
 
@@ -11621,6 +11623,22 @@ class FifoCostRepository:
                 CHECK(requested_from IS NULL OR requested_through >= requested_from)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_scan_observations (
+                case_id TEXT NOT NULL,
+                scan_id TEXT NOT NULL,
+                record_key TEXT NOT NULL CHECK(length(record_key) = 64),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                observation_revision INTEGER NOT NULL CHECK(observation_revision >= 1),
+                linked_at TEXT NOT NULL,
+                PRIMARY KEY(case_id, scan_id, record_key, source_fingerprint),
+                FOREIGN KEY(case_id, scan_id)
+                    REFERENCES fifo_cost_batch_supply_scans(case_id, scan_id),
+                FOREIGN KEY(case_id, record_key, source_fingerprint)
+                    REFERENCES fifo_cost_batch_supply_observations(
+                        case_id, record_key, source_fingerprint
+                    )
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_batch_total_controls (
                 control_id TEXT PRIMARY KEY CHECK(length(control_id) BETWEEN 8 AND 96),
                 control_revision INTEGER NOT NULL CHECK(control_revision >= 1),
@@ -11725,6 +11743,10 @@ class FifoCostRepository:
                 ON fifo_cost_batch_membership_decision_observations(case_id, record_key);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_scans_updated
                 ON fifo_cost_batch_supply_scans(case_id, updated_at, scan_id);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_scan_observations_latest
+                ON fifo_cost_batch_scan_observations(
+                    case_id, scan_id, record_key, observation_revision DESC
+                );
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_controls_window
                 ON fifo_cost_batch_total_controls(case_id, window_from, window_through, control_revision);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_allocation_rate_balances_current
@@ -11778,6 +11800,17 @@ class FifoCostRepository:
                      WHERE case_id=NEW.case_id) >= 100
                BEGIN
                    SELECT RAISE(ABORT, 'quota: FIFO_BATCH_RULE_LIMIT_REACHED');
+               END"""
+        )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_fifo_cost_batch_scan_observation_quota
+               BEFORE INSERT ON fifo_cost_batch_scan_observations
+               WHEN (SELECT COUNT(*) FROM fifo_cost_batch_scan_observations
+                     WHERE case_id=NEW.case_id AND scan_id=NEW.scan_id) >= 10000
+                 OR (SELECT COUNT(*) FROM fifo_cost_batch_scan_observations
+                     WHERE case_id=NEW.case_id) >= 1000000
+               BEGIN
+                   SELECT RAISE(ABORT, 'quota: FIFO_BATCH_SCAN_OBSERVATION_LIMIT_REACHED');
                END"""
         )
         connection.execute(
@@ -11925,6 +11958,10 @@ class FifoCostRepository:
                 "sku_composition_complete", "historical_window_proven",
                 "membership_complete", "quantity_complete",
                 "physical_receipt_timing_complete", "encrypted_resumable_token",
+            },
+            "fifo_cost_batch_scan_observations": {
+                "case_id", "scan_id", "record_key", "source_fingerprint",
+                "observation_revision", "linked_at",
             },
             "fifo_cost_batch_total_controls": {
                 "control_id", "control_revision", "case_id", "total_units",

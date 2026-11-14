@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch durable scan checkpoint (FB15)
+
+- `tests/test_fifo_cost_batch_scan_checkpoint_service.py` covers encrypted continuation storage, restart after a committed page, stale-reference resume from the latest checkpoint revision, exact case/rule/scope/source-profile/range binding, TTL expiry, observation/checkpoint CAS rollback, duplicate page rejection, terminal publish behavior, append-only scan links, and missing-key fail-closed behavior.
+- `tests/test_fifo_cost_transition_schema_v16.py::test_v17_upgrade_adds_scan_observation_links_and_preserves_prior_evidence` covers the PR A schema-v17 to PR B schema-v18 migration while preserving prior period-confirmation evidence and Planning `PRAGMA user_version`. The linked profile also includes batch source, normalizer, acceptance reconciliation, and v13/v16 migration tests.
+- FB15 linked profile: **127 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. All fixtures use synthetic rows and temporary SQLite databases.
+
 # 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
 
 - `tests/test_fifo_cost_batch_bundle_normalizer.py` covers exact SKU selection from mixed-SKU normalized rows (including row-order invariance), planned versus shipped quantities, partial composition, empty/raw/unverified input, explicit zero versus unknown, wrong scope/supply/order, duplicate mappings, and unsupported profile behavior.

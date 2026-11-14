@@ -1,3 +1,10 @@
+# 2026-11-14 — FIFO automatic batch durable scan checkpoint (PR B, FB15)
+
+- Added an additive FIFO schema v18 link table for associating immutable normalized supply observations with one durable scan. The new table does not alter schema-v17 rules, observations, or decisions.
+- Added a tenant-key-encrypted, 30-minute continuation checkpoint bound to the exact owner/store/SKU/case revision, rule revision/fingerprint, source profile, and requested date window. Each page's observation rows, scan links, and checkpoint CAS are committed in one SQLite transaction; a restart can resume from the latest revision without duplicate evidence.
+- Missing encryption keys, expired/stale bindings, wrong scope, malformed cursors, quota overflow, and revision races fail closed. This stage is not yet wired into the source workflow and does not claim raw Ozon coverage, physical receipt dates, or a ready manifest.
+- FB15 linked synthetic profile: **127 passed** across batch source/contracts/acceptance/checkpoint and schema migration tests. `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
 # 2026-11-14 — FIFO automatic batch acceptance verification (PR B, FB14)
 
 - Reused and re-verified the existing act normalizer and cumulative acceptance reconciler rather than adding a competing implementation. Repeated act snapshots deduplicate, independent acts sum, newer incomplete reads retain the last known accepted quantity without claiming a complete result, and decreasing totals require documented correction review.
