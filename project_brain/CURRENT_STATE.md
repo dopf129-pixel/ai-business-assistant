@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch follow-up supplies and next cost boundary
+
+- FB23 verifies multiple bounded refreshes can add later target-SKU supply observations under the existing confirmed price and automatic mode without a repeated total. The legacy `declared_shipped_units` remains unknown; bundle quantities remain planned composition; no FIFO movement, layer, allocation, or COGS row is written.
+- The existing SKU FIFO “Новая себестоимость” workflow remains the separate preview/confirm for the next price boundary. The batch “Изменить правило” response now directs the owner there and warns that a boundary before the displayed effective date requires the correction/replay path. FB22 grouped owner review remains necessary when dispatch date is unknown.
+- FB23 Windows/Python 3.12 linked profile: **77 passed**, including B23 current found quantity beyond a dated historical control, B26 rule interval/same-day rejection, and existing post-APPLIED rate preview/confirm. `compileall`, `git diff --check`, and tracked `data/` equality passed. Source state/date/history coverage and R1 remain unverified; no live calls, bot launch, merge, or deployment. Next: FB24 readiness/bridge.
+
 # 2026-11-14 — FIFO automatic batch FB22 composition scan and grouped owner decisions
 
 - Implemented the documented `/v1/supply-order/bundle` source path with strict response parsing, per-bundle pagination and loop/total checks, shared request/time budgets, exact target-SKU mapping, encrypted durable scan continuation, and owner include/exclude decisions sealed to the exact displayed set. The Telegram flow pages candidates and keeps private supply/product identifiers out of messages and callbacks.

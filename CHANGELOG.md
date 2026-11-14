@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch follow-up supplies and cost boundaries (FB23)
+
+- Verified that a later explicit supply refresh appends the newly observed target-SKU composition under the existing confirmed rule without asking for another price or lifetime total. The original price, `declared_shipped_units=None`, and all FIFO movement tables remain unchanged; quantities from the bundle remain planned composition and dispatch date remains unknown.
+- The batch card now directs the owner to the existing SKU FIFO cost screen for a future price, where the effective-date preview and separate confirmation are required. Already applied boundaries are not edited retroactively; a past date requires the existing correction/replay path.
+- FB23 linked synthetic profile: **77 passed**; existing post-APPLIED rate preview/confirm regression also passed. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live requests, FIFO/COGS writes from the batch scanner, bot launch, merge, or deployment.
+
 # 2026-11-14 — FIFO automatic batch bundle scan and owner selection (FB22)
 
 - Implemented the documented read-only `/v1/supply-order/bundle` path: strict item/cursor/total validation, one bundle per request, bounded pagination inside the shared action budget, exact SKU normalization, encrypted durable lookup/checkpointing, and append-only group include/exclude decisions with an exact whole-set confirmation seal.
