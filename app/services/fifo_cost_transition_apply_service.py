@@ -323,6 +323,23 @@ class FifoCostTransitionApplyService:
         impact_tax_fingerprint = impact.get("tax_policy_fingerprint")
         if not self.repository._valid_digest(impact_tax_fingerprint):
             return self._error("FIFO_TAX_POLICY_FINGERPRINT_INVALID")
+        try:
+            transition_case = self.transition_service._case_from_payload(
+                current["case"],
+            )
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return self._error("FIFO_TRANSITION_CASE_UNAVAILABLE")
+        automatic_batch_manifest_seal = None
+        if getattr(
+            getattr(transition_case, "supply_total_mode", None), "value", None,
+        ) == "AUTO_FROM_SUPPLIES":
+            automatic_batch_manifest_seal = (
+                self.repository._normalize_auto_batch_manifest_seal(
+                    review.get("automatic_batch_manifest_seal"),
+                )
+            )
+            if automatic_batch_manifest_seal is None:
+                return self._error("FIFO_BATCH_MANIFEST_SEAL_UNAVAILABLE")
         prepared = self.repository.prepare_transition_preview(
             case_id=case_id, store_id=identity["store_id"],
             product_id=identity["product_id"], offer_id=identity["offer_id"],
@@ -332,6 +349,7 @@ class FifoCostTransitionApplyService:
             tax_policy_fingerprint=impact_tax_fingerprint,
             idempotency_key=idempotency_key,
             initial_opening_cutover=initial_opening_cutover,
+            automatic_batch_manifest_seal=automatic_batch_manifest_seal,
         )
         if not isinstance(prepared, dict) or prepared.get("error") is not False:
             return prepared if isinstance(prepared, dict) else self._error(
@@ -843,6 +861,35 @@ class FifoCostTransitionApplyService:
         if blockers:
             return self._blocked("FIFO_TRANSITION_NOT_READY", requirements=blockers)
 
+        try:
+            transition_case = self.transition_service._case_from_payload(
+                current["case"],
+            )
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return self._error("FIFO_TRANSITION_CASE_UNAVAILABLE")
+        automatic_batch_manifest_seal = None
+        if getattr(
+            getattr(transition_case, "supply_total_mode", None), "value", None,
+        ) == "AUTO_FROM_SUPPLIES":
+            automatic_batch_manifest_seal = (
+                self.repository._normalize_auto_batch_manifest_seal(
+                    preview.get("automatic_batch_manifest_seal"),
+                )
+            )
+            current_batch_seal = (
+                self.repository._normalize_auto_batch_manifest_seal(
+                    review.get("automatic_batch_manifest_seal"),
+                )
+            )
+            if (
+                automatic_batch_manifest_seal is None
+                or current_batch_seal is None
+                or automatic_batch_manifest_seal != current_batch_seal
+            ):
+                return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+        elif preview.get("automatic_batch_manifest_seal") is not None:
+            return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+
         loaded = self.evidence_service.load(
             case_id=case_id, identity=identity,
             expected_case_revision=basis_revision,
@@ -959,6 +1006,7 @@ class FifoCostTransitionApplyService:
             cutoff_bridge=cutoff_bridge,
             impact_preview=impact,
             current_tax_policy_fingerprint=current_tax_fingerprint,
+            automatic_batch_manifest_seal=automatic_batch_manifest_seal,
         )
         if not isinstance(committed, dict) or committed.get("error") is not False:
             failure = committed if isinstance(committed, dict) else self._error(

@@ -1,3 +1,10 @@
+# 2026-11-15 — FIFO automatic batch prepare/apply seals (FB25)
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py` verifies that typed review returns the same validated seal as the manifest reader, scoped source fingerprints change with newer source state, malformed/tampered seals are rejected, and a row-limit breach makes the manifest unavailable instead of reading unbounded history.
+- `tests/test_fifo_cost_transition_apply_service.py::test_auto_batch_source_change_inside_apply_is_atomic_stale_rejection` verifies a source change after review but before preview preparation is rejected without any state change; after a fresh prepare, another source change between apply review and commit is rejected with no partial FIFO, case, preview, or commit writes.
+- `tests/test_fifo_cost_batch_supply_source.py::test_parent_order_state_allowlist_matches_documented_v3_enum` pins the parent `orders[].state` allowlist to the Ozon-documented enum. It does not validate the separate nested `supplies[].state` enum or live Seller API payloads.
+- FB25 linked profile: **44 passed** across manifest/readiness/review/transition apply/atomic apply; all FIFO batch tests: **127 passed**. `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic SQLite and fake source state only.
+
 # 2026-11-15 — FIFO automatic batch manifest readiness bridge (FB24)
 
 - `tests/test_fifo_cost_batch_manifest_read_service.py` seeds a temporary tenant-scoped SQLite case, confirms a synthetic automatic rule, persists a published scan through the production checkpoint API, and verifies the read service rebuilds a typed manifest with planned/shipped composition, accepted unknown, source provenance, and source-profile issues preserved.

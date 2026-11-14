@@ -241,6 +241,7 @@ class FifoCostTransitionReviewService:
             )
             automatic_batch_manifest = None
             automatic_batch_manifest_status = None
+            automatic_batch_manifest_seal = None
             if (
                 case.supply_total_mode is SupplyTotalMode.AUTO_FROM_SUPPLIES
                 and self.automatic_batch_manifest_service is not None
@@ -256,6 +257,7 @@ class FifoCostTransitionReviewService:
                     )
                     if manifest_result.get("error") is False:
                         automatic_batch_manifest = manifest_result.get("manifest")
+                        automatic_batch_manifest_seal = manifest_result.get("seal")
             readiness = self.readiness_service.assess(
                 case=case,
                 proposal=proposal,
@@ -296,6 +298,7 @@ class FifoCostTransitionReviewService:
                 bridge_result.get("source_fingerprints", ())
             ),
             "automatic_batch_manifest_status": automatic_batch_manifest_status,
+            "automatic_batch_manifest_seal": automatic_batch_manifest_seal,
             "ready_to_apply": readiness.ready_to_apply is True,
             "preview_only": True,
         }

@@ -1,17 +1,19 @@
 # FIFO automatic batch supply source contract
 
-Checked: 2026-11-14, incorporating the owner's pasted Ozon Seller API operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`. This note separates documented schema from synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
+Checked: 2026-11-15, incorporating the owner's pasted Ozon Seller API operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`. This note separates documented schema from synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
 
 ## Officially confirmed
 
 | Operation / fact | Confirmed information | Source |
 |---|---|---|
 | `POST /v3/supply-order/list` | Official operation description: required `filter` object; optional `last_id` string, `limit` integer (1-100), `sort_by`, `sort_dir`. Response has `order_ids`, `last_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
-| `POST /v3/supply-order/get` | Official operation description: `order_ids` is an array of integer ID strings, up to 50. Response includes `orders` with `order_id`, `state`, and nested `supplies` including `supply_id`, `state`, `is_crossdock`, and `bundle_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| `POST /v3/supply-order/get` | Official operation description: `order_ids` is an array of integer ID strings, up to 50. Response includes `orders` with `order_id`, `state`, `state_updated_date`, and nested `supplies` including `supply_id`, `state`, `is_crossdock`, `bundle_id`, and warehouse/timeslot fields. The documented enum below is for the parent order's `state`; the excerpt does not define a separate nested supply `state` enum. | Owner-provided Ozon Seller API operation description, received 2026-11-15 |
 | `POST /v1/supply-order/bundle` request | Official operation description: `bundle_ids` is an array of strings (1-100); `last_id` is an optional string; `limit` is an integer (1-100). | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
 | `POST /v1/supply-order/bundle` response | Pasted operation docs specify `items` array, `total_count` integer, `has_next` boolean, and `last_id` string. Item fields include `sku` integer, `quantity` integer, `offer_id` string, `product_id` integer, `name` string, and `barcode` string. Returned item rows do not expose a parent `bundle_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
 | Bundle quantity semantics | `items[].quantity` is bundle composition. The documentation does not establish physical dispatch or accepted warehouse quantity. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
 | Nested supply link | Pasted `/v3/supply-order/get` docs include `supplies[].bundle_id`; because bundle result items do not echo their parent ID, request exactly one bundle ID at a time when binding rows to a supply. | Owner-provided Ozon Seller API operation descriptions, received 2026-11-14 |
+
+The pasted `/v3/supply-order/get` description documents these parent `orders[].state` values and meanings: `UNSPECIFIED`, `DATA_FILLING`, `READY_TO_SUPPLY`, `ACCEPTED_AT_SUPPLY_WAREHOUSE`, `IN_TRANSIT`, `ACCEPTANCE_AT_STORAGE_WAREHOUSE`, `REPORTS_CONFIRMATION_AWAITING`, `REPORT_REJECTED`, `COMPLETED`, `REJECTED_AT_SUPPLY_WAREHOUSE`, `CANCELLED`, and `OVERDUE`. The current parent-order allowlist matches this documented set. This does not establish the nested `supplies[].state` enum, accepted `filter.states` behavior, actual seller payload profile, or completeness of historical list pagination.
 
 The operation schema was supplied from the owner's Ozon Seller API documentation text. It is documentation evidence, not a seller-specific API response. No live seller request was made and no credentials were used.
 
@@ -38,7 +40,8 @@ FB22 now implements a strict raw parser for the owner-provided documented wrappe
 
 | Needed fact | Status | Required behavior until proven |
 |---|---|---|
-| Complete supported `state` enum for all list/get orders and nested supplies | `NOT_VERIFIED` | Use only an explicit tested allowlist; any new or missing enum is `UNKNOWN` and makes coverage partial. |
+| Parent `orders[].state` documented enum | `CONFIRMED_DOCUMENTED` | Current parent-order allowlist matches the documented values. Keep list/source coverage partial until the seller payload and pagination profile are verified. |
+| Nested `supplies[].state` enum and exact `filter.states` acceptance | `NOT_VERIFIED` | Use only the current tested nested-state allowlist; an unsupported or missing nested status makes coverage partial. Do not infer the filter's accepted values from the parent enum. |
 | Raw list cursor field and proof of terminal page | `NOT_VERIFIED` beyond current application's `last_id` wrapper | Do not call a full page complete without reliable terminal-page proof; repeated cursor is partial/conflict. |
 | Exact raw details response keys and nested supply bundle linkage | `NOT_VERIFIED` beyond current application's synthetic adapter shape | Require a strict normalizer; malformed/missing linkage is unknown. |
 | Exact bundle request/response JSON, pagination, per-SKU quantity key/type | Confirmed by owner-pasted official operation docs; raw parser and synthetic pagination tests implemented in FB22 | Use documented fields/types only. Process one bundle per request; paginate using `has_next`/`last_id` under the shared action budget. Owner text is not a seller-specific response. |
@@ -51,7 +54,7 @@ The fixtures under `tests/fixtures/fifo_cost_batch_source/` remain synthetic and
 
 ## Evidence reviewed
 
-- Owner-provided official operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`, received 2026-11-14; they establish the request/response fields and types recorded above, but do not prove dispatch or receipt semantics.
+- Owner-provided official operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`, received 2026-11-14 and 2026-11-15; they establish the request/response fields and parent-order enum recorded above, but do not prove seller-specific payloads, dispatch or physical receipt semantics.
 - Ozon for Developers, “Изменения в методах Seller API при работе с поставками FBO”, published 2026-01-19; cross-dock `storage_warehouse.arrival_date` is null from 2026-02-16.
 - Ozon for Developers, “Изменения в методах Seller API для работы с заявками на поставку”, published 2025-11-20; v2 list/get were to be replaced by v3.
 - Existing adapter and synthetic tests: `app/api/ozon_client.py`, `tests/test_experimental_supply_act_diagnostic.py`, `tests/test_cross_docking_supply_source.py`, and `app/services/fifo_cost_source_collection_service.py`.
@@ -69,7 +72,7 @@ The source gap is a real implementation limitation, not a reason to invent an AP
 | Acceptance acts | Existing act normalizer/reconciler is reused in tests for cumulative snapshots, multiple acts, explicit zero vs missing, partial reads, and downward-correction review. | New automatic batch collection does not acquire or publish acts yet. Act creation/capture dates do not prove physical receipt time. |
 | Full inventory movement / R1 | No supported complete movement source has been established by this PR. | A complete supply manifest cannot satisfy R1 or factual FIFO apply readiness. |
 
-Local raw-to-normalized state mapping is deliberately not promoted to an Ozon-supported profile: `DATA_FILLING`/`READY_TO_SUPPLY` map to `DECLARED`; `ACCEPTED_AT_SUPPLY_WAREHOUSE` to `AT_DROPOFF`; `IN_TRANSIT` to `IN_TRANSIT`; `ACCEPTANCE_AT_STORAGE_WAREHOUSE` to `RECEIVING`; `COMPLETED` to `ACCEPTED`; `CANCELLED` to `CANCELLED`. Any unrecognized raw state stays unsupported. The source service also carries `FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED`, so recognized local values do not by themselves establish complete Ozon coverage.
+The nested `supplies[].state` raw-to-normalized mapping is deliberately not promoted to an Ozon-supported profile: `DATA_FILLING`/`READY_TO_SUPPLY` map to `DECLARED`; `ACCEPTED_AT_SUPPLY_WAREHOUSE` to `AT_DROPOFF`; `IN_TRANSIT` to `IN_TRANSIT`; `ACCEPTANCE_AT_STORAGE_WAREHOUSE` to `RECEIVING`; `COMPLETED` to `ACCEPTED`; `CANCELLED` to `CANCELLED`. Any unrecognized raw nested state stays unsupported. The source service also carries `FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED`, so documented parent-order states do not by themselves establish complete Ozon supply coverage.
 
 ## FB16 — owner/API supply deduplication boundary
 

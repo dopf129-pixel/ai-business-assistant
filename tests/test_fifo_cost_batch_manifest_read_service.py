@@ -152,14 +152,14 @@ def _coverage(*, scan_id, rule_revision=1, captured_at=NOW_TEXT):
     )
 
 
-def _observation(*, captured_at=NOW_TEXT):
-    supply_ref = _digest("supply-1")
+def _observation(*, captured_at=NOW_TEXT, suffix="1"):
+    supply_ref = _digest(f"supply-{suffix}")
     return SupplySkuObservation(
         scope=SCOPE,
         record_key=FifoCostBatchSupplyDeduplicator.canonical_record_key(SCOPE, supply_ref),
-        order_ref_digest=_digest("order-1"), supply_ref_digest=supply_ref,
+        order_ref_digest=_digest(f"order-{suffix}"), supply_ref_digest=supply_ref,
         encrypted_lookup_payload="gAAAA" + "A" * 96,
-        source_profile_version="synthetic-v1", source_fingerprint=_digest("source-1"),
+        source_profile_version="synthetic-v1", source_fingerprint=_digest(f"source-{suffix}"),
         captured_at=captured_at, source_as_of=captured_at,
         source_status="IN_TRANSIT", normalized_status=NormalizedSupplyStatus.IN_TRANSIT,
         is_crossdock=True, dispatch_local_date="2026-11-05", dispatch_local_time=None,
@@ -222,6 +222,7 @@ def test_readiness_rehydrates_latest_published_manifest_from_scoped_sqlite(tmp_p
         reviewed = review.assess(case_id=case.case_id, identity=IDENTITY)
         assert reviewed["error"] is False, reviewed
         assert reviewed["automatic_batch_manifest_status"] == result["code"]
+        assert reviewed["automatic_batch_manifest_seal"] == result["seal"]
         requirements = {item.code: item for item in reviewed["readiness"].requirements}
         assert "AUTO_SUPPLY_MANIFEST_UNAVAILABLE" not in requirements
         manifest_requirement = requirements["AUTO_SUPPLY_MANIFEST_INCOMPLETE"]
@@ -233,6 +234,118 @@ def test_readiness_rehydrates_latest_published_manifest_from_scoped_sqlite(tmp_p
                 assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_manifest_seal_binds_all_scoped_batch_rows_and_rechecks_on_open_transaction(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        _publish_scan(repository, tenant_fp, rule, scan_id="manifest-seal-scan-01")
+        reader = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: NOW,
+        )
+        first = reader.read_current_manifest(case=case)
+        assert first["error"] is False, first
+        seal = first["seal"]
+        assert repository._normalize_auto_batch_manifest_seal(seal) == seal
+        tampered_seal = {**seal, "source_storage_fingerprint": "f" * 64}
+        assert repository._normalize_auto_batch_manifest_seal(tampered_seal) is None
+        assert repository._normalize_auto_batch_manifest_seal(
+            {**seal, "unexpected": True},
+        ) is None
+
+        connection = repository.get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            current_fingerprint = FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                connection, scope=SCOPE, case_id=case.case_id,
+                tenant_fingerprint=tenant_fp,
+            )
+            assert current_fingerprint == seal["source_storage_fingerprint"]
+            connection.rollback()
+        finally:
+            connection.close()
+
+        _publish_scan(
+            repository, tenant_fp, rule, scan_id="manifest-seal-scan-02",
+            status="PARTIAL", minute=1,
+        )
+        connection = repository.get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            changed_fingerprint = FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                connection, scope=SCOPE, case_id=case.case_id,
+                tenant_fingerprint=tenant_fp,
+            )
+            assert changed_fingerprint != seal["source_storage_fingerprint"]
+            connection.rollback()
+        finally:
+            connection.close()
+
+        latest = reader.read_current_manifest(case=case)
+        assert latest["error"] is False
+        assert latest["code"] == "FIFO_BATCH_MANIFEST_LATEST_SCAN_NOT_CURRENT"
+        assert latest["manifest"] is None
+        assert "seal" not in latest
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_manifest_source_seal_fails_closed_when_a_scoped_table_exceeds_its_bound(
+    tmp_path, monkeypatch,
+):
+    from services import fifo_cost_batch_supply_store as batch_store_module
+
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        _publish_scan(repository, tenant_fp, rule, scan_id="manifest-limit-scan-01")
+        connection = repository.get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            stored = FifoCostBatchSupplyStore.append_observation(
+                connection, _observation(suffix="2"),
+                tenant_fingerprint=tenant_fp,
+                observation_id="manifest-observation-extra-01",
+                recorded_at=NOW_TEXT,
+            )
+            assert stored["error"] is False, stored
+            connection.commit()
+        finally:
+            connection.close()
+
+        limits = dict(batch_store_module._SOURCE_FINGERPRINT_ROW_LIMITS)
+        limits["fifo_cost_batch_supply_observations"] = 1
+        monkeypatch.setattr(
+            batch_store_module,
+            "_SOURCE_FINGERPRINT_ROW_LIMITS", limits,
+        )
+        connection = repository.get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                    connection, scope=SCOPE, case_id=case.case_id,
+                    tenant_fingerprint=tenant_fp,
+                )
+            except ValueError as exc:
+                assert str(exc) == "FIFO_BATCH_MANIFEST_SEAL_ROW_LIMIT_REACHED"
+            else:
+                raise AssertionError("source fingerprint must reject over-limit rows")
+            connection.rollback()
+        finally:
+            connection.close()
+
+        reader = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: NOW,
+        )
+        result = reader.read_current_manifest(case=case)
+        assert result == {
+            "error": True,
+            "code": "FIFO_BATCH_MANIFEST_STORAGE_UNAVAILABLE",
+        }
     finally:
         reset_current_tenant_user_id(tenant_token)
 

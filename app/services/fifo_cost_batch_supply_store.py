@@ -16,6 +16,7 @@ import re
 import sqlite3
 
 from services.fifo_cost_batch_rule_contracts import (
+    MAX_BATCH_MEMBERSHIP_DECISIONS,
     MAX_BATCH_OBSERVATIONS,
     MAX_BATCH_TOTAL_CONTROLS,
     MAX_RULE_REVISIONS,
@@ -35,6 +36,13 @@ _SCAN_STATUSES = frozenset({"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRE
 _RESUMABLE_SCAN_STATUSES = frozenset({"STAGING", "PARTIAL"})
 _TERMINAL_SCAN_STATUSES = frozenset({"PUBLISHED", "FAILED", "EXPIRED"})
 _MAX_SCANS_PER_CASE = 100
+_SOURCE_FINGERPRINT_ROW_LIMITS = {
+    "fifo_cost_batch_rule_revisions": MAX_RULE_REVISIONS,
+    "fifo_cost_batch_supply_observations": MAX_BATCH_OBSERVATIONS,
+    "fifo_cost_batch_membership_decisions": MAX_BATCH_MEMBERSHIP_DECISIONS,
+    "fifo_cost_batch_supply_scans": _MAX_SCANS_PER_CASE,
+    "fifo_cost_batch_total_controls": MAX_BATCH_TOTAL_CONTROLS,
+}
 
 
 class FifoCostBatchSupplyStore:
@@ -709,6 +717,136 @@ class FifoCostBatchSupplyStore:
             connection, scope=scope, case_id=case_id,
             tenant_fingerprint=tenant_fingerprint, scan_id=rows[0]["scan_id"],
         )
+
+    @classmethod
+    def read_scope_source_fingerprint(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str,
+    ) -> str:
+        """Fingerprint every persisted batch input that can affect a manifest.
+
+        The caller may run this inside the FIFO transition's ``BEGIN IMMEDIATE``
+        transaction. That makes the comparison an atomic seal check against
+        concurrent rule, scan, observation, membership, or control writes.
+        Ciphertext is reduced to a digest before entering the canonical input.
+        """
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        owner_fingerprint = cls._digest(scope.owner_id)
+        scope_fingerprint = cls._scope_fingerprint(scope)
+        scoped_where = (
+            "case_id=? AND owner_fingerprint=? AND tenant_fingerprint=? "
+            "AND store_id=? AND sku=? AND product_id IS ? AND offer_id IS ? "
+            "AND scope_fingerprint=?"
+        )
+        scoped_values = (
+            case_id, owner_fingerprint, tenant_fingerprint, scope.store_id,
+            scope.sku, scope.product_id, scope.offer_id, scope_fingerprint,
+        )
+        parent_where = (
+            "parent.case_id=? AND parent.owner_fingerprint=? "
+            "AND parent.tenant_fingerprint=? AND parent.store_id=? "
+            "AND parent.sku=? AND parent.product_id IS ? "
+            "AND parent.offer_id IS ? AND parent.scope_fingerprint=?"
+        )
+        sources = []
+        scoped_tables = (
+            (
+                "fifo_cost_batch_rule_revisions",
+                "rule_event_id, rule_id, rule_revision, rule_fingerprint, payload_fingerprint",
+                "rule_id, rule_revision",
+            ),
+            (
+                "fifo_cost_batch_supply_observations",
+                "observation_id, record_key, observation_revision, source_fingerprint, payload_fingerprint",
+                "record_key, observation_revision",
+            ),
+            (
+                "fifo_cost_batch_membership_decisions",
+                "decision_id, revision, rule_id, rule_revision, rule_fingerprint, "
+                "candidate_set_fingerprint, membership_binding_fingerprint, payload_fingerprint",
+                "decision_id, revision",
+            ),
+            ("fifo_cost_batch_supply_scans", "*", "scan_id"),
+            (
+                "fifo_cost_batch_total_controls",
+                "control_id, control_revision, control_status, window_from, "
+                "window_through, payload_fingerprint",
+                "control_id, control_revision",
+            ),
+        )
+        for table, selected, order_by in scoped_tables:
+            row_limit = _SOURCE_FINGERPRINT_ROW_LIMITS[table]
+            rows = connection.execute(
+                f"SELECT {selected} FROM {table} WHERE {scoped_where} "
+                f"ORDER BY {order_by} LIMIT ?",
+                (*scoped_values, row_limit + 1),
+            ).fetchall()
+            if len(rows) > row_limit:
+                raise ValueError("FIFO_BATCH_MANIFEST_SEAL_ROW_LIMIT_REACHED")
+            sources.append({
+                "table": table,
+                "rows": [cls._fingerprint_row(row) for row in rows],
+            })
+
+        latest_scan = cls.read_latest_scan_checkpoint(
+            connection, scope=scope, case_id=case_id,
+            tenant_fingerprint=tenant_fingerprint,
+        )
+        latest_scan_id = latest_scan.get("scan_id") if latest_scan else None
+        if latest_scan_id is not None:
+            link_count = connection.execute(
+                """SELECT COUNT(*)
+                   FROM fifo_cost_batch_scan_observations AS link
+                   JOIN fifo_cost_batch_supply_scans AS parent
+                     ON parent.case_id=link.case_id AND parent.scan_id=link.scan_id
+                   WHERE """ + parent_where + " AND parent.scan_id=?",
+                (*scoped_values, latest_scan_id),
+            ).fetchone()[0]
+            if type(link_count) is not int or link_count > 10_000:
+                raise ValueError("FIFO_BATCH_MANIFEST_SEAL_LINK_LIMIT_REACHED")
+            rows = connection.execute(
+                """SELECT link.*
+                   FROM fifo_cost_batch_scan_observations AS link
+                   JOIN fifo_cost_batch_supply_scans AS parent
+                     ON parent.case_id=link.case_id AND parent.scan_id=link.scan_id
+                   WHERE """ + parent_where + " AND parent.scan_id=? "
+                "ORDER BY link.scan_id, link.record_key, link.source_fingerprint",
+                (*scoped_values, latest_scan_id),
+            ).fetchall()
+            sources.append({
+                "table": "fifo_cost_batch_scan_observations",
+                "rows": [cls._fingerprint_row(row) for row in rows],
+            })
+        material = {
+            "schema_version": 1,
+            "case_id": case_id,
+            "owner_fingerprint": owner_fingerprint,
+            "tenant_fingerprint": tenant_fingerprint,
+            "store_id": scope.store_id,
+            "product_id": scope.product_id,
+            "offer_id": scope.offer_id,
+            "sku": scope.sku,
+            "scope_fingerprint": scope_fingerprint,
+            "sources": sources,
+        }
+        encoded = json.dumps(
+            material, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _fingerprint_row(row):
+        """Return a stable row map without exposing stored ciphertext."""
+        def normalize(value):
+            if isinstance(value, (bytes, bytearray, memoryview)):
+                raw = bytes(value)
+                return {
+                    "bytes_sha256": hashlib.sha256(raw).hexdigest(),
+                    "bytes_length": len(raw),
+                }
+            return value
+
+        return {key: normalize(row[key]) for key in sorted(row.keys())}
 
     @classmethod
     def read_scan_observations(

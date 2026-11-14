@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch source seals for transition apply (FB25)
+
+- Added a minimal internal manifest seal for automatic supply mode and threaded it through readiness review, preview preparation, and explicit apply. Preparation and commit compare the exact scoped batch source inside the existing SQLite `BEGIN IMMEDIATE` transactions; source changes reject as stale before FIFO writes. Existing successful idempotent retries and legacy total mode remain on their prior paths.
+- Bounded seal reads to the existing per-case limits. Over-limit or malformed source state fails closed. Tests cover source changes before prepare and between apply review/commit, no partial FIFO/case/preview writes, seal tampering, and bounded reads.
+- The owner-provided Ozon schema now records the documented parent order-state enum separately from the still-unverified nested supply-state profile. No live Ozon/Telegram request or bot launch was made.
+
 # 2026-11-15 — FIFO automatic batch manifest in readiness (FB24)
 
 - Connected the existing typed manifest builder to the current read-only FIFO readiness review through a scoped SQLite read service. Review reconstructs only the newest published scan that matches the active rule and saved owner decisions; a newer partial/failing scan, ambiguous equal-time scans, stale set fingerprint, missing data, or storage error cannot fall back to an older result.

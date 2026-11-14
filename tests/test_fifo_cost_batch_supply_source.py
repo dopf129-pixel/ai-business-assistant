@@ -12,6 +12,7 @@ from services.fifo_cost_batch_scan_checkpoint_service import FifoCostBatchScanCh
 from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
 from services.fifo_cost_batch_supply_source import FifoCostBatchSupplySourceService
 from services.fifo_cost_repository import FifoCostRepository
+from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
 from services.fifo_cost_transition_contracts import (
     CostInputMode,
     EvidenceCompleteness,
@@ -42,6 +43,23 @@ SCOPE = ScopeIdentity(
 )
 TENANT_SCOPE = make_store_tenant_scope("owner-a", "store-a")
 NOW = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+
+
+def test_parent_order_state_allowlist_matches_documented_v3_enum():
+    assert set(FifoCostSourceCollectionService.ACTIVE_SUPPLY_STATES) == {
+        "UNSPECIFIED",
+        "DATA_FILLING",
+        "READY_TO_SUPPLY",
+        "ACCEPTED_AT_SUPPLY_WAREHOUSE",
+        "IN_TRANSIT",
+        "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+        "REPORTS_CONFIRMATION_AWAITING",
+        "REPORT_REJECTED",
+        "COMPLETED",
+        "REJECTED_AT_SUPPLY_WAREHOUSE",
+        "CANCELLED",
+        "OVERDUE",
+    }
 
 
 @pytest.fixture(autouse=True)

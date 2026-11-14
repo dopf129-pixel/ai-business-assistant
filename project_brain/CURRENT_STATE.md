@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch sealed through prepare/apply (FB25)
+
+- Automatic FIFO previews now carry a validated, non-identifying seal for the exact scoped rule/manifest/source state. The repository rechecks that state atomically before preview persistence and again before the explicit FIFO apply. A changed or over-limit source fails closed as stale/unavailable without a partial preview or FIFO write.
+- Legacy total mode and prior successful idempotent retries keep their existing behavior. Tax, cutoff bridge, return COGS, replay, and ownership checks remain required. Source quantities still do not create inventory movements by themselves.
+- FB25 synthetic Windows profile: 44 linked transition/readiness tests and 127 FIFO batch tests passed; compile, diff, and tracked data checks passed. Parent order-state enum is now confirmed from owner-provided Ozon documentation; nested supply states, actual dispatch/receipt dates, historic completeness, and R1 remain unverified.
+
 # 2026-11-15 — FIFO automatic batch readiness uses newest persisted manifest (FB24)
 
 - Production readiness now rehydrates the typed supply manifest from exact owner/store/product/offer/SKU scoped evidence and the active rule. It verifies the latest scan set seal and uses only a matching PUBLISHED scan; a newer partial/failed scan, ambiguous timestamp tie, source mismatch, or stale observation set leaves the manifest unavailable rather than reusing old data.

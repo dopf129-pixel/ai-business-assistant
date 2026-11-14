@@ -11,6 +11,7 @@ import sqlite3
 from services.fifo_cost_batch_manifest_builder import FifoCostBatchManifestBuilder
 from services.fifo_cost_batch_rule_classifier import FifoCostBatchRuleClassifier
 from services.fifo_cost_batch_rule_contracts import (
+    MAX_BATCH_MEMBERSHIP_DECISIONS,
     BatchMembershipDecision,
     BatchRuleEventKind,
     BatchStartDayPolicy,
@@ -47,7 +48,7 @@ class FifoCostBatchManifestReadService:
 
     MAX_RULE_REVISIONS = 100
     MAX_SCAN_OBSERVATIONS = 10_000
-    MAX_MEMBERSHIP_DECISIONS = 20_000
+    MAX_MEMBERSHIP_DECISIONS = MAX_BATCH_MEMBERSHIP_DECISIONS
     MAX_CONTROLS = 100
 
     def __init__(self, repository, *, manifest_builder=None, now_provider=None):
@@ -140,6 +141,12 @@ class FifoCostBatchManifestReadService:
                 tenant_fingerprint=tenant["tenant_fingerprint"], limit=self.MAX_CONTROLS,
             )
             controls = tuple(self._restore_control(scope, case.case_id, row) for row in control_rows)
+            source_storage_fingerprint = (
+                FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                    connection, scope=scope, case_id=case.case_id,
+                    tenant_fingerprint=tenant["tenant_fingerprint"],
+                )
+            )
         except (OSError, sqlite3.Error, TypeError, ValueError, KeyError, AttributeError):
             return self._error("FIFO_BATCH_MANIFEST_STORAGE_UNAVAILABLE")
         finally:
@@ -172,13 +179,42 @@ class FifoCostBatchManifestReadService:
         )
         if built.manifest is None:
             return self._error(built.code)
+        seal = self._build_seal(
+            manifest=built.manifest,
+            source_storage_fingerprint=source_storage_fingerprint,
+        )
         return {
             "error": False,
             "code": built.code,
             "status": built.status,
             "manifest": built.manifest,
+            "seal": seal,
             "control_assessments": built.control_assessments,
             "issue_codes": built.issue_codes,
+        }
+
+    @staticmethod
+    def _build_seal(*, manifest, source_storage_fingerprint):
+        """Expose a non-identifying, content-addressed source seal."""
+        material = {
+            "schema_version": 1,
+            "rule_revision": manifest.rule_revision,
+            "rule_fingerprint": manifest.rule_fingerprint,
+            "scan_revision": manifest.coverage.revision,
+            "observation_set_fingerprint": (
+                manifest.coverage.observation_set_fingerprint
+            ),
+            "manifest_fingerprint": manifest.manifest_fingerprint,
+            "source_storage_fingerprint": source_storage_fingerprint,
+        }
+        encoded = json.dumps(
+            material, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode("utf-8")
+        return {
+            **material,
+            "seal_fingerprint": FifoCostBatchSupplyStore._digest(
+                encoded.decode("utf-8"),
+            ),
         }
 
     @classmethod
