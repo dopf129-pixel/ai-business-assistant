@@ -1,3 +1,10 @@
+# 2026-11-15 — FIFO batch history and cost consumers (FB26)
+
+- The automatic batch card now identifies the confirmed rule revision and whether it is an initial confirmation or a replacement. It labels the rule price separately from current FIFO unit cost and explains that rule/source refresh alone does not change FIFO or profit.
+- The card distinguishes bot read time from an Ozon source as-of timestamp and reports request pagination/detail coverage without claiming historical completeness.
+- Added regressions proving that confirming the 14.65 ₽ batch rule and refreshing incomplete supply pages leave the canonical 21.00 ₽ current cost/revision unchanged. Existing mixed-layer COGS, return-lineage, Period Profit, and frozen saved-plan regressions remain green.
+- FB26 synthetic Windows/Python 3.12 profile: **183 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram calls or owner data were used.
+
 # 2026-11-15 — FIFO automatic batch source seals for transition apply (FB25)
 
 - Added a minimal internal manifest seal for automatic supply mode and threaded it through readiness review, preview preparation, and explicit apply. Preparation and commit compare the exact scoped batch source inside the existing SQLite `BEGIN IMMEDIATE` transactions; source changes reject as stale before FIFO writes. Existing successful idempotent retries and legacy total mode remain on their prior paths.

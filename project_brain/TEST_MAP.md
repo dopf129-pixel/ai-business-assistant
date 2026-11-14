@@ -1,3 +1,10 @@
+# 2026-11-15 — FIFO automatic batch history and consumers (FB26)
+
+- `tests/test_fifo_cost_batch_rule_service.py` verifies the active-rule read returns only the saved revision metadata needed for explanation (revision, event kind, predecessor revision, rule price, and owner confirmation time) for both initial confirmation and replacement.
+- `tests/test_fifo_cost_batch_rule_regressions.py::test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_replay_safe` verifies the Telegram card distinguishes rule version/rate from FIFO current cost, labels bot request time separately from unavailable Ozon as-of, reports local page/detail coverage, and confirms rule confirmation plus incomplete supply refresh leave the canonical 21.00 ₽ legacy cost and cost revision unchanged.
+- B32 is covered by `tests/test_fifo_cost_temporal_rate_replay.py` mixed-rate allocation (3×21.00 + 2×14.65 = 92.30 ₽) and `tests/test_period_profit_fifo_cost_integration.py`; B38 is covered by original-lineage return replay in `tests/test_fifo_cost_temporal_rate_replay.py::test_mr04_mr05_return_from_closed_rate_restores_cost_and_origin_before_current_rate` and `tests/test_fifo_cost_return_repository.py::test_fc18_partial_return_of_multilayer_sale_uses_latest_fifo_basis`; B39 is covered by `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export`.
+- Linked Windows/Python 3.12 profile: **183 passed**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic fixtures only; no live Ozon/Telegram calls, owner data, or bot launch.
+
 # 2026-11-15 — FIFO automatic batch prepare/apply seals (FB25)
 
 - `tests/test_fifo_cost_batch_manifest_read_service.py` verifies that typed review returns the same validated seal as the manifest reader, scoped source fingerprints change with newer source state, malformed/tampered seals are rejected, and a row-limit breach makes the manifest unavailable instead of reading unbounded history.

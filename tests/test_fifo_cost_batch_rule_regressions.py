@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
 from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
+from services.fifo_current_unit_cost_adapter import FifoCurrentUnitCostAdapter
 from services.fifo_cost_transition_contracts import ScopeIdentity, SupplyTotalMode
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
@@ -381,6 +382,29 @@ def test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_repla
             batch_rule_telegram_service=telegram_rules,
         )
         runtime.start_new_case(101, IDENTITY, "Synthetic item", 0, "TOTAL_LANDED")
+
+        class _LegacyCost:
+            def get_current_cost_date(self):
+                return "2026-11-14"
+
+            def get_cost(self, product_id):
+                return (
+                    str(product_id), IDENTITY["sku"], IDENTITY["offer_id"],
+                    "21.00", "RUB", "2026-11-01",
+                )
+
+        current_cost_adapter = FifoCurrentUnitCostAdapter(
+            _LegacyCost(), history,
+        )
+        product = {
+            "product_id": "101", "offer_id": IDENTITY["offer_id"],
+            "sku": IDENTITY["sku"],
+        }
+        before_rule_cost = current_cost_adapter.resolve_current_cost(
+            product, store_id=IDENTITY["store_id"],
+        )
+        assert before_rule_cost["cost_per_unit_rub"] == "21.00"
+        assert before_rule_cost["cost_method"] == "LEGACY_EFFECTIVE_DATED"
         for value in ("21", "14.65", "05.11.2026", "0", "0"):
             response = _confirm_text(runtime, value)
         first_day = runtime.handle_text(101, "не знаю")
@@ -404,6 +428,11 @@ def test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_repla
         assert {"Обновить поставки", "Проверить найденные", "Изменить правило", "Контрольное количество"} <= labels
         assert any("Проверить готовность" in label for label in labels)
         assert any("Посмотреть пересчёт" in label for label in labels)
+        assert "редакция 1" in card["message"].lower()
+        assert "первая редакция подтверждена владельцем" in card["message"].lower()
+        assert "ставка правила 14.65 ₽/шт." in card["message"].lower()
+        assert "не текущая себестоимость fifo" in card["message"].lower()
+        assert "время среза ozon не подтверждены" in card["message"].lower()
         assert not source.calls  # Opening the card performs no Ozon request.
         assert "не обращается к ozon" in card["message"].lower()
 
@@ -444,6 +473,10 @@ def test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_repla
         assert "не полностью" in first_scan["message"].lower()
         assert "fifo_batch" not in first_scan["message"].lower()
         assert "заявок в ответах: 10" in first_scan["message"].lower()
+        batch_card = runtime._show_summary("101")
+        assert "время чтения ботом" in batch_card["message"].lower()
+        assert "время среза ozon" in batch_card["message"].lower()
+        assert "покрытие текущего запроса: список — неполная" in batch_card["message"].lower()
         assert runtime.handle_callback(101, refresh) == first_scan
         assert len(source.calls) == 1
         assert runtime.handle_callback(101, competing_stale)["error"] is True
@@ -467,6 +500,15 @@ def test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_repla
         assert source.calls[1][1]["continuation_token"] == "a" * 32
         assert "полнота исторического охвата" in second_scan["message"].lower()
         assert not any("id=" in line.lower() for line in second_scan["message"].splitlines())
+        after_rule_and_scan_cost = current_cost_adapter.resolve_current_cost(
+            product, store_id=IDENTITY["store_id"],
+        )
+        assert after_rule_and_scan_cost["cost_per_unit_rub"] == "21.00"
+        assert after_rule_and_scan_cost["cost_method"] == "LEGACY_EFFECTIVE_DATED"
+        assert after_rule_and_scan_cost["cost_revision"] == before_rule_cost["cost_revision"]
+        assert after_rule_and_scan_cost["cost_basis"][
+            "factual_period_profit_eligible"
+        ] is False
         found = runtime.handle_callback(101, next(
             button["callback"] for button in runtime._show_summary("101")["keyboard"]["buttons"]
             if button["text"] == "Проверить найденные"

@@ -342,24 +342,37 @@ class TelegramFifoCostBatchRuleService:
                 BatchStartDayPolicy.EXPLICIT_SUPPLY_SET.value:
                     "отправки первого дня требуют выбора владельца",
             }.get(rule.get("start_day_policy"), "требует проверки")
-            lines = [f"Правило автоматической партии: с {rule['start_local_date']} · {policy}."]
+            event_label = {
+                "CONFIRM": "первая редакция подтверждена владельцем",
+                "REPLACE": "новая редакция подтверждена владельцем; прежняя граница закрыта",
+            }.get(rule.get("event_kind"), "тип изменения не подтверждён")
+            lines = [
+                f"Правило партии · редакция {rule['rule_revision']}: {event_label}; "
+                f"с {rule['start_local_date']} · {policy}.",
+                f"Ставка правила {rule['new_unit_cost_rub']} ₽/шт. — это не текущая "
+                "себестоимость FIFO: правило само по себе не создаёт FIFO-слой и не меняет прибыль.",
+            ]
         scan = session.get("batch_last_scan")
         if not isinstance(scan, dict):
             if session.get("batch_refresh_error"):
                 lines.append("Последняя попытка обновления не удалась; подтверждённого чтения поставок ещё нет.")
             lines.append(
                 "Поставки ещё не проверялись. Открытие карточки не обращается к Ozon. "
-                "Историческое покрытие не подтверждено."
+                "Историческое покрытие и время среза Ozon не подтверждены."
             )
             return lines
         if session.get("batch_refresh_error"):
             lines.append("Последняя попытка обновления не удалась; ниже показан предыдущий результат чтения.")
+        page_coverage = "полная в рамках запроса" if scan.get("pagination_complete") is True else "неполная"
+        detail_coverage = "полная в рамках запроса" if scan.get("details_complete") is True else "неполная"
         lines.extend([
             f"Последнее чтение: {scan.get('read_at', 'в этой сессии')}; заявок в ответах "
             f"{scan.get('orders', 0)}, вложенных поставок {scan.get('supplies', 0)}; "
             f"HTTP-попыток {scan.get('http_attempts', 0)}/10.",
+            f"Покрытие текущего запроса: список — {page_coverage}, карточки — {detail_coverage}. "
+            "Это время чтения ботом, не время среза Ozon; отдельный source-as-of и полнота истории не подтверждены.",
             "Это количество строк ответа API, а не подтверждённый остаток или количество SKU. "
-            "Полнота истории, статусов и дат отправки не доказана; FIFO и прибыль не менялись.",
+            "Полнота истории, статусов и дат отправки не доказана; автоматическое правило не меняет FIFO и прибыль.",
         ])
         if scan.get("continuation_available"):
             lines.append("Ограниченный поиск можно продолжить кнопкой «Обновить поставки».")

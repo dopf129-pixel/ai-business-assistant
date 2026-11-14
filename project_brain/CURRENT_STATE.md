@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch history/consumer separation (FB26)
+
+- The active automatic batch card shows the confirmed rule revision and change type separately from the FIFO cost stream. A rule's planned rate is explicitly not presented as the current unit cost. The card also distinguishes bot request time from an Ozon-provided as-of time, which remains unavailable, and does not claim historical source completeness.
+- The canonical `FifoCurrentUnitCostAdapter` remains the only current unit-cost source for unit economics and price plans. Confirming a batch rule and refreshing supply evidence alone leave the current legacy/FIFO cost and its revision unchanged; only the existing explicitly applied FIFO transition can change that projection. FIFO planning remains model-only and factual Period Profit remains governed by the exact cutoff/allocation source.
+- FB26 linked Windows/Python 3.12 profile: **183 passed** across FIFO batch tests, current-cost consumers, temporal replay, return repository, Period Profit integration, and the frozen saved-plan restart/copy/export regression. `compileall`, `git diff --check`, and tracked `data/` equality passed. All new source/repository fixtures were synthetic. Raw nested supply state, seller-source as-of/history coverage, physical receipt timing, and R1 remain unverified.
+
 # 2026-11-15 — FIFO automatic batch sealed through prepare/apply (FB25)
 
 - Automatic FIFO previews now carry a validated, non-identifying seal for the exact scoped rule/manifest/source state. The repository rechecks that state atomically before preview persistence and again before the explicit FIFO apply. A changed or over-limit source fails closed as stale/unavailable without a partial preview or FIFO write.

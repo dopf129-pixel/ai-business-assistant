@@ -278,9 +278,13 @@ class FifoCostBatchRuleService:
             "rule_id": rule["rule_id"],
             "rule_revision": rule["rule_revision"],
             "rule_fingerprint": rule["rule_fingerprint"],
+            "event_kind": rule["event_kind"],
+            "predecessor_rule_revision": rule["predecessor_rule_revision"],
             "start_local_date": rule["start_local_date"],
+            "new_unit_cost_rub": rule["new_unit_cost_rub"],
             "store_timezone": rule["store_timezone"],
             "start_day_policy": rule["start_day_policy"],
+            "confirmed_at_utc": rule["confirmed_at_utc"],
         }
 
     def confirm_rule(
