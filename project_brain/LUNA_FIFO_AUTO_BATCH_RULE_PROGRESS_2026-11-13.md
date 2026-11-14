@@ -7,7 +7,7 @@
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.
 - Spec branch: codex/fifo-auto-batch-rule-spec-20261113.
 - Product baseline: main 7965dcddffa50bd4e0f175cd18c32929b6a845d0.
-- Implementation branch/head checkpoint: `codex/fifo-auto-batch-foundation-20261113`; FB05 code commit `99b95e85`, FB06 code/docs commit pending. Product base remains `7965dcddffa50bd4e0f175cd18c32929b6a845d0`.
+- Implementation branch/head checkpoint: `codex/fifo-auto-batch-foundation-20261113` at `12014e9600085eaa0739708a025ca317705bb736` (FB06 code/docs commit). Product base remains `7965dcddffa50bd4e0f175cd18c32929b6a845d0`.
 - Следующий этап: FB07. FB00–FB06 closed; FB01 baseline remains expected red until FB08. The separate untracked `.fl12-deps/` stays preserved and excluded.
 - Прежняя untracked .fl12-deps/ сохранена, не добавлять в Git.
 - Рабочая копия: изолированный Codex worktree; Desktop-папка с работающим ботом не открывалась для разработки.
@@ -30,7 +30,7 @@
 | FB03 | DONE | `1d7e275f`; immutable contracts and eight new tests | New contract tests: **8 passed**; with existing FIFO transition contracts: **21 passed**. `compileall`, `git diff --check`, and `git diff --exit-code -- data` PASS. Covers strict booleans, immutable scoped contracts, encrypted lookup, unknown versus explicit zero, independent coverage flags, timestamp-independent manifest fingerprint, and separate aggregate quantity ceiling. No I/O/persistence introduced. |
 | FB04 | DONE | `cac9e676b5490ba76262b3f5be75370d11d64713` — `Add FIFO batch rule v17 storage`; repository/schema, batch store, transition case mode readers/writers, tests, CHANGELOG/CURRENT_STATE/TEST_MAP/DECISIONS | Additive schema v17 and scoped SQL helpers. `supply_total_mode` defaults to LEGACY_OWNER_TOTAL in DB and old payload readers; explicit mode round-trips. Rules, SKU observations, decisions/decision references and controls are append-only; scans use revision CAS and encrypted continuation bytes. Fresh/v12–v16 migration, injected rollback, future-version rejection, no Planning user_version change. Final linked profile: **121 passed** across repository, transition store/service/atomic apply, schema migrations and contracts; `compileall`, `git diff --check`, `git diff --exit-code -- data` PASS. Original five data hashes match FB00. No owner data/credentials/API used. |
 | FB05 | DONE | `99b95e85` — `Add FIFO batch rule preview and confirmation`; contracts, batch store, new rule service and tests, CHANGELOG/CURRENT_STATE/TEST_MAP/DECISIONS | Added frozen preview tickets and exact owner/store/product/offer/SKU + case revision + rule-head CAS. Explicit old-home/transit zero and first-boundary date are required; same-day successor is review-only. Confirmation atomically appends immutable rule event(s), closes predecessor interval when needed, and changes only `supply_total_mode`; no rates/layers/events/allocations/COGS are written. Identical retry works after service restart via durable receipt; reused key with changed payload conflicts. Linked Windows/Python 3.12 profile across batch contracts/service/store, transition contracts/store/service/apply, v13/v16 migration: **91 passed in 10.18s**; latest FB05 service-only: **10 passed in 1.18s**. `compileall`, `git diff --check`, and `git diff --exit-code -- data` PASS. All SQLite data was synthetic and temporary. Architecture review required (>300 lines/new service). Full suite and exact-head CI remain pending FB10. |
-| FB06 | IN_PROGRESS | `app/services/fifo_cost_batch_rule_classifier.py`, classifier contract/test; timezone-chain fail-closed regression | Pure rule interval classifier and B42 stable-binding behavior implemented. FB05–FB06 profile: **39 passed**; compileall PASS. `git diff --check`, data equality, docs, and stage commit pending. |
+| FB06 | DONE | `12014e9600085eaa0739708a025ca317705bb736` — `Add FIFO supply membership classifier`; pure classifier, membership result contract, stable rule binding, timezone chain regression, docs | `classify_supply` selects only by proven local dispatch date and validated `[start, next_start)` rule history. Explicit first-day selection is respected; unknown dates, same-day boundaries, malformed histories, timezone changes, scope mismatch, and owner/source contradictions fail closed. Ordinary status/quantity refresh preserves membership only while scope, supply, rule revision/fingerprint and dispatch binding are unchanged; full source fingerprint remains historical audit evidence. A later stale decision cannot revive a superseded one. Cancellation does not erase a proven dispatch. No FIFO event/rate/layer/allocation/COGS writes. FB05–FB06 profile: **39 passed in 2.02s**; modified modules compile; `git diff --check` and `git diff --exit-code -- data` PASS. Synthetic fixtures only. Architecture review required because a new service and >300-line change were introduced. Exact-SHA hosted CI remains pending at PR A checkpoint FB10. |
 | FB07 | NOT_STARTED | — | — |
 | FB08 | NOT_STARTED | — | — |
 | FB09 | NOT_STARTED | — | — |
@@ -62,6 +62,15 @@
 Дата, branch/HEAD/base, изменённые функции/контракты, команды и результаты проверок,
 Bxx→test mapping, source gaps, data integrity, PR/CI URL, следующий этап.
 Не писать DONE для непроверенной функции.
+
+### FB06 verification detail
+
+- B05/B06/B07/B26: `tests/test_fifo_cost_batch_rule_classifier.py` covers start-day policies, later interval selection, unknown dispatch evidence, successor rule boundaries, and same-day/history conflicts.
+- B28/B43: classifier preserves a cancelled supply's previously proven dispatch and fails closed on cancelled/malformed rule history; post-APPLIED correction/replay remains owned by later integration stages and is not claimed here.
+- B38: buyer returns remain outside this supply-only API; classification accepts only `SupplySkuObservation` and does not create FIFO movements or reassign return COGS.
+- B42: the status/quantity-refresh regression proves a stable membership binding reuses the owner decision; a changed dispatch proof and a stale latest decision cannot resurrect an earlier selection.
+- Command: `PYTHONPATH=app python -m pytest tests/test_fifo_cost_batch_rule_classifier.py tests/test_fifo_cost_batch_rule_service.py tests/test_fifo_cost_batch_rule_contracts.py tests/test_fifo_cost_batch_supply_store.py -q` — **39 passed in 2.02s**. `python -m compileall -q` on the three changed service modules, `git diff --check`, and unchanged tracked `data/` all PASS.
+- Exact code SHA: `12014e9600085eaa0739708a025ca317705bb736`. No real API, bot, owner data, merge, or deployment.
 
 ## Отдельные ограничения
 
