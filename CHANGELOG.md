@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch production assembly (PR C, FB20)
+
+- Extended the existing FIFO transition workflow factory with the bounded automatic-supply source, durable scan-checkpoint service, supply evidence store, deduplicator, and pure manifest builder. The batch Telegram adapter receives the same composed dependencies; the supply source reuses the exact Ozon client already held by the existing transition source collection service.
+- Added a temporary-SQLite/fake-network regression that builds this production workflow, performs the bounded read, and verifies shared service/repository/client identity plus zero source-observation or scan writes. No second composition root, live API request, FIFO apply, or COGS mutation was added.
+- FB20 linked Windows/Python 3.12 profile: **187 passed** across batch source/contracts/store/rules/checkpoints/dedup/manifest, transition production workflow, and cross-docking/planning regressions. `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
 # 2026-11-14 — FIFO automatic batch durable scan checkpoint (PR B, FB15)
 
 - Added an additive FIFO schema v18 link table for associating immutable normalized supply observations with one durable scan. The new table does not alter schema-v17 rules, observations, or decisions.

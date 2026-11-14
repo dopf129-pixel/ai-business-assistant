@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch FB20 production assembly
+
+- PR B #735 is open as a draft on final head `dda4571baa79b95d632391cc0fee5cb7ca21b661`; Verify run [#43617884850](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43617884850) passed Windows/Linux full suites, compile, and Linux production Docker build/runtime smoke. PR C continues on dependent branch `codex/fifo-auto-batch-integration-20261113` from that PR B head.
+- FB20 composes the batch source, durable checkpoint, evidence store, deduplicator, and pure manifest builder in the existing `create_fifo_cost_transition_workflow`; the adapter and workflow share those instances. The batch source reuses the Ozon client from the existing transition source collection service.
+- Verification used a temporary SQLite DB and synthetic fake Ozon client; the production graph made one bounded fake request and did not persist scan/observation rows. Linked profile: **187 passed**. `compileall`, `git diff --check`, and tracked `data/` equality pass. This does not connect user-facing refresh controls, confirm source completeness, or write FIFO/COGS. Raw Ozon state/bundle/dispatch gaps and R1 remain open; no live API, bot launch, merge, or deployment was performed.
+
 # 2026-11-14 — FIFO automatic batch durable scan checkpoint (FB15)
 
 - Added additive FIFO schema v18 scan-to-observation links and a durable checkpoint service. It encrypts continuation state with the existing tenant key, enforces a 30-minute TTL, and binds the checkpoint to the exact scope, case revision, rule, source profile, and date range.

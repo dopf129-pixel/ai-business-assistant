@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch production assembly (FB20)
+
+- `tests/test_fifo_cost_batch_supply_source.py::test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon` assembles the existing transition workflow with temporary SQLite and a fake Ozon client. It asserts that the automatic source reuses the existing client, the source/checkpoint/store/dedup/manifest dependencies are the exact instances exposed to the batch adapter, the bounded source call is still fail-closed PARTIAL, and it writes no staged observations or scans.
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` additionally asserts the existing end-to-end production graph uses the composed batch services while preserving the independent cutoff receiving gate.
+- FB20 linked profile: **187 passed** across batch modules, production workflow, and cross-docking/planning regressions; `compileall`, `git diff --check`, and tracked `data/` equality passed. Network is fake; DB is temporary.
+
 # 2026-11-14 — FIFO automatic batch durable scan checkpoint (FB15)
 
 - `tests/test_fifo_cost_batch_scan_checkpoint_service.py` covers encrypted continuation storage, restart after a committed page, stale-reference resume from the latest checkpoint revision, exact case/rule/scope/source-profile/range binding, TTL expiry, observation/checkpoint CAS rollback, duplicate page rejection, terminal publish behavior, append-only scan links, and missing-key fail-closed behavior.
