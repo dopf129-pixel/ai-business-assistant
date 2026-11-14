@@ -16,6 +16,7 @@ from services.fifo_cost_batch_rule_contracts import (
     SupplyMembershipClassification,
     SupplySkuObservation,
     canonical_membership_binding_fingerprint,
+    canonical_membership_group_binding_fingerprint,
 )
 from services.fifo_cost_transition_contracts import NormalizedSupplyStatus
 
@@ -418,6 +419,21 @@ class FifoCostBatchRuleClassifier:
         matches = []
         for item in candidates:
             rule = item["interval"]["base"]
+            decision = item["decision"]
+            group_binding = canonical_membership_group_binding_fingerprint(
+                scope=observation.scope,
+                rule_id=rule.rule_id,
+                rule_revision=rule.rule_revision,
+                rule_fingerprint=rule.rule_fingerprint,
+                decision=decision.decision,
+                record_keys=decision.record_keys,
+            )
+            if group_binding == decision.membership_binding_fingerprint:
+                matches.append(item)
+                continue
+            # Read decisions written before exact grouped selections were added.
+            if len(decision.record_keys) != 1:
+                continue
             binding = canonical_membership_binding_fingerprint(
                 scope=observation.scope,
                 supply_ref_digest=observation.supply_ref_digest,
@@ -427,7 +443,7 @@ class FifoCostBatchRuleClassifier:
                 dispatch_local_date=confirmed_dispatch_date,
                 owner_selected=True,
             )
-            if binding == item["decision"].membership_binding_fingerprint:
+            if binding == decision.membership_binding_fingerprint:
                 matches.append(item)
         return matches
 

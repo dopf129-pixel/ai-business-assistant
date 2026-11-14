@@ -21,7 +21,7 @@ from services.tenant_cipher_provider import decrypt_tenant_value, encrypt_tenant
 
 
 _SCAN_REF = re.compile(r"^([A-Za-z0-9_-]{8,96})_r([1-9][0-9]{0,5})$")
-_CURSOR = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
+_CURSOR = re.compile(r"(?s)^.{1,256}$")
 _HEX = re.compile(r"^[0-9a-f]{64}$")
 _STATUSES = frozenset({"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRED"})
 _RESUMABLE = frozenset({"STAGING", "PARTIAL"})
@@ -392,8 +392,13 @@ class FifoCostBatchScanCheckpointService:
 
     @classmethod
     def _normalize_continuation_state(cls, state):
-        if not isinstance(state, dict) or set(state) != {
-            "cursor", "seen_cursor_digests", "pages_scanned",
+        base_keys = {"cursor", "seen_cursor_digests", "pages_scanned"}
+        extended_keys = base_keys | {
+            "pending_supplies", "orders_seen", "supplies_seen",
+            "candidate_count", "unknown_supply_count", "list_complete",
+        }
+        if not isinstance(state, dict) or frozenset(state) not in {
+            frozenset(base_keys), frozenset(extended_keys),
         }:
             return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
         cursor = state["cursor"]
@@ -412,11 +417,81 @@ class FifoCostBatchScanCheckpointService:
         pages = state["pages_scanned"]
         if type(pages) is not int or not 0 <= pages <= 100:
             return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
-        return {
+        normalized = {
             "cursor": cursor,
             "seen_cursor_digests": normalized_digests,
             "pages_scanned": pages,
-        }, None
+        }
+        if set(state) == extended_keys:
+            pending = state["pending_supplies"]
+            if not isinstance(pending, (list, tuple)) or len(pending) > 64:
+                return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+            normalized_pending = []
+            expected_pending_keys = {
+                "order_id", "supply_id", "bundle_id", "state", "is_crossdock",
+                "bundle_cursor", "bundle_total", "bundle_parsed",
+                "bundle_seen_cursor_digests", "target_quantity", "target_rows",
+            }
+            for item in pending:
+                if not isinstance(item, dict) or set(item) != expected_pending_keys:
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                for key in ("order_id", "supply_id"):
+                    identifier = item[key]
+                    if not isinstance(identifier, str) or not re.fullmatch(r"[0-9]{1,19}", identifier):
+                        return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                bundle_id = item["bundle_id"]
+                if bundle_id is not None and (
+                    not isinstance(bundle_id, str) or not bundle_id
+                    or len(bundle_id) > 256
+                ):
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                raw_state = item["state"]
+                if raw_state is not None and (
+                    not isinstance(raw_state, str)
+                    or re.fullmatch(r"[A-Z0-9_]{1,48}", raw_state) is None
+                ):
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                if item["is_crossdock"] is not None and type(item["is_crossdock"]) is not bool:
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                pending_cursor = item["bundle_cursor"]
+                if pending_cursor is not None and (
+                    not isinstance(pending_cursor, str) or _CURSOR.fullmatch(pending_cursor) is None
+                ):
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                bundle_cursor_digests = item["bundle_seen_cursor_digests"]
+                if (
+                    not isinstance(bundle_cursor_digests, (list, tuple))
+                    or len(bundle_cursor_digests) > 100
+                    or any(not isinstance(value, str) or _HEX.fullmatch(value) is None
+                           for value in bundle_cursor_digests)
+                    or len(set(bundle_cursor_digests)) != len(bundle_cursor_digests)
+                ):
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                for key, maximum in (("bundle_total", 10_000), ("bundle_parsed", 10_000),
+                                     ("target_quantity", 1_000_000), ("target_rows", 10_000)):
+                    number = item[key]
+                    if number is not None and (type(number) is not int or not 0 <= number <= maximum):
+                        return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                if item["bundle_parsed"] is not None and item["bundle_total"] is None:
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                normalized_item = dict(item)
+                normalized_item["bundle_seen_cursor_digests"] = tuple(bundle_cursor_digests)
+                normalized_pending.append(normalized_item)
+            counters = {}
+            for key, maximum in (
+                ("orders_seen", 2_000), ("supplies_seen", 5_000),
+                ("candidate_count", 5_000), ("unknown_supply_count", 5_000),
+            ):
+                number = state[key]
+                if type(number) is not int or not 0 <= number <= maximum:
+                    return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+                counters[key] = number
+            if type(state["list_complete"]) is not bool:
+                return None, "FIFO_BATCH_SCAN_TOKEN_INVALID"
+            normalized.update(counters)
+            normalized["pending_supplies"] = tuple(normalized_pending)
+            normalized["list_complete"] = state["list_complete"]
+        return normalized, None
 
     @staticmethod
     def _profile_fingerprint(contract_version, state_profile):

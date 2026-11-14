@@ -1,24 +1,27 @@
 # FIFO automatic batch supply source contract
 
-Checked: 2026-11-14. This note separates official Ozon claims from existing client adapters and synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
+Checked: 2026-11-14, incorporating the owner's pasted Ozon Seller API operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`. This note separates documented schema from synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
 
 ## Officially confirmed
 
 | Operation / fact | Confirmed information | Source |
 |---|---|---|
-| `POST /v3/supply-order/list` | Ozon's guide calls this the method for listing available supplies/orders. The guide does not expose the complete request/response JSON or a complete raw state enum in readable text. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-po-integratsii-metodov-Seller-API-FBO-so-skanerom/) |
-| `POST /v3/supply-order/get` | The guide says it obtains data for a known `supply_id`; a separate Ozon notice says this v3 method replaces v2. No full schema is visible in the public page rendering used for this check. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-po-integratsii-metodov-Seller-API-FBO-so-skanerom/), [v2 to v3 migration notice](https://dev.ozon.ru/news/643-Izmeneniia-v-metodakh-dlia-zaiavok-na-postavku-v-Seller-API/) |
-| `POST /v1/supply-order/bundle` | Ozon's guide explicitly says its request uses `supply_id` and `bundle_id`, and its result contains product SKUs and quantities (also barcodes and cargo restrictions). This does not reveal the complete JSON keys, types, relation of `bundle_id` to nested supplies, or a pagination contract. | [FBO Seller API scanner guide](https://dev.ozon.ru/start/526-Gaid-po-integratsii-metodov-Seller-API-FBO-so-skanerom/) |
-| Cross-docking `arrival_date` | From 2026-02-16, `storage_warehouse.arrival_date` is returned as null for the affected cross-docking methods. It cannot prove dispatch or receipt date. The notice also introduces `macrolocal_cluster_id` and says `warehouse_id` loses relevance for cross-docking. | [FBO supply API change notice](https://dev.ozon.ru/news/647-Izmeneniia-v-metodakh-Seller-API-pri-rabote-s-postavkami-FBO/) |
+| `POST /v3/supply-order/list` | Official operation description: required `filter` object; optional `last_id` string, `limit` integer (1-100), `sort_by`, `sort_dir`. Response has `order_ids`, `last_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| `POST /v3/supply-order/get` | Official operation description: `order_ids` is an array of integer ID strings, up to 50. Response includes `orders` with `order_id`, `state`, and nested `supplies` including `supply_id`, `state`, `is_crossdock`, and `bundle_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| `POST /v1/supply-order/bundle` request | Official operation description: `bundle_ids` is an array of strings (1-100); `last_id` is an optional string; `limit` is an integer (1-100). | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| `POST /v1/supply-order/bundle` response | Pasted operation docs specify `items` array, `total_count` integer, `has_next` boolean, and `last_id` string. Item fields include `sku` integer, `quantity` integer, `offer_id` string, `product_id` integer, `name` string, and `barcode` string. Returned item rows do not expose a parent `bundle_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| Bundle quantity semantics | `items[].quantity` is bundle composition. The documentation does not establish physical dispatch or accepted warehouse quantity. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| Nested supply link | Pasted `/v3/supply-order/get` docs include `supplies[].bundle_id`; because bundle result items do not echo their parent ID, request exactly one bundle ID at a time when binding rows to a supply. | Owner-provided Ozon Seller API operation descriptions, received 2026-11-14 |
 
-The official API reference `https://docs.ozon.ru/api/seller/` rendered without readable operation schemas in this review. No live seller request was made. No user credentials or seller responses were used.
+The operation schema was supplied from the owner's Ozon Seller API documentation text. It is documentation evidence, not a seller-specific API response. No live seller request was made and no credentials were used.
 
 ## Existing local adapter contract (verified in code, not a claim about undocumented raw JSON)
 
-`app/api/ozon_client.py` currently exposes read-only wrappers:
+`items[].quantity` is the bundle composition quantity. The docs do not establish that it proves physical dispatch or accepted warehouse quantity. Therefore quantity from this endpoint may populate planned/declared composition only; shipped and accepted quantities remain unknown.
 
 - `get_supply_orders_list(states, last_id=None, limit<=100, sort_by, sort_dir, ...)` posts to `/v3/supply-order/list` with `filter.states`, `limit`, `sort_by`, `sort_dir`, and optional `last_id`. The adapter currently normalizes the response to `order_ids` and `last_id`.
 - `get_supply_orders_details(order_ids<=50, ...)` posts to `/v3/supply-order/get` with `order_ids`. The adapter returns an `orders` collection to callers.
+- `get_supply_order_bundle(bundle_ids, last_id=None, limit<=100, ...)` posts to `/v1/supply-order/bundle`; callers must request one bundle ID at a time to retain the parent-supply binding. Pagination and row interpretation remain the source service’s responsibility.
 - Existing code consumers inspect nested order `supplies` containing `supply_id`, `state`, and sometimes `is_crossdock`. Existing cross-docking logic deliberately scopes to `COMPLETED`; its narrower status/window semantics must not be reused as proof of general batch coverage.
 - Existing act methods and normalizers can reconcile acceptance; tested product fields include `sku_info.sku`, `declared_quantity`, `approved_quantity`, and `fact_quantity`. Missing `fact_quantity` is not zero. The existing reconciler deduplicates repeated cumulative snapshots, sums distinct acts, preserves a last known accepted amount beneath a newer partial read, and requires review for a decrease.
 - An act `created_date` and an API capture timestamp are not physical receipt timestamps; the normalized `FifoSupplyActSnapshot.effective_at` is deliberately unset. FB14 revalidated these existing semantics, but did not wire act acquisition into the new automatic batch source.
@@ -29,7 +32,7 @@ FB12 implementation uses the wrapper contract only: list pages are requested at 
 
 FB13 implementation adds `FifoCostBatchBundleNormalizer` as a typed boundary over the existing `SupplySkuObservation` contract. It only maps exact owner/store/SKU observations sharing one supply and order digest, rejects duplicate SKU/record mappings, and keeps planned and shipped composition quantities separate. It requires explicit-zero provenance for zero quantities and preserves partial quantities as `PARTIAL`. This normalizer never parses a raw bundle dictionary.
 
-`FifoCostBatchSupplySourceService.get_supply_composition` validates the current exact tenant/case/rule and then returns `UNKNOWN` / `FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED` with zero HTTP attempts. No `/v1/supply-order/bundle` wrapper/body was added. This is intentional until the raw JSON key/type contract, bundle-to-supply binding, and planned-versus-shipped semantics are verified. No source rows or manifest are persisted at FB13.
+FB22 now implements a strict raw parser for the owner-provided documented wrapper body and JSON key/type contract, per-bundle pagination, exact parent-supply binding by issuing one `bundle_id` per request, scoped observation persistence, and encrypted durable continuation. `items[].quantity` may populate only planned/declared composition; shipped and accepted quantities remain unknown. The parser rejects unexpected types, inconsistent `total_count`, malformed continuation, repeated/non-advancing cursors, and incomplete pages instead of treating them as zero or complete.
 
 ## Unverified fields / safe adapter behavior
 
@@ -38,17 +41,17 @@ FB13 implementation adds `FifoCostBatchBundleNormalizer` as a typed boundary ove
 | Complete supported `state` enum for all list/get orders and nested supplies | `NOT_VERIFIED` | Use only an explicit tested allowlist; any new or missing enum is `UNKNOWN` and makes coverage partial. |
 | Raw list cursor field and proof of terminal page | `NOT_VERIFIED` beyond current application's `last_id` wrapper | Do not call a full page complete without reliable terminal-page proof; repeated cursor is partial/conflict. |
 | Exact raw details response keys and nested supply bundle linkage | `NOT_VERIFIED` beyond current application's synthetic adapter shape | Require a strict normalizer; malformed/missing linkage is unknown. |
-| Exact bundle request and response JSON, pagination, per-SKU quantity key/type | Only `supply_id`, `bundle_id`, SKU+quantity concept confirmed by Ozon guide | Do not send an invented body or read a guessed quantity key. Keep a normalized adapter interface and return `UNKNOWN` until a documented or owner-supplied anonymized fixture establishes the concrete mapping. |
+| Exact bundle request/response JSON, pagination, per-SKU quantity key/type | Confirmed by owner-pasted official operation docs; raw parser and synthetic pagination tests implemented in FB22 | Use documented fields/types only. Process one bundle per request; paginate using `has_next`/`last_id` under the shared action budget. Owner text is not a seller-specific response. |
 | Actual dispatch date/time | `NOT_VERIFIED` | Do not substitute order creation/update, timeslot, act date, or numeric IDs. Use unknown-date grouped owner confirmation. |
 | Actual physical receipt timestamp | `NOT_VERIFIED` by this supply list/detail contract | Keep accepted quantity separate; do not infer historic physical stock movements. R1 remains open. |
 
 ## Synthetic fixtures
 
-The fixture files under `tests/fixtures/fifo_cost_batch_source/` are explicitly synthetic, redacted, and adapter-level. They illustrate only fields already consumed by this repository's local wrapper. They must not be treated as raw Ozon payload samples or expanded with guessed bundle fields.
+The fixtures under `tests/fixtures/fifo_cost_batch_source/` remain synthetic and must not be presented as seller-specific responses. They may use documented bundle fields with clearly synthetic values, and must not infer shipment or receipt semantics.
 
 ## Evidence reviewed
 
-- Ozon for Developers, “Гайд: интеграция методов Seller API FBO со сканером”, published 2026-06-10; confirms list/get use and the `supply_id` + `bundle_id` bundle request concept and SKU/quantity result. The page text still does not expose exact response keys/types or semantics sufficient for a typed raw adapter.
+- Owner-provided official operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`, received 2026-11-14; they establish the request/response fields and types recorded above, but do not prove dispatch or receipt semantics.
 - Ozon for Developers, “Изменения в методах Seller API при работе с поставками FBO”, published 2026-01-19; cross-dock `storage_warehouse.arrival_date` is null from 2026-02-16.
 - Ozon for Developers, “Изменения в методах Seller API для работы с заявками на поставку”, published 2025-11-20; v2 list/get were to be replaced by v3.
 - Existing adapter and synthetic tests: `app/api/ozon_client.py`, `tests/test_experimental_supply_act_diagnostic.py`, `tests/test_cross_docking_supply_source.py`, and `app/services/fifo_cost_source_collection_service.py`.
@@ -62,7 +65,7 @@ The source gap is a real implementation limitation, not a reason to invent an AP
 | `/v3/supply-order/list` | Existing allowlisted wrapper is used with page limit ≤100, opaque continuation, shared HTTP/time budgets, repeated-cursor and overlapping-page checks. | Local wrapper transport is exercised; raw cursor meaning, raw state coverage, and complete historical enumeration are **NOT_VERIFIED**. Full pages without terminal proof remain partial. |
 | `/v3/supply-order/get` | Existing allowlisted details wrapper batches at ≤50 orders and validates one exact returned order per requested order; nested supplies are collected without using the cross-docking-only `COMPLETED` filter. | Local normalized details shape is exercised; Ozon raw details schema and all nested state values are **NOT_VERIFIED**. Unsupported states remain visible as a gap. |
 | Nested `supplies` | Exact `supply_id`, state, and optional strict boolean `is_crossdock` are validated; supply identity is opaque and scoped to owner/store/product/offer/SKU. | IDs are not exposed in public summaries or callbacks. The local shape is not proof of an undocumented raw response schema. |
-| Per-SKU bundle `/v1/supply-order/bundle` | No request wrapper or guessed response parser exists; normalized boundary validates exact scope and deliberately returns `UNKNOWN` with zero HTTP attempts. | Official guide confirms only the `supply_id` + `bundle_id` concept and SKU/quantity result. Concrete field names/types, nested-supply binding, pagination, and planned-versus-shipped semantics remain **NOT_VERIFIED**. |
+| Per-SKU bundle `/v1/supply-order/bundle` | Documented wrapper, strict parser, bounded pagination, durable scoped observations, and owner selection implemented in FB22. | Exact documented composition schema is exercised synthetically; shipment, acceptance, raw state coverage, actual dispatch date, and historical completeness remain **NOT_VERIFIED**. |
 | Acceptance acts | Existing act normalizer/reconciler is reused in tests for cumulative snapshots, multiple acts, explicit zero vs missing, partial reads, and downward-correction review. | New automatic batch collection does not acquire or publish acts yet. Act creation/capture dates do not prove physical receipt time. |
 | Full inventory movement / R1 | No supported complete movement source has been established by this PR. | A complete supply manifest cannot satisfy R1 or factual FIFO apply readiness. |
 

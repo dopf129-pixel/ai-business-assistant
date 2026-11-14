@@ -770,6 +770,44 @@ def canonical_membership_binding_fingerprint(
     })
 
 
+def canonical_membership_group_binding_fingerprint(
+    *, scope: ScopeIdentity, rule_id: str, rule_revision: int,
+    rule_fingerprint: str, decision: MembershipDecisionKind,
+    record_keys: tuple[str, ...],
+) -> str:
+    """Bind one owner include/exclude decision to a bounded exact record set.
+
+    Source snapshots and transport status are deliberately excluded so a later
+    quantity/status refresh does not change ownership. The decision stores the
+    source fingerprints separately and the preview seals the complete candidate
+    set before confirmation.
+    """
+    if not isinstance(scope, ScopeIdentity):
+        _invalid(TransitionReasonCode.SCOPE_INVALID)
+    if type(rule_revision) is not int or rule_revision < 1:
+        _invalid(TransitionReasonCode.CONTRACT_INVALID)
+    if not isinstance(decision, MembershipDecisionKind):
+        _invalid(TransitionReasonCode.CONTRACT_INVALID)
+    keys = _digest_tuple(record_keys, max_items=MAX_DECISION_ROWS)
+    if not keys:
+        _invalid(TransitionReasonCode.CONTRACT_INVALID)
+    return source_fingerprint({
+        "scope": {
+            "owner_id": scope.owner_id,
+            "store_id": scope.store_id,
+            "product_id": scope.product_id,
+            "offer_id": scope.offer_id,
+            "sku": scope.sku,
+        },
+        "rule_id": _opaque(rule_id),
+        "rule_revision": rule_revision,
+        "rule_fingerprint": normalize_digest(rule_fingerprint),
+        "decision": decision.value,
+        "record_keys": keys,
+        "owner_selected": True,
+    })
+
+
 def _opaque(value: object) -> str:
     if not isinstance(value, str) or not _OPAQUE_ID.fullmatch(value):
         _invalid(TransitionReasonCode.CONTRACT_INVALID)

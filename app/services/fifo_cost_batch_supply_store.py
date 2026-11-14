@@ -672,6 +672,128 @@ class FifoCostBatchSupplyStore:
         return tuple(dict(row) for row in rows)
 
     @classmethod
+    def read_scan_candidate_page(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, scan_id: str, limit: int = 8,
+        offset: int = 0, record_keys: tuple[str, ...] | None = None,
+    ) -> dict:
+        """Read redacted current scan candidates plus the whole-set seal.
+
+        Candidate order is deterministic by opaque record key. Raw Ozon IDs,
+        names and barcodes are never selected. A caller may request one page of
+        eight rows or a precisely selected set of at most fifty rows.
+        """
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        cls._validate_opaque(scan_id)
+        if type(limit) is not int or not 1 <= limit <= 8:
+            raise ValueError("FIFO_BATCH_READ_LIMIT_INVALID")
+        if type(offset) is not int or not 0 <= offset <= 10_000:
+            raise ValueError("FIFO_BATCH_READ_OFFSET_INVALID")
+        if record_keys is not None:
+            if (
+                not isinstance(record_keys, tuple) or not 1 <= len(record_keys) <= 50
+                or len(set(record_keys)) != len(record_keys)
+            ):
+                raise ValueError("FIFO_BATCH_READ_KEYS_INVALID")
+            for key in record_keys:
+                cls._require_digest(key, "FIFO_BATCH_RECORD_KEY_INVALID")
+        if cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        ) is None:
+            return {"error": False, "code": "FIFO_BATCH_SCAN_NOT_FOUND", "items": (), "total": 0}
+        scan = cls.read_scan_checkpoint(
+            connection, scope=scope, case_id=case_id,
+            tenant_fingerprint=tenant_fingerprint, scan_id=scan_id,
+        )
+        if scan is None:
+            return {"error": False, "code": "FIFO_BATCH_SCAN_NOT_FOUND", "items": (), "total": 0}
+        refs = cls.read_scan_observation_refs(
+            connection, scope=scope, case_id=case_id,
+            tenant_fingerprint=tenant_fingerprint, scan_id=scan_id,
+        )
+        latest = {}
+        for row in refs:
+            key = row["record_key"]
+            current = latest.get(key)
+            candidate = (row["observation_revision"], row["source_fingerprint"])
+            if current is None or candidate[0] > current[0]:
+                latest[key] = candidate
+        ordered_keys = sorted(latest)
+        candidate_fingerprint = hashlib.sha256(json.dumps(
+            [(key, latest[key][1]) for key in ordered_keys],
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode("utf-8")).hexdigest()
+        selected_keys = (
+            list(record_keys) if record_keys is not None
+            else ordered_keys[offset:offset + limit]
+        )
+        scope_fingerprint = cls._scope_fingerprint(scope)
+        items = []
+        for key in selected_keys:
+            current = latest.get(key)
+            if current is None:
+                continue
+            row = connection.execute(
+                """SELECT record_key, source_fingerprint, observation_revision,
+                          source_status, normalized_status, is_crossdock,
+                          dispatch_local_date, dispatch_time_status,
+                          planned_declared_quantity, shipped_composition_quantity,
+                          accepted_quantity, quantity_coverage, membership, issues_json
+                   FROM fifo_cost_batch_supply_observations
+                   WHERE case_id=? AND record_key=? AND source_fingerprint=?
+                     AND observation_revision=? AND owner_fingerprint=?
+                     AND tenant_fingerprint=? AND store_id=? AND sku=?
+                     AND scope_fingerprint=?""",
+                (
+                    case_id, key, current[1], current[0], cls._digest(scope.owner_id),
+                    tenant_fingerprint, scope.store_id, scope.sku, scope_fingerprint,
+                ),
+            ).fetchone()
+            if row is not None:
+                items.append(dict(row))
+        return {
+            "error": False, "code": "FIFO_BATCH_SCAN_CANDIDATES_READ",
+            "scan_status": scan["status"],
+            "scan_revision": scan["revision"],
+            "candidate_set_fingerprint": candidate_fingerprint,
+            "stored_candidate_set_fingerprint": scan["observation_set_fingerprint"],
+            "total": len(ordered_keys),
+            "items": tuple(items),
+        }
+
+    @classmethod
+    def read_membership_decision_by_binding(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, rule_id: str, rule_revision: int,
+        membership_binding_fingerprint: str,
+    ) -> dict | None:
+        """Read an existing exact owner decision to prevent duplicate outcomes."""
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        cls._validate_opaque(rule_id)
+        if type(rule_revision) is not int or rule_revision < 1:
+            raise ValueError("FIFO_BATCH_RULE_REVISION_INVALID")
+        binding = cls._require_digest(
+            membership_binding_fingerprint,
+            "FIFO_BATCH_MEMBERSHIP_BINDING_INVALID",
+        )
+        row = connection.execute(
+            """SELECT decision_id, revision, decision, source,
+                      candidate_set_fingerprint, record_keys_json
+               FROM fifo_cost_batch_membership_decisions
+               WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
+                 AND store_id=? AND sku=? AND scope_fingerprint=?
+                 AND rule_id=? AND rule_revision=?
+                 AND membership_binding_fingerprint=?
+               ORDER BY revision DESC LIMIT 1""",
+            (
+                case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope),
+                rule_id, rule_revision, binding,
+            ),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    @classmethod
     def read_observation_metadata(
         cls, connection, *, scope: ScopeIdentity, case_id: str,
         tenant_fingerprint: str, limit: int = 100,

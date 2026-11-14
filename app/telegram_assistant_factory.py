@@ -281,12 +281,14 @@ def create_fifo_cost_transition_workflow(
         )
     )
     batch_rule_service = FifoCostBatchRuleService(repository)
+    batch_scan_checkpoint_service = FifoCostBatchScanCheckpointService(
+        repository, now_provider=now_provider,
+    )
     batch_supply_source_service = FifoCostBatchSupplySourceService(
         rule_service=batch_rule_service,
         ozon_client=getattr(source_collection_service, "ozon_client", None),
-    )
-    batch_scan_checkpoint_service = FifoCostBatchScanCheckpointService(
-        repository, now_provider=now_provider,
+        scan_checkpoint_service=batch_scan_checkpoint_service,
+        utc_clock=now_provider,
     )
     batch_supply_store = FifoCostBatchSupplyStore
     batch_supply_deduplicator = FifoCostBatchSupplyDeduplicator()

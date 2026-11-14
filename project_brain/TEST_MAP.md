@@ -1714,6 +1714,11 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 
 # Test Map
 
+## FIFO automatic batch bundle source and group selection (FB22)
+
+- `tests/test_experimental_supply_act_diagnostic.py` covers the documented `/v1/supply-order/bundle` endpoint/body, cursor/limit forwarding, timeout/attempt observer, and invalid input rejection. `tests/test_fifo_cost_batch_bundle_normalizer.py` covers exact SKU rows, one-supply binding, planned versus shipped quantity, partial/unknown/zero and conflicts. `tests/test_fifo_cost_batch_supply_source.py` covers raw documented fields, pagination/`has_next`/cursor/total consistency, one-bundle-per-request binding, shared 20-second/10-attempt budget, durable restart continuation, encrypted lookup, and failure without writes. `tests/test_fifo_cost_batch_rule_classifier.py` covers exact set sealing and append-only include/exclude owner decisions. `tests/test_fifo_cost_batch_rule_regressions.py` exercises the production Telegram adapter with synthetic SQLite/fake network, safe redaction, stale tickets, selected-set confirmation, and no FIFO/COGS writes.
+- Linked FB22 synthetic Windows/Python 3.12 profile: **76 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram calls are performed by these tests. Bundle quantity remains declared composition only.
+
 ## FIFO automatic batch source, FB11–FB12
 
 - `tests/test_fifo_cost_batch_supply_source.py` covers exact current case/rule basis validation before network; stale case/rule and foreign-owner rejection with zero fake calls; allowlisted list/details requests with `max_attempts=1`, <=8s timeouts, actual attempt count and shared parent budget; details batches <=50; nested supply aggregation and deduplication; overlapping pages; cursor loops and full-page missing cursor proof; scoped process-local continuation; unknown state reporting; no raw response leakage, no scan/observation writes, and successful transport remaining PARTIAL while source profile is unverified.

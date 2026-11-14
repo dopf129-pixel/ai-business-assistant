@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch bundle scan and owner selection (FB22)
+
+- Implemented the documented read-only `/v1/supply-order/bundle` path: strict item/cursor/total validation, one bundle per request, bounded pagination inside the shared action budget, exact SKU normalization, encrypted durable lookup/checkpointing, and append-only group include/exclude decisions with an exact whole-set confirmation seal.
+- Telegram candidate pages expose only safe display data; IDs, offer IDs, names, and barcodes remain encrypted/private and absent from messages/callbacks. Bundle quantity is stored as planned composition only; dispatched and accepted quantities stay unknown. Owner selection records ownership evidence, never an Ozon fact or FIFO movement.
+- FB22 linked synthetic profile: **76 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live API/Telegram calls, FIFO apply, COGS writes, bot launch, merge, or deployment.
+
 # 2026-11-14 — FIFO automatic batch Telegram card and bounded refresh (PR C, FB21)
 
 - Added a no-network summary card for the active automatic batch rule, with bounded Ozon refresh, safe continuation/retry feedback, found-items check, rule guidance, and the existing readiness/preview/history controls retained. Refresh remains scoped to the current tenant/store/SKU/case/rule revision; it cannot claim exact SKU membership, source completeness, or FIFO readiness while the upstream payload profile is unverified.

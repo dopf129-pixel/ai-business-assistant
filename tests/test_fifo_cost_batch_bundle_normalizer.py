@@ -186,3 +186,99 @@ def test_duplicate_sku_rows_are_not_summed():
     assert result.status == "UNKNOWN"
     assert result.planned_quantity is None
     assert result.issue_codes == ("FIFO_BATCH_BUNDLE_DUPLICATE_SKU_MAPPING",)
+
+
+def test_documented_bundle_page_parser_keeps_only_typed_sku_composition_fields():
+    result = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {
+            "items": [{
+                "sku": 123456, "quantity": 200, "offer_id": "hook-2",
+                "product_id": 101, "name": "must-not-be-retained",
+                "barcode": "must-not-be-retained-either",
+            }],
+            "total_count": 1, "has_next": False, "last_id": "",
+        },
+        requested_limit=100,
+    )
+
+    assert result.status == "COMPLETE"
+    assert result.page.total_count == 1
+    assert result.page.items[0].sku == 123456
+    assert result.page.items[0].quantity == 200
+    assert result.page.items[0].offer_id == "hook-2"
+    assert result.page.items[0].product_id == 101
+    assert "must-not-be-retained" not in repr(result)
+
+
+def test_documented_bundle_page_parser_checks_pagination_and_aggregate_total():
+    first = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {
+            "items": [{"sku": 1, "quantity": 2}], "total_count": 2,
+            "has_next": True, "last_id": "opaque-cursor",
+        },
+        requested_limit=1,
+    )
+    terminal = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {
+            "items": [{"sku": 3, "quantity": 4}], "total_count": 2,
+            "has_next": False, "last_id": "",
+        },
+        requested_limit=1, prior_item_count=1,
+    )
+    missing_cursor = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {
+            "items": [], "total_count": 1, "has_next": True, "last_id": "",
+        },
+        requested_limit=1,
+    )
+    wrong_total = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {
+            "items": [], "total_count": 1, "has_next": False, "last_id": "",
+        },
+        requested_limit=1,
+    )
+
+    assert first.status == "PARTIAL"
+    assert terminal.status == "COMPLETE"
+    assert missing_cursor.issue_codes == ("FIFO_BATCH_BUNDLE_CURSOR_MISSING",)
+    assert wrong_total.issue_codes == ("FIFO_BATCH_BUNDLE_TOTAL_COUNT_INCOMPLETE",)
+
+
+def test_documented_bundle_page_parser_preserves_opaque_cursor_characters():
+    result = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {
+            "items": [], "total_count": 0, "has_next": True,
+            "last_id": "cursor+/=%:next",
+        },
+        requested_limit=1,
+    )
+
+    assert result.status == "PARTIAL"
+    assert result.page is not None
+    assert result.page.last_id == "cursor+/=%:next"
+
+
+def test_documented_bundle_page_parser_rejects_bool_quantities_and_oversized_page():
+    invalid_rows = (
+        {"sku": True, "quantity": 1},
+        {"sku": 1, "quantity": True},
+        {"sku": 1, "quantity": -1},
+        {"sku": 1, "quantity": 1, "product_id": True},
+        {"sku": 1, "quantity": 1, "offer_id": 17},
+    )
+    results = [
+        FifoCostBatchBundleNormalizer.parse_documented_page(
+            {"items": [row], "total_count": 1, "has_next": False, "last_id": ""},
+            requested_limit=1,
+        )
+        for row in invalid_rows
+    ]
+    oversized = FifoCostBatchBundleNormalizer.parse_documented_page(
+        {"items": [{"sku": 1, "quantity": 1}, {"sku": 2, "quantity": 1}],
+         "total_count": 2, "has_next": False, "last_id": ""},
+        requested_limit=1,
+    )
+
+    assert all(item.status == "UNKNOWN" for item in results)
+    assert all(item.page is None for item in results)
+    assert oversized.issue_codes == ("FIFO_BATCH_BUNDLE_RESPONSE_INVALID",)

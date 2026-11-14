@@ -1,12 +1,15 @@
 from datetime import datetime, timezone
 
 from cryptography.fernet import Fernet
+import pytest
 
 from services.fifo_cost_batch_rule_contracts import (
     BatchRuleInput,
     BatchStartDayPolicy,
 )
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
+from services.fifo_cost_batch_scan_checkpoint_service import FifoCostBatchScanCheckpointService
+from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
 from services.fifo_cost_batch_supply_source import FifoCostBatchSupplySourceService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_contracts import (
@@ -23,6 +26,7 @@ from services.fifo_cost_transition_contracts import (
 )
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
+    activate_period_profit_trace,
     current_period_profit_trace,
 )
 from services.ozon_account_repository import make_store_tenant_scope
@@ -40,12 +44,25 @@ TENANT_SCOPE = make_store_tenant_scope("owner-a", "store-a")
 NOW = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_request_trace_between_source_tests():
+    # Each test models an independent bot request. A parent budget belongs to
+    # the request that supplied it, so leaked context from a prior test must
+    # not make the next source call start with an exhausted shared budget.
+    activate_period_profit_trace(None)
+    try:
+        yield
+    finally:
+        activate_period_profit_trace(None)
+
+
 class _FakeOzon:
-    def __init__(self, *, error=False, list_pages=None, details=None):
+    def __init__(self, *, error=False, list_pages=None, details=None, bundle_pages=None):
         self.calls = []
         self.error = error
         self.list_pages = list(list_pages or [{"order_ids": [], "last_id": None}])
         self.details = dict(details or {})
+        self.bundle_pages = dict(bundle_pages or {})
 
     def _count_attempt(self, name, options):
         self.calls.append((name, dict(options)))
@@ -83,9 +100,15 @@ class _FakeOzon:
             records.append(record)
         return {"orders": records}
 
-    def get_supply_order_bundle(self, *args, **options):
-        self.calls.append(("bundle", {"args": tuple(args), **options}))
-        return {"items": []}
+    def get_supply_order_bundle(self, bundle_ids, **options):
+        error = self._count_attempt("bundle", options)
+        self.calls[-1][1]["bundle_ids"] = tuple(bundle_ids)
+        if error:
+            return error
+        if len(bundle_ids) != 1:
+            return {"error": True, "code": "SYNTHETIC_BUNDLE_BINDING_INVALID"}
+        pages = self.bundle_pages.get(bundle_ids[0], {})
+        return pages.get(options.get("last_id"), {"error": True, "code": "SYNTHETIC_BUNDLE_PAGE_MISSING"})
 
 
 def _case():
@@ -120,7 +143,10 @@ def _case():
     )
 
 
-def _setup(tmp_path, monkeypatch, *, ozon_error=False, list_pages=None, details=None):
+def _setup(
+    tmp_path, monkeypatch, *, ozon_error=False, list_pages=None, details=None,
+    bundle_pages=None, durable_source=False,
+):
     monkeypatch.setenv(
         "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
     )
@@ -147,9 +173,17 @@ def _setup(tmp_path, monkeypatch, *, ozon_error=False, list_pages=None, details=
         preview.preview_fingerprint, "confirm-batch-src-01",
     )
     assert confirmed["error"] is False, confirmed
-    ozon = _FakeOzon(error=ozon_error, list_pages=list_pages, details=details)
+    ozon = _FakeOzon(
+        error=ozon_error, list_pages=list_pages, details=details,
+        bundle_pages=bundle_pages,
+    )
     source = FifoCostBatchSupplySourceService(
         rule_service=rule_service, ozon_client=ozon,
+        scan_checkpoint_service=(
+            FifoCostBatchScanCheckpointService(repository, now_provider=lambda: NOW)
+            if durable_source else None
+        ),
+        utc_clock=lambda: NOW,
     )
     return repository, rule_service, source, ozon, tenant_token, confirmed
 
@@ -192,6 +226,330 @@ def test_collect_uses_one_allowlisted_bounded_page_and_returns_partial_only(
             assert connection.execute(
                 "SELECT COUNT(*) FROM fifo_cost_batch_supply_scans",
             ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_durable_bundle_scan_stores_only_planned_quantity_and_unknown_dispatch_date(
+    tmp_path, monkeypatch,
+):
+    supply_id = "2000070135564"
+    order_id = "3000000000001"
+    bundle_id = "bundle id+/=%"
+    details = {
+        order_id: {
+            "order_id": order_id,
+            "state": "COMPLETED",
+            "supplies": [{
+                "supply_id": supply_id, "bundle_id": bundle_id,
+                "state": "COMPLETED", "is_crossdock": True,
+            }],
+        },
+    }
+    bundle_page = {
+        "items": [{
+            "sku": int(SCOPE.sku), "quantity": 200,
+            "product_id": int(SCOPE.product_id.removeprefix("product-")),
+            "offer_id": SCOPE.offer_id, "name": "private name",
+            "barcode": "private barcode",
+        }],
+        "total_count": 1, "has_next": False, "last_id": "",
+    }
+    repository, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[{"order_ids": [order_id], "last_id": None}],
+        details=details, bundle_pages={bundle_id: {None: bundle_page}},
+    )
+    try:
+        result = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+
+        assert result.status == "COMPLETE"
+        assert result.source_status == "PARTIAL"
+        assert result.candidates_observed == 1
+        assert result.sku_composition_complete is True
+        assert result.continuation_token is None
+        assert result.actual_http_attempts == 3
+        assert supply_id not in repr(result)
+        assert order_id not in repr(result)
+        assert bundle_id not in repr(result)
+        assert len(ozon.calls) == 3
+
+        connection = repository.get_connection()
+        try:
+            observation = connection.execute(
+                "SELECT planned_declared_quantity, shipped_composition_quantity, "
+                "accepted_quantity, dispatch_local_date, dispatch_time_status, "
+                "quantity_coverage, membership, encrypted_lookup_payload "
+                "FROM fifo_cost_batch_supply_observations",
+            ).fetchone()
+            assert observation[0:7] == (
+                200, None, None, None, "UNKNOWN", "PARTIAL", "NEEDS_CONFIRMATION",
+            )
+            assert bytes(observation[7]).startswith(b"gAAAA")
+            scan = connection.execute(
+                "SELECT sku_composition_complete, historical_window_proven, "
+                "membership_complete, quantity_complete, physical_receipt_timing_complete "
+                "FROM fifo_cost_batch_supply_scans",
+            ).fetchone()
+            assert tuple(scan) == (1, 0, 0, 0, 0)
+            candidates = FifoCostBatchSupplyStore.read_scan_candidate_page(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=repository._tenant_scope(SCOPE.store_id)["tenant_fingerprint"],
+                scan_id=result.scan_id,
+            )
+            assert candidates["total"] == 1
+            assert candidates["candidate_set_fingerprint"] == candidates[
+                "stored_candidate_set_fingerprint"
+            ]
+            assert candidates["items"][0]["planned_declared_quantity"] == 200
+            assert "encrypted_lookup_payload" not in candidates["items"][0]
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identity_leaks(
+    tmp_path, monkeypatch,
+):
+    from services.fifo_cost_history_service import FifoCostHistoryService
+    from services.fifo_cost_transition_service import FifoCostTransitionService
+    from services.telegram_fifo_cost_batch_rule_service import TelegramFifoCostBatchRuleService
+    from services.telegram_fifo_cost_transition_runtime_service import (
+        TelegramFifoCostTransitionRuntimeService,
+    )
+
+    order_id = "3000000000001"
+    supply_id = "2000070135564"
+    bundle_id = "private-bundle-id+/="
+    private_name = "must-not-leak-private-product-name"
+    private_barcode = "must-not-leak-private-barcode"
+    details = {
+        order_id: {
+            "order_id": order_id, "state": "COMPLETED",
+            "supplies": [{
+                "supply_id": supply_id, "bundle_id": bundle_id,
+                "state": "COMPLETED", "is_crossdock": True,
+            }],
+        },
+    }
+    bundle_page = {
+        "items": [{
+            "sku": int(SCOPE.sku), "quantity": 500,
+            "product_id": int(SCOPE.product_id.removeprefix("product-")),
+            "offer_id": SCOPE.offer_id, "name": private_name,
+            "barcode": private_barcode,
+        }],
+        "total_count": 1, "has_next": False, "last_id": "",
+    }
+    repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[{"order_ids": [order_id], "last_id": None}],
+        details=details, bundle_pages={bundle_id: {None: bundle_page}},
+    )
+    try:
+        transitions = FifoCostTransitionService(repository, now_provider=lambda: NOW)
+        telegram_rules = TelegramFifoCostBatchRuleService(
+            _rules, repository, supply_source_service=source,
+            scan_checkpoint_service=source.scan_checkpoint_service,
+            supply_store=FifoCostBatchSupplyStore,
+        )
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            transitions, FifoCostHistoryService(repository),
+            now_provider=lambda: NOW, batch_rule_telegram_service=telegram_rules,
+        )
+        runtime_identity = {
+            "store_id": SCOPE.store_id, "product_id": SCOPE.product_id,
+            "offer_id": SCOPE.offer_id, "sku": SCOPE.sku,
+        }
+        resumed = runtime.resume_case(
+            101, identity=runtime_identity, display_name=private_name,
+            case_id="case_batch_src_01",
+            expected_case_revision=confirmed["case_revision"],
+        )
+        assert resumed["error"] is False, resumed
+        card = runtime._show_summary("101")
+        refresh = next(
+            item["callback"] for item in card["keyboard"]["buttons"]
+            if item["text"] == "Обновить поставки"
+        )
+        refreshed = runtime.handle_callback(101, refresh)
+        assert "Точных строк выбранного SKU" in refreshed["message"]
+        assert "заявленное количество" in refreshed["message"]
+        review_callback = next(
+            item["callback"] for item in refreshed["keyboard"]["buttons"]
+            if item["text"] == "Проверить состав SKU"
+        )
+        review_page = runtime.handle_callback(101, review_callback)
+        assert "500 шт. заявлено" in review_page["message"]
+        assert "дата отправки неизвестна" in review_page["message"]
+        row_callback = next(
+            item["callback"] for item in review_page["keyboard"]["buttons"]
+            if item["text"] == "⬜ Строка 1"
+        )
+        assert all(value not in row_callback for value in (
+            order_id, supply_id, bundle_id, private_name, private_barcode,
+        ))
+        selected_page = runtime.handle_callback(101, row_callback)
+        include_callback = next(
+            item["callback"] for item in selected_page["keyboard"]["buttons"]
+            if item["text"].startswith("Выбранные — новая партия")
+        )
+        preview = runtime.handle_callback(101, include_callback)
+        assert "дата и количество отгрузки не подтверждены Ozon" in preview["message"]
+        assert "FIFO и прибыль не изменятся" in preview["message"]
+        confirm_callback = next(
+            item["callback"] for item in preview["keyboard"]["buttons"]
+            if item["text"] == "Подтвердить выбор"
+        )
+        saved = runtime.handle_callback(101, confirm_callback)
+        assert "Решение владельца сохранено" in saved["message"]
+        assert "не доказательство отправки или приёмки Ozon" in saved["message"]
+        transcript = "\n".join((
+            refreshed["message"], review_page["message"], preview["message"],
+            saved["message"], row_callback, include_callback, confirm_callback,
+        ))
+        assert all(value not in transcript for value in (
+            order_id, supply_id, bundle_id, private_name, private_barcode,
+        ))
+
+        connection = repository.get_connection()
+        try:
+            decision = connection.execute(
+                "SELECT decision, source FROM fifo_cost_batch_membership_decisions",
+            ).fetchone()
+            assert tuple(decision) == ("INCLUDED", "OWNER_SELECTED_SET")
+            for table in ("fifo_cost_events", "fifo_cost_layers", "fifo_cost_allocations"):
+                assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_durable_source_fails_closed_when_existing_scan_refs_cannot_be_read(
+    tmp_path, monkeypatch,
+):
+    repository, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+    )
+
+    class _UnreadableCheckpointRepository:
+        def __getattr__(self, name):
+            return getattr(repository, name)
+
+        def get_connection(self):
+            raise OSError("synthetic read failure")
+
+    monkeypatch.setattr(
+        source.scan_checkpoint_service, "repository",
+        _UnreadableCheckpointRepository(),
+    )
+    try:
+        result = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert result.status == "UNAVAILABLE"
+        assert result.issue_codes == ("FIFO_BATCH_SCAN_STORAGE_UNAVAILABLE",)
+        assert result.actual_http_attempts == 0
+        assert ozon.calls == []
+        assert current_period_profit_trace() is None
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_scans",
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_observations",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_durable_bundle_scan_resumes_pagination_after_service_restart(
+    tmp_path, monkeypatch,
+):
+    supply_id = "2000070135564"
+    order_id = "3000000000001"
+    bundle_id = "bundle-123"
+    details = {
+        order_id: {
+            "order_id": order_id, "state": "COMPLETED",
+            "supplies": [{
+                "supply_id": supply_id, "bundle_id": bundle_id,
+                "state": "COMPLETED", "is_crossdock": True,
+            }],
+        },
+    }
+    pages = {}
+    for index in range(8):
+        pages[None if index == 0 else f"cursor-{index}"] = {
+            "items": [{"sku": index + 1, "quantity": 1} for _ in range(100)],
+            "total_count": 801, "has_next": True,
+            "last_id": f"cursor-{index + 1}",
+        }
+    pages["cursor-8"] = {
+        "items": [{
+            "sku": int(SCOPE.sku), "quantity": 500,
+            "product_id": int(SCOPE.product_id.removeprefix("product-")),
+            "offer_id": SCOPE.offer_id,
+        }],
+        "total_count": 801, "has_next": False, "last_id": "",
+    }
+    repository, rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[{"order_ids": [order_id], "last_id": None}],
+        details=details, bundle_pages={bundle_id: pages},
+    )
+    try:
+        assert current_period_profit_trace() is None
+        first = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert first.status == "PARTIAL"
+        assert first.actual_http_attempts == 10
+        assert first.candidates_observed == 0
+        assert first.continuation_token is not None
+        assert first.scan_revision == 1
+
+        restarted_service = FifoCostBatchSupplySourceService(
+            rule_service=rules, ozon_client=ozon,
+            scan_checkpoint_service=FifoCostBatchScanCheckpointService(
+                repository, now_provider=lambda: NOW,
+            ),
+            utc_clock=lambda: NOW,
+        )
+        second = restarted_service.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], continuation_token=first.continuation_token,
+        )
+
+        assert second.status == "COMPLETE", (
+            second.status, second.actual_http_attempts, second.issue_codes,
+            second.continuation_token, second.scan_revision,
+        )
+        assert second.scan_id == first.scan_id
+        assert second.scan_revision == 2
+        assert second.actual_http_attempts == 1
+        assert second.candidates_observed == 1
+        assert second.continuation_token is None
+        assert ozon.calls[-1][1]["last_id"] == "cursor-8"
+        connection = repository.get_connection()
+        try:
+            observation = connection.execute(
+                "SELECT planned_declared_quantity, shipped_composition_quantity, "
+                "dispatch_local_date FROM fifo_cost_batch_supply_observations",
+            ).fetchone()
+            assert tuple(observation) == (500, None, None)
         finally:
             connection.close()
     finally:
@@ -250,7 +608,8 @@ def test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon(
             SCOPE, "case_batch_src_01", confirmed["case_revision"],
             confirmed["rule_revision"],
         )
-        assert result.status == "PARTIAL"
+        assert result.status == "COMPLETE"
+        assert result.source_status == "PARTIAL"
         assert result.actual_http_attempts == 1
         assert len(ozon.calls) == 1
         assert ozon.calls[0][0] == "list"
@@ -259,16 +618,19 @@ def test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon(
             assert connection.execute(
                 "SELECT COUNT(*) FROM fifo_cost_batch_supply_observations",
             ).fetchone()[0] == 0
-            assert connection.execute(
-                "SELECT COUNT(*) FROM fifo_cost_batch_supply_scans",
-            ).fetchone()[0] == 0
+            scan = connection.execute(
+                "SELECT status, list_pagination_complete, historical_window_proven, "
+                "membership_complete, quantity_complete "
+                "FROM fifo_cost_batch_supply_scans",
+            ).fetchone()
+            assert tuple(scan) == ("PUBLISHED", 1, 0, 0, 0)
         finally:
             connection.close()
     finally:
         reset_current_tenant_user_id(tenant_token)
 
 
-def test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint(
+def test_bundle_source_requires_exact_nested_bundle_reference_before_http(
     tmp_path, monkeypatch,
 ):
     repo, _rules, source, ozon, tenant_token, confirmed = _setup(
@@ -288,7 +650,7 @@ def test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint(
         assert result.rule_revision == confirmed["rule_revision"]
         assert result.planned_quantity is None
         assert result.shipped_quantity is None
-        assert result.issue_codes == ("FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED",)
+        assert result.issue_codes == ("FIFO_BATCH_BUNDLE_REFERENCE_UNAVAILABLE",)
         assert ozon.calls == []
         connection = repo.get_connection()
         try:
@@ -300,6 +662,114 @@ def test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint(
             ).fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_bundle_source_reads_only_exact_target_sku_as_declared_quantity(
+    tmp_path, monkeypatch,
+):
+    target_page = {
+        "items": [{
+            "sku": int(SCOPE.sku), "quantity": 200,
+            "product_id": int(SCOPE.product_id.removeprefix("product-")),
+            "offer_id": SCOPE.offer_id, "name": "private title",
+            "barcode": "private barcode",
+        }],
+        "total_count": 1, "has_next": False, "last_id": "",
+    }
+    repo, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch,
+        bundle_pages={"bundle-123": {None: target_page}},
+    )
+    try:
+        result = source.get_supply_composition(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], "a" * 64, bundle_id="bundle-123",
+        )
+
+        assert result.status == "COMPLETE"
+        assert result.source_status == "DOCUMENTED_BUNDLE_COMPOSITION"
+        assert result.planned_quantity == 200
+        assert result.shipped_quantity is None
+        assert result.actual_http_attempts == 1
+        assert ozon.calls[0][0] == "bundle"
+        assert ozon.calls[0][1]["bundle_ids"] == ("bundle-123",)
+        assert ozon.calls[0][1]["max_attempts"] == 1
+        assert 0 < ozon.calls[0][1]["timeout"] <= 8
+        assert "private title" not in repr(result)
+        assert "private barcode" not in repr(result)
+        assert "bundle-123" not in repr(result)
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_observations",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_bundle_source_paginates_and_rejects_cursor_or_duplicate_mapping_conflicts(
+    tmp_path, monkeypatch,
+):
+    first = {
+        "items": [{"sku": 1, "quantity": 4, "product_id": 1, "offer_id": "other"}],
+        "total_count": 2, "has_next": True, "last_id": "cursor-a",
+    }
+    terminal = {
+        "items": [{
+            "sku": int(SCOPE.sku), "quantity": 5,
+            "product_id": int(SCOPE.product_id.removeprefix("product-")),
+            "offer_id": SCOPE.offer_id,
+        }],
+        "total_count": 2, "has_next": False, "last_id": "",
+    }
+    _repo, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch,
+        bundle_pages={"bundle-123": {None: first, "cursor-a": terminal}},
+    )
+    try:
+        result = source.get_supply_composition(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], "a" * 64, bundle_id="bundle-123",
+        )
+        assert result.status == "COMPLETE"
+        assert result.planned_quantity == 5
+        assert result.shipped_quantity is None
+        assert result.actual_http_attempts == 2
+        assert [call[1].get("last_id") for call in ozon.calls] == [None, "cursor-a"]
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+    duplicate_page = {
+        "items": [
+            {
+                "sku": int(SCOPE.sku), "quantity": 5,
+                "product_id": int(SCOPE.product_id.removeprefix("product-")),
+                "offer_id": SCOPE.offer_id,
+            },
+            {
+                "sku": int(SCOPE.sku), "quantity": 6,
+                "product_id": int(SCOPE.product_id.removeprefix("product-")),
+                "offer_id": SCOPE.offer_id,
+            },
+        ],
+        "total_count": 2, "has_next": False, "last_id": "",
+    }
+    _repo, _rules, source, _ozon, tenant_token, confirmed = _setup(
+        tmp_path / "duplicate", monkeypatch,
+        bundle_pages={"bundle-123": {None: duplicate_page}},
+    )
+    try:
+        result = source.get_supply_composition(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], "a" * 64, bundle_id="bundle-123",
+        )
+        assert result.status == "UNKNOWN"
+        assert result.planned_quantity is None
+        assert result.issue_codes == ("FIFO_BATCH_BUNDLE_DUPLICATE_SKU_MAPPING",)
     finally:
         reset_current_tenant_user_id(tenant_token)
 

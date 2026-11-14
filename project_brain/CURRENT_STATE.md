@@ -1,9 +1,15 @@
+# 2026-11-14 — FIFO automatic batch FB22 composition scan and grouped owner decisions
+
+- Implemented the documented `/v1/supply-order/bundle` source path with strict response parsing, per-bundle pagination and loop/total checks, shared request/time budgets, exact target-SKU mapping, encrypted durable scan continuation, and owner include/exclude decisions sealed to the exact displayed set. The Telegram flow pages candidates and keeps private supply/product identifiers out of messages and callbacks.
+- Bundle quantities remain declared composition only. Shipped quantities, physical receipt timing, supported raw status coverage, and complete historical enumeration remain unverified. Owner selection is provenance, not an Ozon fact. No automatic FIFO rate, movement, allocation, or COGS is created.
+- FB22 linked synthetic profile: **76 passed**; `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram requests, bot launch, merge, or deployment. Next stage: FB23 next supplies and cost boundary behavior.
+
 # 2026-11-14 — FIFO automatic batch FB21 Telegram card and refresh
 
 - PR B #735 is open as a draft on final head `dda4571baa79b95d632391cc0fee5cb7ca21b661`; exact-head Verify run [#43617884850](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43617884850) passed Windows/Linux full suites, compile, and Linux production Docker build/runtime smoke. PR C continues on dependent branch `codex/fifo-auto-batch-integration-20261113`.
 - FB21 adds an offline current-rule card and bounded, explicitly triggered refresh in the existing FIFO Telegram flow. Refresh is bound to the active owner/store/SKU/case/rule revision; duplicate callbacks are covered by the shared in-flight guard; progress and source failures use safe Russian messages. Existing readiness, preview, documents and history remain available.
 - Linked Windows/Python 3.12 profile: **198 passed**; `compileall`, `git diff --check`, and tracked `data/` equality passed. The list/details source remains deliberately PARTIAL, continuation is process-local, and exact SKU membership/raw-source coverage are unverified; “check found” does not claim membership. No live Ozon/Telegram request, FIFO/COGS mutation, bot launch, merge, or deployment. Current change exceeds 300 lines and extends the Telegram workflow; architecture review is required before merge.
-- FB22 group confirmation is blocked by the missing typed candidate source: `collect_supplies` returns only order/supply counts, while per-SKU composition returns `UNKNOWN` with zero HTTP attempts. The official guide confirms that `/v1/supply-order/bundle` takes `supply_id` and `bundle_id` and returns SKU/quantity data, but does not publish the JSON field/type contract or bundle-to-nested-supply mapping in readable text. Do not offer a selector based on counts or guessed fields; an owner-supplied sanitized response fixture or readable official schema is required. No live request was made.
+- Owner supplied official Ozon operation descriptions; FB22 now parses the documented contract and stores only scoped, encrypted lookup data plus redacted normalized observations. Bundle quantity is declared composition only; it does not prove dispatch or acceptance. No live request was made.
 
 # 2026-11-14 — FIFO automatic batch FB20 production assembly
 
