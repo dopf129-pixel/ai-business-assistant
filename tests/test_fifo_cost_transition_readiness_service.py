@@ -12,6 +12,7 @@ from services.fifo_cost_transition_contracts import (
     ReportEvidence,
     ReportType,
     ScopeIdentity,
+    SupplyTotalMode,
     SupplyDeclaration,
     SupplyObservation,
     SupplyReferenceKind,
@@ -21,6 +22,11 @@ from services.fifo_cost_transition_contracts import (
     TransitionState,
     UnknownValue,
     source_fingerprint,
+)
+from services.fifo_cost_batch_rule_contracts import (
+    AutomaticBatchManifest,
+    ManifestFreshness,
+    SupplyScanCoverage,
 )
 from services.fifo_cost_transition_opening_proposal_service import (
     FifoCostTransitionOpeningProposalService,
@@ -193,11 +199,11 @@ def _acceptance(*, reference_digest=REFERENCE_DIGEST):
     )
 
 
-def _reconcile(*, stock, declaration=True, observation=True, acceptance=()):
+def _reconcile(*, stock, declaration=True, observation=True, acceptance=(), owner_total=6982):
     return FifoCostTransitionSupplyReconciliationService().reconcile(
         scope=SCOPE,
         case_id=CASE_ID,
-        owner_declared_total=6982,
+        owner_declared_total=owner_total,
         declarations=(_declaration(),) if declaration else (),
         observations=(_observation(),) if observation else (),
         acceptance_snapshots=tuple(acceptance),
@@ -206,12 +212,14 @@ def _reconcile(*, stock, declaration=True, observation=True, acceptance=()):
 
 
 def _assess(*, case=None, cutoff="2026-11-07", turnover=None, stock=None,
-            provenance=PeriodProvenance.OWNER_CONFIRMED, acceptance=()):
+            provenance=PeriodProvenance.OWNER_CONFIRMED, acceptance=(),
+            automatic_batch_manifest=None):
     case = case or _case()
     stock_reports = (stock or _stock_report(),)
     turnover_reports = (turnover or _turnover_report(provenance=provenance),)
     reconciliation = _reconcile(
         stock=stock_reports, acceptance=acceptance,
+        owner_total=case.declared_shipped_units,
     )
     proposal = FifoCostTransitionOpeningProposalService().propose(
         case=case,
@@ -223,12 +231,91 @@ def _assess(*, case=None, cutoff="2026-11-07", turnover=None, stock=None,
     )
     readiness = FifoCostTransitionReadinessService().assess(
         case=case, proposal=proposal, supply_reconciliation=reconciliation,
+        automatic_batch_manifest=automatic_batch_manifest,
     )
     return readiness, proposal, reconciliation
 
 
 def _by_code(readiness):
     return {item.code: item for item in readiness.requirements}
+
+
+def _auto_case():
+    case = _case()
+    return replace(
+        case,
+        declared_shipped_units=None,
+        supply_total_mode=SupplyTotalMode.AUTO_FROM_SUPPLIES,
+        unknown_values={
+            **case.unknown_values,
+            "declared_shipped_units": UnknownValue(
+                TransitionReasonCode.SOURCE_PROOF_UNAVAILABLE,
+                EvidenceSourceKind.OWNER_INPUT,
+            ),
+        },
+    )
+
+
+def _automatic_manifest(*, coverage_overrides=None, **overrides):
+    coverage_fields = {
+        "scan_id": "scan000000000001",
+        "revision": 1,
+        "scope": SCOPE,
+        "case_id": CASE_ID,
+        "rule_revision": 1,
+        "requested_from": "2026-11-05",
+        "requested_through": "2026-11-14",
+        "captured_at": "2026-11-14T12:00:00Z",
+        "source_as_of": "2026-11-14T11:59:00Z",
+        "supported_state_profile": ("COMPLETED", "IN_TRANSIT", "RECEIVING"),
+        "list_pagination_complete": True,
+        "details_complete": True,
+        "sku_composition_complete": True,
+        "historical_window_proven": True,
+        "membership_complete": True,
+        "quantity_complete": True,
+        "physical_receipt_timing_complete": False,
+        "observation_set_fingerprint": "a" * 64,
+        "source_contract_version": "synthetic-v1",
+        "orders_seen": 1,
+        "supplies_seen": 1,
+        "sku_rows_seen": 1,
+        "unknown_order_count": 0,
+        "unknown_supply_count": 0,
+        "unknown_quantity_supply_count": 0,
+        "issue_codes": (),
+    }
+    coverage_fields.update(coverage_overrides or {})
+    coverage = SupplyScanCoverage(**coverage_fields)
+    manifest_fields = {
+        "rule_id": "rule000000000001",
+        "rule_revision": 1,
+        "rule_fingerprint": "b" * 64,
+        "scan_id": coverage.scan_id,
+        "observation_record_keys": ("c" * 64,),
+        "membership_decision_refs": (),
+        "owner_control_total": None,
+        "owner_control_from": None,
+        "owner_control_through": None,
+        "owner_control_kind": None,
+        "owner_control_status": None,
+        "declared_in_found_supplies": 6982,
+        "declared_in_shipped_supplies": 6982,
+        "accepted_units": 1192,
+        "pending_units": 5790,
+        "planned_units": 0,
+        "known_subtotal": 6982,
+        "unknown_quantity_supply_count": 0,
+        "found_supply_count": 1,
+        "included_supply_count": 1,
+        "undecided_supply_count": 0,
+        "coverage": coverage,
+        "current_through": "2026-11-14T11:59:00Z",
+        "freshness": ManifestFreshness.CURRENT,
+        "issues": (),
+    }
+    manifest_fields.update(overrides)
+    return AutomaticBatchManifest(**manifest_fields)
 
 
 def test_owner_case_produces_concrete_missing_requirements_and_preserves_state():
@@ -250,6 +337,116 @@ def test_owner_case_produces_concrete_missing_requirements_and_preserves_state()
     assert result.preview_only is True
     assert result.is_atomic_snapshot is False
     assert proposal.fifo_opening_units is None
+
+
+def test_auto_mode_without_manifest_reports_source_gap_without_owner_total_gate():
+    case = _auto_case()
+    result, _, reconciliation = _assess(case=case)
+    items = _by_code(result)
+
+    assert reconciliation.owner_declared_total is None
+    assert "AUTO_SUPPLY_MANIFEST_UNAVAILABLE" in items
+    assert "SUPPLY_MANIFEST_INCOMPLETE" not in items
+    assert items["AUTO_SUPPLY_MANIFEST_UNAVAILABLE"].known_values["owner_total_required"] is False
+    assert items["AUTO_SUPPLY_MANIFEST_UNAVAILABLE"].known_values["manual_owner_total_present"] is False
+    assert "SALE_CUTOFF_BRIDGE_REQUIRED" in items
+    assert result.ready_to_apply is False
+    assert result.preview_only is True
+
+
+def test_auto_mode_empty_or_partial_manifest_never_promotes_known_subtotal_to_total():
+    case = _auto_case()
+    manifest = _automatic_manifest(
+        observation_record_keys=(), found_supply_count=0, included_supply_count=0,
+        unknown_quantity_supply_count=0, known_subtotal=148,
+        declared_in_shipped_supplies=None,
+        coverage_overrides={
+            "supplies_seen": 0, "sku_rows_seen": 0,
+            "unknown_quantity_supply_count": 0,
+        },
+    )
+    result, _, _ = _assess(case=case, automatic_batch_manifest=manifest)
+    items = _by_code(result)
+    requirement = items["AUTO_SUPPLY_MANIFEST_INCOMPLETE"]
+
+    assert "AUTO_SUPPLY_MANIFEST_UNAVAILABLE" not in items
+    assert "SUPPLY_MANIFEST_INCOMPLETE" not in items
+    assert requirement.known_values["known_subtotal_only"] == 148
+    assert "owner_declared_total" not in requirement.known_values
+    assert "found_supplies" in requirement.known_values["missing_proofs"]
+    assert "observation_records" in requirement.known_values["missing_proofs"]
+    assert requirement.blocks_apply is True
+    assert result.ready_to_apply is False
+
+
+def test_auto_mode_with_found_but_unknown_quantity_stays_incomplete():
+    case = _auto_case()
+    manifest = _automatic_manifest(
+        observation_record_keys=("c" * 64, "d" * 64),
+        found_supply_count=2, included_supply_count=2,
+        declared_in_found_supplies=6500,
+        known_subtotal=6500, planned_units=0,
+        declared_in_shipped_supplies=None,
+        unknown_quantity_supply_count=1,
+        coverage_overrides={
+            "supplies_seen": 2, "sku_rows_seen": 2,
+            "quantity_complete": False,
+            "unknown_quantity_supply_count": 1,
+        },
+    )
+    result, _, _ = _assess(case=case, automatic_batch_manifest=manifest)
+    item = _by_code(result)["AUTO_SUPPLY_MANIFEST_INCOMPLETE"]
+
+    assert item.known_values["known_subtotal_only"] == 6500
+    assert item.known_values["unknown_quantity_supply_count"] == 1
+    assert "quantity_complete" in item.known_values["missing_proofs"]
+    assert item.blocks_apply is True
+
+
+def test_complete_auto_manifest_removes_only_manifest_gap_and_never_bypasses_r1():
+    case = _auto_case()
+    result, _, _ = _assess(
+        case=case, automatic_batch_manifest=_automatic_manifest(),
+    )
+    items = _by_code(result)
+
+    assert "AUTO_SUPPLY_MANIFEST_UNAVAILABLE" not in items
+    assert "AUTO_SUPPLY_MANIFEST_INCOMPLETE" not in items
+    assert "SUPPLY_MANIFEST_INCOMPLETE" not in items
+    assert "SALE_CUTOFF_BRIDGE_REQUIRED" in items
+    assert _automatic_manifest().coverage.physical_receipt_timing_complete is False
+    assert result.ready_to_apply is False
+    assert result.preview_only is True
+
+
+def test_owner_control_mode_is_not_accidentally_treated_as_legacy_owner_total():
+    case = replace(_auto_case(), supply_total_mode=SupplyTotalMode.OWNER_CONTROL)
+    result, _, _ = _assess(case=case)
+    items = _by_code(result)
+
+    assert "SUPPLY_CONTROL_RECONCILIATION_PENDING" in items
+    assert "SUPPLY_MANIFEST_INCOMPLETE" not in items
+    assert items["SUPPLY_CONTROL_RECONCILIATION_PENDING"].known_values[
+        "owner_total_required"
+    ] is False
+
+
+def test_auto_manifest_with_different_case_scope_is_rejected():
+    case = _auto_case()
+    manifest = _automatic_manifest(
+        coverage_overrides={"case_id": "case_other000001"},
+    )
+    result, proposal, reconciliation = _assess(case=case)
+
+    try:
+        FifoCostTransitionReadinessService().assess(
+            case=case, proposal=proposal, supply_reconciliation=reconciliation,
+            automatic_batch_manifest=manifest,
+        )
+    except ValueError as exc:
+        assert str(exc) == "FIFO_READINESS_INPUT_INVALID"
+    else:
+        raise AssertionError("manifest from another case must be rejected")
 
 
 def test_filename_candidate_period_is_not_reported_as_confirmed_missing_coverage():

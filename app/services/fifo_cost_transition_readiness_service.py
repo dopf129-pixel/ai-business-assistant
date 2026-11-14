@@ -14,8 +14,13 @@ from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
     PeriodProvenance,
     ScopeIdentity,
+    SupplyTotalMode,
     TransitionCase,
     TransitionState,
+)
+from services.fifo_cost_batch_rule_contracts import (
+    AutomaticBatchManifest,
+    ManifestFreshness,
 )
 from services.fifo_cost_transition_opening_proposal_service import (
     FifoCostTransitionOpeningProposal,
@@ -117,6 +122,7 @@ class FifoCostTransitionReadinessService:
         supply_reconciliation: FifoCostTransitionSupplyReconciliation | None,
         cutoff_bridge: FifoCutoffBridgeResult | None = None,
         cutoff_bridge_missing_requirements: tuple[str, ...] = (),
+        automatic_batch_manifest: AutomaticBatchManifest | None = None,
     ) -> FifoCostTransitionReadiness:
         if (
             not isinstance(case, TransitionCase)
@@ -148,6 +154,20 @@ class FifoCostTransitionReadinessService:
                 not isinstance(value, str) or not value or len(value) > 128
                 or any(not (char.isupper() or char.isdigit() or char in "_:") for char in value)
                 for value in cutoff_bridge_missing_requirements
+            )
+            or (
+                automatic_batch_manifest is not None
+                and not isinstance(automatic_batch_manifest, AutomaticBatchManifest)
+            )
+            or (
+                automatic_batch_manifest is not None
+                and (
+                    automatic_batch_manifest.coverage.scope != case.metadata.scope
+                    or automatic_batch_manifest.coverage.case_id != case.case_id
+                    or automatic_batch_manifest.coverage.scan_id != automatic_batch_manifest.scan_id
+                    or automatic_batch_manifest.coverage.rule_revision
+                    != automatic_batch_manifest.rule_revision
+                )
             )
         ):
             raise ValueError("FIFO_READINESS_INPUT_INVALID")
@@ -181,56 +201,87 @@ class FifoCostTransitionReadinessService:
             supply_reconciliation.declarations_with_unknown_quantity
             if supply_reconciliation is not None else 0
         )
-        manifest_incomplete = (
-            supply_reconciliation is None
-            or owner_total is None
-            or not declarations
-            or unassigned not in (None, 0)
-            or unknown_declarations > 0
-        )
-        if manifest_incomplete:
-            saved = tuple(
-                FifoReadinessEvidenceRef(
-                    source_type="SUPPLY_DECLARATION",
-                    fingerprint=item.observed_source_fingerprint,
-                    captured_at=item.observed_at,
-                    source_as_of=item.observed_source_as_of,
-                    period_from=item.dispatch_date,
-                    period_to=item.dispatch_date,
-                    period_provenance="OWNER_INPUT",
-                    saved_fields=tuple(name for name, value in (
-                        ("declared_quantity", item.declared_quantity),
-                        ("dispatch_date", item.dispatch_date),
-                        ("observed_status", item.observed_status.value if item.observed_status else None),
-                        ("accepted_quantity", item.accepted_quantity),
-                    ) if value is not None),
-                )
-                for item in declarations[:self.MAX_EVIDENCE_REFS]
+        if case.supply_total_mode is SupplyTotalMode.AUTO_FROM_SUPPLIES:
+            auto_requirement = self._automatic_manifest_requirement(
+                case=case, manifest=automatic_batch_manifest,
             )
+            if auto_requirement is not None:
+                add(auto_requirement)
+        elif case.supply_total_mode is SupplyTotalMode.LEGACY_OWNER_TOTAL:
+            manifest_incomplete = (
+                supply_reconciliation is None
+                or owner_total is None
+                or not declarations
+                or unassigned not in (None, 0)
+                or unknown_declarations > 0
+            )
+            if manifest_incomplete:
+                saved = tuple(
+                    FifoReadinessEvidenceRef(
+                        source_type="SUPPLY_DECLARATION",
+                        fingerprint=item.observed_source_fingerprint,
+                        captured_at=item.observed_at,
+                        source_as_of=item.observed_source_as_of,
+                        period_from=item.dispatch_date,
+                        period_to=item.dispatch_date,
+                        period_provenance="OWNER_INPUT",
+                        saved_fields=tuple(name for name, value in (
+                            ("declared_quantity", item.declared_quantity),
+                            ("dispatch_date", item.dispatch_date),
+                            ("observed_status", item.observed_status.value if item.observed_status else None),
+                            ("accepted_quantity", item.accepted_quantity),
+                        ) if value is not None),
+                    )
+                    for item in declarations[:self.MAX_EVIDENCE_REFS]
+                )
+                add(FifoMissingRequirement(
+                    code="SUPPLY_MANIFEST_INCOMPLETE",
+                    status="CONFLICT" if (
+                        supply_reconciliation is not None
+                        and self._has_conflict(supply_reconciliation)
+                    ) else "MISSING",
+                    required_document_or_action=(
+                        "Список всех поставок этого SKU: отдельная строка на каждую поставку"
+                    ),
+                    required_fields=(
+                        "идентификатор поставки или заявки", "количество", "дата отгрузки",
+                        "статус/акт приёмки, если доступны",
+                    ),
+                    required_period=None,
+                    already_saved=saved,
+                    known_values=MappingProxyType({
+                        "owner_declared_total": owner_total,
+                        "listed_declared_total": listed_total,
+                        "unassigned_units": unassigned,
+                        "unknown_quantity_declarations": unknown_declarations,
+                    }),
+                    explanation=(
+                        "Общее количество не распределено по конкретным поставкам. "
+                        "Арифметический остаток не считается отдельной поставкой или приёмкой."
+                    ),
+                    blocks_apply=True,
+                ))
+        else:
             add(FifoMissingRequirement(
-                code="SUPPLY_MANIFEST_INCOMPLETE",
-                status="CONFLICT" if (
-                    supply_reconciliation is not None
-                    and self._has_conflict(supply_reconciliation)
-                ) else "MISSING",
+                code="SUPPLY_CONTROL_RECONCILIATION_PENDING",
+                status="MISSING",
                 required_document_or_action=(
-                    "Список всех поставок этого SKU: отдельная строка на каждую поставку"
+                    "Сверить датированное контрольное количество с автоматической сводкой"
                 ),
                 required_fields=(
-                    "идентификатор поставки или заявки", "количество", "дата отгрузки",
-                    "статус/акт приёмки, если доступны",
+                    "окно и вид контрольного количества", "соответствующее окно manifest",
+                    "результат сверки и fingerprint источника",
                 ),
                 required_period=None,
-                already_saved=saved,
+                already_saved=(),
                 known_values=MappingProxyType({
-                    "owner_declared_total": owner_total,
-                    "listed_declared_total": listed_total,
-                    "unassigned_units": unassigned,
-                    "unknown_quantity_declarations": unknown_declarations,
+                    "owner_total_required": False,
+                    "automatic_manifest_present": automatic_batch_manifest is not None,
                 }),
                 explanation=(
-                    "Общее количество не распределено по конкретным поставкам. "
-                    "Арифметический остаток не считается отдельной поставкой или приёмкой."
+                    "Датированное контрольное количество не является бессрочным итогом партии. "
+                    "Его нельзя использовать, пока оно не сопоставлено с тем же окном и видом "
+                    "автоматического источника."
                 ),
                 blocks_apply=True,
             ))
@@ -584,6 +635,137 @@ class FifoCostTransitionReadinessService:
                 ("buyer_delivery", view.closing_buyer_delivery_units),
                 ("buyer_return_transit", view.closing_buyer_return_transit_units),
             ) if value is not None),
+        )
+
+    @staticmethod
+    def _automatic_manifest_requirement(*, case, manifest):
+        """Return a source gap until the exact, scoped auto manifest is proven."""
+        if manifest is None:
+            return FifoMissingRequirement(
+                code="AUTO_SUPPLY_MANIFEST_UNAVAILABLE",
+                status="MISSING",
+                required_document_or_action=(
+                    "Обновить полный состав поставок Ozon для этого SKU и правила партии"
+                ),
+                required_fields=(
+                    "точная область SKU и заявки", "все страницы списка и детали",
+                    "состав SKU и количества", "решение принадлежности каждой поставки",
+                    "подтверждённое окно источника",
+                ),
+                required_period=None,
+                already_saved=(),
+                known_values=MappingProxyType({
+                    "automatic_manifest_present": False,
+                    "owner_total_required": False,
+                    "manual_owner_total_present": case.declared_shipped_units is not None,
+                }),
+                explanation=(
+                    "Автоматический источник поставок ещё не дал сводку. Ручной общий итог "
+                    "для режима AUTO не требуется; отсутствие источника не считается нулём "
+                    "и не подтверждает полноту."
+                ),
+                blocks_apply=True,
+            )
+
+        coverage = manifest.coverage
+        missing = []
+        for name in (
+            "list_pagination_complete", "details_complete", "sku_composition_complete",
+            "historical_window_proven", "membership_complete", "quantity_complete",
+        ):
+            if getattr(coverage, name) is not True:
+                missing.append(name)
+        if coverage.source_as_of is None:
+            missing.append("source_as_of")
+        if manifest.current_through is None:
+            missing.append("current_through")
+        if coverage.requested_from is None or coverage.requested_through is None:
+            missing.append("requested_window")
+        if not coverage.supported_state_profile or not coverage.source_contract_version:
+            missing.append("supported_source_profile")
+        if not manifest.observation_record_keys:
+            missing.append("observation_records")
+        if manifest.found_supply_count <= 0:
+            missing.append("found_supplies")
+        if manifest.included_supply_count <= 0:
+            missing.append("included_supplies")
+        if manifest.undecided_supply_count != 0:
+            missing.append("undecided_supplies")
+        if manifest.unknown_quantity_supply_count != 0:
+            missing.append("unknown_quantity_supplies")
+        if coverage.unknown_order_count != 0:
+            missing.append("unknown_orders")
+        if coverage.unknown_supply_count != 0:
+            missing.append("unknown_supplies")
+        if coverage.unknown_quantity_supply_count != 0:
+            missing.append("unknown_quantity_coverage")
+        if manifest.declared_in_shipped_supplies is None:
+            missing.append("shipped_quantity_subtotal")
+        if manifest.freshness is not ManifestFreshness.CURRENT:
+            missing.append("freshness")
+        if manifest.issues or coverage.issue_codes:
+            missing.append("source_issues")
+        if not missing:
+            return None
+
+        issue_codes = tuple(sorted(set(manifest.issues).union(coverage.issue_codes)))
+        conflict = any("CONFLICT" in code or "MISMATCH" in code for code in issue_codes)
+        status = "CONFLICT" if conflict else (
+            "NEEDS_CONFIRMATION"
+            if manifest.freshness is not ManifestFreshness.CURRENT
+            else "MISSING"
+        )
+        return FifoMissingRequirement(
+            code="AUTO_SUPPLY_MANIFEST_INCOMPLETE",
+            status=status,
+            required_document_or_action=(
+                "Завершить чтение и сверку состава поставок Ozon; неизвестные строки "
+                "не подтверждать как ноль"
+            ),
+            required_fields=(
+                "полное покрытие страниц/деталей/SKU", "точная принадлежность",
+                "известное количество каждой включённой поставки", "свежее окно источника",
+            ),
+            required_period=(coverage.requested_from, coverage.requested_through)
+            if coverage.requested_from is not None and coverage.requested_through is not None
+            else None,
+            already_saved=(FifoReadinessEvidenceRef(
+                source_type="AUTOMATIC_BATCH_MANIFEST",
+                fingerprint=manifest.manifest_fingerprint,
+                captured_at=coverage.captured_at,
+                source_as_of=coverage.source_as_of,
+                period_from=coverage.requested_from,
+                period_to=coverage.requested_through,
+                period_provenance="API_AS_OF" if coverage.source_as_of else None,
+                saved_fields=(
+                    "known_subtotal", "declared_in_shipped_supplies",
+                    "accepted_units", "pending_units", "planned_units",
+                    "coverage_flags", "freshness", "unknown_counts",
+                ),
+            ),),
+            known_values=MappingProxyType({
+                "automatic_manifest_present": True,
+                "owner_total_required": False,
+                "manifest_fingerprint": manifest.manifest_fingerprint,
+                "known_subtotal_only": manifest.known_subtotal,
+                "declared_in_shipped_supplies": manifest.declared_in_shipped_supplies,
+                "accepted_units": manifest.accepted_units,
+                "pending_units": manifest.pending_units,
+                "planned_units": manifest.planned_units,
+                "found_supply_count": manifest.found_supply_count,
+                "included_supply_count": manifest.included_supply_count,
+                "undecided_supply_count": manifest.undecided_supply_count,
+                "unknown_quantity_supply_count": manifest.unknown_quantity_supply_count,
+                "freshness": manifest.freshness.value,
+                "missing_proofs": tuple(missing),
+                "source_issue_codes": issue_codes,
+            }),
+            explanation=(
+                "Автоматическая сводка не доказывает полный точный состав нужной партии. "
+                "Известная сумма остаётся только промежуточным subtotal; пустой список, "
+                "неполная принадлежность или cursor exhaustion не подтверждают итог."
+            ),
+            blocks_apply=True,
         )
 
     @staticmethod
