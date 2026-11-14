@@ -1690,6 +1690,11 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 
 # Test Map
 
+## FIFO automatic batch source, FB11
+
+- `tests/test_fifo_cost_batch_supply_source.py` covers exact current case/rule basis validation before network; stale case/rule and foreign-owner rejection with zero fake calls; one allowlisted list-page request with max_attempts=1 and <=8s timeout; observed HTTP-attempt count and shared parent budget; unsupported continuation rejection; no raw response leakage, no scan/observation writes, and successful transport remaining PARTIAL while source profile is unverified.
+- Linked FB11 source + rule/readiness profile: **36 passed**. Compileall, `git diff --check`, and tracked `data/` comparison passed. All HTTP behavior is exercised only by a fake client.
+
 ## Period Profit bounded Ozon quantity reads
 
 Updated:

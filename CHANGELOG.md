@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch supply source skeleton (PR B, FB11)
+
+- Added `FifoCostBatchSupplySourceService.collect_supplies` as an explicit, read-only entry point. Before any request it verifies the exact tenant/store/SKU case revision, automatic mode, and active rule revision. The allowlisted list wrapper gets one page per action, with a shared 20-second/10-request trace, one attempt, and timeout capped at 8 seconds and remaining budget.
+- Until the raw supply state profile and pagination proof are verified, a successful response remains `PARTIAL`; raw Ozon payload/IDs are neither returned nor persisted. No UI read is wired to this explicit source action, and continuation/checkpoint, details, bundle, normalization, persistence, and production composition remain later stages.
+- FB11 linked profile: **36 passed**. Targeted modules compile, `git diff --check` passes, and tracked `data/` is unchanged. No live API or bot was used.
+
 # 2026-11-14 — FIFO automatic batch PR A local checkpoint (FB10)
 
 - In an isolated disposable copy with project `data/` and secrets excluded, the full Windows/Python 3.12 suite passed: **5,346 passed in 95.82s**. The copy used a synthetic tax policy and the preserved `.fl12-deps/` only as test libraries.

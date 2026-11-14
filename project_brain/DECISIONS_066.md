@@ -27,6 +27,12 @@ The repository has dated seller cost history, mutable current-cost projection, P
 
 Accepted for implementation within the user-approved FC00–FC35 task; independent review is required before merge. The factual cutoff gate remains blocked pending sanitized owner validation.
 
+## Addendum — 2026-11-14: automatic batch source boundary (FB11)
+
+- The automatic supply reader is a separate explicit action, not part of opening or viewing a card. Validate exact tenant/store/SKU, case revision, automatic supply mode, and active rule revision before the first request.
+- Reuse `PeriodProfitOperationTrace` for one 20-second/10-attempt root budget. Each nested request is limited to one attempt and at most 8 seconds or remaining time. The first skeleton allowlists only the existing v3 order-list wrapper and reads at most one page.
+- Until raw state and cursor coverage are verified, successful transport stays `PARTIAL`. Do not return or persist raw payload/IDs or infer complete coverage. Production wiring, pagination/details, bundle normalization, checkpoint and manifest publication remain later implementation stages.
+
 ## Addendum — 2026-11-09: temporal rate boundaries and durable evidence
 
 - Continue the same tenant-scoped FIFO repository, allocation kernel, replay and `fifo_cost_schema`. A later cost change is a proof-bound temporal boundary; it does not create a purchase quantity. At that boundary, materialize only the independently reconciled residual of the previously open rate behind older finite FIFO balances, then activate the new open rate. Never infer a residual from future sales or apply the latest rate retroactively.
