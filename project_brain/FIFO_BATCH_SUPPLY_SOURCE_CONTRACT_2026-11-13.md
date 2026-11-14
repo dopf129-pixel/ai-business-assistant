@@ -55,6 +55,19 @@ The fixture files under `tests/fixtures/fifo_cost_batch_source/` are explicitly 
 
 The source gap is a real implementation limitation, not a reason to invent an API contract. Independent rule, storage, and UI work may proceed behind the strict adapter boundary.
 
+## FB19 — source capability matrix at PR B checkpoint
+
+| Source area | Local implementation/test status | Safe claim at this checkpoint |
+|---|---|---|
+| `/v3/supply-order/list` | Existing allowlisted wrapper is used with page limit ≤100, opaque continuation, shared HTTP/time budgets, repeated-cursor and overlapping-page checks. | Local wrapper transport is exercised; raw cursor meaning, raw state coverage, and complete historical enumeration are **NOT_VERIFIED**. Full pages without terminal proof remain partial. |
+| `/v3/supply-order/get` | Existing allowlisted details wrapper batches at ≤50 orders and validates one exact returned order per requested order; nested supplies are collected without using the cross-docking-only `COMPLETED` filter. | Local normalized details shape is exercised; Ozon raw details schema and all nested state values are **NOT_VERIFIED**. Unsupported states remain visible as a gap. |
+| Nested `supplies` | Exact `supply_id`, state, and optional strict boolean `is_crossdock` are validated; supply identity is opaque and scoped to owner/store/product/offer/SKU. | IDs are not exposed in public summaries or callbacks. The local shape is not proof of an undocumented raw response schema. |
+| Per-SKU bundle `/v1/supply-order/bundle` | No request wrapper or guessed response parser exists; normalized boundary validates exact scope and deliberately returns `UNKNOWN` with zero HTTP attempts. | Official guide confirms only the `supply_id` + `bundle_id` concept and SKU/quantity result. Concrete field names/types, nested-supply binding, pagination, and planned-versus-shipped semantics remain **NOT_VERIFIED**. |
+| Acceptance acts | Existing act normalizer/reconciler is reused in tests for cumulative snapshots, multiple acts, explicit zero vs missing, partial reads, and downward-correction review. | New automatic batch collection does not acquire or publish acts yet. Act creation/capture dates do not prove physical receipt time. |
+| Full inventory movement / R1 | No supported complete movement source has been established by this PR. | A complete supply manifest cannot satisfy R1 or factual FIFO apply readiness. |
+
+Local raw-to-normalized state mapping is deliberately not promoted to an Ozon-supported profile: `DATA_FILLING`/`READY_TO_SUPPLY` map to `DECLARED`; `ACCEPTED_AT_SUPPLY_WAREHOUSE` to `AT_DROPOFF`; `IN_TRANSIT` to `IN_TRANSIT`; `ACCEPTANCE_AT_STORAGE_WAREHOUSE` to `RECEIVING`; `COMPLETED` to `ACCEPTED`; `CANCELLED` to `CANCELLED`. Any unrecognized raw state stays unsupported. The source service also carries `FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED`, so recognized local values do not by themselves establish complete Ozon coverage.
+
 ## FB16 — owner/API supply deduplication boundary
 
 `FifoCostBatchSupplyDeduplicator` is a pure linker over typed, already-normalized evidence. One canonical record is keyed by exact owner/store/product/offer/SKU scope plus the opaque supply digest. Seller API observations retain their `OZON_API` provenance, owner declarations retain `OWNER_INPUT` provenance and declaration revisions, and matching values are compared rather than summed. ORDER declarations remain separate parent controls; if child supplies are not linked, the control stays unresolved or unverifiable and never becomes an extra supply.

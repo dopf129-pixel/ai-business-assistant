@@ -3083,3 +3083,9 @@ Summary Report теперь включает:
 - Extended the linked regressions for mixed source-profile evidence and aggregate overflow; malformed evidence returns a typed non-current/error result rather than a zero or a usable manifest.
 - Strengthened the denied-list-API test to verify no scan/observation staging rows and no FIFO event, layer, or allocation rows are written. Existing tests cover absent acts, partial bundle composition, bool quantity rejection, duplicate pages, repeated cursors, restart checkpoints, and unsupported raw states.
 - FB18 linked synthetic Windows/Python 3.12 profile: **156 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Raw Ozon status/pagination/bundle schemas remain unverified; no real API, Telegram, FIFO apply, or COGS write was performed.
+
+# 2026-11-14 — FIFO automatic batch PR B checkpoint (FB19)
+
+- Added the independent review handoff and a source capability matrix that separates tested local wrappers from unverified Ozon raw schemas and the unresolved R1 movement source.
+- Linked source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning profile: **233 passed**; isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
+- PR B publication and exact-head hosted CI are pending; no live Ozon/Telegram call, FIFO apply, bot launch, merge, or deployment occurred.

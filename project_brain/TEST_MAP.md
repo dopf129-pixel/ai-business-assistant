@@ -7038,3 +7038,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - Source regressions cover denied list access without raw-error leakage or writes to staged source/FIFO tables; empty act evidence (`None`) vs documented zero; incomplete bundle and unsupported raw state; bool/invalid quantities; aggregate overflow and mixed source profile; repeated/duplicate pages, repeated cursors, overlapping mutable pages, and durable restart checkpoints.
 - Linked synthetic Windows/Python 3.12 profile across `test_fifo_cost_batch_*.py`, acceptance/receiving reconciliation, and v13/v16 schema migrations: **156 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram request or FIFO/COGS apply occurred; raw schemas remain unverified.
+
+# 2026-11-14 — FIFO automatic batch PR B checkpoint (FB19)
+
+- Linked source, normalizer, acceptance, checkpoint, deduplication, manifest, v13/v16 migration, and existing cross-docking/planning cross-docking regressions: **233 passed in 9.62s**. `compileall` on changed batch modules/repository and linked tests, `git diff --check`, and `git diff --exit-code -- data` passed.
+- Disposable Windows/Python 3.12 full suite in a clean copy without `.git`, `.venv`, real `data/`, or secret `.env`: **5,405 passed in 99.02s**; `compileall app` passed. The copy used a synthetic USN_INCOME 6% policy and safe `.env.example`; all test writes stayed inside that temporary copy.
+- Source matrix and remaining source gaps are documented in `FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md` and the PR B handoff. Hosted current-SHA CI is pending publication.

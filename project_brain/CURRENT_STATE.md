@@ -5832,3 +5832,9 @@ Completed:
 - Added manifest regressions for aggregate overflow and mixed source profiles. An API list failure now has an explicit regression proving it leaves source scans/observations and FIFO events/layers/allocations untouched.
 - FB18 linked synthetic profile: **156 passed** across source enumeration, bundle normalizer, acceptance reconciliation, checkpointing, deduplication, manifest, and schema tests; compileall, `git diff --check`, and tracked `data/` equality passed. Existing coverage also verifies absent acts remain unknown, partial bundle rows do not imply completeness, bool quantities are rejected, duplicate pages do not become complete coverage, and unsupported raw states fail closed.
 - Raw Ozon states, authoritative cursor coverage, actual dispatch timestamps, and bundle schema remain unverified; successful source reads therefore do not prove production coverage. No apply/COGS write, live API, Telegram, or bot launch occurred. Next stage: FB19 PR B checkpoint.
+
+# 2026-11-14 — FIFO automatic batch PR B checkpoint (FB19)
+
+- Added `FIFO_AUTO_BATCH_PR_B_REVIEW_HANDOFF_2026-11-14.md` with the source capability matrix, B-matrix coverage, privacy/migration notes, local verification, and limitations. The source matrix distinguishes tested local wrappers from the unverified raw bundle/state/cursor contract.
+- FB19 local profile: **233 passed** across batch source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning tests. Isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
+- This remains an incomplete, non-deployable source feature. PR B publication and exact-SHA hosted CI are pending; raw Ozon schema/coverage and R1 remain open. No live call, bot launch, apply, merge, or deployment occurred.
