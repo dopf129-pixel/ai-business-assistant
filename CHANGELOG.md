@@ -1,3 +1,10 @@
+# 2026-11-14 — FIFO automatic batch rule Telegram choices (PR A, FB08)
+
+- The late-entry wizard no longer requires a lifetime shipped-unit total when composed with the production batch-rule workflow. Owners can choose automatic Ozon supply discovery or an optional dated control, and the existing unknown-total draft resumes with its saved costs/date/old-stock values intact.
+- Automatic selection asks whether every same-SKU dispatch on the first date belongs to the new batch. “Не знаю” only opens that question; confirming the boundary rule is a separate action. Until a supply list is available, a mixed/unknown first day remains unresolved rather than silently including all supplies.
+- Dated manual controls record a typed quantity over an explicit date window, separate from legacy total and FIFO accounting. Confirming a rule or control does not create FIFO rates/layers/events/allocations or change profit. UI callbacks are invalidated when the workflow mode changes.
+- FB08 linked synthetic profile: **71 passed**; changed Python modules compile; `git diff --check` and tracked `data/` unchanged.
+
 # 2026-11-14 — FIFO dated owner quantity controls (PR A, FB07)
 
 - Added immutable typed controls for owner-reported quantities, each bound to an exact inclusive date window and a supported quantity kind (found, shipped, accepted, or planned units). Scoped SQLite append is idempotent, revision-checked, capped at the existing 100-row read boundary, and protected by immutable-table guards.
