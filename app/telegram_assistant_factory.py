@@ -72,6 +72,8 @@ from services.period_profit_effective_cost_service import (
 )
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
+from services.telegram_fifo_cost_batch_rule_service import TelegramFifoCostBatchRuleService
 from services.fifo_cost_transition_evidence_service import (
     FifoCostTransitionEvidenceService,
 )
@@ -273,6 +275,10 @@ def create_fifo_cost_transition_workflow(
             impact_service=impact_service,
         )
     )
+    batch_rule_service = FifoCostBatchRuleService(repository)
+    batch_rule_telegram_service = TelegramFifoCostBatchRuleService(
+        batch_rule_service, repository,
+    )
     runtime_service = TelegramFifoCostTransitionRuntimeService(
         transition_service=transition_service,
         history_service=history_service,
@@ -287,6 +293,7 @@ def create_fifo_cost_transition_workflow(
         evidence_service=evidence_service,
         period_summary_collection_service=period_summary_collection_service,
         period_profit_service=period_profit_service,
+        batch_rule_telegram_service=batch_rule_telegram_service,
         now_provider=now_provider,
     )
     return {
@@ -302,6 +309,8 @@ def create_fifo_cost_transition_workflow(
         "impact_service": impact_service,
         "apply_service": apply_service,
         "period_summary_collection_service": period_summary_collection_service,
+        "batch_rule_service": batch_rule_service,
+        "batch_rule_telegram_service": batch_rule_telegram_service,
         "report_import_service": report_import_service,
         "physical_sales_import_service": physical_sales_import_service,
         "supply_refresh_service": supply_refresh_service,

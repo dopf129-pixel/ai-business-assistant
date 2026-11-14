@@ -16,6 +16,7 @@ from services.fifo_cost_transition_contracts import (
     ReportEvidence,
     ReportType,
     ScopeIdentity,
+    SupplyTotalMode,
     TransitionCase,
     TransitionMetadata,
     TransitionReasonCode,
@@ -24,6 +25,7 @@ from services.fifo_cost_transition_contracts import (
     source_fingerprint,
 )
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_transition_store import FifoCostTransitionStore
 from services.ozon_account_repository import make_store_tenant_scope
 from services.tenant_context import (
     reset_current_tenant_user_id,
@@ -229,6 +231,56 @@ def test_case_lifecycle_is_durable_and_does_not_activate_fifo(tmp_path, monkeypa
             assert connection.execute(
                 "SELECT COUNT(*) FROM fifo_cost_transition_case_revisions"
             ).fetchone()[0] == 5
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_case_supply_total_mode_defaults_legacy_and_survives_payload_roundtrip(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
+    )
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        repository, service = _service(tmp_path)
+        created = service.create_case(
+            case=_case(), idempotency_key="batch-mode-create-001",
+        )
+        assert created["error"] is False
+        initial = service.get_case(
+            case_id="case_000001", store_id="store-a", sku=IDENTITY["sku"],
+            product_id=IDENTITY["product_id"], offer_id=IDENTITY["offer_id"],
+        )
+        assert initial["case"]["supply_total_mode"] == "LEGACY_OWNER_TOTAL"
+
+        auto_case = replace(
+            _case(revision=2, updated_at="2026-11-08T13:00:00Z"),
+            state=TransitionState.AWAITING_EVIDENCE,
+            new_home_quantity=17,
+            unknown_values={},
+            supply_total_mode=SupplyTotalMode.AUTO_FROM_SUPPLIES,
+        )
+        updated = service.update_case(
+            case=auto_case, expected_revision=1,
+            idempotency_key="batch-mode-update-001",
+        )
+        assert updated["error"] is False
+        listed = service.list_cases(store_id="store-a")
+        assert listed["cases"][0]["case"]["supply_total_mode"] == "AUTO_FROM_SUPPLIES"
+
+        old_payload = FifoCostTransitionStore.case_payload(_case())
+        old_payload.pop("supply_total_mode")
+        restored_legacy = service._case_from_payload(old_payload)
+        assert restored_legacy.supply_total_mode is SupplyTotalMode.LEGACY_OWNER_TOTAL
+        connection = repository.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT supply_total_mode FROM fifo_cost_transition_cases "
+                "WHERE case_id='case_000001'"
+            ).fetchone()[0] == "AUTO_FROM_SUPPLIES"
         finally:
             connection.close()
     finally:
