@@ -1,3 +1,8 @@
+# 2026-11-14 — FIFO automatic batch PR A local checkpoint (FB10)
+
+- In an isolated disposable copy with project `data/` and secrets excluded, the full Windows/Python 3.12 suite passed: **5,346 passed in 95.82s**. The copy used a synthetic tax policy and the preserved `.fl12-deps/` only as test libraries.
+- `compileall` passed in the same copy. This is local verification for tested tree `74ffefcd`; exact-SHA hosted CI for the final PR head remains pending.
+
 # 2026-11-14 — FIFO automatic batch manifest readiness (PR A, FB09)
 
 - Readiness now uses a typed automatic supply manifest for `AUTO_FROM_SUPPLIES`. An absent or partial manifest produces a specific source gap without requiring a lifetime owner total; a known subtotal remains explicitly partial, and empty listings, unknown quantities, or unresolved membership cannot satisfy the gate.

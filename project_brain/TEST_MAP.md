@@ -1,6 +1,7 @@
-# 2026-11-14 — FIFO automatic batch rule verification through FB09
+# 2026-11-14 — FIFO automatic batch rule verification through FB10
 
 - FB09 adds readiness regressions in `tests/test_fifo_cost_transition_readiness_service.py`: AUTO without a manifest reports a source gap without requiring an owner total; empty/partial manifests and unknown quantities remain incomplete; a complete scoped manifest removes only the supply-manifest requirement; a wrong case is rejected; dated-control mode cannot fall through the legacy-total path. The complete fixture deliberately has no physical receipt timestamp, leaving R1/cutoff independent. Linked readiness/review/transition/apply/cutoff bridge/batch-contract profile: **81 passed**; module compilation, `git diff --check`, and tracked `data/` equality pass.
+- FB10 isolated full pytest: **5,346 passed in 95.82s** on Windows/Python 3.12 from a disposable copy of tracked files. The copy omitted project `data/` and secrets, used a synthetic USN_INCOME 6% tax fixture required by two production-policy tests, and copied `.fl12-deps/` only for test libraries. `compileall` passed in that copy. Tested source tree was `74ffefcd`; exact-SHA GitHub CI is not yet available.
 
 - Specification: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md, matrix B01–B45.
 - Planned coverage: nullable totals and wizard resume; scoped rules/v17 migration; supply states/pagination/SKU composition; cumulative acceptance/dedup; budgets/checkpoints; grouped confirmation; unchanged cutoff/R1 gates; exact apply/retry; old costs/frozen plans.
