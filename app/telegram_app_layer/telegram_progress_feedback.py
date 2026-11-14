@@ -21,6 +21,8 @@ def should_show_progress(text):
 
 def progress_text(text=None):
     value = " ".join(str(text or "").strip().lower().split())
+    if "batch_refresh" in value:
+        return "⏳ Проверяю поставки Ozon…"
     if any(token in value for token in FINANCE_TOKENS):
         return "⏳ Загружаю финансовые данные Ozon…"
     return "⏳ Обрабатываю запрос…"

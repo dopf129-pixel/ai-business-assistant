@@ -1,3 +1,8 @@
+# 2026-11-14 — FIFO automatic batch Telegram card and bounded refresh (PR C, FB21)
+
+- Added a no-network summary card for the active automatic batch rule, with bounded Ozon refresh, safe continuation/retry feedback, found-items check, rule guidance, and the existing readiness/preview/history controls retained. Refresh remains scoped to the current tenant/store/SKU/case/rule revision; it cannot claim exact SKU membership, source completeness, or FIFO readiness while the upstream payload profile is unverified.
+- Regressions cover offline card rendering, exact rule scope, bounded refresh, duplicate/stale callback handling, tenant isolation, safe failure retention, no-source “check found” action, privacy, and unchanged FIFO state. Linked profile: **198 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Synthetic sources only; no live API, bot launch, merge, or deployment.
+
 # 2026-11-14 — FIFO automatic batch production assembly (PR C, FB20)
 
 - Extended the existing FIFO transition workflow factory with the bounded automatic-supply source, durable scan-checkpoint service, supply evidence store, deduplicator, and pure manifest builder. The batch Telegram adapter receives the same composed dependencies; the supply source reuses the exact Ozon client already held by the existing transition source collection service.

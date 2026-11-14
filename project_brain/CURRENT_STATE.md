@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch FB21 Telegram card and refresh
+
+- PR B #735 is open as a draft on final head `dda4571baa79b95d632391cc0fee5cb7ca21b661`; exact-head Verify run [#43617884850](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43617884850) passed Windows/Linux full suites, compile, and Linux production Docker build/runtime smoke. PR C continues on dependent branch `codex/fifo-auto-batch-integration-20261113`.
+- FB21 adds an offline current-rule card and bounded, explicitly triggered refresh in the existing FIFO Telegram flow. Refresh is bound to the active owner/store/SKU/case/rule revision; duplicate callbacks are covered by the shared in-flight guard; progress and source failures use safe Russian messages. Existing readiness, preview, documents and history remain available.
+- Linked Windows/Python 3.12 profile: **198 passed**; `compileall`, `git diff --check`, and tracked `data/` equality passed. The list/details source remains deliberately PARTIAL, continuation is process-local, and exact SKU membership/raw-source coverage are unverified; “check found” does not claim membership. No live Ozon/Telegram request, FIFO/COGS mutation, bot launch, merge, or deployment. Current change exceeds 300 lines and extends the Telegram workflow; architecture review is required before merge.
+
 # 2026-11-14 — FIFO automatic batch FB20 production assembly
 
 - PR B #735 is open as a draft on final head `dda4571baa79b95d632391cc0fee5cb7ca21b661`; Verify run [#43617884850](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43617884850) passed Windows/Linux full suites, compile, and Linux production Docker build/runtime smoke. PR C continues on dependent branch `codex/fifo-auto-batch-integration-20261113` from that PR B head.

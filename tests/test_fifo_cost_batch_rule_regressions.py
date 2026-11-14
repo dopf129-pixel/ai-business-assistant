@@ -1,6 +1,7 @@
 """Regression coverage for the automatic FIFO batch rule flow (B01/B02)."""
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
@@ -16,6 +17,11 @@ from services.telegram_fifo_cost_batch_rule_service import (
     TelegramFifoCostBatchRuleService,
 )
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from telegram_app_layer.telegram_progress_feedback import (
+    MAX_TELEGRAM_TEXT_UNITS,
+    progress_text,
+    split_telegram_text,
+)
 
 
 IDENTITY = {
@@ -329,3 +335,154 @@ def test_start_day_no_or_unknown_cannot_reuse_all_day_confirmation_button(tmp_pa
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_replay_safe(tmp_path):
+    tenant = set_current_tenant_user_id(
+        make_store_tenant_scope("test-owner-a", IDENTITY["store_id"]),
+    )
+    try:
+        now = lambda: datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+        repository = FifoCostRepository(db_path=tmp_path / "batch-card.sqlite", now_provider=now)
+        history = FifoCostHistoryService(repository)
+        transitions = FifoCostTransitionService(repository, now_provider=now)
+
+        class _FakeSource:
+            def __init__(self):
+                self.calls = []
+                self.results = [
+                    SimpleNamespace(
+                        read_only=True, status="PARTIAL", actual_http_attempts=10,
+                        issue_codes=("FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED",),
+                        continuation_token="a" * 32, orders_observed=10,
+                        supplies_observed=12, pagination_complete=False,
+                        details_complete=False,
+                    ),
+                    SimpleNamespace(
+                        read_only=True, status="PARTIAL", actual_http_attempts=4,
+                        issue_codes=("FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED",),
+                        continuation_token=None, orders_observed=20,
+                        supplies_observed=25, pagination_complete=True,
+                        details_complete=True,
+                    ),
+                ]
+
+            def collect_supplies(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+                return self.results[len(self.calls) - 1]
+
+        source = _FakeSource()
+        rule_service = FifoCostBatchRuleService(repository, now_provider=now)
+        telegram_rules = TelegramFifoCostBatchRuleService(
+            rule_service, repository, supply_source_service=source,
+        )
+        runtime = TelegramFifoCostTransitionRuntimeService(
+            transitions, history, now_provider=now,
+            batch_rule_telegram_service=telegram_rules,
+        )
+        runtime.start_new_case(101, IDENTITY, "Synthetic item", 0, "TOTAL_LANDED")
+        for value in ("21", "14.65", "05.11.2026", "0", "0"):
+            response = _confirm_text(runtime, value)
+        first_day = runtime.handle_text(101, "не знаю")
+        include = next(
+            button["callback"] for button in first_day["keyboard"]["buttons"]
+            if button["text"] == "Да, все отправки дня"
+        )
+        preview = runtime.handle_callback(101, include)
+        confirm = next(
+            button["callback"] for button in preview["keyboard"]["buttons"]
+            if button["text"] == "Подтвердить правило"
+        )
+        rule_saved = runtime.handle_callback(101, confirm)
+        show_case = next(
+            button["callback"] for button in rule_saved["keyboard"]["buttons"]
+            if button["text"] == "К делу"
+        )
+        card = runtime.handle_callback(101, show_case)
+
+        labels = {button["text"] for button in card["keyboard"]["buttons"]}
+        assert {"Обновить поставки", "Проверить найденные", "Изменить правило", "Контрольное количество"} <= labels
+        assert any("Проверить готовность" in label for label in labels)
+        assert any("Посмотреть пересчёт" in label for label in labels)
+        assert not source.calls  # Opening the card performs no Ozon request.
+        assert "не обращается к ozon" in card["message"].lower()
+
+        refresh = next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["text"] == "Обновить поставки"
+        )
+        competing_stale = runtime._issue_ticket(
+            "101", runtime._sessions["101"], "batch_refresh",
+        )
+        checked = runtime.handle_callback(101, next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["text"] == "Проверить найденные"
+        ))
+        assert "сначала нажмите" in checked["message"].lower()
+        assert not source.calls
+
+        first_scan = runtime.handle_callback(101, refresh)
+        assert len(source.calls) == 1
+        args, kwargs = source.calls[0]
+        assert args[0].owner_id == "test-owner-a"
+        assert args[0].store_id == IDENTITY["store_id"]
+        assert args[0].sku == IDENTITY["sku"]
+        assert args[1] == runtime._sessions["101"]["case_id"]
+        assert args[2:] == (7, 1)
+        assert kwargs["continuation_token"] is None
+        assert "не полностью" in first_scan["message"].lower()
+        assert "fifo_batch" not in first_scan["message"].lower()
+        assert "заявок в ответах: 10" in first_scan["message"].lower()
+        assert runtime.handle_callback(101, refresh) == first_scan
+        assert len(source.calls) == 1
+        assert runtime.handle_callback(101, competing_stale)["error"] is True
+        assert len(source.calls) == 1
+        other_tenant = set_current_tenant_user_id(
+            make_store_tenant_scope("test-owner-a", "test-store-b"),
+        )
+        try:
+            foreign_replay = runtime.handle_callback(101, refresh)
+            assert foreign_replay["error"] is True
+            assert "10" not in foreign_replay["message"]
+        finally:
+            reset_current_tenant_user_id(other_tenant)
+
+        continue_scan = next(
+            button["callback"] for button in first_scan["keyboard"]["buttons"]
+            if button["text"] == "Продолжить поиск"
+        )
+        second_scan = runtime.handle_callback(101, continue_scan)
+        assert len(source.calls) == 2
+        assert source.calls[1][1]["continuation_token"] == "a" * 32
+        assert "полнота исторического охвата" in second_scan["message"].lower()
+        assert not any("id=" in line.lower() for line in second_scan["message"].splitlines())
+        found = runtime.handle_callback(101, next(
+            button["callback"] for button in runtime._show_summary("101")["keyboard"]["buttons"]
+            if button["text"] == "Проверить найденные"
+        ))
+        assert "25" in found["message"]
+        assert len(source.calls) == 2  # Read-only found-check does not call Ozon.
+
+        refresh_again = next(
+            button["callback"] for button in runtime._show_summary("101")["keyboard"]["buttons"]
+            if button["text"] == "Обновить поставки"
+        )
+        failed_refresh = runtime.handle_callback(101, refresh_again)
+        assert "предыдущий результат" in failed_refresh["message"].lower()
+        assert runtime._sessions["101"]["batch_last_scan"]["supplies"] == 25
+        assert runtime._sessions["101"]["batch_refresh_error"] is True
+        card_after_failure = runtime._show_summary("101")
+        assert "предыдущий результат чтения" in card_after_failure["message"].lower()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_fifo_supply_refresh_uses_named_progress_and_safe_unicode_message_splitting():
+    assert progress_text("fifo_transition:batch_refresh:0123456789ab") == "⏳ Проверяю поставки Ozon…"
+    value = "📦 Проверка поставок 🧾 " * 500
+    chunks = split_telegram_text(value)
+    assert len(chunks) > 1
+    assert "".join(chunks) == value
+    for chunk in chunks:
+        units = sum(2 if ord(character) > 0xFFFF else 1 for character in chunk)
+        assert units <= MAX_TELEGRAM_TEXT_UNITS

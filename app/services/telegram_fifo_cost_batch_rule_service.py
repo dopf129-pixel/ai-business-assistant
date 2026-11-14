@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+from threading import RLock
 from uuid import uuid4
 
 from services.fifo_cost_batch_rule_contracts import (
@@ -52,13 +53,14 @@ class TelegramFifoCostBatchRuleService:
         self.supply_store = supply_store
         self.supply_deduplicator = supply_deduplicator
         self.manifest_builder = manifest_builder
+        self._refresh_lock = RLock()
 
     def show_mode_choice(self, runtime, owner):
         session = runtime._sessions.get(owner)
         if not isinstance(session, dict):
             return runtime._stale()
         if session["case"].get("supply_total_mode") == "AUTO_FROM_SUPPLIES":
-            return runtime._show_supply_stage(owner)
+            return runtime._show_summary(owner)
         self._bump_flow(session)
         session["step"] = "batch_mode_choice"
         return runtime._result(
@@ -79,6 +81,14 @@ class TelegramFifoCostBatchRuleService:
         )
 
     def handle_callback(self, runtime, owner, session, ticket, action):
+        if action == "batch_card":
+            return runtime._show_summary(owner)
+        if action == "batch_refresh":
+            return self._refresh_supplies(runtime, owner, session, ticket)
+        if action == "batch_check_found":
+            return self._show_found_check(runtime, owner, session)
+        if action == "batch_edit_rule":
+            return self._show_rule_edit_guidance(runtime, owner, session)
         if action == "batch_back":
             self._bump_flow(session)
             self._clear_transient(session)
@@ -281,6 +291,229 @@ class TelegramFifoCostBatchRuleService:
         )
         ticket["confirmed_result"] = dict(response)
         return response
+
+    def summary_lines(self, runtime, owner, session):
+        """Return a no-network summary for the current automatic rule and scan."""
+        try:
+            rule = self.rule_service.read_active_rule(
+                self._scope(runtime, owner, session),
+                session["case_id"], session["case_revision"],
+            )
+        except (KeyError, TypeError, ValueError):
+            rule = {"error": True}
+        if rule.get("error"):
+            lines = ["Правило автоматической партии: не удалось подтвердить сохранённую редакцию."]
+        else:
+            policy = {
+                BatchStartDayPolicy.ALL_OWNER_CONFIRMED.value:
+                    "владелец подтвердил все отправки этого дня как новую партию",
+                BatchStartDayPolicy.EXPLICIT_SUPPLY_SET.value:
+                    "отправки первого дня требуют выбора владельца",
+            }.get(rule.get("start_day_policy"), "требует проверки")
+            lines = [f"Правило автоматической партии: с {rule['start_local_date']} · {policy}."]
+        scan = session.get("batch_last_scan")
+        if not isinstance(scan, dict):
+            if session.get("batch_refresh_error"):
+                lines.append("Последняя попытка обновления не удалась; подтверждённого чтения поставок ещё нет.")
+            lines.append(
+                "Поставки ещё не проверялись. Открытие карточки не обращается к Ozon. "
+                "Историческое покрытие не подтверждено."
+            )
+            return lines
+        if session.get("batch_refresh_error"):
+            lines.append("Последняя попытка обновления не удалась; ниже показан предыдущий результат чтения.")
+        lines.extend([
+            f"Последнее чтение: {scan.get('read_at', 'в этой сессии')}; заявок в ответах "
+            f"{scan.get('orders', 0)}, вложенных поставок {scan.get('supplies', 0)}; "
+            f"HTTP-попыток {scan.get('http_attempts', 0)}/10.",
+            "Это количество строк ответа API, а не подтверждённый остаток или количество SKU. "
+            "Полнота истории, статусов и дат отправки не доказана; FIFO и прибыль не менялись.",
+        ])
+        if scan.get("continuation_available"):
+            lines.append("Ограниченный поиск можно продолжить кнопкой «Обновить поставки».")
+        lines.extend(self._issue_messages(scan.get("issue_codes", ()))[:2])
+        return lines
+
+    def summary_buttons(self, runtime, owner, session):
+        return [
+            {"text": "Обновить поставки", "callback": runtime._issue_ticket(owner, session, "batch_refresh")},
+            {"text": "Проверить найденные", "callback": runtime._issue_ticket(owner, session, "batch_check_found")},
+            {"text": "Изменить правило", "callback": runtime._issue_ticket(owner, session, "batch_edit_rule")},
+            {"text": "Контрольное количество", "callback": runtime._issue_ticket(owner, session, "batch_control")},
+        ]
+
+    def _refresh_supplies(self, runtime, owner, session, ticket):
+        # Hold the lock only for ticket/session validation. Network I/O must not
+        # serialize refreshes for unrelated stores.
+        with self._refresh_lock:
+            cached = ticket.get("confirmed_result")
+            if isinstance(cached, dict):
+                return dict(cached)
+            if ticket.get("flow_revision", 0) != session.get("flow_revision", 0):
+                return runtime._stale()
+            self._bump_flow(session)
+        return self._collect_supplies(runtime, owner, session, ticket)
+
+    def _collect_supplies(self, runtime, owner, session, ticket):
+        if self.supply_source_service is None:
+            session["batch_refresh_error"] = True
+            response = self._card_return(runtime, owner,
+                "Автопоиск поставок временно недоступен. Сохранённое правило и данные FIFO не изменены.")
+            ticket["confirmed_result"] = dict(response)
+            return response
+        try:
+            scope = self._scope(runtime, owner, session)
+            rule = self.rule_service.read_active_rule(
+                scope, session["case_id"], session["case_revision"],
+            )
+            if rule.get("error"):
+                session["batch_refresh_error"] = True
+                response = self._card_return(runtime, owner,
+                    "Не удалось подтвердить актуальное правило партии. Ozon не запрашивался; данные не изменены.")
+                ticket["confirmed_result"] = dict(response)
+                return response
+            result = self.supply_source_service.collect_supplies(
+                scope, session["case_id"], session["case_revision"],
+                rule["rule_revision"],
+                continuation_token=session.get("batch_continuation_token"),
+            )
+            if not getattr(result, "read_only", False):
+                raise ValueError("FIFO_BATCH_SOURCE_RESULT_INVALID")
+        except Exception:
+            # Keep source exceptions and raw payloads out of Telegram.
+            session.pop("batch_continuation_token", None)
+            session["batch_refresh_error"] = True
+            response = self._card_return(runtime, owner,
+                "Не удалось безопасно прочитать поставки. Предыдущий результат, если он был, сохранён; FIFO и прибыль не изменились.")
+            ticket["confirmed_result"] = dict(response)
+            return response
+
+        now = runtime._now_provider()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        session["batch_last_scan"] = {
+            "read_at": now.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
+            "status": str(getattr(result, "status", "UNKNOWN")),
+            "orders": self._bounded_count(getattr(result, "orders_observed", 0)),
+            "supplies": self._bounded_count(getattr(result, "supplies_observed", 0)),
+            "http_attempts": min(10, self._bounded_count(getattr(result, "actual_http_attempts", 0))),
+            "pagination_complete": getattr(result, "pagination_complete", False) is True,
+            "details_complete": getattr(result, "details_complete", False) is True,
+            "issue_codes": tuple(
+                value for value in getattr(result, "issue_codes", ())
+                if isinstance(value, str) and value.startswith("FIFO_BATCH_")
+            )[:12],
+            "continuation_available": bool(getattr(result, "continuation_token", None)),
+        }
+        continuation = getattr(result, "continuation_token", None)
+        if isinstance(continuation, str) and len(continuation) <= 96:
+            session["batch_continuation_token"] = continuation
+        else:
+            session.pop("batch_continuation_token", None)
+        session.pop("batch_refresh_error", None)
+        response = self._collection_result(runtime, owner, session)
+        ticket["confirmed_result"] = dict(response)
+        return response
+
+    def _collection_result(self, runtime, owner, session):
+        scan = session.get("batch_last_scan", {})
+        status_labels = {
+            "COMPLETE": "страницы списка прочитаны до конца в рамках этого запроса",
+            "PARTIAL": "получена только часть данных",
+            "BLOCKED": "чтение остановлено проверкой исходных данных",
+            "CONFLICT": "ответы изменились или противоречат друг другу",
+            "UNAVAILABLE": "источник временно недоступен",
+            "INVALID": "ответ не прошёл проверку структуры",
+        }
+        lines = [
+            f"Проверка поставок за {scan.get('read_at', 'текущее чтение')}: {status_labels.get(scan.get('status'), 'результат требует проверки')}.",
+            f"Заявок в ответах: {scan.get('orders', 0)}; вложенных поставок: {scan.get('supplies', 0)}; "
+            f"HTTP-попыток: {scan.get('http_attempts', 0)}/10.",
+        ]
+        if scan.get("pagination_complete") and scan.get("details_complete"):
+            lines.append("Локальная пагинация и карточки прочитаны до конца; полнота исторического охвата Ozon всё равно не подтверждена.")
+        else:
+            lines.append("Пагинация или карточки поставок прочитаны не полностью.")
+        lines.extend([
+            "Показано число строк ответа. Состав конкретного SKU и принадлежность к партии не подтверждены.",
+            "Результат не записан в FIFO и не изменил прибыль.",
+        ])
+        lines.extend(self._issue_messages(scan.get("issue_codes", ()))[:4])
+        buttons = []
+        if scan.get("continuation_available"):
+            buttons.append({"text": "Продолжить поиск", "callback": runtime._issue_ticket(owner, session, "batch_refresh")})
+        buttons.append({"text": "К карточке партии", "callback": runtime._issue_ticket(owner, session, "batch_card")})
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def _show_found_check(self, runtime, owner, session):
+        scan = session.get("batch_last_scan")
+        if not isinstance(scan, dict):
+            message = "Сначала нажмите «Обновить поставки». Список не проверялся; Ozon сейчас не запрашивается."
+        else:
+            message = (
+                f"В сохранённой проверке: заявок в ответах {scan.get('orders', 0)}, "
+                f"вложенных поставок {scan.get('supplies', 0)}.\n"
+                "Это только количество строк API. Точный состав SKU и принадлежность к партии "
+                "пока нельзя подтвердить по текущей схеме источника. ID и названия скрыты; "
+                "подтверждение или изменение FIFO не выполнялось."
+            )
+            issues = self._issue_messages(scan.get("issue_codes", ()))[:3]
+            if issues:
+                message += "\n" + "\n".join(issues)
+        return self._card_return(runtime, owner, message)
+
+    def _show_rule_edit_guidance(self, runtime, owner, session):
+        return self._card_return(runtime, owner,
+            "Сохранённое правило нельзя переписывать задним числом. Новая себестоимость должна оформляться отдельной FIFO-границей; текущее правило, FIFO и прибыль не изменены. Чтобы исправить принадлежность отправок первой даты, сначала нужно сверить конкретные поставки; никаких изменений пока не сохранено.")
+
+    @staticmethod
+    def _card_return(runtime, owner, message):
+        session = runtime._sessions.get(owner)
+        if not isinstance(session, dict):
+            return runtime._stale()
+        return runtime._result(message, keyboard=runtime._keyboard([{
+            "text": "К карточке партии",
+            "callback": runtime._issue_ticket(owner, session, "batch_card"),
+        }]))
+
+    @staticmethod
+    def _issue_messages(issue_codes):
+        messages = {
+            "FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED": "Ozon не подтвердил полный перечень статусов; найденные строки пока нельзя считать полным набором.",
+            "FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE": "Список заявок не удалось прочитать полностью. Повторите обновление.",
+            "FIFO_BATCH_SUPPLY_DETAILS_UNAVAILABLE": "Не удалось прочитать часть карточек заявок. Ограниченный поиск можно продолжить.",
+            "FIFO_BATCH_SOURCE_BUDGET_EXHAUSTED": "Достигнут лимит времени или запросов на один запуск. Продолжите поиск отдельным нажатием.",
+            "FIFO_BATCH_SUPPLY_PAGE_LIMIT_REACHED": "Достигнут предел страниц на один запуск. Продолжите поиск отдельным нажатием.",
+            "FIFO_BATCH_SUPPLY_CURSOR_PROOF_MISSING": "Источник не подтвердил, что после этой страницы данных больше нет.",
+            "FIFO_BATCH_SUPPLY_LIST_MUTATED_DURING_SCAN": "Во время проверки список изменился или повторил записи. Запустите поиск заново.",
+            "FIFO_BATCH_SUPPLY_CURSOR_NOT_ADVANCING": "Источник повторил курсор страницы. Запустите поиск заново.",
+            "FIFO_BATCH_SUPPLY_CURSOR_INVALID": "Источник вернул неверный номер следующей страницы. Запустите поиск заново.",
+            "FIFO_BATCH_SUPPLY_CURSOR_WITH_EMPTY_PAGE": "Источник вернул ссылку на продолжение без строк данных. Запустите поиск заново.",
+            "FIFO_BATCH_SUPPLY_CHECKPOINT_UNAVAILABLE": "Продолжение не удалось сохранить в памяти. Запустите поиск заново.",
+            "FIFO_BATCH_SUPPLY_CONTINUATION_STALE": "Продолжение истекло или бот был перезапущен. Запустите полный поиск заново.",
+            "FIFO_BATCH_SUPPLY_CONTINUATION_INVALID": "Ссылка на продолжение недействительна. Запустите полный поиск заново.",
+            "FIFO_BATCH_SUPPLY_CONTINUATION_SCOPE_MISMATCH": "Продолжение относится к другому SKU или магазину; оно сброшено.",
+            "FIFO_BATCH_SUPPLY_ORDER_STATE_UNSUPPORTED": "Ответ содержит неизвестный статус заявки. Строки требуют проверки и не считаются полным набором.",
+            "FIFO_BATCH_SUPPLY_STATE_UNSUPPORTED": "Ответ содержит неизвестный статус поставки. Строки требуют проверки и не считаются полным набором.",
+            "FIFO_BATCH_SUPPLY_NESTED_LIST_UNAVAILABLE": "В ответе не удалось проверить список вложенных поставок.",
+            "FIFO_BATCH_SUPPLY_ORDER_LIMIT_REACHED": "Достигнут предел заявок на один запуск. Продолжите поиск отдельным нажатием.",
+            "FIFO_BATCH_SUPPLY_ROW_LIMIT_REACHED": "Достигнут предел вложенных поставок на один запуск. Продолжите поиск отдельным нажатием.",
+            "FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED": "Состав товара внутри поставки пока не подтверждён схемой ответа Ozon.",
+            "FIFO_BATCH_BUNDLE_COLLECTION_BASIS_UNAVAILABLE": "Не удалось проверить правило партии перед чтением состава товара.",
+            "FIFO_BATCH_COLLECTION_BASIS_UNAVAILABLE": "Не удалось проверить текущее правило партии перед запросом.",
+            "FIFO_BATCH_RULE_REVISION_CONFLICT": "Правило партии изменилось. Откройте карточку заново и повторите обновление.",
+            "FIFO_BATCH_CASE_REVISION_CONFLICT": "Дело изменилось. Откройте карточку заново и повторите обновление.",
+        }
+        result = []
+        for code in issue_codes if isinstance(issue_codes, (tuple, list)) else ():
+            message = messages.get(code)
+            if message and message not in result:
+                result.append(message)
+        return result
+
+    @staticmethod
+    def _bounded_count(value):
+        return value if type(value) is int and 0 <= value <= 100_000 else 0
 
     def _confirm_control(self, runtime, owner, session, ticket):
         draft = session.get("batch_control_draft")

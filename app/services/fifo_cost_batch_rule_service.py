@@ -240,6 +240,49 @@ class FifoCostBatchRuleService:
             "store_timezone": rule["store_timezone"],
         }
 
+    def read_active_rule(
+        self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,
+    ) -> dict:
+        """Read the current owner-confirmed rule without triggering source I/O."""
+        if (
+            not isinstance(scope, ScopeIdentity)
+            or not isinstance(case_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{8,96}", case_id)
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+        ):
+            return self._error("FIFO_BATCH_ACTIVE_RULE_INPUT_INVALID")
+        case_result = self._read_case(scope, case_id)
+        if case_result.get("error"):
+            return case_result
+        if case_result.get("case_revision") != expected_case_revision:
+            return self._error("FIFO_BATCH_CASE_REVISION_CONFLICT")
+        if case_result["case"].supply_total_mode is not SupplyTotalMode.AUTO_FROM_SUPPLIES:
+            return self._error("FIFO_BATCH_SUPPLY_MODE_MISMATCH")
+        tenant = self.repository._tenant_scope(scope.store_id)
+        if tenant.get("error"):
+            return tenant
+        rows_result = self._read_rules(scope, case_id, tenant["tenant_fingerprint"])
+        if rows_result.get("error"):
+            return rows_result
+        active = self._active_rule(rows_result["items"])
+        if active.get("error"):
+            return active
+        rule = active.get("item")
+        if rule is None:
+            return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
+        return {
+            "error": False,
+            "code": "FIFO_BATCH_ACTIVE_RULE_READ",
+            "case_revision": expected_case_revision,
+            "rule_id": rule["rule_id"],
+            "rule_revision": rule["rule_revision"],
+            "rule_fingerprint": rule["rule_fingerprint"],
+            "start_local_date": rule["start_local_date"],
+            "store_timezone": rule["store_timezone"],
+            "start_day_policy": rule["start_day_policy"],
+        }
+
     def confirm_rule(
         self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,
         preview_id: str, preview_fingerprint: str, idempotency_key: str,

@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch Telegram card and bounded refresh (FB21)
+
+- `tests/test_fifo_cost_batch_rule_regressions.py` covers rendering the current-rule card without network access, refresh binding to the exact tenant/store/SKU/case/rule revision, bounded source invocation and continuation UI, stale ticket rejection, duplicate replay, cross-tenant cached-result rejection, retry failure retaining the last successful read, safe error wording, privacy, and no FIFO state change. “Проверить найденные” does not make an Ozon call or infer exact SKU membership.
+- `tests/test_telegram_calculation_inflight_dedup.py` verifies `fifo_transition:batch_refresh` uses the existing shared in-flight duplicate guard. `telegram_progress_feedback` uses the specific safe progress label for this action.
+- FB21 linked profile: **198 passed** across all `tests/test_fifo_cost_batch_*.py`, production transition workflow, cross-docking/planning adapter regressions, and Telegram in-flight guard. `compileall`, `git diff --check`, and tracked `data/` equality passed. All Ozon behavior was synthetic; no real bot was run.
+
 # 2026-11-14 — FIFO automatic batch production assembly (FB20)
 
 - `tests/test_fifo_cost_batch_supply_source.py::test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon` assembles the existing transition workflow with temporary SQLite and a fake Ozon client. It asserts that the automatic source reuses the existing client, the source/checkpoint/store/dedup/manifest dependencies are the exact instances exposed to the batch adapter, the bounded source call is still fail-closed PARTIAL, and it writes no staged observations or scans.
