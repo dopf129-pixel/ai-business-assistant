@@ -7,7 +7,7 @@
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.
 - Spec branch: codex/fifo-auto-batch-rule-spec-20261113.
 - Product baseline: main 7965dcddffa50bd4e0f175cd18c32929b6a845d0.
-- Implementation branch/head checkpoint: `codex/fifo-auto-batch-foundation-20261113` at `930ef296` (`Integrate automatic supply manifest readiness`, FB09 implementation commit); documentation checkpoint follows. FB08: `f99b8096`; FB07: `9ff94a4f04f14e6a9c91d2e55c26d93f56bfb35a`; FB06: `12014e9600085eaa0739708a025ca317705bb736`. Product base remains `7965dcddffa50bd4e0f175cd18c32929b6a845d0`.
+- Implementation branch: `codex/fifo-auto-batch-foundation-20261113`. Latest code commit is `930ef296`; FB10 local-tested tree is `74ffefcd` (code unchanged from `930ef296`; documentation only). The current branch includes the FB10 journal commit. Resolve the exact publication head with `git log -1` before push/CI. FB08: `f99b8096`; FB07: `9ff94a4f04f14e6a9c91d2e55c26d93f56bfb35a`; FB06: `12014e9600085eaa0739708a025ca317705bb736`. Product base remains `7965dcddffa50bd4e0f175cd18c32929b6a845d0`.
 - Следующий этап: FB10 exact-SHA PR A CI. FB00–FB09 closed; the local disposable full suite passed on source tree `74ffefcd`. The separate untracked `.fl12-deps/` stays preserved and excluded.
 - Прежняя untracked .fl12-deps/ сохранена, не добавлять в Git.
 - Рабочая копия: изолированный Codex worktree; Desktop-папка с работающим ботом не открывалась для разработки.
