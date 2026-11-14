@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch manifest readiness (PR A, FB09)
+
+- Readiness now uses a typed automatic supply manifest for `AUTO_FROM_SUPPLIES`. An absent or partial manifest produces a specific source gap without requiring a lifetime owner total; a known subtotal remains explicitly partial, and empty listings, unknown quantities, or unresolved membership cannot satisfy the gate.
+- A complete exact scoped manifest removes only the supply-manifest gap. It does not establish physical receipt timing, cutoff movement coverage, R1, or apply readiness. `OWNER_CONTROL` remains blocked until its dated control is reconciled; legacy mode keeps its prior owner-total rule.
+- FB09 linked Windows/Python 3.12 profile: **81 passed**; readiness/test modules compile; `git diff --check` and tracked `data/` equality pass. No live source calls.
+
 # 2026-11-14 — FIFO automatic batch rule Telegram choices (PR A, FB08)
 
 - The late-entry wizard no longer requires a lifetime shipped-unit total when composed with the production batch-rule workflow. Owners can choose automatic Ozon supply discovery or an optional dated control, and the existing unknown-total draft resumes with its saved costs/date/old-stock values intact.
