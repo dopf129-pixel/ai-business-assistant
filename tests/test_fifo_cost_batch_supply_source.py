@@ -198,6 +198,76 @@ def test_collect_uses_one_allowlisted_bounded_page_and_returns_partial_only(
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon(
+    tmp_path, monkeypatch,
+):
+    """The existing production workflow owns the complete source/read graph."""
+    import app.telegram_assistant_factory as factory_module
+
+    from services.fifo_cost_history_service import FifoCostHistoryService
+    from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
+    from services.fifo_cost_transition_service import FifoCostTransitionService
+
+    repo, _rules, _standalone_source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch,
+    )
+    try:
+        transition = FifoCostTransitionService(repo, now_provider=lambda: NOW)
+        history = FifoCostHistoryService(repo)
+        source_collection = FifoCostSourceCollectionService(
+            ozon_client=ozon, utc_clock=lambda: NOW,
+        )
+        workflow = factory_module.create_fifo_cost_transition_workflow(
+            repository=repo,
+            history_service=history,
+            transition_service=transition,
+            source_collection_service=source_collection,
+            tax_service=object(),
+            tax_configuration_service=object(),
+            period_profit_service=object(),
+            now_provider=lambda: NOW,
+        )
+
+        batch_source = workflow["batch_supply_source_service"]
+        assert batch_source.ozon_client is ozon
+        assert batch_source.rule_service is workflow["batch_rule_service"]
+        assert workflow["batch_scan_checkpoint_service"].repository is repo
+        assert workflow["batch_rule_telegram_service"].supply_source_service is batch_source
+        assert workflow["batch_rule_telegram_service"].scan_checkpoint_service is workflow[
+            "batch_scan_checkpoint_service"
+        ]
+        assert workflow["batch_rule_telegram_service"].supply_store is workflow[
+            "batch_supply_store"
+        ]
+        assert workflow["batch_rule_telegram_service"].supply_deduplicator is workflow[
+            "batch_supply_deduplicator"
+        ]
+        assert workflow["batch_rule_telegram_service"].manifest_builder is workflow[
+            "batch_manifest_builder"
+        ]
+
+        result = batch_source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert result.status == "PARTIAL"
+        assert result.actual_http_attempts == 1
+        assert len(ozon.calls) == 1
+        assert ozon.calls[0][0] == "list"
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_observations",
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_batch_supply_scans",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint(
     tmp_path, monkeypatch,
 ):

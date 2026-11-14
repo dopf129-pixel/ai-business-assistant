@@ -394,6 +394,27 @@ def test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket(
     workflow["physical_sales_import_service"].worker = parser_worker
     runtime = workflow["runtime_service"]
     assert workflow["batch_rule_service"].repository is repository
+    assert workflow["batch_supply_source_service"].rule_service is workflow["batch_rule_service"]
+    assert workflow["batch_supply_source_service"].ozon_client is getattr(
+        source_collection, "ozon_client", None,
+    )
+    assert workflow["batch_scan_checkpoint_service"].repository is repository
+    assert workflow["batch_rule_telegram_service"].supply_source_service is workflow[
+        "batch_supply_source_service"
+    ]
+    assert workflow["batch_rule_telegram_service"].scan_checkpoint_service is workflow[
+        "batch_scan_checkpoint_service"
+    ]
+    assert workflow["batch_rule_telegram_service"].supply_store is workflow[
+        "batch_supply_store"
+    ]
+    assert workflow["batch_rule_telegram_service"].supply_deduplicator is workflow[
+        "batch_supply_deduplicator"
+    ]
+    assert workflow["batch_rule_telegram_service"].manifest_builder is workflow[
+        "batch_manifest_builder"
+    ]
+    assert workflow["batch_supply_source_service"].rule_service.repository is repository
     assert workflow["batch_rule_telegram_service"] is runtime.batch_rule_telegram_service
 
     try:

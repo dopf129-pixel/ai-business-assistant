@@ -40,9 +40,18 @@ class TelegramFifoCostBatchRuleService:
         "planned": (BatchTotalControlKind.PLANNED_UNITS, "Запланировано"),
     }
 
-    def __init__(self, rule_service, repository):
+    def __init__(
+        self, rule_service, repository, *, supply_source_service=None,
+        scan_checkpoint_service=None, supply_store=None,
+        supply_deduplicator=None, manifest_builder=None,
+    ):
         self.rule_service = rule_service
         self.repository = repository
+        self.supply_source_service = supply_source_service
+        self.scan_checkpoint_service = scan_checkpoint_service
+        self.supply_store = supply_store
+        self.supply_deduplicator = supply_deduplicator
+        self.manifest_builder = manifest_builder
 
     def show_mode_choice(self, runtime, owner):
         session = runtime._sessions.get(owner)
