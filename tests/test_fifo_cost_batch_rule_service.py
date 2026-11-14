@@ -400,3 +400,38 @@ def test_successor_atomically_closes_previous_rule_and_same_day_is_rejected(
         assert _count(repository, "fifo_cost_layers") == 0
     finally:
         reset_current_tenant_user_id(token)
+
+
+def test_successor_timezone_change_fails_closed_for_manual_review(tmp_path, monkeypatch):
+    repository, service, token = _setup(tmp_path, monkeypatch)
+    try:
+        first = _preview(service)["preview"]
+        confirmed = service.confirm_rule(
+            SCOPE, "case_batch_001", 1, first.preview_id,
+            first.preview_fingerprint, "timezone-rule-001",
+        )
+        assert confirmed["error"] is False
+        current = repository.read_transition_case(
+            case_id="case_batch_001", store_id=SCOPE.store_id,
+            product_id=SCOPE.product_id, offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+        )
+        case = FifoCostTransitionService._case_from_payload(current["case"])
+        changed = replace(
+            case,
+            case_revision=3,
+            updated_at="2026-11-13T13:00:00Z",
+            metadata=replace(case.metadata, store_timezone="Asia/Yekaterinburg"),
+            new_unit_cost_rub=Decimal("13.50"),
+        )
+        saved = repository.save_transition_case(
+            case=changed, expected_revision=2, idempotency_key="change-zone-001",
+        )
+        assert saved["error"] is False
+        result = service.preview_rule(
+            SCOPE, "case_batch_001", 3,
+            BatchRuleInput("2026-11-20", BatchStartDayPolicy.ALL_OWNER_CONFIRMED),
+        )
+        assert result["code"] == "FIFO_BATCH_TIMEZONE_CHANGE_NEEDS_REVIEW"
+        assert _count(repository, "fifo_cost_batch_rule_revisions") == 1
+    finally:
+        reset_current_tenant_user_id(token)

@@ -86,6 +86,56 @@ class ManifestFreshness(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class SupplyMembershipClassification:
+    """Pure classification result bound to the exact supply source revision."""
+
+    scope: ScopeIdentity
+    case_id: str | None
+    record_key: str
+    source_fingerprint: str
+    membership: SupplyMembership
+    rule_id: str | None = None
+    rule_revision: int | None = None
+    rule_fingerprint: str | None = None
+    dispatch_local_date: str | None = None
+    membership_binding_fingerprint: str | None = None
+    decision_ref: str | None = None
+    issue_codes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, ScopeIdentity):
+            _invalid(TransitionReasonCode.SCOPE_INVALID)
+        if self.case_id is not None:
+            _opaque(self.case_id)
+        object.__setattr__(self, "record_key", normalize_digest(self.record_key))
+        object.__setattr__(self, "source_fingerprint", normalize_digest(self.source_fingerprint))
+        if not isinstance(self.membership, SupplyMembership):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        refs = (self.rule_id, self.rule_revision, self.rule_fingerprint)
+        if all(value is None for value in refs):
+            if self.membership_binding_fingerprint is not None:
+                _invalid(TransitionReasonCode.FINGERPRINT_INVALID)
+        elif any(value is None for value in refs):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        else:
+            _opaque(self.rule_id)
+            if type(self.rule_revision) is not int or self.rule_revision < 1:
+                _invalid(TransitionReasonCode.CONTRACT_INVALID)
+            object.__setattr__(self, "rule_fingerprint", normalize_digest(self.rule_fingerprint))
+            if self.membership_binding_fingerprint is None:
+                _invalid(TransitionReasonCode.FINGERPRINT_INVALID)
+            object.__setattr__(
+                self, "membership_binding_fingerprint",
+                normalize_digest(self.membership_binding_fingerprint),
+            )
+        if self.dispatch_local_date is not None:
+            object.__setattr__(self, "dispatch_local_date", normalize_date_only(self.dispatch_local_date))
+        if self.decision_ref is not None:
+            _opaque(self.decision_ref)
+        object.__setattr__(self, "issue_codes", _safe_issue_tuple(self.issue_codes))
+
+
+@dataclass(frozen=True, slots=True)
 class BatchRuleRevision:
     scope: ScopeIdentity
     case_id: str

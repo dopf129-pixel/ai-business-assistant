@@ -104,6 +104,8 @@ class FifoCostBatchRuleService:
             active_row = active.get("item")
             if active_row is None:
                 return self._error("FIFO_BATCH_RULE_HISTORY_NEEDS_REVIEW")
+            if active_row["store_timezone"] != case.metadata.store_timezone:
+                return self._error("FIFO_BATCH_TIMEZONE_CHANGE_NEEDS_REVIEW")
             if input.start_local_date == active_row["start_local_date"]:
                 return self._error("FIFO_BATCH_SAME_DAY_BOUNDARY_NEEDS_REVIEW")
             if input.start_local_date < active_row["start_local_date"]:

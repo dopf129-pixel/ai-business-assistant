@@ -1,3 +1,10 @@
+# 2026-11-14 — FIFO automatic supply membership classification (PR A, FB06)
+
+- Added a deterministic, side-effect-free classifier for exact SKU supply observations against append-only batch-rule intervals. Proven dispatch dates select `[start, next_start)`; the first boundary remains explicit when policy requires it, and same-day, malformed, timezone-changing, or contradictory histories fail closed.
+- Owner membership decisions now follow the stable membership binding, not a full observation fingerprint. Ordinary status/quantity refreshes preserve the selection while its scope, supply, rule, and proven dispatch binding remain unchanged; a proven date conflict is surfaced instead of silently reusing a stale choice. Historical source fingerprints stay attached to the original decision.
+- Cancelled status does not erase a previously proven dispatch. Unknown dispatch remains unresolved. Rule service also rejects a successor when the case timezone changed without review. No FIFO rates, layers, events, allocations, or COGS are written by classification or rule confirmation.
+- Linked FB05–FB06 Windows profile: **39 passed**; modified modules compile. `git diff --check` and tracked `data/` comparison are recorded in the execution journal.
+
 # 2026-11-13 — FIFO automatic batch rule persistence (PR A, FB04)
 
 - Additive FIFO SQLite schema v17 stores immutable scoped batch-rule revisions, SKU-level supply observations, exact membership decisions, optional dated total controls, and a mutable CAS scan checkpoint. FIFO business tables use immutable triggers; encrypted lookup and continuation payloads stay separate from searchable digests.
