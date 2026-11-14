@@ -377,6 +377,7 @@ def test_auto_mode_empty_or_partial_manifest_never_promotes_known_subtotal_to_to
     assert "observation_records" in requirement.known_values["missing_proofs"]
     assert requirement.blocks_apply is True
     assert result.ready_to_apply is False
+    assert "SUPPLY_SOURCE_LAG_OR_AS_OF_GAP" not in _by_code(result)
 
 
 def test_auto_mode_with_found_but_unknown_quantity_stays_incomplete():
@@ -413,6 +414,7 @@ def test_complete_auto_manifest_removes_only_manifest_gap_and_never_bypasses_r1(
     assert "AUTO_SUPPLY_MANIFEST_UNAVAILABLE" not in items
     assert "AUTO_SUPPLY_MANIFEST_INCOMPLETE" not in items
     assert "SUPPLY_MANIFEST_INCOMPLETE" not in items
+    assert "SUPPLY_SOURCE_LAG_OR_AS_OF_GAP" not in items
     assert "SALE_CUTOFF_BRIDGE_REQUIRED" in items
     assert _automatic_manifest().coverage.physical_receipt_timing_complete is False
     assert result.ready_to_apply is False

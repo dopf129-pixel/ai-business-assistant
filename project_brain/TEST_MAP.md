@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch positive production E2E (FB27)
+
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket[auto-batch-production-happy-path]` traverses the real factory/runtime with fake Ozon responses, paginated order listings, mixed-SKU bundle composition, a full normalized synthetic manifest, cutoff/movement/finance evidence, explicit apply, production graph restart and exact commit retry. It asserts one transition commit and that retry makes no network request. No repository, readiness, validator or apply service is replaced with a success stub.
+- Both legacy cases remain in the parametrized test: missing receiving evidence stays blocked and explicit owner confirmation preserves the old positive path. `tests/test_fifo_cost_transition_readiness_service.py` confirms source-observation lag is not borrowed from legacy declarations in AUTO mode, while incomplete manifests and independent cutoff/R1 gates still block. The production retry exposed and now covers manifest-seal inclusion in exact AUTO commit fingerprints.
+- Linked profile: **177 passed** across `tests/test_fifo_cost_batch_*.py`, transition production workflow, readiness, review, apply and transition service tests. Compile, diff check and tracked data equality pass. All source rows are synthetic; no live Ozon/Telegram request or owner data was used.
+
 # 2026-11-15 — FIFO automatic batch history and consumers (FB26)
 
 - `tests/test_fifo_cost_batch_rule_service.py` verifies the active-rule read returns only the saved revision metadata needed for explanation (revision, event kind, predecessor revision, rule price, and owner confirmation time) for both initial confirmation and replacement.

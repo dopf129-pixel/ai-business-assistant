@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch production prepare/apply path (FB27)
+
+- Added a positive production-assembly regression for automatic batch selection through paginated fake supply orders, exact SKU bundle composition, a complete normalized synthetic manifest, full synthetic cutoff/movement/finance evidence, explicit Telegram apply, repository restart, and exact retry with one commit.
+- Fixed two issues exposed by that path: legacy supply-observation lag no longer blocks AUTO/OWNER_CONTROL when those modes use their own manifest/control gates; committed AUTO retries now include the saved automatic-manifest seal in the exact commit fingerprint, matching the original apply.
+- The test-only normalized fixture is not an Ozon fact. The documented bundle API confirms per-SKU composition/pagination but does not establish historical completeness, dispatched quantity or dispatch date. No live Ozon/Telegram request, bot launch, owner-data write, merge or deployment was performed.
+
 # 2026-11-15 — FIFO batch history and cost consumers (FB26)
 
 - The automatic batch card now identifies the confirmed rule revision and whether it is an initial confirmation or a replacement. It labels the rule price separately from current FIFO unit cost and explains that rule/source refresh alone does not change FIFO or profit.

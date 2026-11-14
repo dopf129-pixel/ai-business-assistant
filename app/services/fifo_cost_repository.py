@@ -891,6 +891,25 @@ class FifoCostRepository:
                 "tax_policy_fingerprint": preview.get("tax_policy_fingerprint"),
                 "bridge_fingerprint": preview.get("bridge_fingerprint"),
             })
+            case_payload = case.get("case")
+            automatic_mode = (
+                isinstance(case_payload, dict)
+                and case_payload.get("supply_total_mode") == "AUTO_FROM_SUPPLIES"
+            )
+            stored_batch_seal = self._normalize_auto_batch_manifest_seal(
+                preview.get("automatic_batch_manifest_seal"),
+            )
+            if automatic_mode:
+                if stored_batch_seal is None:
+                    return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+                expected_commit_fingerprint = self._sha256({
+                    "commit_payload_fingerprint": expected_commit_fingerprint,
+                    "automatic_batch_manifest_seal": stored_batch_seal[
+                        "seal_fingerprint"
+                    ],
+                })
+            elif preview.get("automatic_batch_manifest_seal") is not None:
+                return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
             if (
                 prior["preview_id"] != preview_id
                 or prior["case_revision"] != expected_case_revision + 1

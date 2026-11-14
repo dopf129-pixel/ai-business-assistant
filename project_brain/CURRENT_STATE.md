@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch end-to-end workflow (FB27)
+
+- The production-shaped synthetic auto-batch path now reaches the existing explicit transition prepare/apply and successfully retries the exact committed apply after rebuilding the production graph from the same temporary database. The test asserts one commit. Incomplete real-source observations remain PARTIAL/UNKNOWN and cannot be substituted with the complete test-only normalized manifest.
+- Readiness now uses the legacy declaration observation-lag requirement only for `LEGACY_OWNER_TOTAL`; AUTO manifest freshness/coverage and dated OWNER_CONTROL reconciliation remain their own gates. Exact AUTO apply retry fingerprinting now mirrors commit fingerprinting by binding the persisted manifest seal. Legacy confirmation and readiness assertions remain covered.
+- FB27 linked Windows/Python 3.12 profile: **177 passed** across all FIFO batch tests and transition production/readiness/review/apply services. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. The supplied Ozon bundle guide proves local SKU composition/pagination fields only; raw seller-specific state/date/history completeness and R1 remain unverified. No live API, bot launch, owner data, merge or deployment.
+
 # 2026-11-15 — FIFO automatic batch history/consumer separation (FB26)
 
 - The active automatic batch card shows the confirmed rule revision and change type separately from the FIFO cost stream. A rule's planned rate is explicitly not presented as the current unit cost. The card also distinguishes bot request time from an Ozon-provided as-of time, which remains unavailable, and does not claim historical source completeness.
