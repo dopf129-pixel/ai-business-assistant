@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO automatic batch order/details scan (PR B, FB12)
+
+- Extended the bounded adapter to follow the local v3 list cursor, read each unique order's nested supplies, and batch order details at no more than 50 IDs per request. Overlapping pages are deduplicated but flagged as a changing source; repeated cursors and malformed identity coverage fail closed. A full 100-row page without a cursor is never called complete.
+- Opaque process-local continuation is bound to the exact owner/store/SKU/case/rule fingerprint and expires after 30 minutes. It is only an interim transport checkpoint: no raw IDs are returned/persisted, no observations/manifests are written, and exact raw state/cursor profile remains unverified so all otherwise successful results stay PARTIAL.
+- FB12 linked Windows/Python 3.12 profile: **63 passed** across source, rule, classifier, readiness and store tests. `compileall`, `git diff --check`, and tracked `data/` equality pass; the first expanded run caught and fixed duplicate supply-ID counting.
+
 # 2026-11-14 — FIFO automatic batch supply source skeleton (PR B, FB11)
 
 - Added `FifoCostBatchSupplySourceService.collect_supplies` as an explicit, read-only entry point. Before any request it verifies the exact tenant/store/SKU case revision, automatic mode, and active rule revision. The allowlisted list wrapper gets one page per action, with a shared 20-second/10-request trace, one attempt, and timeout capped at 8 seconds and remaining budget.

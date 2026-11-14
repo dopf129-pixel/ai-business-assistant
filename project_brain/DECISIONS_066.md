@@ -27,11 +27,12 @@ The repository has dated seller cost history, mutable current-cost projection, P
 
 Accepted for implementation within the user-approved FC00–FC35 task; independent review is required before merge. The factual cutoff gate remains blocked pending sanitized owner validation.
 
-## Addendum — 2026-11-14: automatic batch source boundary (FB11)
+## Addendum — 2026-11-14: automatic batch source boundary (FB11–FB12)
 
 - The automatic supply reader is a separate explicit action, not part of opening or viewing a card. Validate exact tenant/store/SKU, case revision, automatic supply mode, and active rule revision before the first request.
 - Reuse `PeriodProfitOperationTrace` for one 20-second/10-attempt root budget. Each nested request is limited to one attempt and at most 8 seconds or remaining time. The first skeleton allowlists only the existing v3 order-list wrapper and reads at most one page.
 - Until raw state and cursor coverage are verified, successful transport stays `PARTIAL`. Do not return or persist raw payload/IDs or infer complete coverage. Production wiring, pagination/details, bundle normalization, checkpoint and manifest publication remain later implementation stages.
+- The list/details adapter caps list pages at 100 and detail batches at 50. It deduplicates overlapping order and supply references and reports source mutation; a full 100-row page without a cursor is never terminal. Its interim continuation is memory-only, single-use, 30-minute and bound to exact case/rule scope. Durable encrypted checkpoints remain a separate stage.
 
 ## Addendum — 2026-11-09: temporal rate boundaries and durable evidence
 

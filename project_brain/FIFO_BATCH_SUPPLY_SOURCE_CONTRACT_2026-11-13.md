@@ -24,6 +24,8 @@ The official API reference `https://docs.ozon.ru/api/seller/` rendered without r
 
 These are the current application's validated interfaces and synthetic test shapes. They do not prove the authoritative raw Seller API schema, completeness of a list cursor over history, or actual dispatch timing.
 
+FB12 implementation uses the wrapper contract only: list pages are requested at no more than 100 IDs; detail calls contain at most 50 orders; each order must match exactly one requested ID and expose a nested supplies list before its supply references are counted. A shorter page with no `last_id` is terminal only for this local wrapper; a full page without a cursor stays partial. Overlapping order IDs are deduplicated and flagged. This does not verify raw response semantics or full historical coverage. The current continuation is a bounded process-local transport checkpoint, not durable scan evidence.
+
 ## Unverified fields / safe adapter behavior
 
 | Needed fact | Status | Required behavior until proven |
