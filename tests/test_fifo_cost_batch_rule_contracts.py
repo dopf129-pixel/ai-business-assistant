@@ -11,6 +11,9 @@ from services.fifo_cost_batch_rule_contracts import (
     BatchRuleEventKind,
     BatchRuleRevision,
     BatchStartDayPolicy,
+    BatchTotalControl,
+    BatchTotalControlKind,
+    BatchTotalControlStatus,
     DispatchTimeStatus,
     ManifestFreshness,
     MembershipDecisionKind,
@@ -165,11 +168,49 @@ def _manifest(*, coverage=None, **overrides):
     return AutomaticBatchManifest(**fields)
 
 
+def _total_control(**overrides):
+    fields = {
+        "control_id": "control000000001",
+        "control_revision": 1,
+        "scope": SCOPE,
+        "case_id": "case000000000001",
+        "total_units": 6982,
+        "window_from": "2026-11-05",
+        "window_through": "2026-11-05",
+        "control_kind": BatchTotalControlKind.DECLARED_IN_SHIPPED_SUPPLIES,
+        "control_status": BatchTotalControlStatus.OWNER_CONFIRMED,
+        "source_proof_fingerprint": "6" * 64,
+        "owner_confirmation_fingerprint": "7" * 64,
+        "idempotency_key": "control-key-0001",
+        "confirmed_at": "2026-11-13T12:00:00Z",
+    }
+    fields.update(overrides)
+    return BatchTotalControl(**fields)
+
+
 def test_total_modes_are_explicit_and_legacy_default_is_not_auto():
     assert {value.value for value in SupplyTotalMode} == {
         "LEGACY_OWNER_TOTAL", "AUTO_FROM_SUPPLIES", "OWNER_CONTROL",
     }
     assert SupplyTotalMode("LEGACY_OWNER_TOTAL") is SupplyTotalMode.LEGACY_OWNER_TOTAL
+
+
+def test_owner_total_control_requires_a_typed_quantity_and_exact_dated_window():
+    control = _total_control()
+    assert control.total_units == 6982
+    assert control.window_from == control.window_through == "2026-11-05"
+    assert control.control_kind is BatchTotalControlKind.DECLARED_IN_SHIPPED_SUPPLIES
+    assert control.control_status is BatchTotalControlStatus.OWNER_CONFIRMED
+
+    for invalid in (
+        {"total_units": True},
+        {"window_from": "2026-11-06"},
+        {"control_kind": "UNKNOWN_TOTAL_KIND"},
+        {"control_status": "LEGACY_UNBOUNDED"},
+        {"owner_confirmation_fingerprint": "not-a-digest"},
+    ):
+        with pytest.raises(TransitionContractError):
+            replace(control, **invalid)
 
 
 def test_rule_binds_scope_cost_timezone_and_confirmed_old_zero():

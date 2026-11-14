@@ -10,6 +10,9 @@ from services.fifo_cost_batch_rule_contracts import (
     BatchRuleEventKind,
     BatchRuleRevision,
     BatchStartDayPolicy,
+    BatchTotalControl,
+    BatchTotalControlKind,
+    BatchTotalControlStatus,
     DispatchTimeStatus,
     MembershipDecisionKind,
     MembershipDecisionSource,
@@ -112,6 +115,27 @@ def _observation(*, captured_at="2026-11-13T10:01:00Z"):
     )
 
 
+def _total_control(
+    *, control_id="control-batch-1", total=6982, window_from="2026-11-05",
+    window_through="2026-11-05", revision=1, idempotency_key="control-key-1",
+):
+    return BatchTotalControl(
+        control_id=control_id,
+        control_revision=revision,
+        scope=_SCOPE,
+        case_id=_CASE_ID,
+        total_units=total,
+        window_from=window_from,
+        window_through=window_through,
+        control_kind=BatchTotalControlKind.DECLARED_IN_SHIPPED_SUPPLIES,
+        control_status=BatchTotalControlStatus.OWNER_CONFIRMED,
+        source_proof_fingerprint=_digest(f"source-proof-{control_id}-{total}"),
+        owner_confirmation_fingerprint=_digest(f"owner-confirmation-{control_id}-{total}"),
+        idempotency_key=idempotency_key,
+        confirmed_at="2026-11-13T10:00:00Z",
+    )
+
+
 def test_batch_store_scopes_appends_and_deduplicates_observation_refresh(tmp_path):
     repository = FifoCostRepository(db_path=tmp_path / "batch-store.sqlite")
     connection = repository.get_connection()
@@ -184,6 +208,71 @@ def test_batch_store_rejects_cross_tenant_scope_without_persisting_rule(tmp_path
             "SELECT COUNT(*) FROM fifo_cost_batch_rule_revisions"
         ).fetchone()[0] == 0
         connection.rollback()
+    finally:
+        connection.close()
+
+
+def test_batch_store_keeps_owner_total_controls_scoped_dated_and_append_only(tmp_path):
+    repository = FifoCostRepository(db_path=tmp_path / "batch-controls.sqlite")
+    connection = repository.get_connection()
+    try:
+        _seed_case(connection)
+        connection.commit()
+        connection.execute("BEGIN IMMEDIATE")
+        first = _total_control()
+        stored = FifoCostBatchSupplyStore.append_total_control(
+            connection, first, tenant_fingerprint=_TENANT_FP,
+            recorded_at="2026-11-13T10:00:01Z",
+        )
+        assert stored == {
+            "error": False, "code": "FIFO_BATCH_TOTAL_CONTROL_STORED",
+            "control_id": "control-batch-1", "control_revision": 1,
+            "replayed": False,
+        }
+        replay = FifoCostBatchSupplyStore.append_total_control(
+            connection, first, tenant_fingerprint=_TENANT_FP,
+            recorded_at="2026-11-13T10:00:02Z",
+        )
+        assert replay["code"] == "FIFO_BATCH_IDEMPOTENT_REPLAY"
+        assert replay["replayed"] is True
+
+        conflict = FifoCostBatchSupplyStore.append_total_control(
+            connection, replace(first, total_units=7000),
+            tenant_fingerprint=_TENANT_FP, recorded_at="2026-11-13T10:00:03Z",
+        )
+        assert conflict == {"error": True, "code": "FIFO_BATCH_IDEMPOTENCY_CONFLICT"}
+
+        later = _total_control(
+            control_id="control-batch-2", total=7082,
+            window_through="2026-11-06", idempotency_key="control-key-2",
+        )
+        assert FifoCostBatchSupplyStore.append_total_control(
+            connection, later, tenant_fingerprint=_TENANT_FP,
+            recorded_at="2026-11-13T10:00:04Z",
+        )["error"] is False
+        connection.commit()
+
+        controls = FifoCostBatchSupplyStore.read_total_controls(
+            connection, scope=_SCOPE, case_id=_CASE_ID,
+            tenant_fingerprint=_TENANT_FP,
+        )
+        assert [(item["total_units"], item["window_from"], item["window_through"])
+                for item in controls] == [
+            (6982, "2026-11-05", "2026-11-05"),
+            (7082, "2026-11-05", "2026-11-06"),
+        ]
+        case = connection.execute(
+            "SELECT current_revision, supply_total_mode "
+            "FROM fifo_cost_transition_cases WHERE case_id=?", (_CASE_ID,),
+        ).fetchone()
+        assert case["current_revision"] == 1
+        assert case["supply_total_mode"] == "LEGACY_OWNER_TOTAL"
+        assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "UPDATE fifo_cost_batch_total_controls SET total_units=1 "
+                "WHERE control_id='control-batch-1'"
+            )
     finally:
         connection.close()
 

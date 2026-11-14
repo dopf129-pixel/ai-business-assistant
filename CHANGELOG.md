@@ -1,3 +1,9 @@
+# 2026-11-14 — FIFO dated owner quantity controls (PR A, FB07)
+
+- Added immutable typed controls for owner-reported quantities, each bound to an exact inclusive date window and a supported quantity kind (found, shipped, accepted, or planned units). Scoped SQLite append is idempotent, revision-checked, capped at the existing 100-row read boundary, and protected by immutable-table guards.
+- Dated controls remain separate from the legacy nullable total and from supply observations. Appending a control does not revise the transition case, switch its mode, create a shipment, or write FIFO events/rates/layers/COGS; it cannot become a lifetime cap on later auto-discovered supplies. Legacy `LEGACY_OWNER_TOTAL` behavior remains the default.
+- Contract/store plus FB05–FB06/legacy transition profile: **65 passed**; changed modules compile; diff and tracked data checks pass. Manifest comparison and owner UI remain in their scheduled later stages.
+
 # 2026-11-14 — FIFO automatic supply membership classification (PR A, FB06)
 
 - Added a deterministic, side-effect-free classifier for exact SKU supply observations against append-only batch-rule intervals. Proven dispatch dates select `[start, next_start)`; the first boundary remains explicit when policy requires it, and same-day, malformed, timezone-changing, or contradictory histories fail closed.

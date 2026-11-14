@@ -1,4 +1,4 @@
-# 2026-11-14 — FIFO automatic batch rule verification through FB06
+# 2026-11-14 — FIFO automatic batch rule verification through FB07
 
 - Specification: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md, matrix B01–B45.
 - Planned coverage: nullable totals and wizard resume; scoped rules/v17 migration; supply states/pagination/SKU composition; cumulative acceptance/dedup; budgets/checkpoints; grouped confirmation; unchanged cutoff/R1 gates; exact apply/retry; old costs/frozen plans.
@@ -7,6 +7,7 @@
 - `tests/fixtures/fifo_cost_batch_source/` contains only synthetic normalized adapter shapes; these are not raw Ozon examples.
 - `tests/test_fifo_cost_batch_rule_service.py` covers no-write preview, confirmed-zero prerequisites, unknown old stock, first-boundary/date ambiguity, exact owner/store/product/offer/SKU binding, changed-case CAS, atomic rollback, successor interval closure, same-payload retry after service restart, and same-key/different-payload conflict. It proves the confirmation path does not create FIFO streams/events/layers.
 - `tests/test_fifo_cost_batch_rule_classifier.py` covers initial and successor intervals, exact first-day decisions, unknown dispatch dates, scope/date contradictions, same-day/timezone chain conflicts, cancellation after proven dispatch, and append-only decision revisions. B42 regressions verify status/quantity refresh preserves membership when the stable binding is unchanged, while a changed dispatch binding does not revive a superseded decision. FB05–FB06 rule/service/store/contracts profile: **39 passed**; modified modules compile.
+- `tests/test_fifo_cost_batch_rule_contracts.py` validates typed dated owner controls, exact kind/status, inclusive-window order, integer-only quantities, and proof/confirmation digests. `tests/test_fifo_cost_batch_supply_store.py::test_batch_store_keeps_owner_total_controls_scoped_dated_and_append_only` covers scoped append/read, idempotent retry, conflicting reuse, multiple dated snapshots, legacy case/mode preservation, and immutable rows. Combined FB05–FB07 and legacy transition profile: **65 passed**; modified contracts/store compile; `git diff --check` and tracked `data/` comparison pass.
 - Linked Windows/Python 3.12 profile across batch rule contract/service/store, FIFO transition contract/store/service/apply, and v13/v16 migration modules: **91 passed**. `compileall`, `git diff --check`, and tracked `data/` comparison passed. All DB fixtures are temporary; no owner data, Ozon/Telegram requests, or bot startup was used.
 - Remaining B01–B45 cases are planned and linked to the per-stage mapping in `LUNA_FIFO_AUTO_BATCH_RULE_PROGRESS_2026-11-13.md`.
 

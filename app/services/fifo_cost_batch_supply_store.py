@@ -17,9 +17,12 @@ import sqlite3
 
 from services.fifo_cost_batch_rule_contracts import (
     MAX_BATCH_OBSERVATIONS,
+    MAX_BATCH_TOTAL_CONTROLS,
     MAX_RULE_REVISIONS,
     BatchMembershipDecision,
     BatchRuleRevision,
+    BatchTotalControl,
+    BatchTotalControlStatus,
     SupplyScanCoverage,
     SupplySkuObservation,
 )
@@ -270,6 +273,97 @@ class FifoCostBatchSupplyStore:
         return {
             "error": False, "code": "FIFO_BATCH_DECISION_STORED",
             "decision_id": decision.decision_id, "replayed": False,
+        }
+
+    @classmethod
+    def append_total_control(
+        cls, connection, control: BatchTotalControl, *,
+        tenant_fingerprint: str, recorded_at: str,
+    ) -> dict:
+        """Append one scoped owner control without turning it into a lasting cap."""
+        cls._require_transaction(connection)
+        if not isinstance(control, BatchTotalControl):
+            raise TypeError("FIFO_BATCH_TOTAL_CONTROL_INVALID")
+        cls._validate_scope_inputs(control.scope, control.case_id, tenant_fingerprint)
+        cls._validate_opaque(control.idempotency_key)
+        cls._validate_time_text(recorded_at)
+        owner_fingerprint = cls._digest(control.scope.owner_id)
+        case = cls._case_row(
+            connection, control.scope, control.case_id,
+            owner_fingerprint, tenant_fingerprint,
+        )
+        if case is None:
+            return cls._error("FIFO_BATCH_SCOPE_MISMATCH")
+
+        payload = cls._payload(control)
+        payload_fingerprint = cls._digest(payload)
+        replay = cls._idempotent_result(
+            connection, "fifo_cost_batch_total_controls", control.case_id,
+            control.idempotency_key, payload_fingerprint, "control_id",
+        )
+        if replay is not None:
+            return replay
+
+        count = connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_batch_total_controls WHERE case_id=?",
+            (control.case_id,),
+        ).fetchone()[0]
+        if count >= MAX_BATCH_TOTAL_CONTROLS:
+            return cls._error("FIFO_BATCH_TOTAL_CONTROL_LIMIT_REACHED")
+        previous = connection.execute(
+            """SELECT control_revision, total_units, window_from, window_through,
+                      control_kind, control_status, source_proof_fingerprint
+               FROM fifo_cost_batch_total_controls
+               WHERE case_id=? AND control_id=? ORDER BY control_revision DESC LIMIT 1""",
+            (control.case_id, control.control_id),
+        ).fetchone()
+        expected_revision = 1 if previous is None else previous["control_revision"] + 1
+        if control.control_revision != expected_revision:
+            return cls._error("FIFO_BATCH_CONTROL_REVISION_CONFLICT")
+        if previous is None:
+            if control.control_status is not BatchTotalControlStatus.OWNER_CONFIRMED:
+                return cls._error("FIFO_BATCH_CONTROL_STATUS_CONFLICT")
+        elif (
+            previous["control_revision"] != 1
+            or previous["control_status"] != BatchTotalControlStatus.OWNER_CONFIRMED.value
+            or control.control_status not in {
+                BatchTotalControlStatus.SUPERSEDED,
+                BatchTotalControlStatus.REVOKED,
+            }
+            or previous["total_units"] != control.total_units
+            or previous["window_from"] != control.window_from
+            or previous["window_through"] != control.window_through
+            or previous["control_kind"] != control.control_kind.value
+            or previous["source_proof_fingerprint"] != control.source_proof_fingerprint
+        ):
+            return cls._error("FIFO_BATCH_CONTROL_STATUS_CONFLICT")
+
+        scope_fingerprint = cls._scope_fingerprint(control.scope)
+        connection.execute(
+            """INSERT INTO fifo_cost_batch_total_controls (
+                control_id, control_revision, case_id, owner_fingerprint,
+                tenant_fingerprint, store_id, sku, product_id, offer_id,
+                scope_fingerprint, total_units, window_from, window_through,
+                control_kind, control_status, source_proof_fingerprint,
+                owner_confirmation_fingerprint, idempotency_key,
+                payload_fingerprint, confirmed_at, recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                control.control_id, control.control_revision, control.case_id,
+                owner_fingerprint, tenant_fingerprint, control.scope.store_id,
+                control.scope.sku, control.scope.product_id, control.scope.offer_id,
+                scope_fingerprint, control.total_units, control.window_from,
+                control.window_through, control.control_kind.value,
+                control.control_status.value, control.source_proof_fingerprint,
+                control.owner_confirmation_fingerprint, control.idempotency_key,
+                payload_fingerprint, control.confirmed_at, recorded_at,
+            ),
+        )
+        return {
+            "error": False, "code": "FIFO_BATCH_TOTAL_CONTROL_STORED",
+            "control_id": control.control_id,
+            "control_revision": control.control_revision,
+            "replayed": False,
         }
 
     @classmethod

@@ -38,6 +38,7 @@ MAX_SCAN_SUPPLIES = 5_000
 MAX_SCAN_SKU_ROWS = 10_000
 MAX_RULE_REVISIONS = 100
 MAX_BATCH_TOTAL = MAX_SCAN_SUPPLIES * 1_000_000
+MAX_BATCH_TOTAL_CONTROLS = 100
 MAX_DECISION_ROWS = 50
 _SAFE_ENUM = re.compile(r"^[A-Z0-9_]{1,64}$")
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9_-]{8,96}$")
@@ -54,6 +55,19 @@ class BatchRuleEventKind(str, Enum):
     REPLACE = "REPLACE"
     CLOSE = "CLOSE"
     CANCEL = "CANCEL"
+
+
+class BatchTotalControlKind(str, Enum):
+    DECLARED_IN_FOUND_SUPPLIES = "DECLARED_IN_FOUND_SUPPLIES"
+    DECLARED_IN_SHIPPED_SUPPLIES = "DECLARED_IN_SHIPPED_SUPPLIES"
+    ACCEPTED_UNITS = "ACCEPTED_UNITS"
+    PLANNED_UNITS = "PLANNED_UNITS"
+
+
+class BatchTotalControlStatus(str, Enum):
+    OWNER_CONFIRMED = "OWNER_CONFIRMED"
+    SUPERSEDED = "SUPERSEDED"
+    REVOKED = "REVOKED"
 
 
 class DispatchTimeStatus(str, Enum):
@@ -225,6 +239,53 @@ class BatchRuleInput:
         if self.start_day_policy is BatchStartDayPolicy.EXPLICIT_SUPPLY_SET and not boundary:
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         object.__setattr__(self, "boundary_supply_digests", boundary)
+
+
+@dataclass(frozen=True, slots=True)
+class BatchTotalControl:
+    """Owner-entered quantity control for one exact, dated measurement window."""
+
+    control_id: str
+    control_revision: int
+    scope: ScopeIdentity
+    case_id: str
+    total_units: int
+    window_from: str
+    window_through: str
+    control_kind: BatchTotalControlKind
+    control_status: BatchTotalControlStatus
+    source_proof_fingerprint: str
+    owner_confirmation_fingerprint: str
+    idempotency_key: str
+    confirmed_at: str
+
+    def __post_init__(self) -> None:
+        _opaque(self.control_id)
+        if type(self.control_revision) is not int or self.control_revision < 1:
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if not isinstance(self.scope, ScopeIdentity):
+            _invalid(TransitionReasonCode.SCOPE_INVALID)
+        _opaque(self.case_id)
+        object.__setattr__(self, "total_units", _aggregate_quantity(self.total_units))
+        start = normalize_date_only(self.window_from)
+        end = normalize_date_only(self.window_through)
+        if start > end:
+            _invalid(TransitionReasonCode.DATE_INVALID)
+        object.__setattr__(self, "window_from", start)
+        object.__setattr__(self, "window_through", end)
+        if not isinstance(self.control_kind, BatchTotalControlKind):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        if not isinstance(self.control_status, BatchTotalControlStatus):
+            _invalid(TransitionReasonCode.CONTRACT_INVALID)
+        object.__setattr__(
+            self, "source_proof_fingerprint", normalize_digest(self.source_proof_fingerprint),
+        )
+        object.__setattr__(
+            self, "owner_confirmation_fingerprint",
+            normalize_digest(self.owner_confirmation_fingerprint),
+        )
+        _opaque(self.idempotency_key)
+        object.__setattr__(self, "confirmed_at", normalize_utc_timestamp(self.confirmed_at))
 
 
 @dataclass(frozen=True, slots=True)
