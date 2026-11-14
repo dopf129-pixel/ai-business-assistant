@@ -407,6 +407,17 @@ def test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_repla
         assert not source.calls  # Opening the card performs no Ozon request.
         assert "не обращается к ozon" in card["message"].lower()
 
+        edit_rule = next(
+            button["callback"] for button in card["keyboard"]["buttons"]
+            if button["text"] == "Изменить правило"
+        )
+        guidance = runtime.handle_callback(101, edit_rule)
+        assert "себестоимость fifo" in guidance["message"].lower()
+        assert "новая себестоимость" in guidance["message"].lower()
+        assert "предпросмотра" in guidance["message"].lower()
+        assert "исправления/пересчёта" in guidance["message"].lower()
+        assert not source.calls
+
         refresh = next(
             button["callback"] for button in card["keyboard"]["buttons"]
             if button["text"] == "Обновить поставки"

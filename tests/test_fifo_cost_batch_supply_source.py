@@ -314,6 +314,99 @@ def test_durable_bundle_scan_stores_only_planned_quantity_and_unknown_dispatch_d
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_b23_later_refresh_adds_supply_without_new_cost_or_manual_total(
+    tmp_path, monkeypatch,
+):
+    from services.fifo_cost_transition_service import FifoCostTransitionService
+
+    order_ids = ("3000000000001", "3000000000002")
+    supply_ids = ("2000070135564", "2000070135565")
+    bundle_ids = ("bundle-first", "bundle-later")
+    details = {
+        order_id: {
+            "order_id": order_id,
+            "state": "COMPLETED",
+            "supplies": [{
+                "supply_id": supply_id,
+                "bundle_id": bundle_id,
+                "state": "COMPLETED",
+                "is_crossdock": True,
+            }],
+        }
+        for order_id, supply_id, bundle_id in zip(order_ids, supply_ids, bundle_ids)
+    }
+    bundle_pages = {
+        bundle_id: {None: {
+            "items": [{
+                "sku": int(SCOPE.sku), "quantity": quantity,
+                "product_id": int(SCOPE.product_id.removeprefix("product-")),
+                "offer_id": SCOPE.offer_id,
+            }],
+            "total_count": 1, "has_next": False, "last_id": "",
+        }}
+        for bundle_id, quantity in zip(bundle_ids, (6_982, 100))
+    }
+    repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[
+            {"order_ids": [order_ids[0]], "last_id": None},
+            {"order_ids": [order_ids[1]], "last_id": None},
+        ],
+        details=details, bundle_pages=bundle_pages,
+    )
+    try:
+        first = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        later = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert first.status == later.status == "COMPLETE"
+        assert first.scan_id != later.scan_id
+        assert first.candidates_observed == later.candidates_observed == 1
+
+        connection = repository.get_connection()
+        try:
+            rows = connection.execute(
+                "SELECT planned_declared_quantity, shipped_composition_quantity, "
+                "dispatch_local_date FROM fifo_cost_batch_supply_observations "
+                "ORDER BY planned_declared_quantity",
+            ).fetchall()
+            assert [tuple(row) for row in rows] == [
+                (100, None, None), (6_982, None, None),
+            ]
+            rule_rows = FifoCostBatchSupplyStore.read_rule_revisions(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=repository._tenant_scope(SCOPE.store_id)[
+                    "tenant_fingerprint"
+                ],
+            )
+            assert [row["new_unit_cost_rub"] for row in rule_rows] == ["14.65"]
+            for table in ("fifo_cost_events", "fifo_cost_layers", "fifo_cost_allocations"):
+                assert connection.execute(
+                    f"SELECT COUNT(*) FROM {table}",
+                ).fetchone()[0] == 0
+        finally:
+            connection.close()
+        case_result = repository.read_transition_case(
+            case_id="case_batch_src_01", **{
+                "store_id": SCOPE.store_id,
+                "product_id": SCOPE.product_id,
+                "offer_id": SCOPE.offer_id,
+                "sku": SCOPE.sku,
+            },
+        )
+        assert case_result["error"] is False
+        case = FifoCostTransitionService._case_from_payload(case_result["case"])
+        assert case.supply_total_mode is SupplyTotalMode.AUTO_FROM_SUPPLIES
+        assert case.declared_shipped_units is None
+        assert str(case.new_unit_cost_rub) == "14.65"
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identity_leaks(
     tmp_path, monkeypatch,
 ):
