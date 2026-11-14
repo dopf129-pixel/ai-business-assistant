@@ -5819,4 +5819,10 @@ Completed:
 # 2026-11-14 — FIFO automatic batch evidence deduplication (FB16)
 
 - Added a pure reconciliation layer that canonicalizes exact scoped `SUPPLY+SKU`, links matching owner and API evidence without merging provenance, keeps one ORDER control above its child supplies, and fails closed on quantity/date/fingerprint conflicts. Cumulative acceptance snapshots preserve the last known maximum and require review for novel decreases.
-- FB16 linked synthetic profile: **142 passed**; compilation, whitespace validation, and tracked `data/` equality passed. The result is not yet integrated into scan publishing or manifest readiness; no production FIFO/COGS write and no live API/bot call occurred. Continue at FB17.
+- FB16 linked synthetic profile: **142 passed**; compilation, whitespace validation, and tracked `data/` equality passed. The result is not yet integrated into scan publishing or manifest readiness; no production FIFO/COGS write and no live API/bot call occurred. FB17 now adds the pure manifest builder; continue at FB18.
+
+# 2026-11-14 — FIFO automatic batch manifest totals (FB17)
+
+- Added a pure builder from the FB16 canonical supply/SKU records, current rule, typed membership results, scan coverage, and dated owner controls. It computes found, dispatched, accepted, pending and planned quantities separately; a partial accepted subtotal is not promoted to a complete accepted total.
+- Exact controls compare only the same quantity kind over the exact requested date window. Older or wider-window controls remain separate `WINDOW_NOT_COMPARABLE` assessments. The legacy case total is labelled `UNBOUNDED_LEGACY_CONTROL`, without an inferred date or permanent cap. Empty source is UNKNOWN, not a confirmed zero; receipt timing stays independent.
+- FB17 linked synthetic profile: **154 passed**; compilation, whitespace validation, and tracked `data/` equality passed. Three malformed-input regressions confirm bad record containers, invalid supply digests, and malformed owner-order child links fail closed without throwing. This pure builder is not connected to production source publishing/readiness and does not write FIFO or COGS.

@@ -3071,3 +3071,9 @@ Summary Report теперь включает:
 - Added a pure canonical `SUPPLY+SKU` reconciliation boundary for API observations and owner declarations. It preserves the two evidence sources and revision references, chooses one current supply observation, and reports quantity/date conflicts for review.
 - An owner `ORDER` declaration remains a separate control over its child supplies; it is never counted as another supply or copied into child quantities. Cumulative acceptance snapshots retain the known maximum and flag a novel decrease for review.
 - FB16 does not publish scan coverage, build a ready manifest, persist source rows, or make FIFO/accounting writes. Local linked source/acceptance/dedup profile: **142 passed**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
+# 2026-11-14 — FIFO automatic batch manifest totals (PR B, FB17)
+
+- Added a pure manifest builder for exact-case/rule scan evidence. It keeps found composition, dispatched composition, accepted quantities, pending quantities, and declared-but-not-shipped planned quantities separate; known accepted subtotal and missing-supply count remain visible for partial evidence.
+- Dated owner controls are compared only when the kind and exact requested window match. Historical controls remain separately labelled and do not cap later supplies; an old case total is reported as `UNBOUNDED_LEGACY_CONTROL` without a fabricated date. Empty/partial sources stay UNKNOWN/PARTIAL, and no receipt time or FIFO movement is inferred.
+- FB17 linked synthetic profile: **154 passed** across FB11–FB17 source/normalizer/acceptance/checkpoint/dedup/manifest and schema tests. Three adversarial regressions verify malformed records and child links fail closed. Compilation, `git diff --check`, and tracked `data/` equality passed. The manifest builder is not yet wired to production source publishing or readiness.
