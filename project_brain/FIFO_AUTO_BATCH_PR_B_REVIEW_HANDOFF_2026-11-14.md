@@ -3,7 +3,8 @@
 Date: 2026-11-14  
 Branch: `codex/fifo-auto-batch-sources-20261113`  
 Target base: `codex/fifo-auto-batch-foundation-20261113` at PR A checkpoint `305a892d1c3ef730f0796ff9cb8059c8582c0713`  
-PR: pending publication at FB19. Record the GitHub URL and exact head SHA after push.  
+PR: [#735 — Add FIFO automatic supply source and manifest](https://github.com/dopf129-pixel/ai-business-assistant/pull/735) (draft, stacked on PR A).  
+Published implementation/docs checkpoint: `fdd62a59ff9da483bd1b17e164626fd0bdd3287b`. Verify run [43616178291](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43616178291) passed for that exact SHA (Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report). This handoff is now being finalized with documentation-only changes; the resulting new PR head requires a fresh exact-SHA Verify run before the package is final.  
 Classification: architecture review required (new source, normalization, checkpoint, deduplication, and manifest modules; schema v18; cross-service contracts).
 
 ## Scope delivered by PR B
