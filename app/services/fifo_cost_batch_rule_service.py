@@ -185,6 +185,61 @@ class FifoCostBatchRuleService:
             "preview": preview,
         }
 
+    def read_collection_basis(
+        self, scope: ScopeIdentity, case_id: str,
+        expected_case_revision: int, rule_revision: int,
+    ) -> dict:
+        """Validate the exact current automatic case/rule before source I/O."""
+        if (
+            not isinstance(scope, ScopeIdentity)
+            or not isinstance(case_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{8,96}", case_id)
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+            or type(rule_revision) is not int
+            or not 1 <= rule_revision <= MAX_RULE_REVISIONS
+        ):
+            return self._error("FIFO_BATCH_COLLECTION_BASIS_INVALID")
+        case_result = self._read_case(scope, case_id)
+        if case_result.get("error"):
+            return case_result
+        if case_result.get("case_revision") != expected_case_revision:
+            return self._error("FIFO_BATCH_CASE_REVISION_CONFLICT")
+        case = case_result["case"]
+        if case.supply_total_mode is not SupplyTotalMode.AUTO_FROM_SUPPLIES:
+            return self._error("FIFO_BATCH_SUPPLY_MODE_MISMATCH")
+        if case.state not in {
+            TransitionState.DRAFT,
+            TransitionState.AWAITING_EVIDENCE,
+            TransitionState.READY_TO_CONFIRM,
+        }:
+            return self._error("FIFO_BATCH_CASE_NOT_READY")
+
+        tenant = self.repository._tenant_scope(scope.store_id)
+        if tenant.get("error"):
+            return tenant
+        rows_result = self._read_rules(scope, case_id, tenant["tenant_fingerprint"])
+        if rows_result.get("error"):
+            return rows_result
+        active = self._active_rule(rows_result["items"])
+        if active.get("error"):
+            return active
+        rule = active.get("item")
+        if rule is None:
+            return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
+        if rule.get("rule_revision") != rule_revision:
+            return self._error("FIFO_BATCH_RULE_REVISION_CONFLICT")
+        return {
+            "error": False,
+            "code": "FIFO_BATCH_COLLECTION_BASIS_VALID",
+            "case_revision": expected_case_revision,
+            "rule_id": rule["rule_id"],
+            "rule_revision": rule_revision,
+            "rule_fingerprint": rule["rule_fingerprint"],
+            "start_local_date": rule["start_local_date"],
+            "store_timezone": rule["store_timezone"],
+        }
+
     def confirm_rule(
         self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,
         preview_id: str, preview_fingerprint: str, idempotency_key: str,

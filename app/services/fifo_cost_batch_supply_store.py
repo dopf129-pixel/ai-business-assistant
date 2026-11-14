@@ -32,6 +32,9 @@ from services.fifo_cost_transition_contracts import ScopeIdentity
 _HEX = re.compile(r"^[0-9a-f]{64}$")
 _OPAQUE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 _SCAN_STATUSES = frozenset({"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRED"})
+_RESUMABLE_SCAN_STATUSES = frozenset({"STAGING", "PARTIAL"})
+_TERMINAL_SCAN_STATUSES = frozenset({"PUBLISHED", "FAILED", "EXPIRED"})
+_MAX_SCANS_PER_CASE = 100
 
 
 class FifoCostBatchSupplyStore:
@@ -408,12 +411,31 @@ class FifoCostBatchSupplyStore:
         if len(rule) != 1:
             return cls._error("FIFO_BATCH_RULE_NOT_FOUND")
         existing = connection.execute(
-            "SELECT revision FROM fifo_cost_batch_supply_scans WHERE case_id=? AND scan_id=?",
+            "SELECT revision, status FROM fifo_cost_batch_supply_scans "
+            "WHERE case_id=? AND scan_id=?",
             (coverage.case_id, coverage.scan_id),
         ).fetchone()
         current_revision = 0 if existing is None else existing["revision"]
         if current_revision != expected_revision:
             return cls._error("FIFO_BATCH_SCAN_REVISION_CONFLICT")
+        if status in _RESUMABLE_SCAN_STATUSES and token is None:
+            return cls._error("FIFO_BATCH_SCAN_TOKEN_INVALID")
+        if status in _TERMINAL_SCAN_STATUSES and token is not None:
+            return cls._error("FIFO_BATCH_SCAN_TOKEN_INVALID")
+        if existing is not None:
+            if existing["status"] in _TERMINAL_SCAN_STATUSES:
+                return cls._error("FIFO_BATCH_SCAN_TERMINAL")
+            allowed_next = {
+                "STAGING": {"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRED"},
+                "PARTIAL": {"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRED"},
+            }
+            if status not in allowed_next.get(existing["status"], set()):
+                return cls._error("FIFO_BATCH_SCAN_STATUS_CONFLICT")
+        elif connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_batch_supply_scans WHERE case_id=?",
+            (coverage.case_id,),
+        ).fetchone()[0] >= _MAX_SCANS_PER_CASE:
+            return cls._error("FIFO_BATCH_SCAN_LIMIT_REACHED")
         rule_id = connection.execute(
             """SELECT rule_id FROM fifo_cost_batch_rule_revisions
                WHERE case_id=? AND rule_revision=? LIMIT 1""",
@@ -479,6 +501,175 @@ class FifoCostBatchSupplyStore:
             "error": False, "code": "FIFO_BATCH_SCAN_STORED",
             "scan_id": coverage.scan_id, "revision": coverage.revision,
         }
+
+    @classmethod
+    def append_scan_observation(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, scan_id: str, record_key: str,
+        source_fingerprint: str, linked_at: str, allow_finalizing: bool = False,
+    ) -> dict:
+        """Link immutable source evidence to one staged scan, idempotently."""
+        cls._require_transaction(connection)
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        cls._validate_opaque(scan_id)
+        cls._validate_time_text(linked_at)
+        record_key = cls._require_digest(record_key, "FIFO_BATCH_RECORD_KEY_INVALID")
+        source_fingerprint = cls._require_digest(
+            source_fingerprint, "FIFO_BATCH_SOURCE_FINGERPRINT_INVALID",
+        )
+        case = cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        )
+        if case is None:
+            return cls._error("FIFO_BATCH_SCOPE_MISMATCH")
+        scan = connection.execute(
+            """SELECT status FROM fifo_cost_batch_supply_scans
+               WHERE case_id=? AND scan_id=? AND owner_fingerprint=?
+                 AND tenant_fingerprint=? AND store_id=? AND sku=?
+                 AND scope_fingerprint=?""",
+            (
+                case_id, scan_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope),
+            ),
+        ).fetchone()
+        if scan is None:
+            return cls._error("FIFO_BATCH_SCAN_NOT_FOUND")
+        if (
+            scan["status"] not in _RESUMABLE_SCAN_STATUSES
+            and not (allow_finalizing is True and scan["status"] == "PUBLISHED")
+        ):
+            return cls._error("FIFO_BATCH_SCAN_NOT_STAGING")
+        observation = connection.execute(
+            """SELECT observation_revision FROM fifo_cost_batch_supply_observations
+               WHERE case_id=? AND record_key=? AND source_fingerprint=?
+                 AND owner_fingerprint=? AND tenant_fingerprint=?
+                 AND store_id=? AND sku=? AND scope_fingerprint=?""",
+            (
+                case_id, record_key, source_fingerprint, cls._digest(scope.owner_id),
+                tenant_fingerprint, scope.store_id, scope.sku,
+                cls._scope_fingerprint(scope),
+            ),
+        ).fetchone()
+        if observation is None:
+            return cls._error("FIFO_BATCH_OBSERVATION_NOT_FOUND")
+        existing = connection.execute(
+            """SELECT observation_revision FROM fifo_cost_batch_scan_observations
+               WHERE case_id=? AND scan_id=? AND record_key=?
+                 AND source_fingerprint=?""",
+            (case_id, scan_id, record_key, source_fingerprint),
+        ).fetchone()
+        if existing is not None:
+            if existing["observation_revision"] != observation["observation_revision"]:
+                return cls._error("FIFO_BATCH_SCAN_OBSERVATION_CONFLICT")
+            return {
+                "error": False, "code": "FIFO_BATCH_SCAN_OBSERVATION_STORED",
+                "observation_revision": existing["observation_revision"],
+                "replayed": True,
+            }
+        if connection.execute(
+            """SELECT COUNT(*) FROM fifo_cost_batch_scan_observations
+               WHERE case_id=? AND scan_id=?""",
+            (case_id, scan_id),
+        ).fetchone()[0] >= 10_000:
+            return cls._error("FIFO_BATCH_SCAN_OBSERVATION_LIMIT_REACHED")
+        connection.execute(
+            """INSERT INTO fifo_cost_batch_scan_observations (
+                   case_id, scan_id, record_key, source_fingerprint,
+                   observation_revision, linked_at
+               ) VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                case_id, scan_id, record_key, source_fingerprint,
+                observation["observation_revision"], linked_at,
+            ),
+        )
+        return {
+            "error": False, "code": "FIFO_BATCH_SCAN_OBSERVATION_STORED",
+            "observation_revision": observation["observation_revision"],
+            "replayed": False,
+        }
+
+    @classmethod
+    def read_observation_revision(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, record_key: str, source_fingerprint: str,
+    ) -> int | None:
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        record_key = cls._require_digest(record_key, "FIFO_BATCH_RECORD_KEY_INVALID")
+        source_fingerprint = cls._require_digest(
+            source_fingerprint, "FIFO_BATCH_SOURCE_FINGERPRINT_INVALID",
+        )
+        if cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        ) is None:
+            return None
+        row = connection.execute(
+            """SELECT observation_revision
+               FROM fifo_cost_batch_supply_observations
+               WHERE case_id=? AND record_key=? AND source_fingerprint=?
+                 AND owner_fingerprint=? AND tenant_fingerprint=?
+                 AND store_id=? AND sku=? AND scope_fingerprint=?""",
+            (
+                case_id, record_key, source_fingerprint, cls._digest(scope.owner_id),
+                tenant_fingerprint, scope.store_id, scope.sku,
+                cls._scope_fingerprint(scope),
+            ),
+        ).fetchone()
+        return None if row is None else row["observation_revision"]
+
+    @classmethod
+    def next_observation_revision(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, record_key: str,
+    ) -> int | None:
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        record_key = cls._require_digest(record_key, "FIFO_BATCH_RECORD_KEY_INVALID")
+        if cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        ) is None:
+            return None
+        row = connection.execute(
+            """SELECT COALESCE(MAX(observation_revision), 0) + 1 AS next_revision
+               FROM fifo_cost_batch_supply_observations
+               WHERE case_id=? AND record_key=? AND owner_fingerprint=?
+                 AND tenant_fingerprint=? AND store_id=? AND sku=?
+                 AND scope_fingerprint=?""",
+            (
+                case_id, record_key, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope),
+            ),
+        ).fetchone()
+        return None if row is None else row["next_revision"]
+
+    @classmethod
+    def read_scan_observation_refs(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, scan_id: str, limit: int = 10_000,
+    ) -> tuple[dict, ...]:
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        cls._validate_opaque(scan_id)
+        if type(limit) is not int or not 1 <= limit <= 10_000:
+            raise ValueError("FIFO_BATCH_READ_LIMIT_INVALID")
+        if cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        ) is None:
+            return ()
+        rows = connection.execute(
+            """SELECT link.record_key, link.source_fingerprint,
+                      link.observation_revision, link.linked_at
+               FROM fifo_cost_batch_scan_observations AS link
+               JOIN fifo_cost_batch_supply_scans AS scan
+                 ON scan.case_id=link.case_id AND scan.scan_id=link.scan_id
+               WHERE link.case_id=? AND link.scan_id=?
+                 AND scan.owner_fingerprint=? AND scan.tenant_fingerprint=?
+                 AND scan.store_id=? AND scan.sku=? AND scan.scope_fingerprint=?
+               ORDER BY link.record_key, link.observation_revision,
+                        link.source_fingerprint LIMIT ?""",
+            (
+                case_id, scan_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope), limit,
+            ),
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
 
     @classmethod
     def read_observation_metadata(
@@ -581,8 +772,10 @@ class FifoCostBatchSupplyStore:
         ) is None:
             return None
         row = connection.execute(
-            """SELECT scan_id, revision, rule_id, rule_revision, requested_from,
+            """SELECT scan_id, revision, rule_id, rule_revision, rule_fingerprint,
+                      requested_from,
                       requested_through, captured_at, source_as_of,
+                      supported_state_profile_json, source_contract_version,
                       observation_set_fingerprint, status, expires_at, updated_at,
                       encrypted_resumable_token
                FROM fifo_cost_batch_supply_scans
@@ -701,6 +894,12 @@ class FifoCostBatchSupplyStore:
     @staticmethod
     def _digest(value):
         return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _require_digest(value, error_code):
+        if not isinstance(value, str) or _HEX.fullmatch(value) is None:
+            raise ValueError(error_code)
+        return value
 
     @classmethod
     def _payload(cls, value):
