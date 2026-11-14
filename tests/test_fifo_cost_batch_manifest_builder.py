@@ -364,6 +364,31 @@ def test_manifest_builder_rejects_malformed_owner_order_child_links():
     assert result.manifest is None
 
 
+def test_manifest_builder_fails_closed_on_aggregate_quantity_overflow(monkeypatch):
+    import services.fifo_cost_batch_manifest_builder as manifest_module
+
+    monkeypatch.setattr(manifest_module, "MAX_BATCH_TOTAL", 100)
+    result = _build((
+        _observation("overflow-one", 60, 0, explicit_zero=("accepted_quantity",)),
+        _observation("overflow-two", 60, 0, date="2026-11-06", explicit_zero=("accepted_quantity",)),
+    ))
+    assert result.status == "CONFLICT"
+    assert result.code == "FIFO_BATCH_MANIFEST_AGGREGATE_OVERFLOW"
+    assert result.manifest is None
+
+
+def test_manifest_builder_marks_mixed_source_profiles_non_current():
+    first = _observation("profile-one", 100, 0, explicit_zero=("accepted_quantity",))
+    second = replace(
+        _observation("profile-two", 200, 0, date="2026-11-06", explicit_zero=("accepted_quantity",)),
+        source_profile_version="synthetic-contract-v2",
+    )
+    result = _build((first, second))
+    assert result.status == "REVIEW_REQUIRED"
+    assert result.manifest.freshness is ManifestFreshness.UNKNOWN
+    assert "FIFO_BATCH_SOURCE_PROFILE_MISMATCH" in result.manifest.issues
+
+
 def test_owner_membership_binding_survives_normal_status_refresh_without_new_decision():
     rule = _rule()
     first = _observation("status-change", 100, None)

@@ -7033,3 +7033,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_fifo_cost_batch_manifest_builder.py` covers B12's 500/300/200 declared and 500/180/unknown accepted quantities; B23's 6,982 dated control plus 100 later units without a permanent cap; B24 exact-window mismatch blocking; B25 unbounded legacy labeling; B09 parent ORDER not added above child supplies; B41 empty/partial is UNKNOWN rather than zero; and B42 timestamp-only fingerprint stability plus status refresh membership reuse.
 - Additional cases verify exact control-kind/window match, independent R1 physical receipt timing, and fail-closed handling for malformed record containers, invalid supply digests, and malformed owner-order links. Linked synthetic Windows/Python 3.12 profile across `test_fifo_cost_batch_*.py`, acceptance/receiving reconciliation, and v13/v16 schema migrations: **154 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
+# 2026-11-14 — FIFO automatic batch negative-source verification (FB18)
+
+- Source regressions cover denied list access without raw-error leakage or writes to staged source/FIFO tables; empty act evidence (`None`) vs documented zero; incomplete bundle and unsupported raw state; bool/invalid quantities; aggregate overflow and mixed source profile; repeated/duplicate pages, repeated cursors, overlapping mutable pages, and durable restart checkpoints.
+- Linked synthetic Windows/Python 3.12 profile across `test_fifo_cost_batch_*.py`, acceptance/receiving reconciliation, and v13/v16 schema migrations: **156 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram request or FIFO/COGS apply occurred; raw schemas remain unverified.

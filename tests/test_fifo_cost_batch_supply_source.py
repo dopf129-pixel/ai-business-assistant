@@ -544,7 +544,7 @@ def test_overlapping_pages_deduplicate_orders_and_remain_partial(
 def test_unavailable_list_does_not_leak_client_error_or_raw_payload(
     tmp_path, monkeypatch,
 ):
-    _repo, _rules, source, ozon, tenant_token, confirmed = _setup(
+    repo, _rules, source, ozon, tenant_token, confirmed = _setup(
         tmp_path, monkeypatch, ozon_error=True,
     )
     try:
@@ -557,6 +557,19 @@ def test_unavailable_list_does_not_leak_client_error_or_raw_payload(
         assert result.actual_http_attempts == 1
         assert "SYNTHETIC_FAILURE" not in repr(result)
         assert len(ozon.calls) == 1
+        connection = repo.get_connection()
+        try:
+            for table in (
+                "fifo_cost_batch_supply_observations",
+                "fifo_cost_batch_supply_scans",
+                "fifo_cost_batch_scan_observations",
+                "fifo_cost_events",
+                "fifo_cost_layers",
+                "fifo_cost_allocations",
+            ):
+                assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        finally:
+            connection.close()
     finally:
         reset_current_tenant_user_id(tenant_token)
 

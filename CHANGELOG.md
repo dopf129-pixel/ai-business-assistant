@@ -3077,3 +3077,9 @@ Summary Report теперь включает:
 - Added a pure manifest builder for exact-case/rule scan evidence. It keeps found composition, dispatched composition, accepted quantities, pending quantities, and declared-but-not-shipped planned quantities separate; known accepted subtotal and missing-supply count remain visible for partial evidence.
 - Dated owner controls are compared only when the kind and exact requested window match. Historical controls remain separately labelled and do not cap later supplies; an old case total is reported as `UNBOUNDED_LEGACY_CONTROL` without a fabricated date. Empty/partial sources stay UNKNOWN/PARTIAL, and no receipt time or FIFO movement is inferred.
 - FB17 linked synthetic profile: **154 passed** across FB11–FB17 source/normalizer/acceptance/checkpoint/dedup/manifest and schema tests. Three adversarial regressions verify malformed records and child links fail closed. Compilation, `git diff --check`, and tracked `data/` equality passed. The manifest builder is not yet wired to production source publishing or readiness.
+
+# 2026-11-14 — FIFO automatic batch negative-source verification (PR B, FB18)
+
+- Extended the linked regressions for mixed source-profile evidence and aggregate overflow; malformed evidence returns a typed non-current/error result rather than a zero or a usable manifest.
+- Strengthened the denied-list-API test to verify no scan/observation staging rows and no FIFO event, layer, or allocation rows are written. Existing tests cover absent acts, partial bundle composition, bool quantity rejection, duplicate pages, repeated cursors, restart checkpoints, and unsupported raw states.
+- FB18 linked synthetic Windows/Python 3.12 profile: **156 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Raw Ozon status/pagination/bundle schemas remain unverified; no real API, Telegram, FIFO apply, or COGS write was performed.
