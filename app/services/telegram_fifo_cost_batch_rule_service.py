@@ -349,6 +349,12 @@ class TelegramFifoCostBatchRuleService:
             rule = {"error": True}
         if rule.get("error"):
             lines = ["Правило автоматической партии: не удалось подтвердить сохранённую редакцию."]
+        elif rule.get("inputs_current") is False:
+            lines = [
+                f"Правило партии · редакция {rule['rule_revision']} устарело после изменения "
+                "себестоимости или условий дела. Сохранённые поставки этой редакции не "
+                "используются до повторного подтверждения правила; откройте изменение правила."
+            ]
         else:
             policy = {
                 BatchStartDayPolicy.ALL_OWNER_CONFIRMED.value:

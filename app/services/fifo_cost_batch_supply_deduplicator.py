@@ -223,7 +223,12 @@ class FifoCostBatchSupplyDeduplicator:
                 group["conflict"] = True
             group["refs"].append((declaration.declaration_id, declaration.revision))
 
-        supply_refs = sorted(set(api_groups) | set(manual_supply))
+        # Historical-only API references remain visible as missing evidence.
+        # Dropping them here would turn a disappearing supply into an implicit
+        # zero and could incorrectly complete the latest manifest.
+        supply_refs = sorted(
+            set(api_groups) | set(manual_supply) | set(historical_acceptance)
+        )
         records = []
         for supply_ref in supply_refs:
             api = api_groups.get(supply_ref)
@@ -261,6 +266,18 @@ class FifoCostBatchSupplyDeduplicator:
                     )
                     if acceptance_conflict:
                         issues.append("FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW")
+            elif historical_acceptance.get(supply_ref):
+                observations_for_supply = tuple(sorted(
+                    historical_acceptance[supply_ref],
+                    key=lambda item: (item.captured_at, item.source_fingerprint),
+                ))
+                order_ref = observations_for_supply[-1].order_ref_digest
+                effective_accepted, acceptance_conflict = cls._reconcile_cumulative_acceptance(
+                    observations_for_supply,
+                )
+                issues.append("FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN")
+                if acceptance_conflict:
+                    issues.append("FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW")
             elif owner is not None:
                 effective_accepted = None
 

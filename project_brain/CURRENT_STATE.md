@@ -1,3 +1,8 @@
+# 2026-11-16 — FIFO auto-batch review fixes in progress
+
+- Two confirmed PR #736 findings are fixed locally: same-rule supplies disappearing from the latest scan remain explicit missing/unknown evidence, with opaque missing record keys in the typed manifest, and block manifest completeness; a confirmed rule no longer feeds source collection or manifest readiness after the case's unit cost or store timezone changes. The owner can still preview a successor rule.
+- Added synthetic SQLite regressions in `tests/test_fifo_cost_batch_manifest_read_service.py`. Focused manifest/rule/contract profile: **38 passed**; linked FIFO batch plus transition readiness/review/apply/production profile: **203 passed**; full isolated pytest: **5,453 passed in 111.30s**. Full compile passed with one pre-existing float-identity `SyntaxWarning`. The full run used a disposable tracked-source copy without project `data/` or secrets and a synthetic USN_INCOME 6% policy. No schema/data change, live external request, bot launch, merge or deployment.
+
 # 2026-11-16 — FIFO auto-batch review corrections
 
 - Fixed two additional confirmed FIFO manifest/scan races: use newest scan-linked quantity observations rather than an observation's original first-capture time; preserve every prior scan occurrence for temporal acceptance checks; reject a scan continuation superseded after it began before committing its next page. New regressions cover exact fingerprint replay and a concurrent newer scan.

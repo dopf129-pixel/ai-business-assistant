@@ -638,6 +638,7 @@ class AutomaticBatchManifest:
     current_through: str | None
     freshness: ManifestFreshness
     issues: tuple[str, ...]
+    missing_supply_record_keys: tuple[str, ...] = ()
     manifest_fingerprint: str | None = None
     read_only: bool = True
 
@@ -679,6 +680,10 @@ class AutomaticBatchManifest:
         if not isinstance(self.freshness, ManifestFreshness):
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         object.__setattr__(self, "issues", _safe_issue_tuple(self.issues))
+        object.__setattr__(
+            self, "missing_supply_record_keys",
+            _digest_tuple(self.missing_supply_record_keys, max_items=MAX_SCAN_SUPPLIES),
+        )
         if type(self.read_only) is not bool or self.read_only is not True:
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         calculated = source_fingerprint(self.canonical_fingerprint_payload())
@@ -706,7 +711,7 @@ class AutomaticBatchManifest:
 
     def canonical_fingerprint_payload(self) -> Mapping[str, object]:
         """Stable business content; deliberately excludes capture timestamps."""
-        return MappingProxyType({
+        payload = {
             "rule_id": self.rule_id,
             "rule_revision": self.rule_revision,
             "rule_fingerprint": self.rule_fingerprint,
@@ -739,7 +744,14 @@ class AutomaticBatchManifest:
             },
             "freshness": self.freshness.value,
             "issues": tuple(sorted(self.issues)),
-        })
+        }
+        # Omit this additive field for ordinary manifests to retain their
+        # pre-change fingerprint and keep valid saved previews restart-safe.
+        if self.missing_supply_record_keys:
+            payload["missing_supply_record_keys"] = tuple(
+                sorted(self.missing_supply_record_keys)
+            )
+        return MappingProxyType(payload)
 
 
 def canonical_membership_binding_fingerprint(

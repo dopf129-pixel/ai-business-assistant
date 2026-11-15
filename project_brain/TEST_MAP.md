@@ -1,3 +1,9 @@
+# 2026-11-16 — FIFO auto-batch review regressions
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_supply_missing_from_latest_scan_stays_unknown_and_blocks_manifest` persists two supplies, publishes a later same-rule scan with one missing, and verifies its opaque key is retained in the typed manifest, prior acceptance stays on the missing record, and accepted/pending totals do not claim completeness.
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_changed_case_cost_invalidates_old_rule_manifest_and_source_basis` changes the case cost after confirmation, verifies old source collection and manifest use are blocked, and verifies a successor-rule preview uses the corrected cost.
+- Focused manifest/rule/contract profile: **38 passed**; linked FIFO batch plus transition readiness/review/apply/production profile: **203 passed**; full isolated pytest: **5,453 passed in 111.30s**. Full compile passed with one pre-existing float-identity `SyntaxWarning`. The full run used a disposable tracked-source copy without project `data/` or secrets and a synthetic USN_INCOME 6% policy.
+
 # FIFO automatic-batch review follow-up — 2026-11-15
 
 - `tests/test_fifo_cost_batch_manifest_read_service.py::test_latest_manifest_reconciles_acceptance_against_prior_observations`: a newer scan with accepted quantity 90 after an earlier 100 for the same supply remains review-required and does not publish 90 as a complete accepted total.

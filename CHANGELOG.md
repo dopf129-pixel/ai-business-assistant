@@ -1,3 +1,9 @@
+# 2026-11-16 — FIFO auto-batch missing-supply and stale-cost guards
+
+- A supply observed in an earlier scan of the same confirmed rule but absent from the latest scan now remains explicit missing evidence, including its opaque record key in the typed manifest. Its prior acceptance history is retained; it is not converted to zero, and accepted/pending totals remain unknown until reconciled.
+- Confirmed FIFO batch rules are checked against the case's current unit cost and store timezone before source collection or manifest use. A changed cost marks the old rule stale while preserving the owner's ability to preview its successor. Added regressions for both review findings.
+- Focused manifest/rule/contract profile: **38 passed**; linked FIFO batch plus transition readiness/review/apply/production profile: **203 passed**. Full isolated pytest: **5,453 passed in 111.30s**; full `compileall -q app tests` passed with one pre-existing float-identity `SyntaxWarning`. The full run used a disposable tracked-source copy without project `data/` or secrets and a synthetic USN_INCOME 6% policy. No live Ozon/Telegram requests, bot launch, project-data edits, merge or deployment.
+
 # 2026-11-16 — FIFO scan-history and continuation race fixes
 
 - Manifest quantities now come from the newest scan's linked observations; prior scan occurrences are retained only for temporal acceptance checks. Replayed old fingerprints cannot replace newer quantity evidence, and a later accepted-quantity decrease remains a review conflict.

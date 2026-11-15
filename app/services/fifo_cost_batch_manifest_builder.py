@@ -12,6 +12,7 @@ from services.fifo_cost_batch_rule_contracts import (
     BatchTotalControlKind,
     BatchTotalControlStatus,
     MAX_BATCH_TOTAL,
+    MAX_SCAN_SUPPLIES,
     ManifestFreshness,
     SupplyMembership,
     SupplyMembershipClassification,
@@ -175,6 +176,13 @@ class FifoCostBatchManifestBuilder:
         if found_overflow:
             return cls._error("FIFO_BATCH_MANIFEST_AGGREGATE_OVERFLOW")
 
+        missing_supply_count = sum(
+            "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in record.issues
+            for record in records
+        )
+        if coverage.unknown_supply_count + missing_supply_count > MAX_SCAN_SUPPLIES:
+            return cls._error("FIFO_BATCH_MANIFEST_SUPPLY_LIMIT_REACHED")
+
         dispatched = tuple(
             record for record in included
             if record.current_observation.normalized_status in _SHIPPED_STATUSES
@@ -194,7 +202,11 @@ class FifoCostBatchManifestBuilder:
         dispatched_keys = {item.record_key for item in dispatched}
         accepted_values = [item.effective_accepted_quantity for item in dispatched]
         accepted_known = [value for value in accepted_values if value is not None]
-        accepted_complete = bool(dispatched) and len(accepted_known) == len(dispatched)
+        accepted_complete = (
+            bool(dispatched)
+            and len(accepted_known) == len(dispatched)
+            and missing_supply_count == 0
+        )
         accepted_total, accepted_overflow = (
             cls._bounded_sum(accepted_known) if accepted_complete else (None, False)
         )
@@ -221,7 +233,7 @@ class FifoCostBatchManifestBuilder:
         unknown_quantity_count = len(unknown_quantity_keys)
 
         pending_values = []
-        pending_complete = bool(dispatched)
+        pending_complete = bool(dispatched) and missing_supply_count == 0
         for record in dispatched:
             shipped_units = record.current_observation.shipped_composition_quantity
             accepted_units = record.effective_accepted_quantity
@@ -296,6 +308,7 @@ class FifoCostBatchManifestBuilder:
             coverage,
             membership_complete=membership_complete,
             quantity_complete=composition_complete,
+            unknown_supply_count=(coverage.unknown_supply_count + missing_supply_count),
             unknown_quantity_supply_count=max(
                 coverage.unknown_quantity_supply_count,
                 sum(
@@ -369,6 +382,10 @@ class FifoCostBatchManifestBuilder:
             current_through=current_through,
             freshness=freshness,
             issues=tuple(sorted(issues)),
+            missing_supply_record_keys=tuple(sorted(
+                record.record_key for record in records
+                if "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in record.issues
+            )),
         )
         if not api_records:
             status, code = "UNKNOWN", "FIFO_BATCH_MANIFEST_SOURCE_EMPTY"

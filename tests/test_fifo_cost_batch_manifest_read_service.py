@@ -298,6 +298,80 @@ def test_latest_manifest_reconciles_acceptance_against_prior_observations(
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_supply_missing_from_latest_scan_stays_unknown_and_blocks_manifest(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        first_time = "2026-11-15T12:00:00.000000Z"
+        second_time = "2026-11-15T12:01:00.000000Z"
+        before = (
+            _observation(
+                captured_at=first_time, suffix="still-present", accepted=100,
+            ),
+            _observation(
+                captured_at=first_time, suffix="disappeared", accepted=100,
+            ),
+        )
+        _publish_scan(
+            repository, tenant_fp, rule, scan_id="manifest-presence-before",
+            minute=0, observations=before,
+            coverage=replace(
+                _coverage(
+                    scan_id="manifest-presence-before", captured_at=first_time,
+                    rule_revision=rule["rule_revision"], membership_complete=True,
+                    issue_codes=(),
+                ),
+                supplies_seen=2, sku_rows_seen=2,
+            ),
+        )
+        after = _observation(
+            captured_at=second_time, suffix="still-present", accepted=100,
+            source_revision=2,
+        )
+        _publish_scan(
+            repository, tenant_fp, rule, scan_id="manifest-presence-after",
+            minute=1, observations=(after,),
+            coverage=_coverage(
+                scan_id="manifest-presence-after", captured_at=second_time,
+                rule_revision=rule["rule_revision"], membership_complete=True,
+                issue_codes=(),
+            ),
+        )
+
+        reconciled = FifoCostBatchSupplyDeduplicator.reconcile(
+            scope=SCOPE, case_id=case.case_id, observations=(after,),
+            declarations=(), acceptance_history=before,
+        )
+        missing_record = next(
+            item for item in reconciled.records
+            if item.supply_ref_digest == _digest("supply-disappeared")
+        )
+        assert missing_record.current_observation is None
+        assert missing_record.effective_accepted_quantity == 100
+        assert "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in missing_record.issues
+
+        result = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: NOW,
+        ).read_current_manifest(case=case)
+
+        assert result["error"] is False, result
+        assert result["status"] != "COMPLETE"
+        assert "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in result["issue_codes"]
+        assert result["manifest"].found_supply_count == 1
+        assert result["manifest"].coverage.unknown_supply_count == 1
+        assert result["manifest"].missing_supply_record_keys == (
+            missing_record.record_key,
+        )
+        # The surviving row's 100 units remain only a known subtotal. The
+        # missing supply keeps accepted and pending totals unknown.
+        assert result["manifest"].accepted_units is None
+        assert result["manifest"].known_subtotal == 100
+        assert result["manifest"].pending_units is None
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_latest_scan_uses_latest_quantity_and_detects_replayed_acceptance_decrease(
     tmp_path, monkeypatch,
 ):
@@ -334,6 +408,75 @@ def test_latest_scan_uses_latest_quantity_and_detects_replayed_acceptance_decrea
         assert manifest.accepted_units is None
         assert "FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW" in result["issue_codes"]
         assert result["status"] != "COMPLETE"
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_changed_case_cost_invalidates_old_rule_manifest_and_source_basis(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        _publish_scan(
+            repository, tenant_fp, rule,
+            scan_id="manifest-cost-before-change",
+            observations=(_observation(accepted=100),),
+            coverage=_coverage(
+                scan_id="manifest-cost-before-change",
+                rule_revision=rule["rule_revision"], membership_complete=True,
+                issue_codes=(),
+            ),
+        )
+        reader = FifoCostBatchManifestReadService(repository, now_provider=lambda: NOW)
+        before = reader.read_current_manifest(case=case)
+        assert before["error"] is False, before
+        assert before["status"] == "COMPLETE"
+
+        transitions = FifoCostTransitionService(repository, now_provider=lambda: NOW)
+        updated = transitions.update_owner_inputs(
+            case_id=case.case_id,
+            expected_revision=case.case_revision,
+            updates={"new_unit_cost_rub": Decimal("16.00")},
+            idempotency_key="review-change-cost",
+            **IDENTITY,
+        )
+        assert updated["error"] is False, updated
+        current_case_payload = repository.read_transition_case(
+            case_id=case.case_id, **IDENTITY,
+        )
+        current_case = FifoCostTransitionService._case_from_payload(
+            current_case_payload["case"],
+        )
+
+        stale_rule = FifoCostBatchRuleService(
+            repository, now_provider=lambda: NOW,
+        ).read_active_rule(SCOPE, case.case_id, current_case.case_revision)
+        assert stale_rule["error"] is False, stale_rule
+        assert stale_rule["inputs_current"] is False
+        basis = FifoCostBatchRuleService(
+            repository, now_provider=lambda: NOW,
+        ).read_collection_basis(
+            SCOPE, case.case_id, current_case.case_revision,
+            rule["rule_revision"],
+        )
+        assert basis["error"] is True
+        assert basis["code"] == "FIFO_BATCH_RULE_CASE_INPUTS_STALE"
+
+        stale_manifest = reader.read_current_manifest(case=current_case)
+        assert stale_manifest["error"] is False, stale_manifest
+        assert stale_manifest["code"] == "FIFO_BATCH_MANIFEST_RULE_CASE_INPUTS_STALE"
+        assert stale_manifest["manifest"] is None
+
+        # Editing the case remains recoverable: owner can preview a successor
+        # rule using the corrected price, while the old rule stays blocked.
+        successor = FifoCostBatchRuleService(
+            repository, now_provider=lambda: NOW,
+        ).preview_rule(
+            SCOPE, case.case_id, current_case.case_revision,
+            BatchRuleInput("2026-11-16", BatchStartDayPolicy.ALL_OWNER_CONFIRMED),
+        )
+        assert successor["error"] is False, successor
+        assert successor["preview"].new_unit_cost_rub == Decimal("16.00")
     finally:
         reset_current_tenant_user_id(tenant_token)
 

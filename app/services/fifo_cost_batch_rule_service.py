@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
+from decimal import Decimal
 import hashlib
 import json
 import re
@@ -229,6 +230,8 @@ class FifoCostBatchRuleService:
             return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
         if rule.get("rule_revision") != rule_revision:
             return self._error("FIFO_BATCH_RULE_REVISION_CONFLICT")
+        if not self.case_inputs_match_rule(rule, case):
+            return self._error("FIFO_BATCH_RULE_CASE_INPUTS_STALE")
         return {
             "error": False,
             "code": "FIFO_BATCH_COLLECTION_BASIS_VALID",
@@ -271,6 +274,7 @@ class FifoCostBatchRuleService:
         rule = active.get("item")
         if rule is None:
             return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
+        inputs_current = self.case_inputs_match_rule(rule, case_result["case"])
         return {
             "error": False,
             "code": "FIFO_BATCH_ACTIVE_RULE_READ",
@@ -285,6 +289,7 @@ class FifoCostBatchRuleService:
             "store_timezone": rule["store_timezone"],
             "start_day_policy": rule["start_day_policy"],
             "confirmed_at_utc": rule["confirmed_at_utc"],
+            "inputs_current": inputs_current,
         }
 
     def confirm_rule(
@@ -576,6 +581,45 @@ class FifoCostBatchRuleService:
         if not case.metadata.store_timezone:
             return "FIFO_BATCH_STORE_TIMEZONE_UNKNOWN"
         return None
+
+    @staticmethod
+    def case_inputs_match_rule(rule, case: TransitionCase) -> bool:
+        """Return whether the confirmed rule still matches current case inputs.
+
+        A successor rule may start after the case's original dispatch date, so
+        only the first confirmed rule is bound to that date. Cost and store
+        timezone remain semantic inputs for every active rule.
+        """
+        if not isinstance(case, TransitionCase):
+            return False
+        if isinstance(rule, dict):
+            rule_cost = rule.get("new_unit_cost_rub")
+            rule_timezone = rule.get("store_timezone")
+            rule_start_date = rule.get("start_local_date")
+            rule_revision = rule.get("rule_revision")
+        else:
+            rule_cost = getattr(rule, "new_unit_cost_rub", None)
+            rule_timezone = getattr(rule, "store_timezone", None)
+            rule_start_date = getattr(rule, "start_local_date", None)
+            rule_revision = getattr(rule, "rule_revision", None)
+        try:
+            cost_matches = (
+                rule_cost is not None
+                and case.new_unit_cost_rub is not None
+                and Decimal(str(rule_cost)) == case.new_unit_cost_rub
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            return False
+        return bool(
+            cost_matches
+            and rule_timezone == case.metadata.store_timezone
+            and case.owner_old_home_units == 0
+            and case.owner_old_transit_units == 0
+            and (
+                rule_revision != 1
+                or rule_start_date == case.dispatch_date
+            )
+        )
 
     @staticmethod
     def _decode_case(payload: dict) -> TransitionCase:

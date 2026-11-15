@@ -97,6 +97,12 @@ class FifoCostBatchManifestReadService:
             )
             if active_rule is None:
                 return {"error": False, "code": "FIFO_BATCH_MANIFEST_RULE_UNAVAILABLE", "manifest": None}
+            if not FifoCostBatchRuleService.case_inputs_match_rule(active_rule, case):
+                return {
+                    "error": False,
+                    "code": "FIFO_BATCH_MANIFEST_RULE_CASE_INPUTS_STALE",
+                    "manifest": None,
+                }
 
             scan = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
                 connection, scope=scope, case_id=case.case_id,
