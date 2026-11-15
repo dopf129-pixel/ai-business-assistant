@@ -642,6 +642,40 @@ class FifoCostBatchSupplySourceService:
         if continuation_token is None:
             scan_id = "scan_" + uuid4().hex
             state = self._empty_durable_state()
+            try:
+                started_at = self._next_checkpoint_timestamp(
+                    scope, case_id, tenant_fingerprint,
+                )
+            except Exception:
+                return self._result(
+                    started=started, status="UNAVAILABLE", source_status="UNAVAILABLE",
+                    issue_codes=("FIFO_BATCH_SCAN_STORAGE_UNAVAILABLE",),
+                    case_revision=basis["case_revision"],
+                    rule_revision=basis["rule_revision"], scan_id=scan_id,
+                )
+            staging_coverage = self._scan_coverage(
+                scan_id=scan_id, revision=1, scope=scope, case_id=case_id,
+                rule_revision=basis["rule_revision"], captured_at=started_at,
+                supported_states=supported_states, state=state,
+                details_complete=False, issue_codes=(),
+                continuation_token=f"{scan_id}_r1",
+            )
+            staging = checkpoint.commit_page(
+                coverage=staging_coverage, tenant_fingerprint=tenant_fingerprint,
+                rule_id=basis["rule_id"], rule_fingerprint=basis["rule_fingerprint"],
+                expected_case_revision=basis["case_revision"],
+                expected_scan_revision=0, observations=(), status="STAGING",
+                expires_at=self._timestamp_plus(started_at, checkpoint.TTL_SECONDS),
+                updated_at=started_at, continuation_state=state, now=started_at,
+            )
+            if staging.get("error"):
+                return self._result(
+                    started=started, status="UNAVAILABLE", source_status="UNAVAILABLE",
+                    issue_codes=(staging.get("code", "FIFO_BATCH_SCAN_STORAGE_UNAVAILABLE"),),
+                    case_revision=basis["case_revision"],
+                    rule_revision=basis["rule_revision"], scan_id=scan_id,
+                )
+            scan_revision = 1
         else:
             resumed = checkpoint.load_continuation(
                 scope=scope, case_id=case_id,
@@ -927,22 +961,43 @@ class FifoCostBatchSupplySourceService:
             reset_period_profit_trace(trace_token)
 
         if list_error_without_data and continuation_token is None:
+            failed = self._fail_unstarted_scan(
+                checkpoint=checkpoint, scope=scope, case_id=case_id,
+                tenant_fingerprint=tenant_fingerprint, basis=basis,
+                supported_states=supported_states, scan_id=scan_id,
+                expected_scan_revision=scan_revision, state=state,
+                issues=issues, observations=tuple(new_observations),
+            )
             return self._result(
                 started=started, status="UNAVAILABLE", source_status="UNAVAILABLE",
                 issue_codes=issues, case_revision=basis["case_revision"],
                 rule_revision=basis["rule_revision"], actual_attempts=actual_attempts,
+                scan_id=scan_id,
+                scan_revision=(scan_revision + 1 if not failed.get("error") else scan_revision),
             )
         if not progress_made and continuation_token is None:
+            failure_issues = issues or ["FIFO_BATCH_SOURCE_NO_PROGRESS"]
+            failed = self._fail_unstarted_scan(
+                checkpoint=checkpoint, scope=scope, case_id=case_id,
+                tenant_fingerprint=tenant_fingerprint, basis=basis,
+                supported_states=supported_states, scan_id=scan_id,
+                expected_scan_revision=scan_revision, state=state,
+                issues=failure_issues, observations=tuple(new_observations),
+            )
             return self._result(
                 started=started, status="UNAVAILABLE", source_status="UNAVAILABLE",
-                issue_codes=issues or ("FIFO_BATCH_SOURCE_NO_PROGRESS",),
+                issue_codes=failure_issues,
                 case_revision=basis["case_revision"],
                 rule_revision=basis["rule_revision"], actual_attempts=actual_attempts,
+                scan_id=scan_id,
+                scan_revision=(scan_revision + 1 if not failed.get("error") else scan_revision),
             )
 
         state["pending_supplies"] = list(state["pending_supplies"])
         resumable = bool(state["pending_supplies"]) or not state["list_complete"]
-        now_text = self._now_utc_text()
+        now_text = self._next_checkpoint_timestamp(
+            scope, case_id, tenant_fingerprint, scan_id=scan_id,
+        )
         expires_at = self._timestamp_plus(now_text, checkpoint.TTL_SECONDS)
         scan_status = "PARTIAL" if resumable else "PUBLISHED"
         next_revision = scan_revision + 1
@@ -1024,6 +1079,104 @@ class FifoCostBatchSupplySourceService:
             "unknown_supply_count": 0,
             "list_complete": False,
         }
+
+    def _next_checkpoint_timestamp(
+        self, scope, case_id, tenant_fingerprint, *, scan_id=None,
+    ):
+        """Keep checkpoint ordering unambiguous even under a fixed test clock."""
+        current = datetime.fromisoformat(self._now_utc_text().replace("Z", "+00:00"))
+        connection = None
+        try:
+            connection = self.scan_checkpoint_service.repository.get_connection()
+            scope_fingerprint = FifoCostBatchSupplyStore._scope_fingerprint(scope)
+            rows = connection.execute(
+                """SELECT MAX(updated_at) AS latest_updated_at
+                   FROM fifo_cost_batch_supply_scans
+                   WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
+                     AND store_id=? AND sku=? AND scope_fingerprint=?""",
+                (
+                    case_id, FifoCostBatchSupplyStore._digest(scope.owner_id),
+                    tenant_fingerprint, scope.store_id, scope.sku, scope_fingerprint,
+                ),
+            ).fetchone()
+            prior_values = []
+            if rows is not None and rows["latest_updated_at"]:
+                prior_values.append(rows["latest_updated_at"])
+            if scan_id is not None:
+                prior = FifoCostBatchSupplyStore.read_scan_checkpoint(
+                    connection, scope=scope, case_id=case_id,
+                    tenant_fingerprint=tenant_fingerprint, scan_id=scan_id,
+                )
+                if prior is not None:
+                    prior_values.append(prior["updated_at"])
+            for value in prior_values:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if current <= parsed:
+                    current = parsed + timedelta(microseconds=1)
+        finally:
+            if connection is not None:
+                connection.close()
+        return current.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+            "+00:00", "Z",
+        )
+
+    def _scan_coverage(
+        self, *, scan_id, revision, scope, case_id, rule_revision, captured_at,
+        supported_states, state, details_complete, issue_codes, continuation_token,
+    ):
+        composition_complete = (
+            state["list_complete"] and not state["pending_supplies"]
+            and state["unknown_supply_count"] == 0
+        )
+        return SupplyScanCoverage(
+            scan_id=scan_id, revision=revision, scope=scope, case_id=case_id,
+            rule_revision=rule_revision, requested_from=None, requested_through=None,
+            captured_at=captured_at, source_as_of=None,
+            supported_state_profile=supported_states,
+            list_pagination_complete=state["list_complete"],
+            details_complete=details_complete and not state["pending_supplies"],
+            sku_composition_complete=composition_complete,
+            historical_window_proven=False, membership_complete=False,
+            quantity_complete=False, physical_receipt_timing_complete=False,
+            observation_set_fingerprint="0" * 64,
+            source_contract_version=self.SOURCE_CONTRACT_VERSION,
+            orders_seen=state["orders_seen"], supplies_seen=state["supplies_seen"],
+            sku_rows_seen=state["candidate_count"], unknown_order_count=0,
+            unknown_supply_count=state["unknown_supply_count"],
+            unknown_quantity_supply_count=state["candidate_count"],
+            issue_codes=tuple(dict.fromkeys(issue_codes))[:32],
+            resumable_token=continuation_token,
+        )
+
+    def _fail_unstarted_scan(
+        self, *, checkpoint, scope, case_id, tenant_fingerprint, basis,
+        supported_states, scan_id, expected_scan_revision, state, issues,
+        observations,
+    ):
+        """Publish a terminal failure marker so an old scan cannot stay newest."""
+        try:
+            failed_at = self._next_checkpoint_timestamp(
+                scope, case_id, tenant_fingerprint, scan_id=scan_id,
+            )
+            revision = expected_scan_revision + 1
+            coverage = self._scan_coverage(
+                scan_id=scan_id, revision=revision, scope=scope, case_id=case_id,
+                rule_revision=basis["rule_revision"], captured_at=failed_at,
+                supported_states=supported_states, state=state,
+                details_complete=False, issue_codes=issues,
+                continuation_token=None,
+            )
+            return checkpoint.commit_page(
+                coverage=coverage, tenant_fingerprint=tenant_fingerprint,
+                rule_id=basis["rule_id"], rule_fingerprint=basis["rule_fingerprint"],
+                expected_case_revision=basis["case_revision"],
+                expected_scan_revision=expected_scan_revision,
+                observations=observations, status="FAILED",
+                expires_at=self._timestamp_plus(failed_at, checkpoint.TTL_SECONDS),
+                updated_at=failed_at, continuation_state=None, now=failed_at,
+            )
+        except Exception:
+            return {"error": True, "code": "FIFO_BATCH_SCAN_STORAGE_UNAVAILABLE"}
 
     @classmethod
     def _upgrade_durable_state(cls, state):

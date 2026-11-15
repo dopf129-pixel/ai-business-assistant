@@ -1,3 +1,10 @@
+# 2026-11-15 — FIFO auto-batch PR C review follow-up
+
+- Manifest reads now include bounded historical observations for supplies present in the newest scan, so cumulative accepted-quantity decreases stay in review instead of appearing complete.
+- Telegram owner decisions can extend a same-outcome group or correct an older include/exclude choice; confirmation is rejected when its scan is no longer the newest persisted scan.
+- A restarted Telegram session restores the exact scoped scan and valid continuation without repeating source requests. Every new durable scan starts with a persisted staging checkpoint, and a no-progress source failure is persisted as the newest failed scan.
+- Added regressions for all five review findings. The linked FIFO batch/production/readiness/review/apply profile passes **189 tests**; exact-head CI is pending publication of this follow-up.
+
 # 2026-11-15 — FIFO auto-batch review fixes (R1–R8)
 
 - Fixed exact-case observation binding, preserved legacy API observation identities while linking owner declarations, and retained the complete append-only rule chain when rebuilding manifests.

@@ -4,6 +4,7 @@
 
 ## Resume
 
+- Latest continuation: the next PR C review pass fixed five additional findings after the R1–R8 fixes. The working tree adds bounded prior-acceptance history for supplies in the latest scan; correctable grouped owner decisions; newest-scan validation at confirmation; restart restoration of the exact saved scan/continuation; and durable STAGING/FAILED markers. Focused profile: **53 passed**; linked FIFO batch/production/readiness/review/apply profile: **189 passed**. Code SHA, full isolated suite and exact-head CI will be recorded after commit/push.
 - Latest PR C review fix status (2026-11-15): R1–R8 committed at code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e`. Windows/Python 3.12 profiles passed: affected FIFO **125 in 8.64s**, schema/checkpoint migration **29 in 2.63s**, full isolated suite **5,446 in 108.09s**; isolated compileall passed with one pre-existing warning. Exact-head Verify run [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054) passed Windows/Linux full suites, compile, production Docker build/runtime smoke and SHA-bound report. The fixes introduce additive FIFO schema v19 side storage for large encrypted continuations; see `DECISIONS_067.md`. Raw dispatch/receipt/history completeness and R1 remain **NOT_VERIFIED**.
 
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.

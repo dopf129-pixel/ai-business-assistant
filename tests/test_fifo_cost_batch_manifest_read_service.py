@@ -157,14 +157,15 @@ def _coverage(*, scan_id, rule_revision=1, captured_at=NOW_TEXT, membership_comp
 
 
 def _observation(*, captured_at=NOW_TEXT, suffix="1", dispatch_date="2026-11-05",
-                 accepted=None):
+                 accepted=None, source_revision=1):
     supply_ref = _digest(f"supply-{suffix}")
     return SupplySkuObservation(
         scope=SCOPE,
         record_key=FifoCostBatchSupplyDeduplicator.canonical_record_key(SCOPE, supply_ref),
         order_ref_digest=_digest(f"order-{suffix}"), supply_ref_digest=supply_ref,
         encrypted_lookup_payload="gAAAA" + "A" * 96,
-        source_profile_version="synthetic-v1", source_fingerprint=_digest(f"source-{suffix}"),
+        source_profile_version="synthetic-v1",
+        source_fingerprint=_digest(f"source-{suffix}-{source_revision}"),
         captured_at=captured_at, source_as_of=captured_at,
         source_status="IN_TRANSIT", normalized_status=NormalizedSupplyStatus.IN_TRANSIT,
         is_crossdock=True, dispatch_local_date=dispatch_date, dispatch_local_time=None,
@@ -248,6 +249,51 @@ def test_readiness_rehydrates_latest_published_manifest_from_scoped_sqlite(tmp_p
                 assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_latest_manifest_reconciles_acceptance_against_prior_observations(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        first_time = "2026-11-15T12:00:00.000000Z"
+        second_time = "2026-11-15T12:01:00.000000Z"
+        first = _observation(
+            captured_at=first_time, suffix="same-supply", accepted=100,
+            source_revision=1,
+        )
+        second = _observation(
+            captured_at=second_time, suffix="same-supply", accepted=90,
+            source_revision=2,
+        )
+        _publish_scan(
+            repository, tenant_fp, rule, scan_id="manifest-acceptance-before",
+            minute=0, observations=(first,),
+            coverage=_coverage(
+                scan_id="manifest-acceptance-before", captured_at=first_time,
+                rule_revision=rule["rule_revision"],
+            ),
+        )
+        _publish_scan(
+            repository, tenant_fp, rule, scan_id="manifest-acceptance-after",
+            minute=1, observations=(second,),
+            coverage=_coverage(
+                scan_id="manifest-acceptance-after", captured_at=second_time,
+                rule_revision=rule["rule_revision"],
+            ),
+        )
+
+        result = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: NOW,
+        ).read_current_manifest(case=case)
+
+        assert result["error"] is False, result
+        assert result["manifest"].scan_id == "manifest-acceptance-after"
+        assert result["manifest"].accepted_units is None
+        assert "FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW" in result["issue_codes"]
+        assert result["status"] != "COMPLETE"
     finally:
         reset_current_tenant_user_id(tenant_token)
 

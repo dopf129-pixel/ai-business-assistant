@@ -261,6 +261,54 @@ def test_collect_uses_one_allowlisted_bounded_page_and_returns_partial_only(
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_unavailable_new_scan_is_persisted_and_supersedes_previous_published_scan(
+    tmp_path, monkeypatch,
+):
+    repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[{"order_ids": [], "last_id": None}],
+    )
+    try:
+        previous = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert previous.status == "COMPLETE", previous
+
+        unavailable = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert unavailable.status == "UNAVAILABLE", unavailable
+        assert unavailable.scan_id is not None
+        assert unavailable.scan_id != previous.scan_id
+
+        connection = repository.get_connection()
+        try:
+            tenant_fingerprint = repository._tenant_scope(SCOPE.store_id)[
+                "tenant_fingerprint"
+            ]
+            older = FifoCostBatchSupplyStore.read_scan_checkpoint(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=tenant_fingerprint, scan_id=previous.scan_id,
+            )
+            latest = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=tenant_fingerprint,
+            )
+        finally:
+            connection.close()
+
+        assert older["status"] == "PUBLISHED"
+        assert latest["scan_id"] == unavailable.scan_id
+        assert latest["status"] == "FAILED"
+        assert "FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE" in json.loads(
+            latest["issue_codes_json"],
+        )
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_durable_bundle_scan_stores_only_planned_quantity_and_unknown_dispatch_date(
     tmp_path, monkeypatch,
 ):
@@ -575,7 +623,7 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
         **bundle_page,
         "items": [{**bundle_page["items"][0], "quantity": 300}],
     }
-    repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
+    repository, _rules, source, ozon, tenant_token, confirmed = _setup(
         tmp_path, monkeypatch, durable_source=True,
         list_pages=[{"order_ids": [order_id], "last_id": None}],
         details=details, bundle_pages={
@@ -666,10 +714,91 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
         )
         grouped_saved = runtime.handle_callback(101, grouped_confirm)
         assert "Решение владельца сохранено: 2 поставок включены" in grouped_saved["message"]
+
+        # A later opposite owner decision must supersede the old exact INCLUDE
+        # binding, and a subsequent INCLUDE must be accepted as a new decision.
+        excluded_list = runtime.handle_callback(
+            101, next(item["callback"] for item in grouped_saved["keyboard"]["buttons"]
+                      if item["text"] == "К списку поставок"),
+        )
+        for row_label in ("Строка 1", "Строка 2"):
+            toggle = next(
+                item["callback"] for item in excluded_list["keyboard"]["buttons"]
+                if item["text"].endswith(row_label)
+            )
+            excluded_list = runtime.handle_callback(101, toggle)
+        exclude_callback = next(
+            item["callback"] for item in excluded_list["keyboard"]["buttons"]
+            if item["text"] == "Выбранные — не новая партия"
+        )
+        exclude_preview = runtime.handle_callback(101, exclude_callback)
+        exclude_confirm = next(
+            item["callback"] for item in exclude_preview["keyboard"]["buttons"]
+            if item["text"] == "Подтвердить выбор"
+        )
+        excluded = runtime.handle_callback(101, exclude_confirm)
+        assert "2 поставок исключены" in excluded["message"]
+
+        included_list = runtime.handle_callback(
+            101, next(item["callback"] for item in excluded["keyboard"]["buttons"]
+                      if item["text"] == "К списку поставок"),
+        )
+        for row_label in ("Строка 1", "Строка 2"):
+            toggle = next(
+                item["callback"] for item in included_list["keyboard"]["buttons"]
+                if item["text"].endswith(row_label)
+            )
+            included_list = runtime.handle_callback(101, toggle)
+        corrected_include = next(
+            item["callback"] for item in included_list["keyboard"]["buttons"]
+            if item["text"] == "Выбранные — новая партия (2/50)"
+        )
+        corrected_preview = runtime.handle_callback(101, corrected_include)
+        corrected_confirm = next(
+            item["callback"] for item in corrected_preview["keyboard"]["buttons"]
+            if item["text"] == "Подтвердить выбор"
+        )
+        corrected = runtime.handle_callback(101, corrected_confirm)
+        assert "2 поставок включены" in corrected["message"]
+
+        # A preview must be rejected when another scan is persisted outside
+        # the transient Telegram session, even if its old scan remains intact.
+        stale_list = runtime.handle_callback(
+            101, next(item["callback"] for item in corrected["keyboard"]["buttons"]
+                      if item["text"] == "К списку поставок"),
+        )
+        stale_row = next(
+            item["callback"] for item in stale_list["keyboard"]["buttons"]
+            if item["text"].endswith("Строка 1")
+        )
+        stale_selected = runtime.handle_callback(101, stale_row)
+        stale_include = next(
+            item["callback"] for item in stale_selected["keyboard"]["buttons"]
+            if item["text"].startswith("Выбранные — новая партия")
+        )
+        stale_preview = runtime.handle_callback(101, stale_include)
+        stale_confirm = next(
+            item["callback"] for item in stale_preview["keyboard"]["buttons"]
+            if item["text"] == "Подтвердить выбор"
+        )
+        ozon.list_pages.append({"order_ids": [order_id], "last_id": None})
+        bundle_page["items"][0]["quantity"] = 499
+        newer_scan = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert newer_scan.status == "COMPLETE", newer_scan
+        stale_confirmation = runtime.handle_callback(101, stale_confirm)
+        assert (
+            "состав поставок изменился после просмотра"
+            in stale_confirmation["message"].lower()
+        )
+        assert stale_confirmation["error"] is True
         transcript = "\n".join((
             refreshed["message"], review_page["message"], preview["message"],
             saved["message"], grouped_page["message"], grouped_preview["message"],
-            grouped_saved["message"], row_callback, include_callback, confirm_callback,
+            grouped_saved["message"], excluded["message"], corrected["message"],
+            stale_confirmation["message"], row_callback, include_callback, confirm_callback,
         ))
         assert all(value not in transcript for value in (
             order_id, supply_id, second_supply_id, bundle_id, second_bundle_id,
@@ -683,8 +812,8 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
                 connection, scope=SCOPE, case_id="case_batch_src_01",
                 tenant_fingerprint=tenant_fingerprint,
             )
-            assert len(decisions) == 2
-            assert {item["decision"] for item in decisions} == {"INCLUDED"}
+            assert len(decisions) == 4
+            assert {item["decision"] for item in decisions} == {"INCLUDED", "EXCLUDED"}
             assert {len(json.loads(item["record_keys_json"])) for item in decisions} == {1, 2}
             current_scan = runtime._sessions["101"]["batch_last_scan"]
             raw_observations = FifoCostBatchSupplyStore.read_scan_observations(
@@ -812,7 +941,7 @@ def test_durable_bundle_scan_resumes_pagination_after_service_restart(
         assert first.actual_http_attempts == 10
         assert first.candidates_observed == 0
         assert first.continuation_token is not None
-        assert first.scan_revision == 1
+        assert first.scan_revision == 2
 
         restarted_service = FifoCostBatchSupplySourceService(
             rule_service=rules, ozon_client=ozon,
@@ -831,7 +960,7 @@ def test_durable_bundle_scan_resumes_pagination_after_service_restart(
             second.continuation_token, second.scan_revision,
         )
         assert second.scan_id == first.scan_id
-        assert second.scan_revision == 2
+        assert second.scan_revision == 3
         assert second.actual_http_attempts == 1
         assert second.candidates_observed == 1
         assert second.continuation_token is None
@@ -1280,6 +1409,93 @@ def test_full_page_uses_details_batches_of_50_and_resumes_opaquely(
         assert second.pagination_complete is True
         assert second.details_complete is True
         assert second.continuation_token is None
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart(
+    tmp_path, monkeypatch,
+):
+    from services.fifo_cost_history_service import FifoCostHistoryService
+    from services.fifo_cost_transition_service import FifoCostTransitionService
+    from services.telegram_fifo_cost_batch_rule_service import TelegramFifoCostBatchRuleService
+    from services.telegram_fifo_cost_transition_runtime_service import (
+        TelegramFifoCostTransitionRuntimeService,
+    )
+
+    order_ids = list(range(2000, 2100))
+    repository, rules, first_source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[{"order_ids": order_ids, "last_id": "resume-cursor"}],
+    )
+    try:
+        identity = {
+            "store_id": SCOPE.store_id, "product_id": SCOPE.product_id,
+            "offer_id": SCOPE.offer_id, "sku": SCOPE.sku,
+        }
+
+        def _runtime(source):
+            transitions = FifoCostTransitionService(repository, now_provider=lambda: NOW)
+            telegram_rules = TelegramFifoCostBatchRuleService(
+                rules, repository, supply_source_service=source,
+                scan_checkpoint_service=source.scan_checkpoint_service,
+                supply_store=FifoCostBatchSupplyStore,
+            )
+            return TelegramFifoCostTransitionRuntimeService(
+                transitions, FifoCostHistoryService(repository),
+                now_provider=lambda: NOW, batch_rule_telegram_service=telegram_rules,
+            )
+
+        runtime = _runtime(first_source)
+        opened = runtime.resume_case(
+            101, identity=identity, display_name="Synthetic item",
+            case_id="case_batch_src_01",
+            expected_case_revision=confirmed["case_revision"],
+        )
+        assert opened["error"] is False, opened
+        refresh = next(
+            item["callback"] for item in opened["keyboard"]["buttons"]
+            if item["text"] == "Обновить поставки"
+        )
+        partial = runtime.handle_callback(101, refresh)
+        assert "получена только часть данных" in partial["message"]
+        first_calls = tuple(ozon.calls)
+        assert any(name == "details" for name, _ in first_calls)
+        assert first_calls[-1][0] == "list"
+        assert first_calls[-1][1]["last_id"] == "resume-cursor"
+
+        restarted_source = FifoCostBatchSupplySourceService(
+            rule_service=rules, ozon_client=ozon,
+            scan_checkpoint_service=FifoCostBatchScanCheckpointService(
+                repository, now_provider=lambda: NOW,
+            ),
+            utc_clock=lambda: NOW,
+        )
+        restarted = _runtime(restarted_source)
+        recovered = restarted.resume_case(
+            101, identity=identity, display_name="Synthetic item",
+            case_id="case_batch_src_01",
+            expected_case_revision=confirmed["case_revision"],
+        )
+        assert recovered["error"] is False, recovered
+        recovered_card = restarted._show_summary("101")
+        assert "можно продолжить" in recovered_card["message"].lower()
+        assert "не сохранено" in recovered_card["message"].lower()
+        assert restarted._sessions["101"]["batch_last_scan"]["status"] == "PARTIAL"
+        assert restarted._sessions["101"]["batch_last_scan"]["continuation_available"] is True
+        assert tuple(ozon.calls) == first_calls  # Restoring the card is offline.
+
+        ozon.list_pages.append({"order_ids": [], "last_id": None})
+        continue_scan = next(
+            item["callback"] for item in recovered_card["keyboard"]["buttons"]
+            if item["text"] == "Обновить поставки"
+        )
+        completed = restarted.handle_callback(101, continue_scan)
+        resumed_calls = ozon.calls[len(first_calls):]
+        assert len(resumed_calls) == 1
+        assert resumed_calls[0][0] == "list"
+        assert resumed_calls[0][1]["last_id"] == "resume-cursor"
+        assert "полнота исторического охвата" in completed["message"].lower()
     finally:
         reset_current_tenant_user_id(tenant_token)
 

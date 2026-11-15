@@ -11,6 +11,7 @@ import sqlite3
 from services.fifo_cost_batch_manifest_builder import FifoCostBatchManifestBuilder
 from services.fifo_cost_batch_rule_classifier import FifoCostBatchRuleClassifier
 from services.fifo_cost_batch_rule_contracts import (
+    MAX_BATCH_OBSERVATIONS,
     MAX_BATCH_MEMBERSHIP_DECISIONS,
     BatchMembershipDecision,
     BatchRuleEventKind,
@@ -135,7 +136,16 @@ class FifoCostBatchManifestReadService:
             )
             if len(observation_rows) > self.MAX_SCAN_OBSERVATIONS:
                 return self._error("FIFO_BATCH_MANIFEST_OBSERVATION_LIMIT_REACHED")
-            observations = tuple(self._restore_observation(scope, row) for row in observation_rows)
+            history_rows = FifoCostBatchSupplyStore.read_scan_observation_history(
+                connection, scope=scope, case_id=case.case_id,
+                tenant_fingerprint=tenant["tenant_fingerprint"], scan_id=scan["scan_id"],
+                limit=MAX_BATCH_OBSERVATIONS,
+            )
+            if len(history_rows) > MAX_BATCH_OBSERVATIONS:
+                return self._error("FIFO_BATCH_MANIFEST_OBSERVATION_LIMIT_REACHED")
+            observations = tuple(
+                self._restore_observation(scope, row) for row in history_rows
+            )
             decision_rows = FifoCostBatchSupplyStore.read_membership_decisions(
                 connection, scope=scope, case_id=case.case_id,
                 tenant_fingerprint=tenant["tenant_fingerprint"],

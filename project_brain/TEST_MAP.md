@@ -1,3 +1,11 @@
+# FIFO automatic-batch review follow-up — 2026-11-15
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_latest_manifest_reconciles_acceptance_against_prior_observations`: a newer scan with accepted quantity 90 after an earlier 100 for the same supply remains review-required and does not publish 90 as a complete accepted total.
+- `tests/test_fifo_cost_batch_supply_source.py::test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identity_leaks`: grouped inclusion, exclusion, re-inclusion correction, and stale preview rejection after a newer changed-quantity scan; all remain read-only for FIFO/COGS.
+- `tests/test_fifo_cost_batch_supply_source.py::test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart`: a new Telegram runtime rehydrates a saved partial scan and continues from the persisted cursor without repeating earlier pages or detail calls.
+- `tests/test_fifo_cost_batch_supply_source.py::test_unavailable_new_scan_is_persisted_and_supersedes_previous_published_scan`: a no-progress source failure becomes the newest `FAILED` checkpoint instead of exposing an older `PUBLISHED` scan as current.
+- Linked Windows/Python 3.12 profile: **189 passed** across FIFO batch tests and production/readiness/review/apply services; focused source/manifest/Telegram/checkpoint profile: **53 passed**. Exact-head CI and full isolated suite for this follow-up are pending publication.
+
 # FIFO automatic-batch PR C review regressions — 2026-11-15
 
 - `tests/test_fifo_cost_batch_supply_source.py` and `test_fifo_cost_batch_scan_checkpoint_service.py`: exact new-case observation binding after an earlier case was cancelled; maximum-size nested continuation round-trip; v18-to-v19 upgrade preserves the old token column.

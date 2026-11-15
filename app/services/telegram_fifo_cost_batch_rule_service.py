@@ -366,23 +366,40 @@ class TelegramFifoCostBatchRuleService:
                 f"Ставка правила {rule['new_unit_cost_rub']} ₽/шт. — это не текущая "
                 "себестоимость FIFO: правило само по себе не создаёт FIFO-слой и не меняет прибыль.",
             ]
+        if not isinstance(session.get("batch_last_scan"), dict):
+            self._restore_latest_scan(runtime, owner, session)
         scan = session.get("batch_last_scan")
         if not isinstance(scan, dict):
             if session.get("batch_refresh_error"):
                 lines.append("Последняя попытка обновления не удалась; подтверждённого чтения поставок ещё нет.")
-            lines.append(
-                "Поставки ещё не проверялись. Открытие карточки не обращается к Ozon. "
-                "Историческое покрытие и время среза Ozon не подтверждены."
-            )
+            if session.get("batch_scan_restore_error"):
+                lines.append(
+                    "Не удалось прочитать сохранённую проверку поставок. "
+                    "Повторите открытие карточки позже; Ozon не запрашивался."
+                )
+            else:
+                lines.append(
+                    "Поставки ещё не проверялись. Открытие карточки не обращается к Ozon. "
+                    "Историческое покрытие и время среза Ozon не подтверждены."
+                )
             return lines
         if session.get("batch_refresh_error"):
             lines.append("Последняя попытка обновления не удалась; ниже показан предыдущий результат чтения.")
         page_coverage = "полная в рамках запроса" if scan.get("pagination_complete") is True else "неполная"
         detail_coverage = "полная в рамках запроса" if scan.get("details_complete") is True else "неполная"
+        attempts = scan.get("http_attempts")
+        attempts_text = f"{attempts}/10" if type(attempts) is int else "не сохранено"
+        status_labels = {
+            "COMPLETE": "завершено в рамках текущего запроса",
+            "PARTIAL": "получена только часть данных",
+            "CONFLICT": "ответы противоречат друг другу",
+            "UNAVAILABLE": "источник недоступен",
+        }
         lines.extend([
+            f"Состояние последнего чтения: {status_labels.get(scan.get('status'), 'требует проверки')}.",
             f"Последнее чтение: {scan.get('read_at', 'в этой сессии')}; заявок в ответах "
             f"{scan.get('orders', 0)}, вложенных поставок {scan.get('supplies', 0)}; "
-            f"HTTP-попыток {scan.get('http_attempts', 0)}/10.",
+            f"HTTP-попыток {attempts_text}.",
             f"Покрытие текущего запроса: список — {page_coverage}, карточки — {detail_coverage}. "
             "Это время чтения ботом, не время среза Ozon; отдельный source-as-of и полнота истории не подтверждены.",
             "Это количество строк ответа API, а не подтверждённый остаток или количество SKU. "
@@ -390,8 +407,124 @@ class TelegramFifoCostBatchRuleService:
         ])
         if scan.get("continuation_available"):
             lines.append("Ограниченный поиск можно продолжить кнопкой «Обновить поставки».")
+        elif scan.get("continuation_expired"):
+            lines.append("Сохранённое продолжение истекло; запустите новый поиск кнопкой «Обновить поставки».")
         lines.extend(self._issue_messages(scan.get("issue_codes", ()))[:2])
         return lines
+
+    def _restore_latest_scan(self, runtime, owner, session):
+        """Rehydrate the exact scoped scan and resumable reference after restart."""
+        if self.scan_checkpoint_service is None:
+            return False
+        connection = None
+        try:
+            scope = self._scope(runtime, owner, session)
+            tenant = self.repository._tenant_scope(scope.store_id)
+            if tenant.get("error"):
+                raise ValueError("FIFO_BATCH_SCAN_TENANT_SCOPE_UNAVAILABLE")
+            connection = self.repository.get_connection()
+            scan = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                connection, scope=scope, case_id=session["case_id"],
+                tenant_fingerprint=tenant["tenant_fingerprint"],
+            )
+            session["batch_scan_restore_error"] = False
+            if scan is None:
+                return True
+            status = {
+                "PUBLISHED": "COMPLETE",
+                "STAGING": "PARTIAL",
+                "PARTIAL": "PARTIAL",
+                "FAILED": "UNAVAILABLE",
+                "EXPIRED": "UNAVAILABLE",
+            }.get(scan.get("status"), "UNAVAILABLE")
+            captured_at = scan.get("captured_at") or scan.get("updated_at")
+            read_at = "сохранённое чтение"
+            if isinstance(captured_at, str):
+                try:
+                    parsed = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+                    read_at = parsed.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+                except ValueError:
+                    pass
+            issues = json.loads(scan.get("issue_codes_json") or "[]")
+            if not isinstance(issues, list):
+                issues = []
+            issue_codes = tuple(
+                value for value in issues
+                if isinstance(value, str) and value.startswith("FIFO_BATCH_")
+            )[:12]
+            if scan.get("status") == "PUBLISHED" and any(
+                marker in issue
+                for issue in issue_codes
+                for marker in (
+                    "CONFLICT", "MUTATED", "NOT_ADVANCING", "INVALID",
+                    "PROOF_MISSING", "CHANGED", "DUPLICATE",
+                )
+            ):
+                status = "CONFLICT"
+            continuation_available = False
+            continuation_expired = False
+            if (
+                scan.get("status") in {"STAGING", "PARTIAL"}
+                and scan.get("encrypted_resumable_token") is not None
+            ):
+                token = f"{scan['scan_id']}_r{scan['revision']}"
+                expires_at = datetime.fromisoformat(
+                    scan["expires_at"].replace("Z", "+00:00"),
+                )
+                now = runtime._now_provider()
+                if now.tzinfo is None or now.utcoffset() is None:
+                    raise ValueError("FIFO_BATCH_SCAN_TIMESTAMP_INVALID")
+                if expires_at.astimezone(timezone.utc) <= now.astimezone(timezone.utc):
+                    continuation_expired = True
+                else:
+                    supported_states = json.loads(
+                        scan["supported_state_profile_json"],
+                    )
+                    resumed = self.scan_checkpoint_service.load_continuation(
+                        scope=scope, case_id=session["case_id"],
+                        tenant_fingerprint=tenant["tenant_fingerprint"],
+                        rule_id=scan["rule_id"], rule_revision=scan["rule_revision"],
+                        rule_fingerprint=scan["rule_fingerprint"],
+                        expected_case_revision=session["case_revision"],
+                        source_contract_version=scan["source_contract_version"],
+                        supported_state_profile=tuple(supported_states),
+                        requested_from=scan.get("requested_from"),
+                        requested_through=scan.get("requested_through"),
+                        continuation_token=token,
+                    )
+                    if not resumed.get("error"):
+                        continuation_available = True
+                        session["batch_continuation_token"] = token
+                    else:
+                        issue = resumed.get("code")
+                        if isinstance(issue, str) and issue.startswith("FIFO_BATCH_"):
+                            issue_codes = tuple(dict.fromkeys((*issue_codes, issue)))[:12]
+            if not continuation_available:
+                session.pop("batch_continuation_token", None)
+            session["batch_last_scan"] = {
+                "read_at": read_at,
+                "status": status,
+                "orders": self._bounded_count(scan.get("orders_seen")),
+                "supplies": self._bounded_count(scan.get("supplies_seen")),
+                "http_attempts": None,
+                "pagination_complete": scan.get("list_pagination_complete") == 1,
+                "details_complete": scan.get("details_complete") == 1,
+                "scan_id": scan.get("scan_id"),
+                "scan_revision": scan.get("revision"),
+                "candidates": self._bounded_count(scan.get("sku_rows_seen")),
+                "sku_composition_complete": scan.get("sku_composition_complete") == 1,
+                "issue_codes": issue_codes,
+                "continuation_available": continuation_available,
+                "continuation_expired": continuation_expired,
+            }
+            return True
+        except Exception:
+            session["batch_scan_restore_error"] = True
+            session.pop("batch_continuation_token", None)
+            return False
+        finally:
+            if connection is not None:
+                connection.close()
 
     def summary_buttons(self, runtime, owner, session):
         return [
@@ -494,10 +627,12 @@ class TelegramFifoCostBatchRuleService:
             "UNAVAILABLE": "источник временно недоступен",
             "INVALID": "ответ не прошёл проверку структуры",
         }
+        attempts = scan.get("http_attempts")
+        attempts_text = f"{attempts}/10" if type(attempts) is int else "не сохранено"
         lines = [
             f"Проверка поставок за {scan.get('read_at', 'текущее чтение')}: {status_labels.get(scan.get('status'), 'результат требует проверки')}.",
             f"Заявок в ответах: {scan.get('orders', 0)}; вложенных поставок: {scan.get('supplies', 0)}; "
-            f"HTTP-попыток: {scan.get('http_attempts', 0)}/10.",
+            f"HTTP-попыток: {attempts_text}.",
         ]
         if scan.get("pagination_complete") and scan.get("details_complete"):
             lines.append("Локальная пагинация и карточки прочитаны до конца; полнота исторического охвата Ozon всё равно не подтверждена.")
@@ -900,6 +1035,17 @@ class TelegramFifoCostBatchRuleService:
                     or scan_row["rule_fingerprint"] != preview["rule_fingerprint"]
                 ):
                     return {"error": True, "code": "FIFO_BATCH_SCAN_STALE"}
+                latest_scan = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                    connection, scope=scope, case_id=session["case_id"],
+                    tenant_fingerprint=tenant["tenant_fingerprint"],
+                )
+                if (
+                    latest_scan is None
+                    or latest_scan["scan_id"] != preview["scan_id"]
+                    or latest_scan["revision"] != preview["scan_revision"]
+                    or latest_scan["status"] != "PUBLISHED"
+                ):
+                    return {"error": True, "code": "FIFO_BATCH_SCAN_STALE"}
                 current_set = FifoCostBatchSupplyStore.read_scan_candidate_page(
                     connection, scope=scope, case_id=session["case_id"],
                     tenant_fingerprint=tenant["tenant_fingerprint"],
@@ -924,23 +1070,12 @@ class TelegramFifoCostBatchRuleService:
                 ))
                 if len(current_pairs) != len(record_keys) or current_pairs != source_fingerprints:
                     return {"error": True, "code": "FIFO_BATCH_SCAN_STALE"}
-                existing = FifoCostBatchSupplyStore.read_membership_decision_by_binding(
-                    connection, scope=scope, case_id=session["case_id"],
-                    tenant_fingerprint=tenant["tenant_fingerprint"],
-                    rule_id=preview["rule_id"],
-                    rule_revision=preview["rule_revision"],
-                    membership_binding_fingerprint=binding,
-                )
-                if existing is not None:
-                    if existing["decision"] == decision_kind.value:
-                        return {"error": False, "code": "FIFO_BATCH_DECISION_ALREADY_CONFIRMED"}
-                    return {"error": True, "code": "FIFO_BATCH_DECISION_CONFLICT"}
                 existing_decisions = FifoCostBatchSupplyStore.read_membership_decisions(
                     connection, scope=scope, case_id=session["case_id"],
                     tenant_fingerprint=tenant["tenant_fingerprint"], limit=20_000,
                 )
                 selected_keys = set(record_keys)
-                overlapping_times = []
+                overlapping = []
                 for row in existing_decisions:
                     if (
                         row["rule_id"] != preview["rule_id"]
@@ -949,10 +1084,30 @@ class TelegramFifoCostBatchRuleService:
                         continue
                     prior_keys = self._json_record_keys(row["record_keys_json"])
                     if selected_keys.intersection(prior_keys):
-                        overlapping_times.append(row["confirmed_at"])
+                        overlapping.append(row)
+                if overlapping:
+                    latest_time = max(row["confirmed_at"] for row in overlapping)
+                    latest_decisions = [
+                        row for row in overlapping if row["confirmed_at"] == latest_time
+                    ]
+                    latest_outcomes = {row["decision"] for row in latest_decisions}
+                    if len(latest_outcomes) > 1:
+                        return {"error": True, "code": "FIFO_BATCH_DECISION_CONFLICT"}
+                    if any(
+                        row["membership_binding_fingerprint"] == binding
+                        and row["decision"] == decision_kind.value
+                        for row in latest_decisions
+                    ):
+                        return {"error": False, "code": "FIFO_BATCH_DECISION_ALREADY_CONFIRMED"}
+                    predecessor = max(
+                        latest_decisions,
+                        key=lambda row: (row["decision_id"], row["revision"]),
+                    )
+                else:
+                    latest_time = None
+                    predecessor = None
                 decision_time = confirmed_text
-                if overlapping_times:
-                    latest_time = max(overlapping_times)
+                if latest_time is not None:
                     if decision_time <= latest_time:
                         parsed = datetime.fromisoformat(latest_time.replace("Z", "+00:00"))
                         decision_time = (parsed + timedelta(microseconds=1)).astimezone(
@@ -971,6 +1126,10 @@ class TelegramFifoCostBatchRuleService:
                     membership_binding_fingerprint=binding,
                     idempotency_key="tg-bmd-" + uuid4().hex,
                     confirmed_at=decision_time,
+                    previous_decision_ref=(
+                        f"{predecessor['decision_id']}-r{predecessor['revision']}"
+                        if predecessor is not None else None
+                    ),
                 )
                 stored = FifoCostBatchSupplyStore.append_membership_decision(
                     connection, decision,

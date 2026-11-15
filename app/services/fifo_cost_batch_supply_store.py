@@ -961,6 +961,67 @@ class FifoCostBatchSupplyStore:
         return tuple(dict(row) for row in rows)
 
     @classmethod
+    def read_scan_observation_history(
+        cls, connection, *, scope: ScopeIdentity, case_id: str,
+        tenant_fingerprint: str, scan_id: str,
+        limit: int = MAX_BATCH_OBSERVATIONS,
+    ) -> tuple[dict, ...]:
+        """Read bounded history for only the supply keys in one exact scan.
+
+        The newest scan determines which supplies participate in the current
+        manifest; earlier observations for those same supplies are retained
+        so cumulative acceptance can be checked for impossible decreases.
+        """
+        cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
+        cls._validate_opaque(scan_id)
+        if type(limit) is not int or not 1 <= limit <= MAX_BATCH_OBSERVATIONS:
+            raise ValueError("FIFO_BATCH_READ_LIMIT_INVALID")
+        if cls._case_row(
+            connection, scope, case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+        ) is None:
+            return ()
+        rows = connection.execute(
+            """WITH current_keys AS (
+                   SELECT DISTINCT link.record_key
+                   FROM fifo_cost_batch_scan_observations AS link
+                   JOIN fifo_cost_batch_supply_scans AS scan
+                     ON scan.case_id=link.case_id AND scan.scan_id=link.scan_id
+                   WHERE link.case_id=? AND link.scan_id=?
+                     AND scan.owner_fingerprint=? AND scan.tenant_fingerprint=?
+                     AND scan.store_id=? AND scan.sku=? AND scan.scope_fingerprint=?
+               )
+               SELECT observation.record_key, observation.order_ref_digest,
+                      observation.supply_ref_digest, observation.encrypted_lookup_payload,
+                      observation.source_profile_version, observation.source_fingerprint,
+                      observation.captured_at, observation.source_as_of,
+                      observation.source_status, observation.normalized_status,
+                      observation.is_crossdock, observation.dispatch_local_date,
+                      observation.dispatch_local_time, observation.dispatch_time_status,
+                      observation.planned_declared_quantity,
+                      observation.shipped_composition_quantity,
+                      observation.accepted_quantity, observation.quantity_source_kind,
+                      observation.quantity_coverage, observation.acceptance_fingerprint,
+                      observation.acceptance_version, observation.explicit_zero_fields_json,
+                      observation.membership, observation.issues_json,
+                      observation.observation_revision
+               FROM fifo_cost_batch_supply_observations AS observation
+               JOIN current_keys ON current_keys.record_key=observation.record_key
+               WHERE observation.case_id=? AND observation.owner_fingerprint=?
+                 AND observation.tenant_fingerprint=? AND observation.store_id=?
+                 AND observation.sku=? AND observation.scope_fingerprint=?
+               ORDER BY observation.record_key, observation.captured_at,
+                        observation.observation_revision, observation.source_fingerprint
+               LIMIT ?""",
+            (
+                case_id, scan_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope),
+                case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                scope.store_id, scope.sku, cls._scope_fingerprint(scope), limit + 1,
+            ),
+        ).fetchall()
+        return tuple(dict(row) for row in rows)
+
+    @classmethod
     def read_membership_decisions(
         cls, connection, *, scope: ScopeIdentity, case_id: str,
         tenant_fingerprint: str, limit: int = 20_000,

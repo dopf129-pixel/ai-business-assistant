@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO auto-batch review follow-up
+
+- Fixed five confirmed PR C review findings: latest-scan manifests now reconcile acceptance against bounded prior observations for the same current supply keys; an owner can add or correct a grouped membership decision; a decision preview is rejected after a newer scan is persisted; a new Telegram session restores the scoped saved scan and encrypted continuation; and a source no-progress failure persists as the latest failed scan so older published results cannot remain current.
+- Regression evidence: **53 focused tests passed**; **189 linked FIFO batch/production/readiness/review/apply tests passed**. `git diff --check` and tracked `data/` equality passed. Full isolated suite and exact-head CI remain pending for this follow-up SHA.
+- No schema change, live Ozon/Telegram request, owner data use, bot launch, merge or deployment. PR #736 remains a draft pending final verification and independent review.
+
 # 2026-11-15 — FIFO auto-batch PR C review fixes (R1–R8)
 
 - Fixed all eight confirmed review findings in the PR C integration branch: observations bind to the exact case; transition reference aliases preserve old API identity keys; rule history retains closed revisions; old-interval/outside and owner-excluded rows no longer block the active manifest; overlapping owner membership decisions can be corrected; Telegram rows show safe masked supply references; and manifest data plus seal fingerprint use one SQLite snapshot.

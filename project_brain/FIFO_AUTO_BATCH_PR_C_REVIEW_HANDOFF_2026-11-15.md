@@ -57,6 +57,15 @@ See [FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md](FIFO_BATCH_SUPPLY_SOURCE_C
 - Opaque identifiers and continuation/lookups remain encrypted in scoped storage. Telegram selection rows omit raw supply/order IDs, SKU IDs, product names and barcodes. Public status contains bounded counts, status/category summaries and safe issue codes. Synthetic fixtures only; no owner credentials or `.env` content are included.
 - Rollback path is the project's verified backup/dry-run-restore workflow. Do not hand-edit FIFO tables or downgrade a schema version.
 
+## Additional review findings fixed after R1–R8
+
+- Historical acceptance: when the newest scan still contains a supply, the manifest now reads a bounded history of observations for that exact current supply set. A novel accepted-quantity decrease remains `REVIEW_REQUIRED`; older supplies absent from the latest scan do not leak back into its candidate set.
+- Owner membership correction: an existing same-outcome decision for only part of a selected group no longer suppresses a new grouped decision. A later opposite choice and a subsequent correction to the original choice are appended and resolved by confirmation time; conflicting same-time outcomes remain fail-closed.
+- Stale preview: confirmation now compares its exact scan ID/revision with the newest scoped checkpoint in the same write transaction. A newer partial, failed, or published scan invalidates the old preview.
+- Restart continuation: a fresh Telegram runtime rehydrates the latest exact-scope scan and validates the encrypted continuation locally before offering resume. Restored HTTP-attempt counts are shown as “не сохранено” instead of being fabricated as zero.
+- Failed refresh visibility: a new source scan first persists a `STAGING` checkpoint; a no-progress source failure advances it to `FAILED`. This prevents an earlier `PUBLISHED` scan from appearing current after an unsuccessful refresh. Logical checkpoint timestamps advance monotonically to keep newest-scan selection unambiguous under a fixed clock.
+- Regressions: `test_latest_manifest_reconciles_acceptance_against_prior_observations`, `test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identity_leaks`, `test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart`, and `test_unavailable_new_scan_is_persisted_and_supersedes_previous_published_scan`.
+
 ## Local verification before publication
 
 - Review regressions R1–R8: **125 passed in 8.64s** across the affected FIFO batch service, store, source, manifest, Telegram, contracts and migration modules. The tests cover exact-case binding, legacy identity preservation, rule-chain replay, benign outside/exclusion outcomes, overlapping decision correction, 1 MiB continuation persistence with v18 migration preservation, masked candidate identities, and one-snapshot manifest sealing.
@@ -64,6 +73,7 @@ See [FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md](FIFO_BATCH_SUPPLY_SOURCE_C
 - `git diff --check` passes; no tracked `data/` file is part of the change. `.fl12-deps/` is preserved and excluded.
 - FB30 first-day-choice regressions: **36 passed**.
 - Linked FIFO batch, transition/readiness/review/apply/service profile after FB30: **177 passed in 20.24s**; all are synthetic/local tests.
+- Additional five-finding follow-up: focused profile **53 passed**; linked FIFO batch/production/readiness/review/apply profile **189 passed**. `git diff --check` and tracked `data/` equality passed. The full isolated suite and exact-head Verify for this follow-up remain pending publication of its SHA.
 - Full configured suite at FB29 SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, but it predates the FB30 code change and must not be attributed to PR C final head.
 - Exact-head Verify [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054) passed on review-fix code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e`, including Windows/Linux full suites, compile, Docker build/runtime smoke and SHA-bound artifact. A documentation-only follow-up may advance HEAD; the live PR body remains the source of truth for latest head/checks.
 - No live Ozon/Telegram request, owner data, Desktop bot change/start, merge or deployment.
