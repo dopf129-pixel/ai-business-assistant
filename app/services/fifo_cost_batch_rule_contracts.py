@@ -237,8 +237,6 @@ class BatchRuleInput:
         if not isinstance(self.start_day_policy, BatchStartDayPolicy):
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         boundary = _digest_tuple(self.boundary_supply_digests, max_items=MAX_SCAN_SUPPLIES)
-        if self.start_day_policy is BatchStartDayPolicy.EXPLICIT_SUPPLY_SET and not boundary:
-            _invalid(TransitionReasonCode.CONTRACT_INVALID)
         object.__setattr__(self, "boundary_supply_digests", boundary)
 
 

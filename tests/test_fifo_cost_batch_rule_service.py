@@ -167,11 +167,11 @@ def test_preview_is_read_only_and_confirm_only_switches_case_mode(tmp_path, monk
         reset_current_tenant_user_id(token)
 
 
-def test_explicit_first_day_supply_set_must_be_nonempty():
-    with pytest.raises(TransitionContractError):
-        BatchRuleInput(
-            "2026-11-05", BatchStartDayPolicy.EXPLICIT_SUPPLY_SET, (),
-        )
+def test_explicit_first_day_supply_set_can_wait_for_owner_selection():
+    rule_input = BatchRuleInput(
+        "2026-11-05", BatchStartDayPolicy.EXPLICIT_SUPPLY_SET, (),
+    )
+    assert rule_input.boundary_supply_digests == ()
 
 
 @pytest.mark.parametrize("field,value", [

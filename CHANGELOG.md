@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch first-day selection and owner guide (FB30)
+
+- Completed the `Нет / не уверен — выбрать поставки` route: the owner may save an explicit first-day boundary with no rows included, then review and confirm exact supply rows after a bounded source refresh. A previously issued all-day confirmation button is stale after choosing the explicit route.
+- Added an owner guide that explains the automatic rule, unknown quantities, exact group review, continuation, dated controls, documented Ozon fields, and the independent R1 cutoff limitation. The rule still does not write FIFO layers or change profit.
+- Focused Windows/Python profile after this change: **36 passed** for rule contract, classifier and Telegram rule regressions; linked FIFO batch + production readiness/apply profile: **177 passed**. The FB29 full suite predates this FB30 code change; exact-head CI remains required.
+
 # 2026-11-15 — FIFO automatic batch full isolated verification (FB29)
 
 - Ran the complete configured pytest suite from a disposable copy at code SHA `cc329692d5c259595ef1419f9dbfde483071da66`, with no skip/deselect and without runtime seller data or credentials. A synthetic `USN_INCOME 6%` tax policy was the only initial data fixture.

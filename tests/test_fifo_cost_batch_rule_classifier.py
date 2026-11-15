@@ -252,8 +252,11 @@ def test_owner_group_decision_binds_every_record_and_survives_status_refresh():
 
 
 def test_owner_selected_exact_first_day_decision_resolves_boundary():
-    rule = _rule(policy=BatchStartDayPolicy.EXPLICIT_SUPPLY_SET)
+    rule = _rule(policy=BatchStartDayPolicy.EXPLICIT_SUPPLY_SET, boundary=())
     observation = _observation(supply="manually-selected")
+    pending = FifoCostBatchRuleClassifier.classify_supply((rule,), observation)
+    assert pending.membership is SupplyMembership.NEEDS_CONFIRMATION
+    assert pending.issue_codes == ("START_DAY_MEMBERSHIP_NEEDS_CONFIRMATION",)
     decision = _decision(observation, rule)
     result = FifoCostBatchRuleClassifier.classify_supply(
         (rule,), observation, (decision,),

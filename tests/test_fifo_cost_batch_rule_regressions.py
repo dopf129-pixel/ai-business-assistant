@@ -295,7 +295,7 @@ def test_existing_legacy_total_is_preserved_when_resuming_at_mode_choice(tmp_pat
         reset_current_tenant_user_id(tenant)
 
 
-def test_start_day_no_or_unknown_cannot_reuse_all_day_confirmation_button(tmp_path):
+def test_start_day_no_or_unknown_saves_pending_explicit_rule_and_invalidates_all_day_button(tmp_path):
     tenant = set_current_tenant_user_id(
         make_store_tenant_scope("test-owner-a", IDENTITY["store_id"]),
     )
@@ -325,14 +325,53 @@ def test_start_day_no_or_unknown_cannot_reuse_all_day_confirmation_button(tmp_pa
             button["callback"] for button in policy["keyboard"]["buttons"]
             if button["text"].startswith("Нет / не уверен")
         )
-        unresolved = runtime.handle_callback(101, select)
-        assert "правило не сохранено" in unresolved["message"].lower()
+        pending_preview = runtime.handle_callback(101, select)
+        assert "ни одна не включена автоматически" in pending_preview["message"].lower()
+        assert "выберите конкретные строки первого дня" in pending_preview["message"].lower()
+        assert any(
+            button["text"] == "Подтвердить правило"
+            for button in pending_preview["keyboard"]["buttons"]
+        )
         assert runtime.handle_callback(101, stale_all_day)["error"] is True
+        confirm = next(
+            button["callback"] for button in pending_preview["keyboard"]["buttons"]
+            if button["text"] == "Подтвердить правило"
+        )
+        saved_rule = runtime.handle_callback(101, confirm)
+        assert saved_rule["error"] is False, saved_rule
+        assert "ни одна отправка первого дня не включена" in saved_rule["message"].lower()
         saved = transitions.list_cases(
             store_id=IDENTITY["store_id"], sku=IDENTITY["sku"],
         )["cases"][0]
-        assert saved["case"]["supply_total_mode"] == SupplyTotalMode.LEGACY_OWNER_TOTAL.value
-        assert saved["case_revision"] == 6
+        assert saved["case"]["supply_total_mode"] == SupplyTotalMode.AUTO_FROM_SUPPLIES.value
+        assert saved["case_revision"] == 7
+        active_rule = rules.read_active_rule(
+            ScopeIdentity(
+                owner_id="test-owner-a", store_id=IDENTITY["store_id"],
+                product_id=IDENTITY["product_id"], offer_id=IDENTITY["offer_id"],
+                sku=IDENTITY["sku"],
+            ), saved["case_id"], saved["case_revision"],
+        )
+        assert active_rule["error"] is False, active_rule
+        assert active_rule["start_day_policy"] == "EXPLICIT_SUPPLY_SET"
+        connection = repository.get_connection()
+        try:
+            stored_rules = FifoCostBatchSupplyStore.read_rule_revisions(
+                connection,
+                scope=ScopeIdentity(
+                    owner_id="test-owner-a", store_id=IDENTITY["store_id"],
+                    product_id=IDENTITY["product_id"], offer_id=IDENTITY["offer_id"],
+                    sku=IDENTITY["sku"],
+                ),
+                case_id=saved["case_id"],
+                tenant_fingerprint=repository._tenant_scope(
+                    IDENTITY["store_id"],
+                )["tenant_fingerprint"],
+            )
+        finally:
+            connection.close()
+        assert len(stored_rules) == 1
+        assert stored_rules[0]["boundary_supply_digests_json"] == "[]"
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
     finally:
         reset_current_tenant_user_id(tenant)

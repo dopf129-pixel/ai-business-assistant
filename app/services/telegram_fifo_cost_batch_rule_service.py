@@ -127,64 +127,14 @@ class TelegramFifoCostBatchRuleService:
             return runtime._show_summary(owner)
         if action == "batch_auto":
             return self._start_auto_choice(runtime, owner)
-        if action == "batch_day_all":
+        if action in {"batch_day_all", "batch_day_select"}:
             self._bump_flow(session)
-            case = session.get("case", {})
-            dispatch_date = case.get("dispatch_date")
-            if not isinstance(dispatch_date, str):
-                return runtime._failure("Дата первой отправки неизвестна. Правило не сохранено.")
-            result = self.rule_service.preview_rule(
-                self._scope(runtime, owner, session), session["case_id"],
-                session["case_revision"], BatchRuleInput(
-                    dispatch_date, BatchStartDayPolicy.ALL_OWNER_CONFIRMED,
-                ),
+            policy = (
+                BatchStartDayPolicy.ALL_OWNER_CONFIRMED
+                if action == "batch_day_all"
+                else BatchStartDayPolicy.EXPLICIT_SUPPLY_SET
             )
-            if result.get("error"):
-                return runtime._failure(self._safe_rule_error(result.get("code")))
-            preview = result["preview"]
-            session["batch_rule_preview"] = {
-                "preview_id": preview.preview_id,
-                "preview_fingerprint": preview.preview_fingerprint,
-                "start_date": preview.start_local_date,
-                "policy": preview.start_day_policy.value,
-                "case_revision": preview.expected_case_revision,
-            }
-            session["step"] = "batch_rule_preview"
-            callback = runtime._issue_ticket(
-                owner, session, "batch_confirm_rule",
-                preview_id=preview.preview_id,
-                preview_fingerprint=preview.preview_fingerprint,
-            )
-            previous_total = session["case"].get("declared_shipped_units")
-            previous_total_note = (
-                f"Ранее введённый общий итог {previous_total} шт. останется только legacy-контролем без даты и не ограничивает автоматический состав."
-                if previous_total is not None
-                else "Контрольный общий итог: не указан."
-            )
-            text = (
-                f"Проверьте границу партии для {session['display_name']} · SKU {session['identity']['sku']}\n"
-                f"Новая себестоимость: {runtime._format_cost(session['case'])} ₽/упаковку\n"
-                f"Начало: {preview.start_local_date} · часовой пояс магазина: {preview.store_timezone}\n"
-                "Отправки за этот день: вы подтвердили, что все относятся к новой партии.\n"
-                f"Старый товар дома/в пути: {session['case'].get('owner_old_home_units')} / "
-                f"{session['case'].get('owner_old_transit_units')} шт.\n"
-                f"Новый товар дома: неизвестно. {previous_total_note}\n"
-                "Подтверждение сохранит только правило границы. FIFO и расчёт прибыли не изменятся."
-            )
-            return runtime._result(text, keyboard=runtime._keyboard([
-                {"text": "Подтвердить правило", "callback": callback},
-                {"text": "Вернуться", "callback": runtime._issue_ticket(owner, session, "batch_back")},
-            ]))
-        if action == "batch_day_select":
-            self._bump_flow(session)
-            session["step"] = "batch_mode_choice"
-            return runtime._result(
-                "Нельзя безопасно подтвердить только часть отправок, пока список поставок не прочитан. Правило не сохранено. "
-                "После подключения чтения списка можно будет выбрать поставки первого дня. Пока можно вернуться; автоматическое правило не сохранено.",
-                keyboard=runtime._keyboard([
-                    {"text": "Вернуться", "callback": runtime._issue_ticket(owner, session, "batch_back")},
-                ]),
-            )
+            return self._preview_start_day_rule(runtime, owner, session, policy)
         if action == "batch_confirm_rule":
             return self._confirm_rule(runtime, owner, session, ticket)
         if action == "batch_control":
@@ -292,6 +242,60 @@ class TelegramFifoCostBatchRuleService:
             ]),
         )
 
+    def _preview_start_day_rule(self, runtime, owner, session, policy):
+        case = session.get("case", {})
+        dispatch_date = case.get("dispatch_date")
+        if not isinstance(dispatch_date, str):
+            return runtime._failure("Дата первой отправки неизвестна. Правило не сохранено.")
+        result = self.rule_service.preview_rule(
+            self._scope(runtime, owner, session), session["case_id"],
+            session["case_revision"], BatchRuleInput(dispatch_date, policy),
+        )
+        if result.get("error"):
+            return runtime._failure(self._safe_rule_error(result.get("code")))
+        preview = result["preview"]
+        session["batch_rule_preview"] = {
+            "preview_id": preview.preview_id,
+            "preview_fingerprint": preview.preview_fingerprint,
+            "start_date": preview.start_local_date,
+            "policy": preview.start_day_policy.value,
+            "case_revision": preview.expected_case_revision,
+        }
+        session["step"] = "batch_rule_preview"
+        callback = runtime._issue_ticket(
+            owner, session, "batch_confirm_rule",
+            preview_id=preview.preview_id,
+            preview_fingerprint=preview.preview_fingerprint,
+        )
+        previous_total = case.get("declared_shipped_units")
+        previous_total_note = (
+            f"Ранее введённый общий итог {previous_total} шт. останется только legacy-контролем без даты и не ограничивает автоматический состав."
+            if previous_total is not None
+            else "Контрольный общий итог: не указан."
+        )
+        if policy is BatchStartDayPolicy.ALL_OWNER_CONFIRMED:
+            boundary_note = "Отправки за этот день: вы подтвердили, что все относятся к новой партии."
+        else:
+            boundary_note = (
+                "Отправки за этот день: пока ни одна не включена автоматически. "
+                "После сохранения обновите список и выберите конкретные строки первого дня. "
+                "Подтверждённые отправки с более поздней датой могут учитываться по правилу автоматически."
+            )
+        text = (
+            f"Проверьте границу партии для {session['display_name']} · SKU {session['identity']['sku']}\n"
+            f"Новая себестоимость: {runtime._format_cost(case)} ₽/упаковку\n"
+            f"Начало: {preview.start_local_date} · часовой пояс магазина: {preview.store_timezone}\n"
+            f"{boundary_note}\n"
+            f"Старый товар дома/в пути: {case.get('owner_old_home_units')} / "
+            f"{case.get('owner_old_transit_units')} шт.\n"
+            f"Новый товар дома: неизвестно. {previous_total_note}\n"
+            "Подтверждение сохранит только правило границы. FIFO и расчёт прибыли не изменятся."
+        )
+        return runtime._result(text, keyboard=runtime._keyboard([
+            {"text": "Подтвердить правило", "callback": callback},
+            {"text": "Вернуться", "callback": runtime._issue_ticket(owner, session, "batch_back")},
+        ]))
+
     def _confirm_rule(self, runtime, owner, session, ticket):
         saved = session.get("batch_rule_preview")
         if (
@@ -314,9 +318,19 @@ class TelegramFifoCostBatchRuleService:
         runtime._refresh_session(session, case)
         self._clear_transient(session)
         self._bump_flow(session)
+        message = (
+            "Правило партии сохранено, но ни одна отправка первого дня не включена автоматически. "
+            "Откройте карточку партии, обновите список и подтвердите нужные строки отдельно. "
+            "Дата отправки не считается датой приёмки или продажи. FIFO и расчёт прибыли не изменились; "
+            "полноту источника нужно проверить отдельно."
+            if saved.get("policy") == BatchStartDayPolicy.EXPLICIT_SUPPLY_SET.value
+            else (
+                "Правило партии сохранено. Дата отправки не считается датой приёмки или продажи. "
+                "FIFO и расчёт прибыли не изменились; новые поставки и полноту источника нужно проверить отдельно."
+            )
+        )
         response = runtime._result(
-            "Правило партии сохранено. Дата отправки не считается датой приёмки или продажи. "
-            "FIFO и расчёт прибыли не изменились; новые поставки и полноту источника нужно проверить отдельно.",
+            message,
             keyboard=runtime._keyboard([
                 {"text": "К делу", "callback": runtime._issue_ticket(owner, session, "finish")},
             ]),

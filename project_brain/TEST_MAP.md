@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch first-day selection (FB30)
+
+- `tests/test_fifo_cost_batch_rule_regressions.py::test_start_day_no_or_unknown_saves_pending_explicit_rule_and_invalidates_all_day_button` verifies that NO/UNKNOWN saves an explicit rule with `boundary_supply_digests_json=[]`, invalidates the previous all-day ticket, leaves the FIFO queue uninitialized, and explains that no first-day supply is included until the owner confirms exact rows.
+- `tests/test_fifo_cost_batch_rule_classifier.py::test_owner_selected_exact_first_day_decision_resolves_boundary` verifies that an empty explicit boundary remains `NEEDS_CONFIRMATION` before an exact owner membership decision and becomes eligible only after that decision. `tests/test_fifo_cost_batch_rule_service.py::test_explicit_first_day_supply_set_can_wait_for_owner_selection` covers the pending empty-set contract.
+- Linked Windows/Python 3.12 profile: **36 passed** across the batch rule service, classifier, and Telegram rule regressions. Broader FIFO batch/production transition-readiness-review-apply profile: **177 passed in 20.24s**. The FB29 full suite passed 5,437 tests at code SHA `cc329692d5c259595ef1419f9dbfde483071da66` before this change; exact-head CI is still needed.
+
 # 2026-11-15 — FIFO automatic batch full isolated profile (FB29)
 
 - Full CI-configured suite (`python -m pytest -p no:cacheprovider -q`, `tests/` and `app/tests/` per `pytest.ini`) passed at code SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, no skip/deselect. It ran from a disposable copy without repository runtime data, local session/memory/database files or credentials; only a synthetic `USN_INCOME 6%` policy was supplied.

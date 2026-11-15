@@ -1,3 +1,10 @@
+# 2026-11-15 — FIFO automatic batch mixed first-day rule and owner guide (FB30)
+
+- `Нет / не уверен — выбрать поставки` now opens a reviewable explicit-boundary rule preview instead of the obsolete “list reading is not connected” message. Confirming it stores an empty first-day membership set; no shipment is auto-included on that day. Exact owner-selected supply decisions can resolve rows later; without them the classifier keeps the boundary unresolved. The old all-day callback becomes stale.
+- The confirmed rule changes only automatic supply mode/rule history. It does not create FIFO rates, layers, allocations, COGS or update profit. Later dates are automatic only when dispatch date is independently confirmed; the supplied Ozon docs do not prove that fact.
+- Added `FIFO_AUTO_BATCH_OWNER_GUIDE_2026-11-15.md`, including exact Telegram steps and the limits of `/v3/supply-order/list`, `/v3/supply-order/get` and `/v1/supply-order/bundle` evidence. Inventory cutoff/source R1 remains **NOT_VERIFIED**; owner case remains unverified.
+- Linked Windows/Python 3.12 profile after the FB30 code change: **36 passed** (rule contract/classifier/Telegram rule regression) and **177 passed** (all FIFO batch tests plus production transition/readiness/review/apply/service). Full configured pytest at FB29 SHA `cc329692d5c259595ef1419f9dbfde483071da66` passed **5,437**, but predates this change. No live Ozon/Telegram request, bot launch, merge or deployment.
+
 # 2026-11-15 — FIFO automatic batch full isolated profile (FB29)
 
 - Complete configured pytest suite passed from a disposable copy of code SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, with no skipped/deselected tests. Runtime data, local session/memory/database files and credentials were excluded; only a synthetic `USN_INCOME 6%` policy was added. Full `compileall -q app tests` passed.
