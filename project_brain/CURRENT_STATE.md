@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch full isolated profile (FB29)
+
+- Complete configured pytest suite passed from a disposable copy of code SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, with no skipped/deselected tests. Runtime data, local session/memory/database files and credentials were excluded; only a synthetic `USN_INCOME 6%` policy was added. Full `compileall -q app tests` passed.
+- The repository `data/` Git tree matches FB00. Four baseline SHA-256 entries match exactly; the fifth (`tax_configuration.json`) was truncated in the original progress record and is corrected there. No source data was restored, edited or copied into the disposable profile.
+- No live Ozon/Telegram request, bot launch, merge or deployment. Raw seller state/date/history completeness, physical receipt timing and inventory movement source R1 remain unverified.
+
 # 2026-11-15 — FIFO automatic batch crash/migration/backup verification (FB28)
 
 - Public backup and restore now have a regression for a confirmed automatic batch rule plus its encrypted, partial supply manifest. The same scoped rule and manifest fingerprint reopen after restoration; accepted quantity remains unknown and FIFO cost/event/allocation tables remain empty.

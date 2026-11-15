@@ -1,3 +1,8 @@
+# 2026-11-15 — FIFO automatic batch full isolated profile (FB29)
+
+- Full CI-configured suite (`python -m pytest -p no:cacheprovider -q`, `tests/` and `app/tests/` per `pytest.ini`) passed at code SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, no skip/deselect. It ran from a disposable copy without repository runtime data, local session/memory/database files or credentials; only a synthetic `USN_INCOME 6%` policy was supplied.
+- `python -m compileall -q app tests` passed. One existing `SyntaxWarning` is emitted by `tests/test_unit_economics_returns_impact_integrity_v971_v980.py` for an identity comparison to a float literal; this FB29 profile did not change that unrelated test.
+
 # 2026-11-15 — FIFO automatic batch crash/migration/backup (FB28)
 
 - `tests/test_fifo_cost_backup_restore.py::test_public_backup_restore_preserves_fifo_auto_batch_rule_and_manifest` uses public backup, archive verification, dry-run restore and restore APIs. It verifies encrypted observation retention, rule and manifest reconstruction after restart, unknown acceptance remains unknown, and no FIFO rates/layers/allocations/events are written.

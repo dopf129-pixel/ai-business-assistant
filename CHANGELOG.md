@@ -1,3 +1,8 @@
+# 2026-11-15 — FIFO automatic batch full isolated verification (FB29)
+
+- Ran the complete configured pytest suite from a disposable copy at code SHA `cc329692d5c259595ef1419f9dbfde483071da66`, with no skip/deselect and without runtime seller data or credentials. A synthetic `USN_INCOME 6%` tax policy was the only initial data fixture.
+- **5,437 passed in 104.33s**; `compileall -q app tests` passed. The five tracked `data/` Git objects are unchanged from FB00. One malformed 48-character SHA-256 entry in the FB00 journal was corrected from the current file hash after confirming identical Git tree objects.
+
 # 2026-11-15 — FIFO automatic batch crash and backup coverage (FB28)
 
 - Added an end-to-end regression through the public backup/verify/dry-run restore/restore APIs for a confirmed automatic batch rule and its encrypted supply manifest. The restored case retains the same rule revision and manifest fingerprint, accepted units remain unknown, and no FIFO rates, layers, allocations or events are created.
