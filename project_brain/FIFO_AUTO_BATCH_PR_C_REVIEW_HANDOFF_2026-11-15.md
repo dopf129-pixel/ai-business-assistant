@@ -1,6 +1,6 @@
 # FIFO automatic batch — PR C independent review handoff
 
-Date: 2026-11-15. Status: FB20–FB30 implementation is committed; PR C publication and exact-head CI are pending. This packet records the review surface and known evidence limits. The PR description is the source of truth for the final base/head SHA and exact Verify run after publication.
+Date: 2026-11-15. Status: PR C #736 is open as a draft. The first published revision `9fab872dbb591297d2aae1440cb9370a8c187560` passed exact-head Verify run [43661914317](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43661914317). The live PR description is the source of truth for the current base/head SHA and exact Verify run; if this packet changes the head, the PR description must be refreshed after CI.
 
 ## PR chain and verification state
 
@@ -9,7 +9,7 @@ Date: 2026-11-15. Status: FB20–FB30 implementation is committed; PR C publicat
 | Specification | [#733](https://github.com/dopf129-pixel/ai-business-assistant/pull/733) | `codex/fifo-auto-batch-rule-spec-20261113` | `main` | spec head `0fa8b7835829a710bf86adda1c3737d8286c42de`; Verify [43432990867](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43432990867) passed. |
 | PR A | [#734](https://github.com/dopf129-pixel/ai-business-assistant/pull/734) | `codex/fifo-auto-batch-foundation-20261113` | spec branch at `0fa8b7835829a710bf86adda1c3737d8286c42de` | head `305a892d1c3ef730f0796ff9cb8059c8582c0713`; Verify [43596110972](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43596110972) passed. |
 | PR B | [#735](https://github.com/dopf129-pixel/ai-business-assistant/pull/735) | `codex/fifo-auto-batch-sources-20261113` | PR A at `305a892d1c3ef730f0796ff9cb8059c8582c0713` | head `dda4571baa79b95d632391cc0fee5cb7ca21b661`; Verify [43617884850](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43617884850) passed. |
-| PR C | pending | `codex/fifo-auto-batch-integration-20261113` | PR B at `dda4571baa79b95d632391cc0fee5cb7ca21b661` | Exact head and Verify run must be recorded in the PR description after final CI completes. |
+| PR C | [#736](https://github.com/dopf129-pixel/ai-business-assistant/pull/736), draft | `codex/fifo-auto-batch-integration-20261113` | PR B at `dda4571baa79b95d632391cc0fee5cb7ca21b661` | First revision `9fab872dbb591297d2aae1440cb9370a8c187560`, Verify [43661914317](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43661914317) passed. Use the PR description for current final revision. |
 
 The PRs are intentionally stacked and draft. Do not merge, deploy, start the bot, or make live Ozon/Telegram requests as part of this review.
 
