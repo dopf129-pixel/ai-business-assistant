@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch crash/migration/backup (FB28)
+
+- `tests/test_fifo_cost_backup_restore.py::test_public_backup_restore_preserves_fifo_auto_batch_rule_and_manifest` uses public backup, archive verification, dry-run restore and restore APIs. It verifies encrypted observation retention, rule and manifest reconstruction after restart, unknown acceptance remains unknown, and no FIFO rates/layers/allocations/events are written.
+- Crash/CAS/idempotency and prepare/apply race coverage: `tests/test_fifo_cost_transition_apply_service.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, `tests/test_fifo_cost_batch_scan_checkpoint_service.py`, and `tests/test_fifo_cost_batch_rule_service.py`. Bounded storage/key and migration rollback coverage: `tests/test_fifo_cost_transition_schema_v16.py` and `tests/test_fifo_cost_batch_manifest_read_service.py`. Stale interval/first-day choices: `tests/test_fifo_cost_batch_rule_classifier.py` and `tests/test_fifo_cost_batch_rule_regressions.py`.
+- FB28 linked Windows/Python 3.12 profile: **235 passed in 29.13s**. Compile, diff and tracked-data checks passed. All newly introduced evidence is synthetic and temporary.
+
 # 2026-11-15 — FIFO automatic batch positive production E2E (FB27)
 
 - `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket[auto-batch-production-happy-path]` traverses the real factory/runtime with fake Ozon responses, paginated order listings, mixed-SKU bundle composition, a full normalized synthetic manifest, cutoff/movement/finance evidence, explicit apply, production graph restart and exact commit retry. It asserts one transition commit and that retry makes no network request. No repository, readiness, validator or apply service is replaced with a success stub.

@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch crash and backup coverage (FB28)
+
+- Added an end-to-end regression through the public backup/verify/dry-run restore/restore APIs for a confirmed automatic batch rule and its encrypted supply manifest. The restored case retains the same rule revision and manifest fingerprint, accepted units remain unknown, and no FIFO rates, layers, allocations or events are created.
+- Linked crash/migration coverage verifies atomic apply and retry, checkpoint CAS/key failure, bounded evidence, stale rule selections, migration rollback and future-schema rejection. No owner session file was modified or used as a fixture.
+- FB28 linked Windows/Python 3.12 profile: **235 passed in 29.13s** across FIFO batch, migration, backup/restore, atomic apply and production transition tests. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic data only; no live API/Telegram calls or bot launch.
+
 # 2026-11-15 — FIFO automatic batch production prepare/apply path (FB27)
 
 - Added a positive production-assembly regression for automatic batch selection through paginated fake supply orders, exact SKU bundle composition, a complete normalized synthetic manifest, full synthetic cutoff/movement/finance evidence, explicit Telegram apply, repository restart, and exact retry with one commit.

@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO automatic batch crash/migration/backup verification (FB28)
+
+- Public backup and restore now have a regression for a confirmed automatic batch rule plus its encrypted, partial supply manifest. The same scoped rule and manifest fingerprint reopen after restoration; accepted quantity remains unknown and FIFO cost/event/allocation tables remain empty.
+- Existing synthetic coverage was linked for concurrent/idempotent commit, CAS/checkpoint behavior, quotas, unavailable encryption keys, stale first-day selections, migration rollback and fail-closed restore/migration behavior. No owner session or owner data was used.
+- FB28 profile: **235 passed in 29.13s**; `compileall -q app tests`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram calls, bot launch, merge or deployment. Bundle docs still establish composition/pagination only; source history, dispatch/receipt dates and R1 remain unverified.
+
 # 2026-11-15 — FIFO automatic batch end-to-end workflow (FB27)
 
 - The production-shaped synthetic auto-batch path now reaches the existing explicit transition prepare/apply and successfully retries the exact committed apply after rebuilding the production graph from the same temporary database. The test asserts one commit. Incomplete real-source observations remain PARTIAL/UNKNOWN and cannot be substituted with the complete test-only normalized manifest.
