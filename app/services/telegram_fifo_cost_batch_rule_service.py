@@ -7,7 +7,7 @@ layers, allocations, or profit by themselves.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from threading import RLock
@@ -620,6 +620,26 @@ class TelegramFifoCostBatchRuleService:
             session["batch_membership_review"] = review
         review["page"] = page
         review["page_record_keys"] = [item["record_key"] for item in snapshot["items"]]
+        label_reader = getattr(self.supply_source_service, "read_owner_candidate_labels", None)
+        if not callable(label_reader):
+            return self._card_return(
+                runtime, owner,
+                "Не удалось безопасно показать отличительные номера поставок. "
+                "Выбор не сохранён; обновите список позже.",
+            )
+        reference_labels = label_reader(
+            scope=self._scope(runtime, owner, session),
+            case_id=session["case_id"],
+            tenant_fingerprint=snapshot["tenant_fingerprint"],
+            scan_id=scan["scan_id"],
+            record_keys=tuple(review["page_record_keys"]),
+        )
+        if reference_labels.get("error") or not isinstance(reference_labels.get("labels"), dict):
+            return self._card_return(
+                runtime, owner,
+                "Не удалось безопасно сопоставить строки с поставками Ozon. "
+                "Выбор не сохранён; обновите список позже.",
+            )
         selected = set(review.get("selected_keys", ()))
         scan_published = snapshot.get("scan_status") == "PUBLISHED"
         lines = [
@@ -643,11 +663,23 @@ class TelegramFifoCostBatchRuleService:
             quantity = item.get("planned_declared_quantity")
             quantity_text = f"{quantity} шт. заявлено" if type(quantity) is int else "количество неизвестно"
             transport = status_labels.get(item.get("normalized_status"), "неизвестен")
-            crossdock = "кросс-докинг" if item.get("is_crossdock") is True else (
-                "обычная поставка" if item.get("is_crossdock") is False else "тип поставки неизвестен"
+            crossdock_value = item.get("is_crossdock")
+            crossdock = "кросс-докинг" if crossdock_value is True or crossdock_value == 1 else (
+                "обычная поставка" if crossdock_value is False or crossdock_value == 0
+                else "тип поставки неизвестен"
             )
             marker = "☑️" if item["record_key"] in selected else "⬜"
-            lines.append(f"{marker} {number}. {quantity_text}; статус: {transport}; {crossdock}; дата отправки неизвестна.")
+            reference = reference_labels["labels"].get(item["record_key"])
+            if not isinstance(reference, str) or not reference.startswith("••••"):
+                return self._card_return(
+                    runtime, owner,
+                    "Не удалось безопасно сопоставить строки с поставками Ozon. "
+                    "Выбор не сохранён; обновите список позже.",
+                )
+            lines.append(
+                f"{marker} {number}. ID {reference}; {quantity_text}; "
+                f"статус: {transport}; {crossdock}; дата отправки неизвестна."
+            )
             buttons.append({
                 "text": f"{marker} Строка {number}",
                 "callback": runtime._issue_ticket(
@@ -903,25 +935,29 @@ class TelegramFifoCostBatchRuleService:
                     if existing["decision"] == decision_kind.value:
                         return {"error": False, "code": "FIFO_BATCH_DECISION_ALREADY_CONFIRMED"}
                     return {"error": True, "code": "FIFO_BATCH_DECISION_CONFLICT"}
-                inverse = (
-                    MembershipDecisionKind.EXCLUDED
-                    if decision_kind is MembershipDecisionKind.INCLUDED
-                    else MembershipDecisionKind.INCLUDED
-                )
-                inverse_binding = canonical_membership_group_binding_fingerprint(
-                    scope=scope, rule_id=preview["rule_id"],
-                    rule_revision=preview["rule_revision"],
-                    rule_fingerprint=preview["rule_fingerprint"],
-                    decision=inverse, record_keys=record_keys,
-                )
-                if FifoCostBatchSupplyStore.read_membership_decision_by_binding(
+                existing_decisions = FifoCostBatchSupplyStore.read_membership_decisions(
                     connection, scope=scope, case_id=session["case_id"],
-                    tenant_fingerprint=tenant["tenant_fingerprint"],
-                    rule_id=preview["rule_id"],
-                    rule_revision=preview["rule_revision"],
-                    membership_binding_fingerprint=inverse_binding,
-                ) is not None:
-                    return {"error": True, "code": "FIFO_BATCH_DECISION_CONFLICT"}
+                    tenant_fingerprint=tenant["tenant_fingerprint"], limit=20_000,
+                )
+                selected_keys = set(record_keys)
+                overlapping_times = []
+                for row in existing_decisions:
+                    if (
+                        row["rule_id"] != preview["rule_id"]
+                        or row["rule_revision"] != preview["rule_revision"]
+                    ):
+                        continue
+                    prior_keys = self._json_record_keys(row["record_keys_json"])
+                    if selected_keys.intersection(prior_keys):
+                        overlapping_times.append(row["confirmed_at"])
+                decision_time = confirmed_text
+                if overlapping_times:
+                    latest_time = max(overlapping_times)
+                    if decision_time <= latest_time:
+                        parsed = datetime.fromisoformat(latest_time.replace("Z", "+00:00"))
+                        decision_time = (parsed + timedelta(microseconds=1)).astimezone(
+                            timezone.utc,
+                        ).isoformat(timespec="microseconds").replace("+00:00", "Z")
                 decision = BatchMembershipDecision(
                     decision_id="bmd_" + uuid4().hex,
                     revision=1, scope=scope, case_id=session["case_id"],
@@ -934,18 +970,25 @@ class TelegramFifoCostBatchRuleService:
                     candidate_set_fingerprint=preview["candidate_set_fingerprint"],
                     membership_binding_fingerprint=binding,
                     idempotency_key="tg-bmd-" + uuid4().hex,
-                    confirmed_at=confirmed_text,
+                    confirmed_at=decision_time,
                 )
                 stored = FifoCostBatchSupplyStore.append_membership_decision(
                     connection, decision,
                     tenant_fingerprint=tenant["tenant_fingerprint"],
-                    recorded_at=confirmed_text,
+                    recorded_at=decision_time,
                 )
                 return stored
 
             return self.repository._run_transition_write(operation)
         except Exception:
             return {"error": True, "code": "FIFO_BATCH_DECISION_STORAGE_UNAVAILABLE"}
+
+    @staticmethod
+    def _json_record_keys(value):
+        parsed = json.loads(value)
+        if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
+            raise ValueError("FIFO_BATCH_DECISION_RECORD_KEYS_INVALID")
+        return tuple(parsed)
 
     @staticmethod
     def _safe_membership_error(code):

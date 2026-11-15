@@ -4,6 +4,8 @@
 
 ## Resume
 
+- Latest PR C review fix status (2026-11-15): R1–R8 implementation is in the working tree, not yet committed/published. Windows/Python 3.12 profiles passed: affected FIFO **125 in 8.64s**, schema/checkpoint migration **29 in 2.63s**, full isolated suite **5,446 in 108.09s**; isolated compileall passed with one pre-existing warning. Hosted exact-head CI remains pending. The fixes introduce additive FIFO schema v19 side storage for large encrypted continuations; see `DECISIONS_067.md`. The earlier Verify run 43661914317 is for the first published SHA only and does not verify these fixes. Raw dispatch/receipt/history completeness and R1 remain **NOT_VERIFIED**.
+
 - ТЗ: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md.
 - Spec branch: codex/fifo-auto-batch-rule-spec-20261113.
 - Product baseline: main 7965dcddffa50bd4e0f175cd18c32929b6a845d0.

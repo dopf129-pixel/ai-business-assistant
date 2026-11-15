@@ -1,3 +1,11 @@
+# 2026-11-15 — FIFO auto-batch review fixes (R1–R8)
+
+- Fixed exact-case observation binding, preserved legacy API observation identities while linking owner declarations, and retained the complete append-only rule chain when rebuilding manifests.
+- Manifest construction now treats `OUTSIDE_RULE` and explicit owner exclusions as terminal non-blocking outcomes. Conflicting overlapping owner selections resolve to the newest confirmed decision, with same-time conflicts failing closed; Telegram can record a later correction.
+- Added masked, user-matchable supply labels and normalized SQLite boolean flags in the review card. Manifest rows and source fingerprint now come from one SQLite read snapshot.
+- Increased the bounded continuation contract to 1 MiB. FIFO schema v19 adds an encrypted continuation side table so existing v18 token columns and small saved tokens remain unchanged; per-case storage is capped and included in backup/fingerprint boundaries.
+- Added regression coverage for all eight review findings. Windows/Python 3.12: affected FIFO profile **125 passed**, schema/checkpoint migration profile **29 passed**, full isolated suite **5,446 passed in 108.09s**, and `compileall` passed. Hosted exact-head CI remains pending.
+
 # 2026-11-15 — FIFO automatic batch first-day selection and owner guide (FB30)
 
 - Completed the `Нет / не уверен — выбрать поставки` route: the owner may save an explicit first-day boundary with no rows included, then review and confirm exact supply rows after a bounded source refresh. A previously issued all-day confirmation button is stale after choosing the explicit route.

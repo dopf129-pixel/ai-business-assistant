@@ -53,16 +53,19 @@ See [FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md](FIFO_BATCH_SUPPLY_SOURCE_C
 
 - PR A adds FIFO schema v17 for scoped immutable rule/decision/observation/control records and a CAS checkpoint while preserving legacy mode.
 - PR B upgrades v17 to v18 for scan-to-observation links. Migration tests exercise older-version upgrades, injected rollback and future-version fail-closed behavior; see `tests/test_fifo_cost_transition_schema_v13.py` and `test_fifo_cost_transition_schema_v16.py`.
-- PR C adds no schema migration. Backup/verify/dry-run-restore/restore is covered by `tests/test_fifo_cost_backup_restore.py::test_public_backup_restore_preserves_fifo_auto_batch_rule_and_manifest`.
+- Review fixes add FIFO schema v19 continuation side storage; see `DECISIONS_067.md`. The migration is additive and preserves the v18 checkpoint table and its existing <=8 KiB tokens. The side table is included in backup/restore metadata and source fingerprints. Backup/verify/dry-run-restore/restore is covered by `tests/test_fifo_cost_backup_restore.py::test_public_backup_restore_preserves_fifo_auto_batch_rule_and_manifest`.
 - Opaque identifiers and continuation/lookups remain encrypted in scoped storage. Telegram selection rows omit raw supply/order IDs, SKU IDs, product names and barcodes. Public status contains bounded counts, status/category summaries and safe issue codes. Synthetic fixtures only; no owner credentials or `.env` content are included.
 - Rollback path is the project's verified backup/dry-run-restore workflow. Do not hand-edit FIFO tables or downgrade a schema version.
 
 ## Local verification before publication
 
+- Review regressions R1–R8: **125 passed in 8.64s** across the affected FIFO batch service, store, source, manifest, Telegram, contracts and migration modules. The tests cover exact-case binding, legacy identity preservation, rule-chain replay, benign outside/exclusion outcomes, overlapping decision correction, 1 MiB continuation persistence with v18 migration preservation, masked candidate identities, and one-snapshot manifest sealing.
+- Schema/checkpoint migration profile: **29 passed in 2.63s**. Full disposable Windows/Python 3.12 suite: **5,446 passed in 108.09s**, no skips/deselections; isolated `compileall -q app tests` passed with one pre-existing float-identity `SyntaxWarning`.
+- `git diff --check` passes; no tracked `data/` file is part of the change. `.fl12-deps/` is preserved and excluded.
 - FB30 first-day-choice regressions: **36 passed**.
 - Linked FIFO batch, transition/readiness/review/apply/service profile after FB30: **177 passed in 20.24s**; all are synthetic/local tests.
 - Full configured suite at FB29 SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, but it predates the FB30 code change and must not be attributed to PR C final head.
-- PR C final full Windows/Linux suite, compile and production Docker build/runtime smoke: pending hosted exact-head CI.
+- Production Docker build/runtime smoke and hosted Windows/Linux exact-head CI for the review-fix SHA: pending. Refresh the live PR description and this table after publishing the new head and CI run.
 - No live Ozon/Telegram request, owner data, Desktop bot change/start, merge or deployment.
 
 ## Review focus

@@ -15,7 +15,11 @@ import json
 import re
 import sqlite3
 
-from services.fifo_cost_batch_rule_contracts import SupplyScanCoverage, SupplySkuObservation
+from services.fifo_cost_batch_rule_contracts import (
+    MAX_BATCH_SCAN_CONTINUATION_BYTES,
+    SupplyScanCoverage,
+    SupplySkuObservation,
+)
 from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
 from services.tenant_cipher_provider import decrypt_tenant_value, encrypt_tenant_value
 
@@ -25,7 +29,9 @@ _CURSOR = re.compile(r"(?s)^.{1,256}$")
 _HEX = re.compile(r"^[0-9a-f]{64}$")
 _STATUSES = frozenset({"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRED"})
 _RESUMABLE = frozenset({"STAGING", "PARTIAL"})
-_MAX_TOKEN_BYTES = 8192
+# Continuation state is strictly bounded by the field/count limits below.
+# 8 KiB could not hold a valid page of ten parent orders with nested supplies.
+_MAX_TOKEN_BYTES = MAX_BATCH_SCAN_CONTINUATION_BYTES
 
 
 class FifoCostBatchScanCheckpointService:
@@ -220,6 +226,7 @@ class FifoCostBatchScanCheckpointService:
                 ))[:56]
                 appended = FifoCostBatchSupplyStore.append_observation(
                     connection, observation, tenant_fingerprint=tenant_fingerprint,
+                    case_id=coverage.case_id,
                     observation_id=observation_id, recorded_at=updated_text,
                 )
                 if appended.get("error"):

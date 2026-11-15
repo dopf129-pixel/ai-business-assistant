@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
+import sqlite3
 import threading
 from time import monotonic
 from uuid import uuid4
@@ -37,6 +38,8 @@ from services.fifo_cost_transition_contracts import (
     EvidenceSourceKind,
     NormalizedSupplyStatus,
     ScopeIdentity,
+    SupplyReferenceKind,
+    supply_reference_digest,
 )
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
@@ -44,7 +47,7 @@ from services.period_profit_operation_diagnostics import (
     current_period_profit_trace,
     reset_period_profit_trace,
 )
-from services.tenant_cipher_provider import encrypt_tenant_value
+from services.tenant_cipher_provider import decrypt_tenant_value, encrypt_tenant_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +281,88 @@ class FifoCostBatchSupplySourceService:
             planned_explicit_zero=planned == 0, shipped_explicit_zero=False,
             issue_codes=() if issue is None else (issue,),
         )
+
+    def read_owner_candidate_labels(
+        self, *, scope, case_id, tenant_fingerprint, scan_id, record_keys,
+    ):
+        """Return unique masked supply-ID suffixes; never return full IDs."""
+        if (
+            self.scan_checkpoint_service is None
+            or not isinstance(scope, ScopeIdentity)
+            or not isinstance(record_keys, tuple)
+            or not 1 <= len(record_keys) <= 8
+            or len(set(record_keys)) != len(record_keys)
+        ):
+            return {"error": True, "code": "FIFO_BATCH_DISPLAY_REFERENCE_UNAVAILABLE"}
+        connection = None
+        try:
+            connection = self.scan_checkpoint_service.repository.get_connection()
+            rows = FifoCostBatchSupplyStore.read_scan_observations(
+                connection, scope=scope, case_id=case_id,
+                tenant_fingerprint=tenant_fingerprint, scan_id=scan_id, limit=10_000,
+            )
+            latest = {}
+            for row in rows:
+                current = latest.get(row["record_key"])
+                if current is None or row["observation_revision"] > current["observation_revision"]:
+                    latest[row["record_key"]] = row
+            identifiers = {}
+            for key, row in latest.items():
+                decrypted = decrypt_tenant_value(
+                    bytes(row["encrypted_lookup_payload"]).decode("ascii"),
+                )
+                payload = json.loads(decrypted) if isinstance(decrypted, str) else None
+                if not isinstance(payload, dict):
+                    return {"error": True, "code": "FIFO_BATCH_DISPLAY_REFERENCE_UNAVAILABLE"}
+                supply_id = payload.get("supply_id")
+                order_id = payload.get("order_id")
+                if (
+                    not isinstance(supply_id, str) or not re.fullmatch(r"[0-9]{7,19}", supply_id)
+                    or not isinstance(order_id, str) or not re.fullmatch(r"[0-9]{7,19}", order_id)
+                ):
+                    return {"error": True, "code": "FIFO_BATCH_DISPLAY_REFERENCE_UNAVAILABLE"}
+                identifiers[key] = (supply_id, order_id)
+            if any(key not in identifiers for key in record_keys):
+                return {"error": True, "code": "FIFO_BATCH_DISPLAY_REFERENCE_UNAVAILABLE"}
+            labels = self._unique_masked_reference_labels(identifiers)
+            if labels is None:
+                return {"error": True, "code": "FIFO_BATCH_DISPLAY_REFERENCE_AMBIGUOUS"}
+            return {"error": False, "labels": {key: labels[key] for key in record_keys}}
+        except (OSError, sqlite3.Error, TypeError, ValueError, KeyError, json.JSONDecodeError):
+            return {"error": True, "code": "FIFO_BATCH_DISPLAY_REFERENCE_UNAVAILABLE"}
+        finally:
+            if connection is not None:
+                connection.close()
+
+    @staticmethod
+    def _unique_masked_reference_labels(identifiers):
+        values = tuple(identifiers.values())
+        for length in range(6, 13):
+            if any(len(supply_id) <= length for supply_id, _ in values):
+                continue
+            suffixes = [supply_id[-length:] for supply_id, _ in values]
+            if len(set(suffixes)) == len(suffixes):
+                return {
+                    key: f"••••{supply_id[-length:]}"
+                    for key, (supply_id, _order_id) in identifiers.items()
+                }
+        for supply_length in range(6, 13):
+            for order_length in range(6, 13):
+                if any(
+                    len(supply_id) <= supply_length or len(order_id) <= order_length
+                    for supply_id, order_id in values
+                ):
+                    continue
+                suffixes = [
+                    (supply_id[-supply_length:], order_id[-order_length:])
+                    for supply_id, order_id in values
+                ]
+                if len(set(suffixes)) == len(suffixes):
+                    return {
+                        key: f"••••{supply[-supply_length:]} / заявка ••••{order[-order_length:]}"
+                        for key, (supply, order) in identifiers.items()
+                    }
+        return None
 
     def collect_supplies(
         self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,
@@ -1037,6 +1122,16 @@ class FifoCostBatchSupplySourceService:
 
     @staticmethod
     def _make_bundle_observation(*, scope, ref, planned_quantity, captured_at):
+        transition_order_digest = supply_reference_digest(
+            owner_id=scope.owner_id, store_id=scope.store_id,
+            reference_kind=SupplyReferenceKind.ORDER, reference_id=ref["order_id"],
+        )
+        transition_supply_digest = supply_reference_digest(
+            owner_id=scope.owner_id, store_id=scope.store_id,
+            reference_kind=SupplyReferenceKind.SUPPLY, reference_id=ref["supply_id"],
+        )
+        if transition_order_digest is None or transition_supply_digest is None:
+            raise ValueError("FIFO_BATCH_SUPPLY_REFERENCE_INVALID")
         identity = {
             "scope": {
                 "owner_id": scope.owner_id, "store_id": scope.store_id,
@@ -1097,6 +1192,8 @@ class FifoCostBatchSupplySourceService:
             explicit_zero_fields=explicit_zero,
             membership=SupplyMembership.NEEDS_CONFIRMATION,
             issues=("FIFO_BATCH_SUPPLY_DISPATCH_DATE_UNAVAILABLE",),
+            transition_order_reference_digest=transition_order_digest,
+            transition_supply_reference_digest=transition_supply_digest,
         )
 
     def _now_utc_text(self):

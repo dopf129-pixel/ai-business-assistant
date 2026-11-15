@@ -34,8 +34,11 @@ from services.fifo_cost_transition_contracts import (
     NormalizedSupplyStatus,
     ScopeIdentity,
     SupplyDeclaration,
+    SupplyReferenceKind,
     TransitionCase,
+    supply_reference_digest,
 )
+from services.tenant_cipher_provider import decrypt_tenant_value
 
 
 class FifoCostBatchManifestReadService:
@@ -76,6 +79,11 @@ class FifoCostBatchManifestReadService:
         connection = None
         try:
             connection = self.repository.get_connection()
+            # Pin all manifest rows and the seal fingerprint to one SQLite
+            # snapshot. Without this read transaction a writer can publish a
+            # newer scan between these reads and produce a torn sealed result.
+            if not connection.in_transaction:
+                connection.execute("BEGIN")
             rule_rows = FifoCostBatchSupplyStore.read_rule_revisions(
                 connection, scope=scope, case_id=case.case_id,
                 tenant_fingerprint=tenant["tenant_fingerprint"],
@@ -176,6 +184,7 @@ class FifoCostBatchManifestReadService:
             case=case, rule=active_rule, coverage=coverage,
             deduplication=deduplication, classifications=classifications,
             membership_decisions=decisions, total_controls=controls,
+            rule_history=rule_chain,
         )
         if built.manifest is None:
             return self._error(built.code)
@@ -248,19 +257,20 @@ class FifoCostBatchManifestReadService:
             )
             if item.rule_fingerprint != row["rule_fingerprint"]:
                 raise ValueError("FIFO_BATCH_MANIFEST_RULE_FINGERPRINT_MISMATCH")
-            previous = latest_by_rule.get(item.rule_id)
-            if previous is None or item.rule_revision > previous.rule_revision:
-                latest_by_rule[item.rule_id] = item
-            elif item.rule_revision == previous.rule_revision:
+            if item.rule_revision in latest_by_rule:
                 raise ValueError("FIFO_BATCH_MANIFEST_RULE_REVISION_DUPLICATE")
-        chain = tuple(sorted(
-            latest_by_rule.values(),
-            key=lambda item: (item.start_local_date, item.rule_id),
-        ))
+            latest_by_rule[item.rule_revision] = item
+        chain = tuple(latest_by_rule[key] for key in sorted(latest_by_rule))
+        closed_bases = {
+            (item.predecessor_rule_id, item.predecessor_rule_revision)
+            for item in chain
+            if item.event_kind in {BatchRuleEventKind.CLOSE, BatchRuleEventKind.CANCEL}
+        }
         active = tuple(
             item for item in chain
             if item.event_kind in {BatchRuleEventKind.CONFIRM, BatchRuleEventKind.REPLACE}
             and item.end_local_date_exclusive is None
+            and (item.rule_id, item.rule_revision) not in closed_bases
         )
         if len(active) > 1:
             raise ValueError("FIFO_BATCH_MANIFEST_RULE_CHAIN_CONFLICT")
@@ -300,11 +310,15 @@ class FifoCostBatchManifestReadService:
             if type(crossdock) is not int or crossdock not in (0, 1):
                 raise ValueError("FIFO_BATCH_MANIFEST_OBSERVATION_INVALID")
             crossdock = bool(crossdock)
+        encrypted_lookup = bytes(row["encrypted_lookup_payload"]).decode("ascii")
+        transition_order_digest, transition_supply_digest = cls._transition_reference_digests(
+            scope, encrypted_lookup,
+        )
         return SupplySkuObservation(
             scope=scope, record_key=row["record_key"],
             order_ref_digest=row["order_ref_digest"],
             supply_ref_digest=row["supply_ref_digest"],
-            encrypted_lookup_payload=bytes(row["encrypted_lookup_payload"]).decode("ascii"),
+            encrypted_lookup_payload=encrypted_lookup,
             source_profile_version=row["source_profile_version"],
             source_fingerprint=row["source_fingerprint"], captured_at=row["captured_at"],
             source_as_of=row["source_as_of"], source_status=row["source_status"],
@@ -322,7 +336,31 @@ class FifoCostBatchManifestReadService:
             explicit_zero_fields=cls._json_tuple(row["explicit_zero_fields_json"]),
             membership=SupplyMembership(row["membership"]),
             issues=cls._json_tuple(row["issues_json"]),
+            transition_order_reference_digest=transition_order_digest,
+            transition_supply_reference_digest=transition_supply_digest,
         )
+
+    @staticmethod
+    def _transition_reference_digests(scope, encrypted_lookup):
+        """Recover stable declaration links while preserving legacy record keys."""
+        try:
+            decrypted = decrypt_tenant_value(encrypted_lookup)
+            payload = json.loads(decrypted) if isinstance(decrypted, str) else None
+        except (TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+            return None, None
+        if not isinstance(payload, dict):
+            return None, None
+        order_digest = supply_reference_digest(
+            owner_id=scope.owner_id, store_id=scope.store_id,
+            reference_kind=SupplyReferenceKind.ORDER,
+            reference_id=payload.get("order_id"),
+        )
+        supply_digest = supply_reference_digest(
+            owner_id=scope.owner_id, store_id=scope.store_id,
+            reference_kind=SupplyReferenceKind.SUPPLY,
+            reference_id=payload.get("supply_id"),
+        )
+        return order_digest, supply_digest
 
     @classmethod
     def _restore_decision(cls, scope, case_id, row):

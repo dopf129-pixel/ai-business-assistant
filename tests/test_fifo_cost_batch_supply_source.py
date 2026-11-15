@@ -1,13 +1,21 @@
+from dataclasses import replace
 from datetime import datetime, timezone
+import json
 
 from cryptography.fernet import Fernet
 import pytest
 
 from services.fifo_cost_batch_rule_contracts import (
+    BatchMembershipDecision,
     BatchRuleInput,
     BatchStartDayPolicy,
+    MembershipDecisionKind,
+    MembershipDecisionSource,
+    SupplyMembership,
 )
+from services.fifo_cost_batch_rule_classifier import FifoCostBatchRuleClassifier
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
+from services.fifo_cost_batch_manifest_read_service import FifoCostBatchManifestReadService
 from services.fifo_cost_batch_scan_checkpoint_service import FifoCostBatchScanCheckpointService
 from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
 from services.fifo_cost_batch_supply_source import FifoCostBatchSupplySourceService
@@ -24,7 +32,10 @@ from services.fifo_cost_transition_contracts import (
     TransitionState,
     UnknownValue,
     TransitionReasonCode,
+    SupplyReferenceKind,
+    supply_reference_digest,
 )
+from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
     activate_period_profit_trace,
@@ -300,15 +311,35 @@ def test_durable_bundle_scan_stores_only_planned_quantity_and_unknown_dispatch_d
         connection = repository.get_connection()
         try:
             observation = connection.execute(
-                "SELECT planned_declared_quantity, shipped_composition_quantity, "
+                "SELECT case_id, record_key, order_ref_digest, supply_ref_digest, "
+                "planned_declared_quantity, shipped_composition_quantity, "
                 "accepted_quantity, dispatch_local_date, dispatch_time_status, "
                 "quantity_coverage, membership, encrypted_lookup_payload "
                 "FROM fifo_cost_batch_supply_observations",
             ).fetchone()
-            assert observation[0:7] == (
+            assert observation[4:11] == (
                 200, None, None, None, "UNKNOWN", "PARTIAL", "NEEDS_CONFIRMATION",
             )
-            assert bytes(observation[7]).startswith(b"gAAAA")
+            assert bytes(observation[11]).startswith(b"gAAAA")
+            typed_rows = FifoCostBatchSupplyStore.read_scan_observations(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=repository._tenant_scope(SCOPE.store_id)[
+                    "tenant_fingerprint"
+                ], scan_id=result.scan_id,
+            )
+            assert len(typed_rows) == 1
+            typed_observation = FifoCostBatchManifestReadService._restore_observation(
+                SCOPE, typed_rows[0],
+            )
+            assert typed_observation.record_key == observation["record_key"]
+            assert typed_observation.transition_supply_reference_digest == supply_reference_digest(
+                owner_id=SCOPE.owner_id, store_id=SCOPE.store_id,
+                reference_kind=SupplyReferenceKind.SUPPLY, reference_id=supply_id,
+            )
+            assert typed_observation.transition_order_reference_digest == supply_reference_digest(
+                owner_id=SCOPE.owner_id, store_id=SCOPE.store_id,
+                reference_kind=SupplyReferenceKind.ORDER, reference_id=order_id,
+            )
             scan = connection.execute(
                 "SELECT sku_composition_complete, historical_window_proven, "
                 "membership_complete, quantity_complete, physical_receipt_timing_complete "
@@ -326,6 +357,80 @@ def test_durable_bundle_scan_stores_only_planned_quantity_and_unknown_dispatch_d
             ]
             assert candidates["items"][0]["planned_declared_quantity"] == 200
             assert "encrypted_lookup_payload" not in candidates["items"][0]
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_durable_scan_appends_to_exact_new_case_after_prior_case_was_cancelled(
+    tmp_path, monkeypatch,
+):
+    supply_id = "2000070135564"
+    order_id = "3000000000001"
+    bundle_id = "bundle-new-case"
+    repository, rules, source, ozon, tenant_token, first_confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+    )
+    try:
+        transition = FifoCostTransitionService(repository, now_provider=lambda: NOW)
+        cancelled = transition.cancel_case(
+            case_id="case_batch_src_01", store_id=SCOPE.store_id,
+            product_id=SCOPE.product_id, offer_id=SCOPE.offer_id, sku=SCOPE.sku,
+            expected_revision=first_confirmed["case_revision"],
+            idempotency_key="cancel-first-batch-case",
+        )
+        assert cancelled["error"] is False, cancelled
+
+        next_case = replace(
+            _case(), case_id="case_batch_src_02", dispatch_date="2026-11-06",
+        )
+        saved = repository.save_transition_case(
+            case=next_case, expected_revision=0,
+            idempotency_key="create-second-batch-case",
+        )
+        assert saved["error"] is False, saved
+        preview_result = rules.preview_rule(
+            SCOPE, next_case.case_id, 1,
+            BatchRuleInput("2026-11-06", BatchStartDayPolicy.ALL_OWNER_CONFIRMED),
+        )
+        assert preview_result["error"] is False, preview_result
+        preview = preview_result["preview"]
+        confirmed = rules.confirm_rule(
+            SCOPE, next_case.case_id, 1, preview.preview_id,
+            preview.preview_fingerprint, "confirm-second-batch-rule",
+        )
+        assert confirmed["error"] is False, confirmed
+
+        ozon.list_pages = [{"order_ids": [order_id], "last_id": None}]
+        ozon.details[order_id] = {
+            "order_id": order_id, "state": "COMPLETED",
+            "supplies": [{
+                "supply_id": supply_id, "bundle_id": bundle_id,
+                "state": "COMPLETED", "is_crossdock": True,
+            }],
+        }
+        ozon.bundle_pages[bundle_id] = {None: {
+            "items": [{
+                "sku": int(SCOPE.sku), "quantity": 100,
+                "product_id": 101, "offer_id": SCOPE.offer_id,
+            }],
+            "total_count": 1, "has_next": False, "last_id": "",
+        }}
+
+        result = source.collect_supplies(
+            SCOPE, next_case.case_id, confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+
+        assert result.status == "COMPLETE"
+        assert result.candidates_observed == 1
+        connection = repository.get_connection()
+        try:
+            rows = connection.execute(
+                "SELECT case_id FROM fifo_cost_batch_supply_observations",
+            ).fetchall()
+            assert [row["case_id"] for row in rows] == [next_case.case_id]
         finally:
             connection.close()
     finally:
@@ -437,16 +542,24 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
 
     order_id = "3000000000001"
     supply_id = "2000070135564"
+    second_supply_id = "2000070135565"
     bundle_id = "private-bundle-id+/="
+    second_bundle_id = "private-bundle-id-second"
     private_name = "must-not-leak-private-product-name"
     private_barcode = "must-not-leak-private-barcode"
     details = {
         order_id: {
             "order_id": order_id, "state": "COMPLETED",
-            "supplies": [{
-                "supply_id": supply_id, "bundle_id": bundle_id,
-                "state": "COMPLETED", "is_crossdock": True,
-            }],
+            "supplies": [
+                {
+                    "supply_id": supply_id, "bundle_id": bundle_id,
+                    "state": "COMPLETED", "is_crossdock": True,
+                },
+                {
+                    "supply_id": second_supply_id, "bundle_id": second_bundle_id,
+                    "state": "COMPLETED", "is_crossdock": True,
+                },
+            ],
         },
     }
     bundle_page = {
@@ -458,10 +571,17 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
         }],
         "total_count": 1, "has_next": False, "last_id": "",
     }
+    second_bundle_page = {
+        **bundle_page,
+        "items": [{**bundle_page["items"][0], "quantity": 300}],
+    }
     repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
         tmp_path, monkeypatch, durable_source=True,
         list_pages=[{"order_ids": [order_id], "last_id": None}],
-        details=details, bundle_pages={bundle_id: {None: bundle_page}},
+        details=details, bundle_pages={
+            bundle_id: {None: bundle_page},
+            second_bundle_id: {None: second_bundle_page},
+        },
     )
     try:
         transitions = FifoCostTransitionService(repository, now_provider=lambda: NOW)
@@ -499,6 +619,8 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
         review_page = runtime.handle_callback(101, review_callback)
         assert "500 шт. заявлено" in review_page["message"]
         assert "дата отправки неизвестна" in review_page["message"]
+        assert "ID ••••135564" in review_page["message"]
+        assert "кросс-докинг" in review_page["message"]
         row_callback = next(
             item["callback"] for item in review_page["keyboard"]["buttons"]
             if item["text"] == "⬜ Строка 1"
@@ -521,20 +643,80 @@ def test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identi
         saved = runtime.handle_callback(101, confirm_callback)
         assert "Решение владельца сохранено" in saved["message"]
         assert "не доказательство отправки или приёмки Ozon" in saved["message"]
+
+        return_to_list = next(
+            item["callback"] for item in saved["keyboard"]["buttons"]
+            if item["text"] == "К списку поставок"
+        )
+        grouped_page = runtime.handle_callback(101, return_to_list)
+        for row_label in ("Строка 1", "Строка 2"):
+            toggle = next(
+                item["callback"] for item in grouped_page["keyboard"]["buttons"]
+                if item["text"].endswith(row_label)
+            )
+            grouped_page = runtime.handle_callback(101, toggle)
+        grouped_include = next(
+            item["callback"] for item in grouped_page["keyboard"]["buttons"]
+            if item["text"].startswith("Выбранные — новая партия (2/50)")
+        )
+        grouped_preview = runtime.handle_callback(101, grouped_include)
+        grouped_confirm = next(
+            item["callback"] for item in grouped_preview["keyboard"]["buttons"]
+            if item["text"] == "Подтвердить выбор"
+        )
+        grouped_saved = runtime.handle_callback(101, grouped_confirm)
+        assert "Решение владельца сохранено: 2 поставок включены" in grouped_saved["message"]
         transcript = "\n".join((
             refreshed["message"], review_page["message"], preview["message"],
-            saved["message"], row_callback, include_callback, confirm_callback,
+            saved["message"], grouped_page["message"], grouped_preview["message"],
+            grouped_saved["message"], row_callback, include_callback, confirm_callback,
         ))
         assert all(value not in transcript for value in (
-            order_id, supply_id, bundle_id, private_name, private_barcode,
+            order_id, supply_id, second_supply_id, bundle_id, second_bundle_id,
+            private_name, private_barcode,
         ))
 
         connection = repository.get_connection()
         try:
-            decision = connection.execute(
-                "SELECT decision, source FROM fifo_cost_batch_membership_decisions",
-            ).fetchone()
-            assert tuple(decision) == ("INCLUDED", "OWNER_SELECTED_SET")
+            tenant_fingerprint = repository._tenant_scope(SCOPE.store_id)["tenant_fingerprint"]
+            decisions = FifoCostBatchSupplyStore.read_membership_decisions(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=tenant_fingerprint,
+            )
+            assert len(decisions) == 2
+            assert {item["decision"] for item in decisions} == {"INCLUDED"}
+            assert {len(json.loads(item["record_keys_json"])) for item in decisions} == {1, 2}
+            current_scan = runtime._sessions["101"]["batch_last_scan"]
+            raw_observations = FifoCostBatchSupplyStore.read_scan_observations(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=tenant_fingerprint, scan_id=current_scan["scan_id"],
+            )
+            observations = tuple(
+                FifoCostBatchManifestReadService._restore_observation(SCOPE, row)
+                for row in raw_observations
+            )
+            rule_rows = FifoCostBatchSupplyStore.read_rule_revisions(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=tenant_fingerprint,
+            )
+            rule_chain, _active_rule = FifoCostBatchManifestReadService._restore_rule_chain(
+                scope=SCOPE, case_id="case_batch_src_01", rows=rule_rows,
+            )
+            typed_decisions = tuple(
+                FifoCostBatchManifestReadService._restore_decision(
+                    SCOPE, "case_batch_src_01", row,
+                ) for row in decisions
+            )
+            classifications = tuple(
+                FifoCostBatchRuleClassifier.classify_supply(
+                    rule_chain, observation, typed_decisions,
+                ) for observation in observations
+            )
+            assert len(classifications) == 2
+            assert all(
+                item.membership is SupplyMembership.ELIGIBLE
+                for item in classifications
+            )
             for table in ("fifo_cost_events", "fifo_cost_layers", "fifo_cost_allocations"):
                 assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
         finally:

@@ -1,3 +1,9 @@
+# 2026-11-15 — FIFO auto-batch PR C review fixes (R1–R8)
+
+- Fixed all eight confirmed review findings in the PR C integration branch: observations bind to the exact case; transition reference aliases preserve old API identity keys; rule history retains closed revisions; old-interval/outside and owner-excluded rows no longer block the active manifest; overlapping owner membership decisions can be corrected; Telegram rows show safe masked supply references; and manifest data plus seal fingerprint use one SQLite snapshot.
+- Continuations now support the valid bounded queue contract up to 1 MiB. Additive FIFO schema v19 stores larger encrypted tokens in a child table while preserving existing v18 scan rows and <=8 KiB tokens in place; backup and source-seal coverage include the side table.
+- Windows/Python 3.12 checks: affected FIFO batch profile **125 passed in 8.64s**; schema/checkpoint migration profile **29 passed in 2.63s**; full isolated pytest **5,446 passed in 108.09s**; isolated `compileall` passed with one pre-existing float-identity `SyntaxWarning`. Hosted exact-head CI remains pending. `.fl12-deps/` remains untouched and excluded; tracked `data/` has not been changed.
+
 # 2026-11-15 — FIFO automatic batch mixed first-day rule and owner guide (FB30)
 
 - `Нет / не уверен — выбрать поставки` now opens a reviewable explicit-boundary rule preview instead of the obsolete “list reading is not connected” message. Confirming it stores an empty first-day membership set; no shipment is auto-included on that day. Exact owner-selected supply decisions can resolve rows later; without them the classifier keeps the boundary unresolved. The old all-day callback becomes stale.

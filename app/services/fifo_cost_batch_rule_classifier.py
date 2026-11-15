@@ -389,7 +389,28 @@ class FifoCostBatchRuleClassifier:
             if f"{item['decision'].decision_id}-r{item['decision'].revision}"
             not in superseded_refs
         ]
-        return active, None
+        # One owner review may cover a different overlapping group on a later
+        # pass. Resolve each exact supply/rule to the newest confirmed group
+        # rather than treating every immutable group as simultaneously active.
+        by_rule = defaultdict(list)
+        for item in active:
+            decision = item["decision"]
+            by_rule[(decision.rule_id, decision.rule_revision)].append(item)
+        resolved = []
+        for candidates in by_rule.values():
+            newest_at = max(item["decision"].confirmed_at for item in candidates)
+            newest = [
+                item for item in candidates
+                if item["decision"].confirmed_at == newest_at
+            ]
+            outcomes = {item["decision"].decision for item in newest}
+            if len(outcomes) > 1:
+                return (), "CONCURRENT_MEMBERSHIP_DECISIONS"
+            resolved.append(max(
+                newest,
+                key=lambda item: item["decision"].decision_id,
+            ))
+        return resolved, None
 
     @staticmethod
     def _same_rule_basis(base, close):

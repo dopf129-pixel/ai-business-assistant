@@ -1,5 +1,9 @@
 # Architecture Decisions
 
+## Decision 067 — FIFO scan continuation side storage
+
+Keep the existing v18 scan checkpoint table and its encrypted-token column intact. Raise the bounded continuation contract to 1 MiB through an additive FIFO schema v19 child table with a composite foreign key to the scan. Small tokens continue using the legacy column; large tokens use the encrypted side table. Enforce a per-case byte quota, include the child rows in backup/restore and source fingerprints, and read checkpoint state as one logical value. Details and migration tests: `DECISIONS_067.md`.
+
 ## Decision 066 — FIFO cost ledger, finance-SKU aliases, and inventory cutoff gate
 
 Keep factual FIFO evidence in a dedicated append-only repository using the existing tenant SQLite database, separate from Planning Workspace and legacy mutable cost. Do not auto-backfill old cost rows. FIFO cutover is per exact store/SKU; historical finance-SKU aliases retain separate sale identities, are reconciled as one complete exact-stream set, then receive per-alias COGS attribution. Immutable events, cutoff-to-sale mapping sets and allocation revisions use CAS/idempotency. If the stock/physical-sale cutoff is not proven, `INVENTORY_CUTOFF_UNRECONCILED` blocks FIFO COGS from factual Period Profit. Periods crossing cutoff require full bridge coverage and resolve COGS by exact sale identity while tax remains in the financial recognition period. Existing finance, TaxService, Return COGS and saved-plan owners remain unchanged. Details: `DECISIONS_066.md` and `FIFO_COST_CONTRACTS_2026-11-06.md`.

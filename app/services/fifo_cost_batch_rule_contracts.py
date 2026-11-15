@@ -34,6 +34,7 @@ from services.fifo_cost_transition_contracts import (
 
 MAX_BATCH_OBSERVATIONS = 20_000
 MAX_BATCH_MEMBERSHIP_DECISIONS = 20_000
+MAX_BATCH_SCAN_CONTINUATION_BYTES = 1_048_576
 MAX_SCAN_ORDERS = 2_000
 MAX_SCAN_SUPPLIES = 5_000
 MAX_SCAN_SKU_ROWS = 10_000
@@ -391,12 +392,21 @@ class SupplySkuObservation:
     explicit_zero_fields: tuple[str, ...]
     membership: SupplyMembership
     issues: tuple[str, ...] = ()
+    transition_order_reference_digest: str | None = None
+    transition_supply_reference_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, ScopeIdentity):
             _invalid(TransitionReasonCode.SCOPE_INVALID)
         for name in ("record_key", "order_ref_digest", "supply_ref_digest", "source_fingerprint"):
             object.__setattr__(self, name, normalize_digest(getattr(self, name)))
+        for name in (
+            "transition_order_reference_digest",
+            "transition_supply_reference_digest",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, normalize_digest(value))
         ciphertext = self.encrypted_lookup_payload
         if (
             not isinstance(ciphertext, str) or not 80 <= len(ciphertext) <= 4096

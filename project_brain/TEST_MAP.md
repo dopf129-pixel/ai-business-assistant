@@ -1,3 +1,12 @@
+# FIFO automatic-batch PR C review regressions — 2026-11-15
+
+- `tests/test_fifo_cost_batch_supply_source.py` and `test_fifo_cost_batch_scan_checkpoint_service.py`: exact new-case observation binding after an earlier case was cancelled; maximum-size nested continuation round-trip; v18-to-v19 upgrade preserves the old token column.
+- `tests/test_fifo_cost_batch_supply_deduplicator.py`: manual supply/order declarations match API references through stable transition digests while legacy record and reference digests remain unchanged.
+- `tests/test_fifo_cost_batch_manifest_read_service.py`: full immutable rule history (including closed/replaced revisions), active interval selection, and a concurrent scan writer cannot produce a torn manifest/fingerprint snapshot.
+- `tests/test_fifo_cost_batch_manifest_builder.py`: valid `OUTSIDE_RULE` and owner-excluded information outcomes do not block, while prior interval membership does not leak into active quantity totals.
+- `tests/test_fifo_cost_batch_rule_classifier.py` and `tests/test_fifo_cost_batch_rule_regressions.py`: overlapping owner-selected groups resolve to a later correction; same-time conflicting outcomes fail closed; Telegram review rows expose unique masked IDs and cross-dock labels without leaking raw identifiers.
+- Linked affected Windows/Python 3.12 profile: **125 passed in 8.64s**; migration/checkpoint profile (`test_fifo_cost_transition_schema_v13.py`, `test_fifo_cost_transition_schema_v16.py`, `test_fifo_cost_batch_scan_checkpoint_service.py`): **29 passed in 2.63s**. Full configured suite in a disposable copy without repository `data/` or `.env`: **5,446 passed in 108.09s**, no skips/deselections. Isolated `compileall -q app tests` passed with one pre-existing float-identity `SyntaxWarning`. Hosted exact-head CI remains pending.
+
 # 2026-11-15 — FIFO automatic batch first-day selection (FB30)
 
 - `tests/test_fifo_cost_batch_rule_regressions.py::test_start_day_no_or_unknown_saves_pending_explicit_rule_and_invalidates_all_day_button` verifies that NO/UNKNOWN saves an explicit rule with `boundary_supply_digests_json=[]`, invalidates the previous all-day ticket, leaves the FIFO queue uninitialized, and explains that no first-day supply is included until the owner confirms exact rows.

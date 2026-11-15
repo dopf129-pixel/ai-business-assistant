@@ -1,11 +1,14 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
+from threading import Event, Thread
 
 from cryptography.fernet import Fernet
 
 from services.fifo_cost_batch_rule_contracts import (
     BatchRuleInput,
+    BatchRuleEventKind,
     BatchStartDayPolicy,
     DispatchTimeStatus,
     ManifestFreshness,
@@ -134,7 +137,8 @@ def _setup(tmp_path, monkeypatch):
     return repository, tenant["tenant_fingerprint"], rule_rows[0], case, tenant_token
 
 
-def _coverage(*, scan_id, rule_revision=1, captured_at=NOW_TEXT):
+def _coverage(*, scan_id, rule_revision=1, captured_at=NOW_TEXT, membership_complete=False,
+              issue_codes=("SOURCE_PROFILE_UNVERIFIED",)):
     return SupplyScanCoverage(
         scan_id=scan_id, revision=1, scope=SCOPE, case_id=_case().case_id,
         rule_revision=rule_revision, requested_from="2026-11-05",
@@ -142,17 +146,18 @@ def _coverage(*, scan_id, rule_revision=1, captured_at=NOW_TEXT):
         source_as_of=captured_at, supported_state_profile=("IN_TRANSIT",),
         list_pagination_complete=True, details_complete=True,
         sku_composition_complete=True, historical_window_proven=True,
-        membership_complete=False, quantity_complete=True,
+        membership_complete=membership_complete, quantity_complete=True,
         physical_receipt_timing_complete=False,
         observation_set_fingerprint=_digest("placeholder"),
         source_contract_version="synthetic-v1", orders_seen=1,
         supplies_seen=1, sku_rows_seen=1, unknown_order_count=0,
         unknown_supply_count=0, unknown_quantity_supply_count=0,
-        issue_codes=("SOURCE_PROFILE_UNVERIFIED",),
+        issue_codes=issue_codes,
     )
 
 
-def _observation(*, captured_at=NOW_TEXT, suffix="1"):
+def _observation(*, captured_at=NOW_TEXT, suffix="1", dispatch_date="2026-11-05",
+                 accepted=None):
     supply_ref = _digest(f"supply-{suffix}")
     return SupplySkuObservation(
         scope=SCOPE,
@@ -162,25 +167,34 @@ def _observation(*, captured_at=NOW_TEXT, suffix="1"):
         source_profile_version="synthetic-v1", source_fingerprint=_digest(f"source-{suffix}"),
         captured_at=captured_at, source_as_of=captured_at,
         source_status="IN_TRANSIT", normalized_status=NormalizedSupplyStatus.IN_TRANSIT,
-        is_crossdock=True, dispatch_local_date="2026-11-05", dispatch_local_time=None,
+        is_crossdock=True, dispatch_local_date=dispatch_date, dispatch_local_time=None,
         dispatch_time_status=DispatchTimeStatus.CONFIRMED,
         planned_declared_quantity=100, shipped_composition_quantity=100,
-        accepted_quantity=None, quantity_source_kind=EvidenceSourceKind.OZON_API,
-        quantity_coverage=EvidenceCompleteness.COMPLETE, acceptance_fingerprint=None,
-        acceptance_version=None, explicit_zero_fields=(),
+        accepted_quantity=accepted, quantity_source_kind=EvidenceSourceKind.OZON_API,
+        quantity_coverage=EvidenceCompleteness.COMPLETE,
+        acceptance_fingerprint=None if accepted is None else _digest(f"accept-{suffix}-{accepted}"),
+        acceptance_version=None if accepted is None else 1, explicit_zero_fields=(),
         membership=SupplyMembership.ELIGIBLE,
     )
 
 
-def _publish_scan(repository, tenant_fingerprint, rule, *, scan_id, status="PUBLISHED", minute=0):
+def _publish_scan(
+    repository, tenant_fingerprint, rule, *, scan_id, status="PUBLISHED", minute=0,
+    expected_case_revision=2, observations=None, coverage=None,
+):
     captured = f"2026-11-15T12:{minute:02d}:00.000000Z"
-    coverage = _coverage(scan_id=scan_id, captured_at=captured)
+    coverage = coverage or _coverage(
+        scan_id=scan_id, rule_revision=rule["rule_revision"], captured_at=captured,
+    )
     checkpoint = FifoCostBatchScanCheckpointService(repository, now_provider=lambda: NOW)
     result = checkpoint.commit_page(
         coverage=coverage, tenant_fingerprint=tenant_fingerprint,
         rule_id=rule["rule_id"], rule_fingerprint=rule["rule_fingerprint"],
-        expected_case_revision=2, expected_scan_revision=0,
-        observations=(_observation(captured_at=captured),) if status == "PUBLISHED" else (),
+        expected_case_revision=expected_case_revision, expected_scan_revision=0,
+        observations=(
+            tuple(observations) if observations is not None
+            else (_observation(captured_at=captured),) if status == "PUBLISHED" else ()
+        ),
         status=status, expires_at="2026-11-15T12:30:00.000000Z",
         updated_at=captured,
         continuation_state=(
@@ -234,6 +248,91 @@ def test_readiness_rehydrates_latest_published_manifest_from_scoped_sqlite(tmp_p
                 assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_interval(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, _initial_rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        rules = FifoCostBatchRuleService(repository, now_provider=lambda: NOW)
+        preview_result = rules.preview_rule(
+            SCOPE, case.case_id, case.case_revision,
+            BatchRuleInput("2026-11-12", BatchStartDayPolicy.ALL_OWNER_CONFIRMED),
+        )
+        assert preview_result["error"] is False, preview_result
+        preview = preview_result["preview"]
+        confirmed = rules.confirm_rule(
+            SCOPE, case.case_id, case.case_revision, preview.preview_id,
+            preview.preview_fingerprint, "manifest-confirm-successor-rule",
+        )
+        assert confirmed["error"] is False, confirmed
+
+        connection = repository.get_connection()
+        try:
+            rule_rows = FifoCostBatchSupplyStore.read_rule_revisions(
+                connection, scope=SCOPE, case_id=case.case_id,
+                tenant_fingerprint=tenant_fp,
+            )
+        finally:
+            connection.close()
+        reader = FifoCostBatchManifestReadService(repository, now_provider=lambda: NOW)
+        rule_chain, active = reader._restore_rule_chain(
+            scope=SCOPE, case_id=case.case_id, rows=rule_rows,
+        )
+        assert [item.event_kind for item in rule_chain] == [
+            BatchRuleEventKind.CONFIRM,
+            BatchRuleEventKind.CLOSE,
+            BatchRuleEventKind.REPLACE,
+        ]
+        assert active.start_local_date == "2026-11-12"
+
+        captured = "2026-11-15T12:01:00.000000Z"
+        observations = (
+            _observation(
+                captured_at=captured, suffix="prior", dispatch_date="2026-11-06",
+                accepted=100,
+            ),
+            _observation(
+                captured_at=captured, suffix="active", dispatch_date="2026-11-13",
+                accepted=100,
+            ),
+        )
+        coverage = replace(
+            _coverage(
+                scan_id="manifest-successor-scan", rule_revision=active.rule_revision,
+                captured_at=captured, membership_complete=True, issue_codes=(),
+            ),
+            supplies_seen=2, sku_rows_seen=2,
+        )
+        active_row = next(
+            row for row in rule_rows
+            if row["rule_id"] == active.rule_id
+            and row["rule_revision"] == active.rule_revision
+        )
+        _publish_scan(
+            repository, tenant_fp, active_row,
+            scan_id="manifest-successor-scan",
+            expected_case_revision=confirmed["case_revision"],
+            observations=observations, coverage=coverage,
+        )
+        case_result = repository.read_transition_case(
+            case_id=case.case_id, **IDENTITY,
+        )
+        current_case = FifoCostTransitionService._case_from_payload(case_result["case"])
+
+        result = reader.read_current_manifest(case=current_case)
+
+        assert result["error"] is False, result
+        assert result["status"] == "COMPLETE"
+        assert result["manifest"].rule_id == active.rule_id
+        assert result["manifest"].declared_in_found_supplies == 200
+        assert result["manifest"].declared_in_shipped_supplies == 100
+        assert result["manifest"].accepted_units == 100
+        assert result["manifest"].included_supply_count == 1
+        assert result["manifest"].undecided_supply_count == 0
     finally:
         reset_current_tenant_user_id(tenant_token)
 
@@ -294,6 +393,83 @@ def test_manifest_seal_binds_all_scoped_batch_rows_and_rechecks_on_open_transact
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_manifest_reader_seals_one_snapshot_when_new_scan_publishes_mid_read(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        connection = repository.get_connection()
+        try:
+            assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+        finally:
+            connection.close()
+
+        _publish_scan(repository, tenant_fp, rule, scan_id="manifest-snapshot-old")
+        connection = repository.get_connection()
+        try:
+            connection.execute("BEGIN")
+            old_fingerprint = FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                connection, scope=SCOPE, case_id=case.case_id,
+                tenant_fingerprint=tenant_fp,
+            )
+        finally:
+            connection.close()
+
+        writer_started = Event()
+        writer_finished = Event()
+        writer_result = {}
+
+        def publish_newer_partial_scan():
+            writer_started.set()
+            try:
+                writer_result["result"] = _publish_scan(
+                    repository, tenant_fp, rule,
+                    scan_id="manifest-snapshot-new", status="PARTIAL", minute=1,
+                )
+            except BaseException as exc:  # propagate worker failures to the test thread
+                writer_result["exception"] = exc
+            finally:
+                writer_finished.set()
+
+        original_read = FifoCostBatchSupplyStore.read_membership_decisions
+
+        def read_decisions_then_publish(cls, connection, **kwargs):
+            rows = original_read(connection, **kwargs)
+            writer = Thread(target=publish_newer_partial_scan, daemon=True)
+            writer.start()
+            assert writer_started.wait(2), "writer thread did not start"
+            assert writer_finished.wait(5), "concurrent scan did not finish"
+            assert "exception" not in writer_result, writer_result.get("exception")
+            assert writer_result["result"].get("error") is False, writer_result
+            return rows
+
+        monkeypatch.setattr(
+            FifoCostBatchSupplyStore, "read_membership_decisions",
+            classmethod(read_decisions_then_publish),
+        )
+        result = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: NOW,
+        ).read_current_manifest(case=case)
+
+        assert result["error"] is False, result
+        assert result["manifest"] is not None
+        assert result["manifest"].scan_id == "manifest-snapshot-old"
+        assert result["seal"]["source_storage_fingerprint"] == old_fingerprint
+
+        connection = repository.get_connection()
+        try:
+            connection.execute("BEGIN")
+            live_fingerprint = FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                connection, scope=SCOPE, case_id=case.case_id,
+                tenant_fingerprint=tenant_fp,
+            )
+        finally:
+            connection.close()
+        assert live_fingerprint != old_fingerprint
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_manifest_source_seal_fails_closed_when_a_scoped_table_exceeds_its_bound(
     tmp_path, monkeypatch,
 ):
@@ -308,6 +484,7 @@ def test_manifest_source_seal_fails_closed_when_a_scoped_table_exceeds_its_bound
             stored = FifoCostBatchSupplyStore.append_observation(
                 connection, _observation(suffix="2"),
                 tenant_fingerprint=tenant_fp,
+                case_id=_case().case_id,
                 observation_id="manifest-observation-extra-01",
                 recorded_at=NOW_TEXT,
             )

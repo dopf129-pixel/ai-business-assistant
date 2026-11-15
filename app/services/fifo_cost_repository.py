@@ -49,7 +49,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 18
+    SCHEMA_VERSION = 19
     MAX_RATE_CHAIN = 100_000
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
@@ -150,6 +150,7 @@ class FifoCostRepository:
         "fifo_cost_batch_membership_decisions",
         "fifo_cost_batch_membership_decision_observations",
         "fifo_cost_batch_supply_scans",
+        "fifo_cost_batch_scan_continuations",
         "fifo_cost_batch_scan_observations",
         "fifo_cost_batch_total_controls",
     )
@@ -11795,6 +11796,18 @@ class FifoCostRepository:
                     )
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_scan_continuations (
+                case_id TEXT NOT NULL,
+                scan_id TEXT NOT NULL,
+                encrypted_resumable_token BLOB NOT NULL CHECK(
+                    length(encrypted_resumable_token) BETWEEN 80 AND 1048576
+                ),
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(case_id, scan_id),
+                FOREIGN KEY(case_id, scan_id)
+                    REFERENCES fifo_cost_batch_supply_scans(case_id, scan_id)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_batch_total_controls (
                 control_id TEXT PRIMARY KEY CHECK(length(control_id) BETWEEN 8 AND 96),
                 control_revision INTEGER NOT NULL CHECK(control_revision >= 1),
@@ -12114,6 +12127,9 @@ class FifoCostRepository:
                 "sku_composition_complete", "historical_window_proven",
                 "membership_complete", "quantity_complete",
                 "physical_receipt_timing_complete", "encrypted_resumable_token",
+            },
+            "fifo_cost_batch_scan_continuations": {
+                "case_id", "scan_id", "encrypted_resumable_token", "updated_at",
             },
             "fifo_cost_batch_scan_observations": {
                 "case_id", "scan_id", "record_key", "source_fingerprint",

@@ -1,9 +1,9 @@
 """Pure reconciliation of manual supply declarations and API observations.
 
 Manual declarations and API observations remain distinct evidence with their
-original provenance. This module only links them by the exact scoped
-SUPPLY+SKU or ORDER digest and prevents a parent ORDER control from being
-counted again beside its child supplies.
+original provenance. Stable transition-reference digests link the exact
+owner/store SUPPLY or ORDER identifier while legacy observation keys stay
+unchanged. Parent ORDER controls are never counted beside their child supplies.
 """
 
 from __future__ import annotations
@@ -116,6 +116,8 @@ class FifoCostBatchSupplyDeduplicator:
             return cls._error("FIFO_BATCH_DECLARATION_LIMIT_REACHED")
 
         api_groups: dict[str, dict] = {}
+        owner_supply_to_api_ref: dict[str, str] = {}
+        owner_order_to_api_ref: dict[str, str] = {}
         for observation in observations:
             if not isinstance(observation, SupplySkuObservation):
                 return cls._error("FIFO_BATCH_OBSERVATION_INVALID")
@@ -129,12 +131,31 @@ class FifoCostBatchSupplyDeduplicator:
             group = api_groups.setdefault(observation.supply_ref_digest, {
                 "record_key": expected_key,
                 "order_ref_digest": observation.order_ref_digest,
+                "transition_supply_reference_digest": (
+                    observation.transition_supply_reference_digest
+                ),
                 "versions": {},
                 "capture_history": [],
                 "conflict": False,
             })
             if group["order_ref_digest"] != observation.order_ref_digest:
                 return cls._error("FIFO_BATCH_SUPPLY_ORDER_MAPPING_CONFLICT")
+            transition_supply_ref = observation.transition_supply_reference_digest
+            if transition_supply_ref is not None:
+                group_alias = group["transition_supply_reference_digest"]
+                if group_alias is not None and group_alias != transition_supply_ref:
+                    return cls._error("FIFO_BATCH_SUPPLY_REFERENCE_ALIAS_CONFLICT")
+                group["transition_supply_reference_digest"] = transition_supply_ref
+                mapped = owner_supply_to_api_ref.get(transition_supply_ref)
+                if mapped is not None and mapped != observation.supply_ref_digest:
+                    return cls._error("FIFO_BATCH_SUPPLY_REFERENCE_ALIAS_CONFLICT")
+                owner_supply_to_api_ref[transition_supply_ref] = observation.supply_ref_digest
+            transition_order_ref = observation.transition_order_reference_digest
+            if transition_order_ref is not None:
+                mapped = owner_order_to_api_ref.get(transition_order_ref)
+                if mapped is not None and mapped != observation.order_ref_digest:
+                    return cls._error("FIFO_BATCH_ORDER_REFERENCE_ALIAS_CONFLICT")
+                owner_order_to_api_ref[transition_order_ref] = observation.order_ref_digest
             content = cls._observation_content_fingerprint(observation)
             group["capture_history"].append(observation)
             prior = group["versions"].get(observation.source_fingerprint)
@@ -162,7 +183,16 @@ class FifoCostBatchSupplyDeduplicator:
                 manual_supply if declaration.reference_kind is SupplyReferenceKind.SUPPLY
                 else manual_order
             )
-            group = target.setdefault(declaration.reference_digest, {
+            reference_digest = declaration.reference_digest
+            if declaration.reference_kind is SupplyReferenceKind.SUPPLY:
+                reference_digest = owner_supply_to_api_ref.get(
+                    declaration.reference_digest, reference_digest,
+                )
+            else:
+                reference_digest = owner_order_to_api_ref.get(
+                    declaration.reference_digest, reference_digest,
+                )
+            group = target.setdefault(reference_digest, {
                 "units": declaration.declared_shipped_units,
                 "dates": set(() if declaration.dispatch_date is None else (declaration.dispatch_date,)),
                 "refs": [],

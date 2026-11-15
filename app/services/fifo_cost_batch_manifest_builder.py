@@ -99,6 +99,7 @@ class FifoCostBatchManifestBuilder:
         classifications: tuple[SupplyMembershipClassification, ...],
         membership_decisions: tuple[BatchMembershipDecision, ...] = (),
         total_controls: tuple[BatchTotalControl, ...] = (),
+        rule_history: tuple[BatchRuleRevision, ...] | None = None,
     ) -> FifoCostBatchManifestBuildResult:
         """Build one manifest for an exact case/rule/scan and dated control set.
 
@@ -117,7 +118,7 @@ class FifoCostBatchManifestBuilder:
             return cls._error(deduplication.code)
         invalid = cls._validate_inputs(
             case, rule, coverage, deduplication, classifications,
-            membership_decisions, total_controls,
+            membership_decisions, total_controls, rule_history,
         )
         if invalid:
             return cls._error(invalid)
@@ -132,8 +133,6 @@ class FifoCostBatchManifestBuilder:
         issues.update(coverage.issue_codes)
         for record in records:
             classification = classification_by_key.get(record.record_key)
-            if classification is not None:
-                issues.update(classification.issue_codes)
             if record.status is SupplyLinkStatus.REVIEW_REQUIRED:
                 issues.update(record.issues)
                 undecided += 1
@@ -148,7 +147,20 @@ class FifoCostBatchManifestBuilder:
                 issues.add("FIFO_BATCH_MEMBERSHIP_UNDECIDED")
                 continue
             if classification.membership is SupplyMembership.ELIGIBLE:
-                included.append(record)
+                if (
+                    classification.rule_id == rule.rule_id
+                    and classification.rule_revision == rule.rule_revision
+                    and classification.rule_fingerprint == rule.rule_fingerprint
+                ):
+                    included.append(record)
+                # A supply may be eligible for an older interval without
+                # belonging to the active rule's quantity manifest.
+            elif classification.membership in {
+                SupplyMembership.EXCLUDED,
+                SupplyMembership.OUTSIDE_RULE,
+            }:
+                # These are valid terminal outcomes, not incomplete evidence.
+                continue
             elif classification.membership in {
                 SupplyMembership.NEEDS_CONFIRMATION,
                 SupplyMembership.CONFLICT,
@@ -375,7 +387,7 @@ class FifoCostBatchManifestBuilder:
     @classmethod
     def _validate_inputs(
         cls, case, rule, coverage, deduplication, classifications,
-        decisions, controls,
+        decisions, controls, rule_history,
     ):
         if not isinstance(case, TransitionCase) or not isinstance(rule, BatchRuleRevision):
             return "FIFO_BATCH_MANIFEST_INPUT_INVALID"
@@ -407,6 +419,26 @@ class FifoCostBatchManifestBuilder:
             not isinstance(item, BatchTotalControl) for item in controls
         ):
             return "FIFO_BATCH_MANIFEST_CONTROLS_INVALID"
+        if rule_history is None:
+            rule_history = (rule,)
+        if (
+            not isinstance(rule_history, tuple) or not rule_history
+            or len(rule_history) > 100
+            or any(not isinstance(item, BatchRuleRevision) for item in rule_history)
+            or rule not in rule_history
+            or any(item.scope != scope or item.case_id != case.case_id for item in rule_history)
+        ):
+            return "FIFO_BATCH_MANIFEST_RULE_HISTORY_INVALID"
+        valid_rule_refs = {
+            (item.rule_id, item.rule_revision, item.rule_fingerprint)
+            for item in rule_history
+        }
+        valid_rule_pairs = {
+            (item.rule_id, item.rule_revision)
+            for item in rule_history
+        }
+        if len(valid_rule_pairs) != len(rule_history):
+            return "FIFO_BATCH_MANIFEST_RULE_HISTORY_INVALID"
         if not isinstance(deduplication.records, tuple):
             return "FIFO_BATCH_MANIFEST_RECORDS_INVALID"
         if len(deduplication.records) > _MAX_RECORDS:
@@ -487,9 +519,15 @@ class FifoCostBatchManifestBuilder:
             return "FIFO_BATCH_MANIFEST_MEMBERSHIP_RECORD_NOT_FOUND"
         if any(
             item.scope != scope or item.case_id != case.case_id
-            or item.rule_id != rule.rule_id
-            or item.rule_revision != rule.rule_revision
-            or item.rule_fingerprint != rule.rule_fingerprint
+            or (
+                item.rule_id is not None
+                and (item.rule_id, item.rule_revision, item.rule_fingerprint)
+                not in valid_rule_refs
+            )
+            or (
+                item.rule_id is None
+                and item.membership is not SupplyMembership.OUTSIDE_RULE
+            )
             or record_by_key[item.record_key].current_observation is None
             or record_by_key[item.record_key].current_observation.source_fingerprint != item.source_fingerprint
             for item in classifications
@@ -497,7 +535,7 @@ class FifoCostBatchManifestBuilder:
             return "FIFO_BATCH_MANIFEST_MEMBERSHIP_SCOPE_MISMATCH"
         if any(
             item.scope != scope or item.case_id != case.case_id
-            or item.rule_id != rule.rule_id or item.rule_revision != rule.rule_revision
+            or (item.rule_id, item.rule_revision) not in valid_rule_pairs
             for item in decisions
         ):
             return "FIFO_BATCH_MANIFEST_DECISION_SCOPE_MISMATCH"

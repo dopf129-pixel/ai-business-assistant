@@ -208,6 +208,110 @@ def test_checkpoint_resumes_after_service_restart_and_replays_stale_reference_sa
         connection.close()
 
 
+def test_checkpoint_round_trips_contract_maximum_nested_supply_queue_under_byte_cap(
+    tmp_path, monkeypatch,
+):
+    repository = _repository(tmp_path, monkeypatch)
+    service = FifoCostBatchScanCheckpointService(repository)
+    cursor_digests = tuple(_digest(f"bundle-page-{index}") for index in range(100))
+    pending = tuple({
+        "order_id": f"{3_000_000_000_000_000_000 + index}",
+        "supply_id": f"{2_000_000_000_000_000_000 + index}",
+        "bundle_id": "b" * 256,
+        "state": "A" * 48,
+        "is_crossdock": True,
+        "bundle_cursor": "c" * 256,
+        "bundle_total": 10_000,
+        "bundle_parsed": 9_900,
+        "bundle_seen_cursor_digests": cursor_digests,
+        "target_quantity": 1_000_000,
+        "target_rows": 10_000,
+    } for index in range(64))
+    state = {
+        "cursor": "list-next",
+        "seen_cursor_digests": tuple(_digest(f"list-page-{index}") for index in range(100)),
+        "pages_scanned": 100,
+        "pending_supplies": pending,
+        "orders_seen": 2_000,
+        "supplies_seen": 5_000,
+        "candidate_count": 5_000,
+        "unknown_supply_count": 5_000,
+        "list_complete": False,
+    }
+
+    stored = _commit(
+        service, revision=1, expected_revision=0,
+        observation=None, state=state,
+    )
+
+    assert stored["code"] == "FIFO_BATCH_SCAN_PAGE_COMMITTED"
+    connection = repository.get_connection()
+    try:
+        scan_token = connection.execute(
+            "SELECT encrypted_resumable_token FROM fifo_cost_batch_supply_scans "
+            "WHERE case_id=? AND scan_id=?",
+            (_CASE_ID, "scan-checkpoint-1"),
+        ).fetchone()[0]
+        continuation = connection.execute(
+            "SELECT encrypted_resumable_token FROM fifo_cost_batch_scan_continuations "
+            "WHERE case_id=? AND scan_id=?",
+            (_CASE_ID, "scan-checkpoint-1"),
+        ).fetchone()[0]
+        assert scan_token is None
+        assert 8192 < len(continuation) <= 1_048_576
+    finally:
+        connection.close()
+    loaded = _load(FifoCostBatchScanCheckpointService(repository), stored["continuation_token"])
+    assert loaded["code"] == "FIFO_BATCH_SCAN_RESUMED"
+    assert len(loaded["continuation_state"]["pending_supplies"]) == 64
+    assert len(loaded["continuation_state"]["pending_supplies"][0]["bundle_seen_cursor_digests"]) == 100
+
+
+def test_schema_upgrade_preserves_legacy_checkpoint_token_in_original_column(
+    tmp_path, monkeypatch,
+):
+    repository = _repository(tmp_path, monkeypatch)
+    service = FifoCostBatchScanCheckpointService(repository)
+    state = {"cursor": "page-2", "seen_cursor_digests": (), "pages_scanned": 1}
+    stored = _commit(
+        service, revision=1, expected_revision=0, observation=None, state=state,
+    )
+    assert stored["code"] == "FIFO_BATCH_SCAN_PAGE_COMMITTED"
+
+    connection = repository.get_connection()
+    try:
+        legacy_token = connection.execute(
+            "SELECT encrypted_resumable_token FROM fifo_cost_batch_supply_scans "
+            "WHERE case_id=? AND scan_id=?",
+            (_CASE_ID, "scan-checkpoint-1"),
+        ).fetchone()[0]
+        assert legacy_token is not None and len(legacy_token) <= 8192
+        connection.execute("DROP TABLE fifo_cost_batch_scan_continuations")
+        connection.execute("UPDATE fifo_cost_schema SET version=18 WHERE singleton=1")
+        connection.commit()
+    finally:
+        connection.close()
+
+    migrated = FifoCostRepository(db_path=repository.db_path)
+    resumed = _load(
+        FifoCostBatchScanCheckpointService(migrated), stored["continuation_token"],
+    )
+    assert resumed["code"] == "FIFO_BATCH_SCAN_RESUMED"
+    assert resumed["continuation_state"] == state
+    connection = migrated.get_connection()
+    try:
+        assert connection.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1",
+        ).fetchone()[0] == 19
+        assert connection.execute(
+            "SELECT encrypted_resumable_token FROM fifo_cost_batch_supply_scans "
+            "WHERE case_id=? AND scan_id=?",
+            (_CASE_ID, "scan-checkpoint-1"),
+        ).fetchone()[0] == legacy_token
+    finally:
+        connection.close()
+
+
 def test_checkpoint_binds_case_rule_scope_range_profile_and_ttl(tmp_path, monkeypatch):
     repository = _repository(tmp_path, monkeypatch)
     service = FifoCostBatchScanCheckpointService(repository)

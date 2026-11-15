@@ -16,6 +16,7 @@ import re
 import sqlite3
 
 from services.fifo_cost_batch_rule_contracts import (
+    MAX_BATCH_SCAN_CONTINUATION_BYTES,
     MAX_BATCH_MEMBERSHIP_DECISIONS,
     MAX_BATCH_OBSERVATIONS,
     MAX_BATCH_TOTAL_CONTROLS,
@@ -36,11 +37,14 @@ _SCAN_STATUSES = frozenset({"STAGING", "PARTIAL", "PUBLISHED", "FAILED", "EXPIRE
 _RESUMABLE_SCAN_STATUSES = frozenset({"STAGING", "PARTIAL"})
 _TERMINAL_SCAN_STATUSES = frozenset({"PUBLISHED", "FAILED", "EXPIRED"})
 _MAX_SCANS_PER_CASE = 100
+_LEGACY_SCAN_TOKEN_BYTES = 8192
+_MAX_CONTINUATION_BYTES_PER_CASE = 64 * 1024 * 1024
 _SOURCE_FINGERPRINT_ROW_LIMITS = {
     "fifo_cost_batch_rule_revisions": MAX_RULE_REVISIONS,
     "fifo_cost_batch_supply_observations": MAX_BATCH_OBSERVATIONS,
     "fifo_cost_batch_membership_decisions": MAX_BATCH_MEMBERSHIP_DECISIONS,
     "fifo_cost_batch_supply_scans": _MAX_SCANS_PER_CASE,
+    "fifo_cost_batch_scan_continuations": _MAX_SCANS_PER_CASE,
     "fifo_cost_batch_total_controls": MAX_BATCH_TOTAL_CONTROLS,
 }
 
@@ -116,17 +120,17 @@ class FifoCostBatchSupplyStore:
     @classmethod
     def append_observation(
         cls, connection, observation: SupplySkuObservation, *, tenant_fingerprint: str,
-        observation_id: str, recorded_at: str,
+        case_id: str, observation_id: str, recorded_at: str,
     ) -> dict:
         cls._require_transaction(connection)
         if not isinstance(observation, SupplySkuObservation):
             raise TypeError("FIFO_BATCH_OBSERVATION_INVALID")
-        cls._validate_scope_inputs(observation.scope, None, tenant_fingerprint)
+        cls._validate_scope_inputs(observation.scope, case_id, tenant_fingerprint)
         cls._validate_opaque(observation_id)
         cls._validate_time_text(recorded_at)
         owner_fingerprint = cls._digest(observation.scope.owner_id)
         case = cls._case_row(
-            connection, observation.scope, None, owner_fingerprint, tenant_fingerprint,
+            connection, observation.scope, case_id, owner_fingerprint, tenant_fingerprint,
         )
         if case is None:
             return cls._error("FIFO_BATCH_SCOPE_MISMATCH")
@@ -397,12 +401,17 @@ class FifoCostBatchSupplyStore:
             raise ValueError("FIFO_BATCH_SCAN_STATUS_INVALID")
         token = encrypted_resumable_token
         if token is not None and (
-            not isinstance(token, bytes) or not 80 <= len(token) <= 8192
+            not isinstance(token, bytes)
+            or not 80 <= len(token) <= MAX_BATCH_SCAN_CONTINUATION_BYTES
             or not token.startswith(b"gAAAA")
         ):
             raise ValueError("FIFO_BATCH_SCAN_TOKEN_INVALID")
         if (coverage.resumable_token is None) != (token is None):
             raise ValueError("FIFO_BATCH_SCAN_TOKEN_INVALID")
+        legacy_token = (
+            token if token is not None and len(token) <= _LEGACY_SCAN_TOKEN_BYTES
+            else None
+        )
         owner_fingerprint = cls._digest(coverage.scope.owner_id)
         case = cls._case_row(
             connection, coverage.scope, coverage.case_id,
@@ -466,7 +475,8 @@ class FifoCostBatchSupplyStore:
             coverage.unknown_order_count, coverage.unknown_supply_count,
             coverage.unknown_quantity_supply_count,
             cls._json(list(coverage.issue_codes), 8192),
-            None if token is None else sqlite3.Binary(token), status, expires_at, updated_at,
+            None if legacy_token is None else sqlite3.Binary(legacy_token),
+            status, expires_at, updated_at,
         )
         if existing is None:
             connection.execute(
@@ -505,6 +515,33 @@ class FifoCostBatchSupplyStore:
             )
             if cursor.rowcount != 1:
                 return cls._error("FIFO_BATCH_SCAN_REVISION_CONFLICT")
+        if token is not None and len(token) > _LEGACY_SCAN_TOKEN_BYTES:
+            stored_bytes = connection.execute(
+                """SELECT COALESCE(SUM(length(encrypted_resumable_token)), 0)
+                   FROM fifo_cost_batch_scan_continuations
+                   WHERE case_id=? AND scan_id<>?""",
+                (coverage.case_id, coverage.scan_id),
+            ).fetchone()[0]
+            if stored_bytes + len(token) > _MAX_CONTINUATION_BYTES_PER_CASE:
+                return cls._error("FIFO_BATCH_SCAN_TOKEN_QUOTA_EXCEEDED")
+            connection.execute(
+                """INSERT INTO fifo_cost_batch_scan_continuations (
+                       case_id, scan_id, encrypted_resumable_token, updated_at
+                   ) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(case_id, scan_id) DO UPDATE SET
+                       encrypted_resumable_token=excluded.encrypted_resumable_token,
+                       updated_at=excluded.updated_at""",
+                (
+                    coverage.case_id, coverage.scan_id,
+                    sqlite3.Binary(token), updated_at,
+                ),
+            )
+        else:
+            connection.execute(
+                "DELETE FROM fifo_cost_batch_scan_continuations "
+                "WHERE case_id=? AND scan_id=?",
+                (coverage.case_id, coverage.scan_id),
+            )
         return {
             "error": False, "code": "FIFO_BATCH_SCAN_STORED",
             "scan_id": coverage.scan_id, "revision": coverage.revision,
@@ -787,6 +824,23 @@ class FifoCostBatchSupplyStore:
                 "table": table,
                 "rows": [cls._fingerprint_row(row) for row in rows],
             })
+
+        continuation_rows = connection.execute(
+            """SELECT continuation.case_id, continuation.scan_id,
+                      continuation.encrypted_resumable_token, continuation.updated_at
+               FROM fifo_cost_batch_scan_continuations AS continuation
+               JOIN fifo_cost_batch_supply_scans AS parent
+                 ON parent.case_id=continuation.case_id
+                AND parent.scan_id=continuation.scan_id
+               WHERE """ + parent_where + " ORDER BY continuation.scan_id LIMIT ?",
+            (*scoped_values, _MAX_SCANS_PER_CASE + 1),
+        ).fetchall()
+        if len(continuation_rows) > _MAX_SCANS_PER_CASE:
+            raise ValueError("FIFO_BATCH_MANIFEST_SEAL_ROW_LIMIT_REACHED")
+        sources.append({
+            "table": "fifo_cost_batch_scan_continuations",
+            "rows": [cls._fingerprint_row(row) for row in continuation_rows],
+        })
 
         latest_scan = cls.read_latest_scan_checkpoint(
             connection, scope=scope, case_id=case_id,
@@ -1168,7 +1222,13 @@ class FifoCostBatchSupplyStore:
                       orders_seen, supplies_seen, sku_rows_seen, unknown_order_count,
                       unknown_supply_count, unknown_quantity_supply_count, issue_codes_json,
                       observation_set_fingerprint, status, expires_at, updated_at,
-                      encrypted_resumable_token
+                      COALESCE(
+                          encrypted_resumable_token,
+                          (SELECT continuation.encrypted_resumable_token
+                           FROM fifo_cost_batch_scan_continuations AS continuation
+                           WHERE continuation.case_id=fifo_cost_batch_supply_scans.case_id
+                             AND continuation.scan_id=fifo_cost_batch_supply_scans.scan_id)
+                      ) AS encrypted_resumable_token
                FROM fifo_cost_batch_supply_scans
                WHERE case_id=? AND scan_id=? AND owner_fingerprint=?
                  AND tenant_fingerprint=? AND store_id=? AND sku=?
