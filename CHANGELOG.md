@@ -4,7 +4,7 @@
 - Manifest construction now treats `OUTSIDE_RULE` and explicit owner exclusions as terminal non-blocking outcomes. Conflicting overlapping owner selections resolve to the newest confirmed decision, with same-time conflicts failing closed; Telegram can record a later correction.
 - Added masked, user-matchable supply labels and normalized SQLite boolean flags in the review card. Manifest rows and source fingerprint now come from one SQLite read snapshot.
 - Increased the bounded continuation contract to 1 MiB. FIFO schema v19 adds an encrypted continuation side table so existing v18 token columns and small saved tokens remain unchanged; per-case storage is capped and included in backup/fingerprint boundaries.
-- Added regression coverage for all eight review findings. Windows/Python 3.12: affected FIFO profile **125 passed**, schema/checkpoint migration profile **29 passed**, full isolated suite **5,446 passed in 108.09s**, and `compileall` passed. Hosted exact-head CI remains pending.
+- Added regression coverage for all eight review findings. Windows/Python 3.12: affected FIFO profile **125 passed**, schema/checkpoint migration profile **29 passed**, full isolated suite **5,446 passed in 108.09s**, and `compileall` passed. Exact-head Verify for code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e` passed as run [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054), including Windows/Linux full suites, compile, and production Docker build/runtime smoke.
 
 # 2026-11-15 — FIFO automatic batch first-day selection and owner guide (FB30)
 

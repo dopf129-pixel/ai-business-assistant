@@ -1,6 +1,6 @@
 # FIFO automatic batch — PR C independent review handoff
 
-Date: 2026-11-15. Status: PR C #736 is open as a draft. The first published revision `9fab872dbb591297d2aae1440cb9370a8c187560` passed exact-head Verify run [43661914317](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43661914317). The live PR description is the source of truth for the current base/head SHA and exact Verify run; if this packet changes the head, the PR description must be refreshed after CI.
+Date: 2026-11-15. Status: PR C #736 is open as a draft. Review-fix code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e` passed exact-head Verify run [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054). The live PR description is the source of truth for current base/head SHA and latest exact Verify run; if this packet changes the head, refresh the PR description after CI.
 
 ## PR chain and verification state
 
@@ -9,7 +9,7 @@ Date: 2026-11-15. Status: PR C #736 is open as a draft. The first published revi
 | Specification | [#733](https://github.com/dopf129-pixel/ai-business-assistant/pull/733) | `codex/fifo-auto-batch-rule-spec-20261113` | `main` | spec head `0fa8b7835829a710bf86adda1c3737d8286c42de`; Verify [43432990867](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43432990867) passed. |
 | PR A | [#734](https://github.com/dopf129-pixel/ai-business-assistant/pull/734) | `codex/fifo-auto-batch-foundation-20261113` | spec branch at `0fa8b7835829a710bf86adda1c3737d8286c42de` | head `305a892d1c3ef730f0796ff9cb8059c8582c0713`; Verify [43596110972](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43596110972) passed. |
 | PR B | [#735](https://github.com/dopf129-pixel/ai-business-assistant/pull/735) | `codex/fifo-auto-batch-sources-20261113` | PR A at `305a892d1c3ef730f0796ff9cb8059c8582c0713` | head `dda4571baa79b95d632391cc0fee5cb7ca21b661`; Verify [43617884850](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43617884850) passed. |
-| PR C | [#736](https://github.com/dopf129-pixel/ai-business-assistant/pull/736), draft | `codex/fifo-auto-batch-integration-20261113` | PR B at `dda4571baa79b95d632391cc0fee5cb7ca21b661` | First revision `9fab872dbb591297d2aae1440cb9370a8c187560`, Verify [43661914317](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43661914317) passed. Use the PR description for current final revision. |
+| PR C | [#736](https://github.com/dopf129-pixel/ai-business-assistant/pull/736), draft | `codex/fifo-auto-batch-integration-20261113` | PR B at `dda4571baa79b95d632391cc0fee5cb7ca21b661` | Review-fix code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e`; Verify [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054) passed. Use the live PR description for current final revision. |
 
 The PRs are intentionally stacked and draft. Do not merge, deploy, start the bot, or make live Ozon/Telegram requests as part of this review.
 
@@ -65,7 +65,7 @@ See [FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md](FIFO_BATCH_SUPPLY_SOURCE_C
 - FB30 first-day-choice regressions: **36 passed**.
 - Linked FIFO batch, transition/readiness/review/apply/service profile after FB30: **177 passed in 20.24s**; all are synthetic/local tests.
 - Full configured suite at FB29 SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, but it predates the FB30 code change and must not be attributed to PR C final head.
-- Production Docker build/runtime smoke and hosted Windows/Linux exact-head CI for the review-fix SHA: pending. Refresh the live PR description and this table after publishing the new head and CI run.
+- Exact-head Verify [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054) passed on review-fix code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e`, including Windows/Linux full suites, compile, Docker build/runtime smoke and SHA-bound artifact. A documentation-only follow-up may advance HEAD; the live PR body remains the source of truth for latest head/checks.
 - No live Ozon/Telegram request, owner data, Desktop bot change/start, merge or deployment.
 
 ## Review focus
