@@ -1,3 +1,8 @@
+# 2026-11-16 — FIFO scan-history and continuation race fixes
+
+- Manifest quantities now come from the newest scan's linked observations; prior scan occurrences are retained only for temporal acceptance checks. Replayed old fingerprints cannot replace newer quantity evidence, and a later accepted-quantity decrease remains a review conflict.
+- A resumed scan is rejected if another scan becomes newest before its page commit. Added regressions for `100 → 200 → 100` and the resume/commit race. Selected FIFO/transition profile: **897 passed**. Verify [43762931040](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43762931040) passed on SHA `8fdfcb2c89033c60a35cc7248e0e680939a5da39` (Windows/Linux full suites and compile; Linux production Docker build/runtime smoke and SHA-bound report).
+
 # 2026-11-15 — FIFO auto-batch PR C review follow-up
 
 - Manifest reads now include bounded historical observations for supplies present in the newest scan, so cumulative accepted-quantity decreases stay in review instead of appearing complete.
@@ -3169,10 +3174,5 @@ Summary Report теперь включает:
 - Added the independent review handoff and a source capability matrix that separates tested local wrappers from unverified Ozon raw schemas and the unresolved R1 movement source.
 - Linked source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning profile: **233 passed**; isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
 - PR B publication and exact-head hosted CI are pending; no live Ozon/Telegram call, FIFO apply, bot launch, merge, or deployment occurred.
-# 2026-11-16 — Fix FIFO scan history ordering and stale resume
-
-- FIFO manifest quantities now come only from the newest scan's linked observations; older linked occurrences are used only to validate cumulative acceptance over time. This prevents a replayed older source fingerprint from replacing the latest planned quantity.
-- A later decrease in accepted quantity now requires review even when the decrease repeats a previously seen payload. A resumed scan is rejected if another scan became newest after resume began, both when loading a continuation and at the atomic checkpoint commit.
-- Added regressions for `100 → 200 → 100` quantity/fingerprint replay and a newer scan completing between old-scan resume and commit. The complete selected FIFO suite passes **897 tests**; exact-head hosted CI is pending.
 
 # 2026-11-15 — FIFO auto-batch PR C review follow-up
