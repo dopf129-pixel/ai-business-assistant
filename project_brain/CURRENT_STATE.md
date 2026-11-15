@@ -1,8 +1,8 @@
 # 2026-11-15 — FIFO auto-batch review follow-up
 
 - Fixed five confirmed PR C review findings: latest-scan manifests now reconcile acceptance against bounded prior observations for the same current supply keys; an owner can add or correct a grouped membership decision; a decision preview is rejected after a newer scan is persisted; a new Telegram session restores the scoped saved scan and encrypted continuation; and a source no-progress failure persists as the latest failed scan so older published results cannot remain current.
-- Regression evidence: **53 focused tests passed**; **189 linked FIFO batch/production/readiness/review/apply tests passed**. `git diff --check` and tracked `data/` equality passed. Full isolated suite and exact-head CI remain pending for this follow-up SHA.
-- No schema change, live Ozon/Telegram request, owner data use, bot launch, merge or deployment. PR #736 remains a draft pending final verification and independent review.
+- Regression evidence: **53 focused tests passed**; **189 linked FIFO batch/production/readiness/review/apply tests passed**. `git diff --check` and tracked `data/` equality passed. Exact-head Verify [run 43754510424](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43754510424) passed on SHA `26e7d3c4617189d93b57d61405c59acfc803b453`: Linux full verification and Windows full suite/compile both succeeded; Linux production Docker build/runtime smoke and SHA-bound report/artifact succeeded. The artifact is `verification-ab329dc31e38d19d1b35cff338f0095585dc1248`.
+- No schema change, live Ozon/Telegram request, owner data use, bot launch, merge or deployment. PR #736 remains a draft pending independent review; the five code fixes at SHA `26e7d3c4617189d93b57d61405c59acfc803b453` passed exact-head Verify run [43754510424](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43754510424). No merge or deployment.
 
 # 2026-11-15 — FIFO auto-batch PR C review fixes (R1–R8)
 

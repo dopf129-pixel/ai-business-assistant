@@ -4,7 +4,7 @@
 - `tests/test_fifo_cost_batch_supply_source.py::test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identity_leaks`: grouped inclusion, exclusion, re-inclusion correction, and stale preview rejection after a newer changed-quantity scan; all remain read-only for FIFO/COGS.
 - `tests/test_fifo_cost_batch_supply_source.py::test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart`: a new Telegram runtime rehydrates a saved partial scan and continues from the persisted cursor without repeating earlier pages or detail calls.
 - `tests/test_fifo_cost_batch_supply_source.py::test_unavailable_new_scan_is_persisted_and_supersedes_previous_published_scan`: a no-progress source failure becomes the newest `FAILED` checkpoint instead of exposing an older `PUBLISHED` scan as current.
-- Linked Windows/Python 3.12 profile: **189 passed** across FIFO batch tests and production/readiness/review/apply services; focused source/manifest/Telegram/checkpoint profile: **53 passed**. Exact-head CI and full isolated suite for this follow-up are pending publication.
+- Linked Windows/Python 3.12 profile: **189 passed** across FIFO batch tests and production/readiness/review/apply services; focused source/manifest/Telegram/checkpoint profile: **53 passed**. Exact-head Verify [run 43754510424](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43754510424) passed on SHA `26e7d3c4617189d93b57d61405c59acfc803b453`: Windows/Linux full suites and compile passed; Linux production Docker build/runtime smoke and SHA-bound report/artifact passed.
 
 # FIFO automatic-batch PR C review regressions — 2026-11-15
 
