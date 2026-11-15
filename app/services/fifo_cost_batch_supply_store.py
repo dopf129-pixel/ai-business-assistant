@@ -935,7 +935,8 @@ class FifoCostBatchSupplyStore:
                       observation.quantity_coverage, observation.acceptance_fingerprint,
                       observation.acceptance_version, observation.explicit_zero_fields_json,
                       observation.membership, observation.issues_json,
-                      observation.observation_revision
+                      observation.observation_revision,
+                      link.linked_at AS scan_observed_at
                FROM fifo_cost_batch_scan_observations AS link
                JOIN fifo_cost_batch_supply_observations AS observation
                  ON observation.case_id=link.case_id
@@ -966,11 +967,11 @@ class FifoCostBatchSupplyStore:
         tenant_fingerprint: str, scan_id: str,
         limit: int = MAX_BATCH_OBSERVATIONS,
     ) -> tuple[dict, ...]:
-        """Read bounded history for only the supply keys in one exact scan.
+        """Read prior scan occurrences for keys in one exact scan.
 
         The newest scan determines which supplies participate in the current
-        manifest; earlier observations for those same supplies are retained
-        so cumulative acceptance can be checked for impossible decreases.
+        manifest. Earlier linked rows for those supplies are retained only to
+        reconcile cumulative acceptance in observation order.
         """
         cls._validate_scope_inputs(scope, case_id, tenant_fingerprint)
         cls._validate_opaque(scan_id)
@@ -1003,19 +1004,31 @@ class FifoCostBatchSupplyStore:
                       observation.quantity_coverage, observation.acceptance_fingerprint,
                       observation.acceptance_version, observation.explicit_zero_fields_json,
                       observation.membership, observation.issues_json,
-                      observation.observation_revision
-               FROM fifo_cost_batch_supply_observations AS observation
-               JOIN current_keys ON current_keys.record_key=observation.record_key
-               WHERE observation.case_id=? AND observation.owner_fingerprint=?
-                 AND observation.tenant_fingerprint=? AND observation.store_id=?
-                 AND observation.sku=? AND observation.scope_fingerprint=?
-               ORDER BY observation.record_key, observation.captured_at,
-                        observation.observation_revision, observation.source_fingerprint
+                      observation.observation_revision,
+                      link.linked_at AS scan_observed_at
+               FROM fifo_cost_batch_scan_observations AS link
+               JOIN fifo_cost_batch_supply_scans AS scan
+                 ON scan.case_id=link.case_id AND scan.scan_id=link.scan_id
+               JOIN fifo_cost_batch_supply_observations AS observation
+                 ON observation.case_id=link.case_id
+                AND observation.record_key=link.record_key
+                AND observation.source_fingerprint=link.source_fingerprint
+                AND observation.observation_revision=link.observation_revision
+               JOIN current_keys ON current_keys.record_key=link.record_key
+               WHERE link.case_id=? AND link.scan_id<>?
+                 AND scan.owner_fingerprint=observation.owner_fingerprint
+                 AND scan.tenant_fingerprint=observation.tenant_fingerprint
+                 AND scan.store_id=observation.store_id AND scan.sku=observation.sku
+                 AND scan.scope_fingerprint=observation.scope_fingerprint
+                 AND scan.owner_fingerprint=? AND scan.tenant_fingerprint=?
+                 AND scan.store_id=? AND scan.sku=? AND scan.scope_fingerprint=?
+               ORDER BY link.record_key, link.linked_at,
+                        observation.observation_revision, link.source_fingerprint
                LIMIT ?""",
             (
                 case_id, scan_id, cls._digest(scope.owner_id), tenant_fingerprint,
                 scope.store_id, scope.sku, cls._scope_fingerprint(scope),
-                case_id, cls._digest(scope.owner_id), tenant_fingerprint,
+                case_id, scan_id, cls._digest(scope.owner_id), tenant_fingerprint,
                 scope.store_id, scope.sku, cls._scope_fingerprint(scope), limit + 1,
             ),
         ).fetchall()

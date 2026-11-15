@@ -1040,10 +1040,12 @@ class FifoCostBatchSupplySourceService:
             continuation_state=state if resumable else None, now=now_text,
         )
         if committed.get("error"):
+            commit_code = str(committed.get("code") or "")
+            is_conflict = "CONFLICT" in commit_code or commit_code.endswith("_SUPERSEDED")
             return self._result(
                 started=started,
-                status="CONFLICT" if "CONFLICT" in str(committed.get("code")) else "UNAVAILABLE",
-                source_status="CONFLICT" if "CONFLICT" in str(committed.get("code")) else "UNAVAILABLE",
+                status="CONFLICT" if is_conflict else "UNAVAILABLE",
+                source_status="CONFLICT" if is_conflict else "UNAVAILABLE",
                 issue_codes=(committed.get("code", "FIFO_BATCH_SCAN_STORAGE_UNAVAILABLE"),),
                 case_revision=basis["case_revision"], rule_revision=basis["rule_revision"],
                 actual_attempts=actual_attempts, scan_id=scan_id,

@@ -104,18 +104,35 @@ class FifoCostBatchSupplyDeduplicator:
         cls, *, scope: ScopeIdentity, case_id: str,
         observations: tuple[SupplySkuObservation, ...],
         declarations: tuple[SupplyDeclaration, ...],
+        acceptance_history: tuple[SupplySkuObservation, ...] = (),
     ) -> FifoCostBatchDeduplicationResult:
-        """Return a deterministic Supply+SKU set and separately linked controls."""
+        """Reconcile current rows and use older rows only for cumulative acceptance."""
         if not isinstance(scope, ScopeIdentity):
             return cls._error("FIFO_BATCH_SCOPE_INVALID")
         if not isinstance(case_id, str) or not case_id.strip() or len(case_id) > 96:
             return cls._error("FIFO_BATCH_CASE_ID_INVALID")
         if not isinstance(observations, tuple) or len(observations) > MAX_OBSERVATIONS:
             return cls._error("FIFO_BATCH_OBSERVATION_LIMIT_REACHED")
+        if not isinstance(acceptance_history, tuple) or len(acceptance_history) > MAX_OBSERVATIONS:
+            return cls._error("FIFO_BATCH_OBSERVATION_LIMIT_REACHED")
         if not isinstance(declarations, tuple) or len(declarations) > MAX_DECLARATIONS:
             return cls._error("FIFO_BATCH_DECLARATION_LIMIT_REACHED")
 
         api_groups: dict[str, dict] = {}
+        historical_acceptance: dict[str, list[SupplySkuObservation]] = {}
+        for observation in acceptance_history:
+            if not isinstance(observation, SupplySkuObservation):
+                return cls._error("FIFO_BATCH_OBSERVATION_INVALID")
+            if observation.scope != scope:
+                return cls._error("FIFO_BATCH_SCOPE_MISMATCH")
+            if observation.quantity_source_kind is not EvidenceSourceKind.OZON_API:
+                return cls._error("FIFO_BATCH_API_OBSERVATION_PROVENANCE_INVALID")
+            expected_key = cls.canonical_record_key(scope, observation.supply_ref_digest)
+            if observation.record_key != expected_key:
+                return cls._error("FIFO_BATCH_SUPPLY_RECORD_KEY_MISMATCH")
+            historical_acceptance.setdefault(
+                observation.supply_ref_digest, [],
+            ).append(observation)
         owner_supply_to_api_ref: dict[str, str] = {}
         owner_order_to_api_ref: dict[str, str] = {}
         for observation in observations:
@@ -240,7 +257,7 @@ class FifoCostBatchSupplyDeduplicator:
                     issues.append("FIFO_BATCH_OBSERVATION_CURRENT_UNKNOWN")
                 if not api["conflict"]:
                     effective_accepted, acceptance_conflict = cls._reconcile_cumulative_acceptance(
-                        api["capture_history"],
+                        api["capture_history"] + historical_acceptance.get(supply_ref, []),
                     )
                     if acceptance_conflict:
                         issues.append("FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW")
@@ -446,21 +463,18 @@ class FifoCostBatchSupplyDeduplicator:
 
     @staticmethod
     def _reconcile_cumulative_acceptance(observations):
-        """Retain cumulative maximum on duplicate replays; review novel decreases."""
+        """Retain cumulative maximum and flag any later observed decrease."""
         ordered = sorted(observations, key=lambda item: (item.captured_at, item.source_fingerprint))
-        seen_fingerprints = set()
         maximum = None
         conflict = False
         for observation in ordered:
             quantity = observation.accepted_quantity
             if quantity is None:
-                seen_fingerprints.add(observation.source_fingerprint)
                 continue
             if maximum is None or quantity >= maximum:
                 maximum = quantity
-            elif observation.source_fingerprint not in seen_fingerprints:
+            else:
                 conflict = True
-            seen_fingerprints.add(observation.source_fingerprint)
         return maximum, conflict
 
     @staticmethod

@@ -978,6 +978,86 @@ def test_durable_bundle_scan_resumes_pagination_after_service_restart(
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_resumed_scan_cannot_overwrite_a_newer_scan_committed_during_resume(
+    tmp_path, monkeypatch,
+):
+    repository, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True,
+        list_pages=[
+            {"order_ids": list(range(3000, 3100)), "last_id": "old-cursor"},
+            {"order_ids": [], "last_id": None},
+            {"order_ids": [], "last_id": None},
+        ],
+    )
+    try:
+        parent = PeriodProfitOperationTrace(
+            operation="old-partial-scan", time_budget_seconds=20,
+            ozon_request_budget=3,
+        )
+        old = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], operation_trace=parent,
+        )
+        assert old.status == "PARTIAL"
+        assert old.continuation_token is not None
+
+        original_commit = source.scan_checkpoint_service.commit_page
+        newer = {}
+        race_triggered = False
+
+        def commit_with_new_scan_between_resume_and_cas(**kwargs):
+            nonlocal race_triggered
+            coverage = kwargs["coverage"]
+            if (
+                not race_triggered
+                and coverage.scan_id == old.scan_id
+                and kwargs["expected_scan_revision"] > 0
+            ):
+                race_triggered = True
+                newer["result"] = source.collect_supplies(
+                    SCOPE, "case_batch_src_01", confirmed["case_revision"],
+                    confirmed["rule_revision"],
+                )
+            return original_commit(**kwargs)
+
+        monkeypatch.setattr(
+            source.scan_checkpoint_service, "commit_page",
+            commit_with_new_scan_between_resume_and_cas,
+        )
+        resumed = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], continuation_token=old.continuation_token,
+        )
+
+        assert race_triggered is True
+        assert newer["result"].status == "COMPLETE"
+        assert resumed.status == "CONFLICT"
+        assert resumed.issue_codes == ("FIFO_BATCH_SCAN_SUPERSEDED",)
+
+        attempts_before_stale_retry = len(ozon.calls)
+        stale_retry = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], continuation_token=old.continuation_token,
+        )
+        assert stale_retry.status == "CONFLICT"
+        assert stale_retry.issue_codes == ("FIFO_BATCH_SCAN_SUPERSEDED",)
+        assert len(ozon.calls) == attempts_before_stale_retry
+
+        tenant = repository._tenant_scope(SCOPE.store_id)
+        connection = repository.get_connection()
+        try:
+            latest = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                connection, scope=SCOPE, case_id="case_batch_src_01",
+                tenant_fingerprint=tenant["tenant_fingerprint"],
+            )
+            assert latest["scan_id"] == newer["result"].scan_id
+            assert latest["status"] == "PUBLISHED"
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon(
     tmp_path, monkeypatch,
 ):

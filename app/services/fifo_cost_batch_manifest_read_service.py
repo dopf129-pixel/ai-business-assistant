@@ -143,8 +143,11 @@ class FifoCostBatchManifestReadService:
             )
             if len(history_rows) > MAX_BATCH_OBSERVATIONS:
                 return self._error("FIFO_BATCH_MANIFEST_OBSERVATION_LIMIT_REACHED")
-            observations = tuple(
+            acceptance_history = tuple(
                 self._restore_observation(scope, row) for row in history_rows
+            )
+            observations = tuple(
+                self._restore_observation(scope, row) for row in observation_rows
             )
             decision_rows = FifoCostBatchSupplyStore.read_membership_decisions(
                 connection, scope=scope, case_id=case.case_id,
@@ -182,6 +185,7 @@ class FifoCostBatchManifestReadService:
         deduplication = FifoCostBatchSupplyDeduplicator.reconcile(
             scope=scope, case_id=case.case_id,
             observations=observations, declarations=declarations,
+            acceptance_history=acceptance_history,
         )
         classifications = tuple(
             FifoCostBatchRuleClassifier.classify_supply(
@@ -330,7 +334,8 @@ class FifoCostBatchManifestReadService:
             supply_ref_digest=row["supply_ref_digest"],
             encrypted_lookup_payload=encrypted_lookup,
             source_profile_version=row["source_profile_version"],
-            source_fingerprint=row["source_fingerprint"], captured_at=row["captured_at"],
+            source_fingerprint=row["source_fingerprint"],
+            captured_at=row.get("scan_observed_at", row["captured_at"]),
             source_as_of=row["source_as_of"], source_status=row["source_status"],
             normalized_status=NormalizedSupplyStatus(row["normalized_status"]),
             is_crossdock=crossdock, dispatch_local_date=row["dispatch_local_date"],

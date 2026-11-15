@@ -1,3 +1,9 @@
+# 2026-11-16 — FIFO auto-batch review corrections
+
+- Fixed two additional confirmed FIFO manifest/scan races: use newest scan-linked quantity observations rather than an observation's original first-capture time; preserve every prior scan occurrence for temporal acceptance checks; reject a scan continuation superseded after it began before committing its next page. New regressions cover exact fingerprint replay and a concurrent newer scan.
+- Selected FIFO and transition suite: **897 passed** on Windows/Python 3.12. An initial broad invocation selected the full suite due to a PowerShell path-filter mismatch; 5,444 passed and seven storage-path tests failed because the temporary `AI_ASSISTANT_STORAGE_ROOT` override intentionally changed their setup. This did not modify project data; the test-produced `data/tasks.json` change was restored to Git and its empty lock file removed. The correctly selected FIFO suite is green; exact-head hosted CI is pending publication.
+- PR #736 remains a draft for independent review. No schema change, live Ozon/Telegram request, owner data use, bot launch, merge or deployment.
+
 # 2026-11-15 — FIFO auto-batch review follow-up
 
 - Fixed five confirmed PR C review findings: latest-scan manifests now reconcile acceptance against bounded prior observations for the same current supply keys; an owner can add or correct a grouped membership decision; a decision preview is rejected after a newer scan is persisted; a new Telegram session restores the scoped saved scan and encrypted continuation; and a source no-progress failure persists as the latest failed scan so older published results cannot remain current.

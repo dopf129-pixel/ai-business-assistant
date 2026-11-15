@@ -136,6 +136,12 @@ class FifoCostBatchScanCheckpointService:
                     return self._error("FIFO_BATCH_SCAN_REVISION_CONFLICT")
                 if previous_checkpoint["status"] not in _RESUMABLE:
                     return self._error("FIFO_BATCH_SCAN_NOT_RESUMABLE")
+                latest_scan = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                    connection, scope=scope, case_id=coverage.case_id,
+                    tenant_fingerprint=tenant_fingerprint,
+                )
+                if latest_scan is None or latest_scan["scan_id"] != coverage.scan_id:
+                    return self._error("FIFO_BATCH_SCAN_SUPERSEDED")
                 if self._parse_timestamp(previous_checkpoint["expires_at"]) <= now_dt:
                     return self._error("FIFO_BATCH_SCAN_EXPIRED")
                 previous_payload = self._decode_payload(
@@ -281,6 +287,12 @@ class FifoCostBatchScanCheckpointService:
             )
             if row is None:
                 return self._error("FIFO_BATCH_SCAN_NOT_FOUND")
+            latest_scan = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                connection, scope=scope, case_id=case_id,
+                tenant_fingerprint=tenant_fingerprint,
+            )
+            if latest_scan is None or latest_scan["scan_id"] != scan_id:
+                return self._error("FIFO_BATCH_SCAN_SUPERSEDED")
             if row["status"] not in _RESUMABLE or row["encrypted_resumable_token"] is None:
                 return self._error("FIFO_BATCH_SCAN_NOT_RESUMABLE")
             if token_revision > row["revision"]:

@@ -157,7 +157,7 @@ def _coverage(*, scan_id, rule_revision=1, captured_at=NOW_TEXT, membership_comp
 
 
 def _observation(*, captured_at=NOW_TEXT, suffix="1", dispatch_date="2026-11-05",
-                 accepted=None, source_revision=1):
+                 accepted=None, source_revision=1, quantity=100):
     supply_ref = _digest(f"supply-{suffix}")
     return SupplySkuObservation(
         scope=SCOPE,
@@ -170,7 +170,7 @@ def _observation(*, captured_at=NOW_TEXT, suffix="1", dispatch_date="2026-11-05"
         source_status="IN_TRANSIT", normalized_status=NormalizedSupplyStatus.IN_TRANSIT,
         is_crossdock=True, dispatch_local_date=dispatch_date, dispatch_local_time=None,
         dispatch_time_status=DispatchTimeStatus.CONFIRMED,
-        planned_declared_quantity=100, shipped_composition_quantity=100,
+        planned_declared_quantity=quantity, shipped_composition_quantity=quantity,
         accepted_quantity=accepted, quantity_source_kind=EvidenceSourceKind.OZON_API,
         quantity_coverage=EvidenceCompleteness.COMPLETE,
         acceptance_fingerprint=None if accepted is None else _digest(f"accept-{suffix}-{accepted}"),
@@ -292,6 +292,46 @@ def test_latest_manifest_reconciles_acceptance_against_prior_observations(
         assert result["error"] is False, result
         assert result["manifest"].scan_id == "manifest-acceptance-after"
         assert result["manifest"].accepted_units is None
+        assert "FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW" in result["issue_codes"]
+        assert result["status"] != "COMPLETE"
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_latest_scan_uses_latest_quantity_and_detects_replayed_acceptance_decrease(
+    tmp_path, monkeypatch,
+):
+    repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
+    try:
+        scans = (
+            ("manifest-replay-before", 0, 100, 10, 1),
+            ("manifest-replay-middle", 1, 200, 20, 2),
+            ("manifest-replay-after", 2, 100, 10, 1),
+        )
+        for scan_id, minute, quantity, accepted, source_revision in scans:
+            captured = f"2026-11-15T12:{minute:02d}:00.000000Z"
+            observation = _observation(
+                captured_at=captured, suffix="same-supply", accepted=accepted,
+                source_revision=source_revision, quantity=quantity,
+            )
+            _publish_scan(
+                repository, tenant_fp, rule, scan_id=scan_id, minute=minute,
+                observations=(observation,),
+                coverage=_coverage(
+                    scan_id=scan_id, captured_at=captured,
+                    rule_revision=rule["rule_revision"],
+                ),
+            )
+
+        result = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: NOW,
+        ).read_current_manifest(case=case)
+
+        assert result["error"] is False, result
+        manifest = result["manifest"]
+        assert manifest.scan_id == "manifest-replay-after"
+        assert manifest.declared_in_found_supplies == 100
+        assert manifest.accepted_units is None
         assert "FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW" in result["issue_codes"]
         assert result["status"] != "COMPLETE"
     finally:
