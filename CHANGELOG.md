@@ -1,3 +1,8 @@
+# 2026-11-16 — FIFO manifest counts with missing supplies
+
+- Fixed PR #736 review finding: `undecided_supply_count` now counts unresolved membership only among API rows found in the current scan. Historical missing and owner-only records remain unresolved for completeness, preserving their issue codes and missing keys; they cannot make a partial manifest complete or authorize FIFO apply. The existing strict counter contract is retained.
+- Regressions cover all supplies disappearing, more missing than current supplies, simultaneous missing/history and unresolved current membership, and unmatched owner declarations with zero/one current rows. All six selected cases failed before the fix; all six pass after it, including the production readiness path. Full isolated pytest: **5,458 passed in 94.85s**. Full compile, `git diff --check` and unchanged tracked `data/` passed. Hosted CI for the new commit is pending.
+
 # 2026-11-16 — FIFO auto-batch missing-supply and stale-cost guards
 
 - A supply observed in an earlier scan of the same confirmed rule but absent from the latest scan now remains explicit missing evidence, including its opaque record key in the typed manifest. Its prior acceptance history is retained; it is not converted to zero, and accepted/pending totals remain unknown until reconciled.

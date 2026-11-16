@@ -5,6 +5,7 @@ import hashlib
 from threading import Event, Thread
 
 from cryptography.fernet import Fernet
+import pytest
 
 from services.fifo_cost_batch_rule_contracts import (
     BatchRuleInput,
@@ -298,20 +299,25 @@ def test_latest_manifest_reconciles_acceptance_against_prior_observations(
         reset_current_tenant_user_id(tenant_token)
 
 
+@pytest.mark.parametrize(
+    "prior_count,current_count,dispatch_confirmed",
+    [
+        pytest.param(2, 1, True, id="one-missing-one-current"),
+        pytest.param(2, 0, True, id="all-supplies-missing"),
+        pytest.param(3, 1, True, id="more-missing-than-current"),
+        pytest.param(3, 1, False, id="missing-and-current-membership-unresolved"),
+    ],
+)
 def test_supply_missing_from_latest_scan_stays_unknown_and_blocks_manifest(
-    tmp_path, monkeypatch,
+    tmp_path, monkeypatch, prior_count, current_count, dispatch_confirmed,
 ):
     repository, tenant_fp, rule, case, tenant_token = _setup(tmp_path, monkeypatch)
     try:
         first_time = "2026-11-15T12:00:00.000000Z"
         second_time = "2026-11-15T12:01:00.000000Z"
-        before = (
-            _observation(
-                captured_at=first_time, suffix="still-present", accepted=100,
-            ),
-            _observation(
-                captured_at=first_time, suffix="disappeared", accepted=100,
-            ),
+        before = tuple(
+            _observation(captured_at=first_time, suffix=f"supply-{index}", accepted=100)
+            for index in range(prior_count)
         )
         _publish_scan(
             repository, tenant_fp, rule, scan_id="manifest-presence-before",
@@ -322,52 +328,75 @@ def test_supply_missing_from_latest_scan_stays_unknown_and_blocks_manifest(
                     rule_revision=rule["rule_revision"], membership_complete=True,
                     issue_codes=(),
                 ),
-                supplies_seen=2, sku_rows_seen=2,
+                supplies_seen=prior_count, sku_rows_seen=prior_count,
             ),
         )
-        after = _observation(
-            captured_at=second_time, suffix="still-present", accepted=100,
-            source_revision=2,
+        after = tuple(
+            replace(
+                _observation(
+                    captured_at=second_time, suffix=f"supply-{index}", accepted=100,
+                    source_revision=2,
+                ),
+                dispatch_local_date="2026-11-05" if dispatch_confirmed else None,
+                dispatch_time_status=(
+                    DispatchTimeStatus.CONFIRMED if dispatch_confirmed
+                    else DispatchTimeStatus.UNKNOWN
+                ),
+            )
+            for index in range(current_count)
         )
         _publish_scan(
             repository, tenant_fp, rule, scan_id="manifest-presence-after",
-            minute=1, observations=(after,),
-            coverage=_coverage(
-                scan_id="manifest-presence-after", captured_at=second_time,
-                rule_revision=rule["rule_revision"], membership_complete=True,
-                issue_codes=(),
+            minute=1, observations=after,
+            coverage=replace(
+                _coverage(
+                    scan_id="manifest-presence-after", captured_at=second_time,
+                    rule_revision=rule["rule_revision"], membership_complete=True,
+                    issue_codes=(),
+                ),
+                supplies_seen=current_count, sku_rows_seen=current_count,
             ),
         )
 
         reconciled = FifoCostBatchSupplyDeduplicator.reconcile(
-            scope=SCOPE, case_id=case.case_id, observations=(after,),
+            scope=SCOPE, case_id=case.case_id, observations=after,
             declarations=(), acceptance_history=before,
         )
-        missing_record = next(
-            item for item in reconciled.records
-            if item.supply_ref_digest == _digest("supply-disappeared")
+        missing_records = tuple(
+            item for item in reconciled.records if item.current_observation is None
         )
-        assert missing_record.current_observation is None
-        assert missing_record.effective_accepted_quantity == 100
-        assert "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in missing_record.issues
+        assert len(missing_records) == prior_count - current_count
+        for record in missing_records:
+            assert record.effective_accepted_quantity == 100
+            assert "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in record.issues
 
-        result = FifoCostBatchManifestReadService(
-            repository, now_provider=lambda: NOW,
-        ).read_current_manifest(case=case)
-
+        reader = FifoCostBatchManifestReadService(repository, now_provider=lambda: NOW)
+        result = reader.read_current_manifest(case=case)
         assert result["error"] is False, result
-        assert result["status"] != "COMPLETE"
+        assert result["status"] == ("PARTIAL" if current_count else "UNKNOWN")
         assert "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in result["issue_codes"]
-        assert result["manifest"].found_supply_count == 1
-        assert result["manifest"].coverage.unknown_supply_count == 1
-        assert result["manifest"].missing_supply_record_keys == (
-            missing_record.record_key,
-        )
-        # The surviving row's 100 units remain only a known subtotal. The
-        # missing supply keeps accepted and pending totals unknown.
-        assert result["manifest"].accepted_units is None
-        assert result["manifest"].known_subtotal == 100
-        assert result["manifest"].pending_units is None
+        manifest = result["manifest"]
+        assert manifest.found_supply_count == current_count
+        assert manifest.undecided_supply_count == (0 if dispatch_confirmed else current_count)
+        assert manifest.coverage.unknown_supply_count == len(missing_records)
+        assert manifest.coverage.membership_complete is False
+        assert manifest.missing_supply_record_keys == tuple(sorted(
+            record.record_key for record in missing_records
+        ))
+        assert manifest.accepted_units is None
+        assert manifest.known_subtotal == (100 * current_count if dispatch_confirmed else 0)
+        assert manifest.pending_units is None
+        assert manifest.freshness is not ManifestFreshness.CURRENT
+        # The incomplete result must also pass through the real readiness path.
+        review = FifoCostTransitionReviewService(
+            FifoCostTransitionService(repository, now_provider=lambda: NOW),
+            FifoCostHistoryService(repository), automatic_batch_manifest_service=reader,
+        ).assess(case_id=case.case_id, identity=IDENTITY)
+        assert review["error"] is False, review
+        assert review["ready_to_apply"] is False
+        assert "AUTO_SUPPLY_MANIFEST_INCOMPLETE" in {
+            item.code for item in review["readiness"].requirements
+        }
     finally:
         reset_current_tenant_user_id(tenant_token)
 

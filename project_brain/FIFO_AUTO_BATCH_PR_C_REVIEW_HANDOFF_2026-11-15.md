@@ -81,3 +81,10 @@ See [FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md](FIFO_BATCH_SUPPLY_SOURCE_C
 ## Review focus
 
 Please examine the integration boundary between rule confirmation, manifest freshness, production readiness and atomic apply; checkpoint resume and source mutation; Telegram stale callback/idempotency; handling of explicit first-day empty selection; preservation of old FIFO/returns/saved-plan behavior; and the strong separation between declared bundle quantities and dispatch/acceptance/R1 facts. Architecture review is required.
+
+
+## Manifest count boundary correction — 2026-11-16
+
+The public `undecided_supply_count` is a subset of supplies found in the current API scan. Missing historical supplies and unmatched owner-only declarations remain unresolved evidence for membership completeness; historical missing keys, unknown totals and issue codes remain sealed. They do not inflate a current-row counter or bypass readiness. This preserves the existing strict `undecided_supply_count <= found_supply_count` contract and avoids an unhandled `CONTRACT_INVALID` when all supplies disappear or missing/owner-only records outnumber current rows.
+
+Regression matrix: 2 prior / 0 current; 3 prior / 1 current; 3 prior / 1 current with unknown dispatch; existing 2 prior / 1 current; plus 0 current / 1 owner-only and 1 current / 2 owner-only. Six cases failed before the fix and pass afterward. Missing-history cases traverse the real readiness review and remain blocked. Full isolated pytest: **5,458 passed in 94.85s**. Compile passed with the existing unrelated float-identity warning; diff checks and unchanged tracked data passed. The initial disposable run omitted a public CSV template (5,457 passed / 1 setup failure); after restoring the template, the entire suite passed. Current-head hosted verification is pending; use the live PR body for exact SHA/check status.

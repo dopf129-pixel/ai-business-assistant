@@ -633,6 +633,8 @@ class AutomaticBatchManifest:
     unknown_quantity_supply_count: int
     found_supply_count: int
     included_supply_count: int
+    # Unresolved membership among currently API-found supplies only. Missing
+    # history and owner-only evidence still block completeness via issues.
     undecided_supply_count: int
     coverage: SupplyScanCoverage
     current_through: str | None

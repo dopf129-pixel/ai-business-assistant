@@ -129,22 +129,22 @@ class FifoCostBatchManifestBuilder:
         classification_by_key = {item.record_key: item for item in classifications}
         api_records = tuple(record for record in records if record.current_observation is not None)
         included: list[CanonicalSupplySkuRecord] = []
-        undecided = 0
+        undecided_record_keys: set[str] = set()
         issues = set(deduplication.issue_codes)
         issues.update(coverage.issue_codes)
         for record in records:
             classification = classification_by_key.get(record.record_key)
             if record.status is SupplyLinkStatus.REVIEW_REQUIRED:
                 issues.update(record.issues)
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 continue
             if record.current_observation is None:
                 # An owner-only reference is not an Ozon-discovered supply.
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 issues.add("FIFO_BATCH_OWNER_SUPPLY_NOT_FOUND")
                 continue
             if classification is None:
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 issues.add("FIFO_BATCH_MEMBERSHIP_UNDECIDED")
                 continue
             if classification.membership is SupplyMembership.ELIGIBLE:
@@ -166,8 +166,17 @@ class FifoCostBatchManifestBuilder:
                 SupplyMembership.NEEDS_CONFIRMATION,
                 SupplyMembership.CONFLICT,
             }:
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 issues.update(classification.issue_codes)
+
+        # All unresolved evidence blocks completeness, including historical
+        # and owner-only records absent from this scan. The public membership
+        # count is a subset of currently API-found supplies, as its contract
+        # requires; missing records retain their own keys and issue codes.
+        undecided = len(undecided_record_keys)
+        undecided_found_count = sum(
+            record.record_key in undecided_record_keys for record in api_records
+        )
 
         found_composition = [
             item.current_observation.shipped_composition_quantity for item in api_records
@@ -377,7 +386,7 @@ class FifoCostBatchManifestBuilder:
             unknown_quantity_supply_count=unknown_quantity_count,
             found_supply_count=len(api_records),
             included_supply_count=len(included),
-            undecided_supply_count=undecided,
+            undecided_supply_count=undecided_found_count,
             coverage=computed_coverage,
             current_through=current_through,
             freshness=freshness,

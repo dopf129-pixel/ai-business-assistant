@@ -3,6 +3,7 @@ from decimal import Decimal
 import hashlib
 
 from cryptography.fernet import Fernet
+import pytest
 
 from services.fifo_cost_batch_manifest_builder import FifoCostBatchManifestBuilder
 from services.fifo_cost_batch_rule_classifier import FifoCostBatchRuleClassifier
@@ -193,6 +194,37 @@ def _build(
         total_controls=tuple(controls),
         rule_history=rule_history,
     )
+
+
+@pytest.mark.parametrize("current_count,owner_only_count", [(0, 1), (1, 2)])
+def test_owner_only_supplies_do_not_overflow_found_membership_count(
+    current_count, owner_only_count,
+):
+    observations = tuple(
+        _observation(f"current-{index}", 100, 100)
+        for index in range(current_count)
+    )
+    declarations = tuple(
+        replace(
+            _order_declaration(f"missing-{index}", 100),
+            declaration_id=f"owner-only-supply-{index}",
+            reference_kind=SupplyReferenceKind.SUPPLY,
+            reference_digest=_digest(f"supply-missing-{index}"),
+        )
+        for index in range(owner_only_count)
+    )
+    result = _build(
+        observations, declarations=declarations,
+        coverage=_coverage(supplies_seen=current_count, sku_rows_seen=current_count),
+    )
+
+    assert result.manifest is not None, result
+    assert result.status == ("PARTIAL" if current_count else "UNKNOWN")
+    assert result.manifest.found_supply_count == current_count
+    assert result.manifest.undecided_supply_count == 0
+    assert result.manifest.coverage.membership_complete is False
+    assert result.manifest.freshness is not ManifestFreshness.CURRENT
+    assert "FIFO_BATCH_OWNER_SUPPLY_NOT_FOUND" in result.issue_codes
 
 
 def test_valid_supply_outside_active_rule_does_not_block_complete_manifest():
