@@ -97,7 +97,13 @@ class FifoCostBatchManifestReadService:
             )
             if active_rule is None:
                 return {"error": False, "code": "FIFO_BATCH_MANIFEST_RULE_UNAVAILABLE", "manifest": None}
-            if not FifoCostBatchRuleService.case_inputs_match_rule(active_rule, case):
+            initial_rule_start_date = FifoCostBatchRuleService._initial_rule_start_date(
+                rule_chain,
+            )
+            if not FifoCostBatchRuleService.case_inputs_match_rule(
+                active_rule, case,
+                initial_rule_start_date=initial_rule_start_date,
+            ):
                 return {
                     "error": False,
                     "code": "FIFO_BATCH_MANIFEST_RULE_CASE_INPUTS_STALE",

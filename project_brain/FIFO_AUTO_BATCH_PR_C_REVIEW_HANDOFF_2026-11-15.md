@@ -82,6 +82,12 @@ See [FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md](FIFO_BATCH_SUPPLY_SOURCE_C
 
 Please examine the integration boundary between rule confirmation, manifest freshness, production readiness and atomic apply; checkpoint resume and source mutation; Telegram stale callback/idempotency; handling of explicit first-day empty selection; preservation of old FIFO/returns/saved-plan behavior; and the strong separation between declared bundle quantities and dispatch/acceptance/R1 facts. Architecture review is required.
 
+## Initial dispatch-date correction review fix — 2026-11-16
+
+The case `dispatch_date` is the original boundary for the FIFO batch transition. Active successor rules may start later, but the complete immutable chain remains grounded in the first `CONFIRM` event. Freshness now extracts that root boundary from the persisted history and compares it with the current case date at all three paths: active-rule read, pre-source collection basis, and manifest read. If the root event is missing, ambiguous, or outside the bounded history, successors fail closed. A later successor boundary is not compared directly to the original case date.
+
+Regression: `test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_interval` first proves a valid Nov 12 successor over the Nov 5 root and a complete current manifest, then edits the case's original date to Nov 14. Active-rule freshness becomes false, collection returns `FIFO_BATCH_RULE_CASE_INPUTS_STALE`, and manifest returns no manifest with `FIFO_BATCH_MANIFEST_RULE_CASE_INPUTS_STALE`. The same test confirms a successor without the root history cannot independently establish freshness. The test reproduced the review finding before the code change. Focused Windows/Python 3.12 rule/manifest profile: **27 passed in 5.30s**. Full isolated pytest: **5,458 passed in 139.69s**; `compileall`, `git diff --check`, and tracked-data equality passed. Exact-head Verify is pending; see the live PR body for current revision and CI.
+
 
 ## Manifest count boundary correction — 2026-11-16
 

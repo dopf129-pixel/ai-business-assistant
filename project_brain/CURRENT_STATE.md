@@ -1,3 +1,8 @@
+# 2026-11-16 — FIFO rule-chain freshness after initial dispatch-date edit
+
+- Fixed PR #736 review finding: rule freshness now compares the case dispatch date to the first immutable `CONFIRM` boundary across the whole FIFO rule chain, rather than skipping the comparison after successors are added. A changed initial date blocks active-rule use, source collection and manifest output; valid successors remain usable when the root date is unchanged. Missing/ambiguous root history fails closed.
+- Regression reproduced the confirmed successor chain and changed its original date after a complete scan; the chain becomes stale at all three read gates. Existing matching successor flow remains covered. Focused rule/manifest profile: **27 passed in 5.30s**; full isolated pytest: **5,458 passed in 139.69s**; compile, diff check and unchanged tracked data passed. Hosted CI for the new head is pending.
+
 # 2026-11-16 — FIFO manifest counts with missing supplies
 
 - Fixed PR #736 review finding: `undecided_supply_count` now counts unresolved membership only among API rows found in the current scan. Historical missing and owner-only records remain unresolved for completeness, preserving their issue codes and missing keys; they cannot make a partial manifest complete or authorize FIFO apply. The existing strict counter contract is retained.

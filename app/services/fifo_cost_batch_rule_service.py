@@ -230,7 +230,10 @@ class FifoCostBatchRuleService:
             return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
         if rule.get("rule_revision") != rule_revision:
             return self._error("FIFO_BATCH_RULE_REVISION_CONFLICT")
-        if not self.case_inputs_match_rule(rule, case):
+        initial_rule_start_date = self._initial_rule_start_date(rows_result["items"])
+        if not self.case_inputs_match_rule(
+            rule, case, initial_rule_start_date=initial_rule_start_date,
+        ):
             return self._error("FIFO_BATCH_RULE_CASE_INPUTS_STALE")
         return {
             "error": False,
@@ -274,7 +277,11 @@ class FifoCostBatchRuleService:
         rule = active.get("item")
         if rule is None:
             return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
-        inputs_current = self.case_inputs_match_rule(rule, case_result["case"])
+        initial_rule_start_date = self._initial_rule_start_date(rows_result["items"])
+        inputs_current = self.case_inputs_match_rule(
+            rule, case_result["case"],
+            initial_rule_start_date=initial_rule_start_date,
+        )
         return {
             "error": False,
             "code": "FIFO_BATCH_ACTIVE_RULE_READ",
@@ -583,12 +590,55 @@ class FifoCostBatchRuleService:
         return None
 
     @staticmethod
-    def case_inputs_match_rule(rule, case: TransitionCase) -> bool:
+    def _initial_rule_start_date(rule_history) -> str | None:
+        """Return the immutable first confirmed boundary from complete history.
+
+        A missing, truncated, or structurally ambiguous chain cannot establish
+        the case's original dispatch boundary and therefore keeps successors
+        stale instead of silently treating the active rule as the new origin.
+        """
+        if not isinstance(rule_history, (tuple, list)) or not rule_history:
+            return None
+
+        confirmations = []
+        for item in rule_history:
+            if isinstance(item, dict):
+                event_kind = item.get("event_kind")
+                revision = item.get("rule_revision")
+                start_date = item.get("start_local_date")
+                predecessor_rule_id = item.get("predecessor_rule_id")
+            else:
+                event_kind = getattr(item, "event_kind", None)
+                revision = getattr(item, "rule_revision", None)
+                start_date = getattr(item, "start_local_date", None)
+                predecessor_rule_id = getattr(item, "predecessor_rule_id", None)
+            if isinstance(event_kind, BatchRuleEventKind):
+                event_kind = event_kind.value
+            if event_kind == BatchRuleEventKind.CONFIRM.value:
+                confirmations.append((revision, start_date, predecessor_rule_id))
+
+        if len(confirmations) != 1:
+            return None
+        revision, start_date, predecessor_rule_id = confirmations[0]
+        if (
+            revision != 1
+            or predecessor_rule_id is not None
+            or not isinstance(start_date, str)
+            or not start_date
+        ):
+            return None
+        return start_date
+
+    @staticmethod
+    def case_inputs_match_rule(
+        rule, case: TransitionCase, *, initial_rule_start_date: str | None = None,
+    ) -> bool:
         """Return whether the confirmed rule still matches current case inputs.
 
-        A successor rule may start after the case's original dispatch date, so
-        only the first confirmed rule is bound to that date. Cost and store
-        timezone remain semantic inputs for every active rule.
+        A successor may start after the case's original dispatch date. Validate
+        the active rule's chain against the immutable first CONFIRM boundary,
+        while keeping cost, timezone and old-stock assumptions current for each
+        active rule. A successor without its root boundary fails closed.
         """
         if not isinstance(case, TransitionCase):
             return False
@@ -610,15 +660,15 @@ class FifoCostBatchRuleService:
             )
         except (ArithmeticError, TypeError, ValueError):
             return False
+        if initial_rule_start_date is None and rule_revision == 1:
+            initial_rule_start_date = rule_start_date
         return bool(
             cost_matches
             and rule_timezone == case.metadata.store_timezone
             and case.owner_old_home_units == 0
             and case.owner_old_transit_units == 0
-            and (
-                rule_revision != 1
-                or rule_start_date == case.dispatch_date
-            )
+            and initial_rule_start_date is not None
+            and initial_rule_start_date == case.dispatch_date
         )
 
     @staticmethod

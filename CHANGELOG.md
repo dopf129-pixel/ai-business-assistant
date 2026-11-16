@@ -1,3 +1,9 @@
+# 2026-11-16 — Invalidate FIFO successor chain after dispatch-date correction
+
+- Active FIFO rules now validate the original dispatch boundary from the immutable first `CONFIRM` event against the current case. Editing the case's first dispatch date makes the entire successor chain stale; a valid later successor still works when the original date is unchanged. Incomplete or ambiguous history fails closed.
+- Added an end-to-end regression that confirms a successor, publishes a complete manifest, then changes the case dispatch date and verifies active-rule, source-collection and manifest reads all reject the stale chain. The existing successor interval remains valid before the edit.
+- The new scenario failed before the fix on `inputs_current is False`, then passed. Focused rule/manifest profile: **27 passed in 5.30s**; full isolated pytest: **5,458 passed in 139.69s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Hosted CI for the new head is pending.
+
 # 2026-11-16 — FIFO manifest counts with missing supplies
 
 - Fixed PR #736 review finding: `undecided_supply_count` now counts unresolved membership only among API rows found in the current scan. Historical missing and owner-only records remain unresolved for completeness, preserving their issue codes and missing keys; they cannot make a partial manifest complete or authorize FIFO apply. The existing strict counter contract is retained.

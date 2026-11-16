@@ -580,6 +580,9 @@ def test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_inter
             case_id=case.case_id, **IDENTITY,
         )
         current_case = FifoCostTransitionService._case_from_payload(case_result["case"])
+        assert rules._initial_rule_start_date(rule_chain) == "2026-11-05"
+        assert rules._initial_rule_start_date(rule_chain[1:]) is None
+        assert not rules.case_inputs_match_rule(active, current_case)
 
         result = reader.read_current_manifest(case=current_case)
 
@@ -591,6 +594,37 @@ def test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_inter
         assert result["manifest"].accepted_units == 100
         assert result["manifest"].included_supply_count == 1
         assert result["manifest"].undecided_supply_count == 0
+
+        transitions = FifoCostTransitionService(repository, now_provider=lambda: NOW)
+        updated = transitions.update_owner_inputs(
+            case_id=case.case_id,
+            expected_revision=current_case.case_revision,
+            updates={"dispatch_date": "2026-11-14"},
+            idempotency_key="review-change-initial-dispatch-date",
+            **IDENTITY,
+        )
+        assert updated["error"] is False, updated
+        updated_payload = repository.read_transition_case(
+            case_id=case.case_id, **IDENTITY,
+        )
+        updated_case = FifoCostTransitionService._case_from_payload(
+            updated_payload["case"],
+        )
+
+        stale_rule = rules.read_active_rule(
+            SCOPE, case.case_id, updated_case.case_revision,
+        )
+        assert stale_rule["error"] is False, stale_rule
+        assert stale_rule["inputs_current"] is False
+        stale_basis = rules.read_collection_basis(
+            SCOPE, case.case_id, updated_case.case_revision, active.rule_revision,
+        )
+        assert stale_basis["error"] is True
+        assert stale_basis["code"] == "FIFO_BATCH_RULE_CASE_INPUTS_STALE"
+        stale_manifest = reader.read_current_manifest(case=updated_case)
+        assert stale_manifest["error"] is False, stale_manifest
+        assert stale_manifest["code"] == "FIFO_BATCH_MANIFEST_RULE_CASE_INPUTS_STALE"
+        assert stale_manifest["manifest"] is None
     finally:
         reset_current_tenant_user_id(tenant_token)
 
