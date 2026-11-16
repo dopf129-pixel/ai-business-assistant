@@ -2,7 +2,7 @@
 
 - Active FIFO rules now validate the original dispatch boundary from the immutable first `CONFIRM` event against the current case. Editing the case's first dispatch date makes the entire successor chain stale; a valid later successor still works when the original date is unchanged. Incomplete or ambiguous history fails closed.
 - Added an end-to-end regression that confirms a successor, publishes a complete manifest, then changes the case dispatch date and verifies active-rule, source-collection and manifest reads all reject the stale chain. The existing successor interval remains valid before the edit.
-- The new scenario failed before the fix on `inputs_current is False`, then passed. Focused rule/manifest profile: **27 passed in 5.30s**; full isolated pytest: **5,458 passed in 139.69s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Hosted CI for the new head is pending.
+- The new scenario failed before the fix on `inputs_current is False`, then passed. Focused rule/manifest profile: **27 passed in 5.30s**; full isolated pytest: **5,458 passed in 139.69s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Exact-head Verify [43948119855](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43948119855) passed on code SHA `c3976787078c37ab900e004f140cd9abd91c22d7`: Windows/Linux full suites and compile plus production Docker build/runtime smoke. SHA-bound artifact: `verification-7bc6d333c8425e02a0804e8aba45560a27315608` (`sha256:47ac3a302b58e39659e4e2903eadd2b92f0604e65b06179c64f580531430f245`).
 
 # 2026-11-16 — FIFO manifest counts with missing supplies
 

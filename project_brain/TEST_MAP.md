@@ -1,7 +1,7 @@
 # 2026-11-16 — FIFO rule-chain freshness regression
 
 - `tests/test_fifo_cost_batch_manifest_read_service.py::test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_interval`: proves a successor with a later start remains valid against the first immutable confirmation date; changing the case's original `dispatch_date` after a complete scan makes `read_active_rule`, `read_collection_basis`, and `read_current_manifest` reject the full chain. A successor without its initial rule history fails closed.
-- Rule/manifest profile: **27 passed in 5.30s** on Windows/Python 3.12; full isolated configured suite: **5,458 passed in 139.69s**. `compileall`, `git diff --check`, and tracked-data equality passed. Exact-head CI is pending.
+- Rule/manifest profile: **27 passed in 5.30s** on Windows/Python 3.12; full isolated configured suite: **5,458 passed in 139.69s**. `compileall`, `git diff --check`, and tracked-data equality passed. Exact-head Verify [43948119855](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43948119855) passed on `c3976787078c37ab900e004f140cd9abd91c22d7`, including Windows/Linux full suites and compile plus production Docker build/runtime smoke.
 
 # 2026-11-16 — FIFO manifest counts with missing supplies
 
