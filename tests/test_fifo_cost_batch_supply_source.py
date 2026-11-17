@@ -19,6 +19,7 @@ from services.fifo_cost_batch_manifest_read_service import FifoCostBatchManifest
 from services.fifo_cost_batch_scan_checkpoint_service import FifoCostBatchScanCheckpointService
 from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
 from services.fifo_cost_batch_supply_source import FifoCostBatchSupplySourceService
+from services.telegram_fifo_cost_batch_rule_service import TelegramFifoCostBatchRuleService
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_source_collection_service import FifoCostSourceCollectionService
 from services.fifo_cost_transition_contracts import (
@@ -56,9 +57,8 @@ TENANT_SCOPE = make_store_tenant_scope("owner-a", "store-a")
 NOW = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
 
 
-def test_parent_order_state_allowlist_matches_documented_v3_enum():
+def test_supply_list_filter_allowlist_excludes_zero_unspecified_enum():
     assert set(FifoCostSourceCollectionService.ACTIVE_SUPPLY_STATES) == {
-        "UNSPECIFIED",
         "DATA_FILLING",
         "READY_TO_SUPPLY",
         "ACCEPTED_AT_SUPPLY_WAREHOUSE",
@@ -86,9 +86,14 @@ def _isolate_request_trace_between_source_tests():
 
 
 class _FakeOzon:
-    def __init__(self, *, error=False, list_pages=None, details=None, bundle_pages=None):
+    def __init__(
+        self, *, error=False, list_pages=None, details=None, bundle_pages=None,
+        reject_unspecified=False, list_error_response=None,
+    ):
         self.calls = []
         self.error = error
+        self.reject_unspecified = reject_unspecified
+        self.list_error_response = list_error_response
         self.list_pages = list(list_pages or [{"order_ids": [], "last_id": None}])
         self.details = dict(details or {})
         self.bundle_pages = dict(bundle_pages or {})
@@ -109,6 +114,15 @@ class _FakeOzon:
         self.calls[-1][1]["states"] = tuple(states)
         if error:
             return error
+        if self.reject_unspecified and "UNSPECIFIED" in states:
+            return {
+                "error": True,
+                "code": "OZON_HTTP_ERROR",
+                "status_code": 400,
+                "message": "synthetic seller validation marker 987654321",
+            }
+        if self.list_error_response is not None:
+            return dict(self.list_error_response)
         if not self.list_pages:
             return {"error": True, "code": "NO_SYNTHETIC_PAGE"}
         page = self.list_pages.pop(0)
@@ -176,6 +190,7 @@ def _case(scope=None):
 def _setup(
     tmp_path, monkeypatch, *, ozon_error=False, list_pages=None, details=None,
     bundle_pages=None, durable_source=False, scope=None,
+    reject_unspecified=False, list_error_response=None,
 ):
     scope = scope or SCOPE
     monkeypatch.setenv(
@@ -206,7 +221,8 @@ def _setup(
     assert confirmed["error"] is False, confirmed
     ozon = _FakeOzon(
         error=ozon_error, list_pages=list_pages, details=details,
-        bundle_pages=bundle_pages,
+        bundle_pages=bundle_pages, reject_unspecified=reject_unspecified,
+        list_error_response=list_error_response,
     )
     source = FifoCostBatchSupplySourceService(
         rule_service=rule_service, ozon_client=ozon,
@@ -259,6 +275,142 @@ def test_collect_uses_one_allowlisted_bounded_page_and_returns_partial_only(
             ).fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+@pytest.mark.parametrize("durable_source", [False, True])
+def test_supply_list_filter_omits_unspecified_and_reads_empty_page(
+    tmp_path, monkeypatch, durable_source,
+):
+    repository, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=durable_source,
+        reject_unspecified=True,
+    )
+    try:
+        result = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+
+        assert result.status == ("COMPLETE" if durable_source else "PARTIAL")
+        assert result.source_status == "PARTIAL"
+        assert result.actual_http_attempts == 1
+        assert result.pagination_complete is True
+        assert result.orders_observed == 0
+        assert len(ozon.calls) == 1
+        assert ozon.calls[0][0] == "list"
+        states = ozon.calls[0][1]["states"]
+        assert "UNSPECIFIED" not in states
+        assert set(states) == {
+            "DATA_FILLING", "READY_TO_SUPPLY", "ACCEPTED_AT_SUPPLY_WAREHOUSE",
+            "IN_TRANSIT", "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+            "REPORTS_CONFIRMATION_AWAITING", "REPORT_REJECTED", "COMPLETED",
+            "REJECTED_AT_SUPPLY_WAREHOUSE", "CANCELLED", "OVERDUE",
+        }
+        assert result.issue_codes == ("FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED",)
+        with repository.get_connection() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_layers").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_allocations").fetchone()[0] == 0
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+@pytest.mark.parametrize("durable_source", [False, True])
+def test_list_http_400_has_safe_specific_issue_and_preserves_failure_status(
+    tmp_path, monkeypatch, durable_source,
+):
+    repository, _rules, source, ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=durable_source,
+        list_error_response={
+            "error": True, "code": "OZON_HTTP_ERROR", "status_code": 400,
+            "message": "synthetic seller validation marker 987654321",
+        },
+    )
+    try:
+        result = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+
+        assert result.status == ("UNAVAILABLE" if durable_source else "PARTIAL")
+        assert result.actual_http_attempts == 1
+        assert "FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE" in result.issue_codes
+        assert "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED" in result.issue_codes
+        assert len(ozon.calls) == 1
+        visible = "\n".join(TelegramFifoCostBatchRuleService._issue_messages(result.issue_codes))
+        assert "Ozon отклонил параметры запроса списка поставок (HTTP 400)" in visible
+        assert "987654321" not in repr(result)
+        assert "synthetic seller validation marker" not in visible
+        assert "987654321" not in visible
+        with repository.get_connection() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_events").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_layers").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM fifo_cost_allocations").fetchone()[0] == 0
+            if durable_source:
+                tenant_fingerprint = repository._tenant_scope(SCOPE.store_id)[
+                    "tenant_fingerprint"
+                ]
+                latest = FifoCostBatchSupplyStore.read_latest_scan_checkpoint(
+                    connection, scope=SCOPE, case_id="case_batch_src_01",
+                    tenant_fingerprint=tenant_fingerprint,
+                )
+                assert latest["status"] == "FAILED"
+                assert "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED" in json.loads(
+                    latest["issue_codes_json"],
+                )
+        if durable_source:
+            restored_session = {
+                "tenant": TENANT_SCOPE,
+                "identity": {
+                    "store_id": SCOPE.store_id, "product_id": SCOPE.product_id,
+                    "offer_id": SCOPE.offer_id, "sku": SCOPE.sku,
+                },
+                "case_id": "case_batch_src_01",
+                "case_revision": confirmed["case_revision"],
+            }
+            telegram_service = TelegramFifoCostBatchRuleService(
+                _rules, repository,
+                scan_checkpoint_service=source.scan_checkpoint_service,
+                supply_store=FifoCostBatchSupplyStore,
+            )
+            assert telegram_service._restore_latest_scan(
+                object(), "owner-a", restored_session,
+            ) is True
+            restored_codes = restored_session["batch_last_scan"]["issue_codes"]
+            assert "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED" in restored_codes
+            restored_visible = "\n".join(
+                telegram_service._issue_messages(restored_codes)[:2]
+            )
+            assert "Ozon отклонил параметры запроса списка поставок (HTTP 400)" in restored_visible
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+@pytest.mark.parametrize(
+    "error_response",
+    [
+        {"error": True, "code": "OZON_RATE_LIMITED", "status_code": 429},
+        {"error": True, "code": "OZON_HTTP_ERROR", "status_code": "400"},
+        {"error": True, "code": "OZON_API_TIMEOUT"},
+    ],
+)
+@pytest.mark.parametrize("durable_source", [False, True])
+def test_non_400_list_errors_do_not_claim_request_validation(
+    tmp_path, monkeypatch, error_response, durable_source,
+):
+    repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=durable_source,
+        list_error_response=error_response,
+    )
+    try:
+        result = source.collect_supplies(
+            SCOPE, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+        assert result.status == ("UNAVAILABLE" if durable_source else "PARTIAL")
+        assert "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED" not in result.issue_codes
     finally:
         reset_current_tenant_user_id(tenant_token)
 

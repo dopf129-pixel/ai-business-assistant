@@ -1,3 +1,9 @@
+# 2026-11-17 — FIFO supply-list filter validation fix
+
+- `FifoCostSourceCollectionService` now sends the 11 non-zero parent order states and excludes `UNSPECIFIED`; direct Ozon list-wrapper calls reject `UNSPECIFIED` locally. Only this one filter value is confirmed rejected by the owner's seller-specific response; remaining filter values and historical coverage are not newly verified.
+- Both ordinary and durable FIFO scans preserve `FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE` and add `FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED` only for `OZON_HTTP_ERROR` with exact integer status 400. Telegram explains that this is a rejected request, not evidence that no supplies exist. The issue remains safe after durable scan restoration. FIFO/accounting state is not changed by source reads.
+- Synthetic focused regressions: **12 passed**. Broader profile, isolated full suite, compile, diff checks, exact-head CI, and PR are pending.
+
 # 2026-11-17 — FIFO scope with product_id and no offer_id
 
 - Fixed PR #736 review finding in both direct bundle composition and durable batch scanning: an optional scope `offer_id` is compared only when present. Exact SKU and known numeric `product_id` checks remain. The new synthetic test failed before the fix (`CONFLICT`) and passes on both paths.

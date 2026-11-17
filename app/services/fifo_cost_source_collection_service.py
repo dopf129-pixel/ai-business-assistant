@@ -389,6 +389,8 @@ class FifoCostSourceCollectionService:
     MAX_SEEN_ROWS = 10_000
     RETURN_PAGE_SIZE = PeriodProfitReturnEvidenceService.PAGE_SIZE
     RETURN_PAGE_COUNT_PER_CALL = MAX_DIAGNOSTIC_PAGES_PER_CALL
+    # The response enum includes the zero/unknown value, but Ozon rejects
+    # UNSPECIFIED as a filter state (confirmed by the seller's HTTP 400).
     ACTIVE_SUPPLY_STATES = (
         "DATA_FILLING",
         "READY_TO_SUPPLY",
@@ -401,7 +403,6 @@ class FifoCostSourceCollectionService:
         "REJECTED_AT_SUPPLY_WAREHOUSE",
         "CANCELLED",
         "OVERDUE",
-        "UNSPECIFIED",
     )
     _ID = re.compile(r"^[0-9]{1,19}$")
     _CURSOR = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")

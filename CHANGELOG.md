@@ -1,3 +1,8 @@
+# 2026-11-17 — Exclude the zero enum from FIFO supply-list filters
+
+- Removed `UNSPECIFIED` from the shared FIFO supply-list state filter after the owner's seller-specific HTTP 400 response showed Ozon rejects that zero/unknown value. Direct Ozon list-wrapper calls now reject single or mixed `UNSPECIFIED` input before HTTP. Other 11 filter values and their order are unchanged; their seller-specific acceptance is still unverified.
+- FIFO batch list failures with exact `OZON_HTTP_ERROR` / integer HTTP 400 retain the generic unavailable issue and add a fixed safe diagnostic rendered in current and restored Telegram cards. 429, timeouts, and non-integer status values are not labelled as request validation errors. No FIFO quantities, rules, events, layers, allocations, or profit are changed.
+
 # 2026-11-17 — Match FIFO supplies when offer_id is optional
 
 - Bundle rows for an exact SKU and known numeric `product_id` are no longer rejected because the scope has no `offer_id`. The same conditional comparison is applied to direct composition reads and durable supply scans; provided identifiers still must match.

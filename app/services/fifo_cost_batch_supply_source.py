@@ -474,6 +474,8 @@ class FifoCostBatchSupplySourceService:
                 )
                 actual_attempts += used
                 if self._failed(page):
+                    if self._is_rejected_supply_list_request(page):
+                        issues.append("FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED")
                     issues.append("FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE")
                     resumable = bool(state["cursor"] is not None)
                     break
@@ -749,6 +751,8 @@ class FifoCostBatchSupplySourceService:
                     )
                     actual_attempts += used
                     if self._failed(page):
+                        if self._is_rejected_supply_list_request(page):
+                            issues.append("FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED")
                         issues.append("FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE")
                         list_error_without_data = not progress_made
                         break
@@ -1552,6 +1556,16 @@ class FifoCostBatchSupplySourceService:
     @staticmethod
     def _failed(response):
         return not isinstance(response, dict) or response.get("error") is True
+
+    @staticmethod
+    def _is_rejected_supply_list_request(response):
+        return (
+            isinstance(response, dict)
+            and response.get("error") is True
+            and response.get("code") == "OZON_HTTP_ERROR"
+            and type(response.get("status_code")) is int
+            and response["status_code"] == 400
+        )
 
     @staticmethod
     def _fingerprint(value):

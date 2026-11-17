@@ -1191,6 +1191,7 @@ class TelegramFifoCostBatchRuleService:
     def _issue_messages(issue_codes):
         messages = {
             "FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED": "Ozon не подтвердил полный перечень статусов; найденные строки пока нельзя считать полным набором.",
+            "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED": "Ozon отклонил параметры запроса списка поставок (HTTP 400). Требуется проверка запроса бота; результат не означает отсутствие поставок.",
             "FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE": "Список заявок не удалось прочитать полностью. Повторите обновление.",
             "FIFO_BATCH_SUPPLY_DETAILS_UNAVAILABLE": "Не удалось прочитать часть карточек заявок. Ограниченный поиск можно продолжить.",
             "FIFO_BATCH_SOURCE_BUDGET_EXHAUSTED": "Достигнут лимит времени или запросов на один запуск. Продолжите поиск отдельным нажатием.",

@@ -251,6 +251,8 @@ def test_supply_order_list_client_rejects_invalid_cursor_and_limit(monkeypatch):
         {"states": []},
         {"states": ["COMPLETED"], "limit": 101},
         {"states": ["not-completed"]},
+        {"states": ["UNSPECIFIED"]},
+        {"states": ["COMPLETED", "UNSPECIFIED"]},
         {"states": ["COMPLETED"], "last_id": ""},
     ):
         result = client.get_supply_orders_list(**kwargs)

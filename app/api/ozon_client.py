@@ -246,6 +246,7 @@ class OzonClient(BaseOzonClient):
         if (
             not 1 <= page_limit <= 100
             or not state_values
+            or "UNSPECIFIED" in state_values
             or any(
                 not re.fullmatch(r"[A-Z_]{1,48}", value)
                 for value in state_values

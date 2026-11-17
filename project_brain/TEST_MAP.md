@@ -1,3 +1,9 @@
+# 2026-11-17 — FIFO supply-list filter fix
+
+- `tests/test_fifo_cost_batch_supply_source.py::test_supply_list_filter_allowlist_excludes_zero_unspecified_enum` pins the 11 retained filter values; `::test_supply_list_filter_omits_unspecified_and_reads_empty_page` covers ordinary and durable scanning with a synthetic server that rejects `UNSPECIFIED`, asserting a valid empty page is read without claiming FIFO-ready completeness.
+- `::test_list_http_400_has_safe_specific_issue_and_preserves_failure_status` covers both scan paths, fixed/safe diagnostics, no FIFO writes, durable issue-code persistence and Telegram restoration. `::test_non_400_list_errors_do_not_claim_request_validation` covers 429, timeout, and string `"400"` status. `tests/test_experimental_supply_act_diagnostic.py::test_supply_order_list_client_rejects_invalid_cursor_and_limit` now also proves single/mixed `UNSPECIFIED` is rejected before `_post`.
+- Focused regression profile: **12 passed**. Full affected profile and isolated full suite are pending.
+
 # 2026-11-17 — Optional offer_id in FIFO supply identity
 
 - `tests/test_fifo_cost_batch_supply_source.py::test_durable_bundle_scan_matches_known_product_when_offer_id_is_unset` covers scope identified by numeric `product_id` and SKU with no expected `offer_id`, while the API bundle row supplies an offer ID. It asserts both direct composition and durable collection accept the exact product/SKU row. The durable path failed before the fix with `CONFLICT`.
