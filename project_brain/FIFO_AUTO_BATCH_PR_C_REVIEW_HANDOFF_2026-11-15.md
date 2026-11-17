@@ -17,6 +17,12 @@ The PRs are intentionally stacked and draft. Do not merge, deploy, start the bot
 
 FB20–FB30 wire the existing production composition root, scoped read-only refresh/card and continuation, reviewable supply rows, source-bound owner decisions, freshness/readiness/application gates, FIFO integration and retry behavior, backup/restore, downstream consumer compatibility, full-isolated verification, and owner documentation. The new path never creates cost layers or applies FIFO from a supply rule alone. Independent R1 cutoff/inventory-movement evidence remains required.
 
+## Latest review correction (2026-11-17)
+
+When scope included a numeric `product_id` and exact SKU but omitted optional `offer_id`, direct bundle composition and durable scan compared the API offer string against `None` and rejected the row. Both paths now check the offer only if the scope provides it; known product ID and exact SKU validation remain. Synthetic regression reproduced the old durable `CONFLICT` and now checks both paths.
+
+Fix commit `b394c853137e993c365054d997bbd59ae1ccff36`. Linked FIFO/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression, compileall, diff check and unchanged tracked data passed. Exact-head Verify [44044868868](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44044868868) passed on this code SHA (Windows/Linux suites, compile and production Docker build/runtime smoke). Artifact `verification-b394c853137e993c365054d997bbd59ae1ccff36` (`sha256:13457425b54a78fa2a156288e0947c48f2504c2e305929fce453a27314e13d75`). CI returned only platform lifecycle notices. The documentation commit updating this packet must receive its own exact-head CI; live PR description is the source for the current head.
+
 ## B01–B45 regression map
 
 “Synthetic” means a regression uses fake Ozon transport and temporary SQLite. It does not establish the seller's live payload or the owner's business case.

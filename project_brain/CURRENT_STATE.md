@@ -1,7 +1,7 @@
 # 2026-11-17 — FIFO scope with product_id and no offer_id
 
 - Fixed PR #736 review finding in both direct bundle composition and durable batch scanning: an optional scope `offer_id` is compared only when present. Exact SKU and known numeric `product_id` checks remain. The new synthetic test failed before the fix (`CONFLICT`) and passes on both paths.
-- Linked FIFO batch/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused regression, `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Hosted CI will be recorded after the fix is published.
+- Linked FIFO batch/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused regression, `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Exact-head Verify [44044868868](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44044868868) passed on code SHA `b394c853137e993c365054d997bbd59ae1ccff36` (Windows/Linux tests and compile, production Docker build/runtime smoke, SHA-bound artifact).
 
 # 2026-11-16 — FIFO rule-chain freshness after initial dispatch-date edit
 

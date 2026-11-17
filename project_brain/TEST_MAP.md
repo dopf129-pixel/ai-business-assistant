@@ -1,7 +1,7 @@
 # 2026-11-17 — Optional offer_id in FIFO supply identity
 
 - `tests/test_fifo_cost_batch_supply_source.py::test_durable_bundle_scan_matches_known_product_when_offer_id_is_unset` covers scope identified by numeric `product_id` and SKU with no expected `offer_id`, while the API bundle row supplies an offer ID. It asserts both direct composition and durable collection accept the exact product/SKU row. The durable path failed before the fix with `CONFLICT`.
-- Linked FIFO batch and transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked `data/` equality passed.
+- Linked FIFO batch and transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked `data/` equality passed. Exact-head Verify [44044868868](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44044868868) passed on code SHA `b394c853137e993c365054d997bbd59ae1ccff36` for Windows/Linux suites, compile, and production Docker build/runtime smoke.
 
 # 2026-11-16 — FIFO rule-chain freshness regression
 

@@ -1,7 +1,7 @@
 # 2026-11-17 — Match FIFO supplies when offer_id is optional
 
 - Bundle rows for an exact SKU and known numeric `product_id` are no longer rejected because the scope has no `offer_id`. The same conditional comparison is applied to direct composition reads and durable supply scans; provided identifiers still must match.
-- Added a synthetic durable-scan regression that first reproduced `CONFLICT` and now verifies both read paths accept the row. Linked FIFO/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked-data equality passed. Hosted CI is pending publication of this fix.
+- Added a synthetic durable-scan regression that first reproduced `CONFLICT` and now verifies both read paths accept the row. Linked FIFO/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked-data equality passed. Exact-head Verify [44044868868](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44044868868) passed on code SHA `b394c853137e993c365054d997bbd59ae1ccff36`, including Windows/Linux tests and compile plus production Docker build/runtime smoke. Artifact `verification-b394c853137e993c365054d997bbd59ae1ccff36`, digest `sha256:13457425b54a78fa2a156288e0947c48f2504c2e305929fce453a27314e13d75`. CI reported only GitHub Actions/runner lifecycle notices.
 
 # 2026-11-16 — Invalidate FIFO successor chain after dispatch-date correction
 
