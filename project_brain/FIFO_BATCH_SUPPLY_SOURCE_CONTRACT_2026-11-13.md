@@ -1,19 +1,20 @@
 # FIFO automatic batch supply source contract
 
-Checked: 2026-11-15, incorporating the owner's pasted Ozon Seller API operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`. This note separates documented schema from synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
+Checked: 2026-11-17, incorporating the owner's pasted Ozon Seller API operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`, plus the owner's single read-only Seller API response showing HTTP 400 for filter state `UNSPECIFIED`. This note separates documented schema, observed seller response, and synthetic test data. It does not establish complete historical supply or inventory-movement coverage.
 
 ## Officially confirmed
 
 | Operation / fact | Confirmed information | Source |
 |---|---|---|
 | `POST /v3/supply-order/list` | Official operation description: required `filter` object; optional `last_id` string, `limit` integer (1-100), `sort_by`, `sort_dir`. Response has `order_ids`, `last_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
+| `POST /v3/supply-order/list` filter value | The owner's read-only request was rejected with HTTP 400 because `filter.states[11]` was `UNSPECIFIED`, a zero/unknown enum value that Ozon does not allow as a filter. This confirms rejection of that value only; it does not confirm acceptance of every other state. | Owner-provided terminal response, received 2026-11-17 |
 | `POST /v3/supply-order/get` | Official operation description: `order_ids` is an array of integer ID strings, up to 50. Response includes `orders` with `order_id`, `state`, `state_updated_date`, and nested `supplies` including `supply_id`, `state`, `is_crossdock`, `bundle_id`, and warehouse/timeslot fields. The documented enum below is for the parent order's `state`; the excerpt does not define a separate nested supply `state` enum. | Owner-provided Ozon Seller API operation description, received 2026-11-15 |
 | `POST /v1/supply-order/bundle` request | Official operation description: `bundle_ids` is an array of strings (1-100); `last_id` is an optional string; `limit` is an integer (1-100). | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
 | `POST /v1/supply-order/bundle` response | Pasted operation docs specify `items` array, `total_count` integer, `has_next` boolean, and `last_id` string. Item fields include `sku` integer, `quantity` integer, `offer_id` string, `product_id` integer, `name` string, and `barcode` string. Returned item rows do not expose a parent `bundle_id`. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
 | Bundle quantity semantics | `items[].quantity` is bundle composition. The documentation does not establish physical dispatch or accepted warehouse quantity. | Owner-provided Ozon Seller API operation description, received 2026-11-14 |
 | Nested supply link | Pasted `/v3/supply-order/get` docs include `supplies[].bundle_id`; because bundle result items do not echo their parent ID, request exactly one bundle ID at a time when binding rows to a supply. | Owner-provided Ozon Seller API operation descriptions, received 2026-11-14 |
 
-The pasted `/v3/supply-order/get` description documents these parent `orders[].state` values and meanings: `UNSPECIFIED`, `DATA_FILLING`, `READY_TO_SUPPLY`, `ACCEPTED_AT_SUPPLY_WAREHOUSE`, `IN_TRANSIT`, `ACCEPTANCE_AT_STORAGE_WAREHOUSE`, `REPORTS_CONFIRMATION_AWAITING`, `REPORT_REJECTED`, `COMPLETED`, `REJECTED_AT_SUPPLY_WAREHOUSE`, `CANCELLED`, and `OVERDUE`. The current parent-order allowlist matches this documented set. This does not establish the nested `supplies[].state` enum, accepted `filter.states` behavior, actual seller payload profile, or completeness of historical list pagination.
+The pasted `/v3/supply-order/get` description documents these parent `orders[].state` values and meanings: `UNSPECIFIED`, `DATA_FILLING`, `READY_TO_SUPPLY`, `ACCEPTED_AT_SUPPLY_WAREHOUSE`, `IN_TRANSIT`, `ACCEPTANCE_AT_STORAGE_WAREHOUSE`, `REPORTS_CONFIRMATION_AWAITING`, `REPORT_REJECTED`, `COMPLETED`, `REJECTED_AT_SUPPLY_WAREHOUSE`, `CANCELLED`, and `OVERDUE`. This response enum is not the list-filter allowlist: the owner's seller-specific HTTP 400 confirms `UNSPECIFIED` is rejected in `filter.states`. The local filter therefore sends the other 11 documented values. Their seller-specific acceptance remains unverified. This does not establish the nested `supplies[].state` enum, actual seller payload profile, or completeness of historical list pagination.
 
 The operation schema was supplied from the owner's Ozon Seller API documentation text. It is documentation evidence, not a seller-specific API response. No live seller request was made and no credentials were used.
 
@@ -40,8 +41,9 @@ FB22 now implements a strict raw parser for the owner-provided documented wrappe
 
 | Needed fact | Status | Required behavior until proven |
 |---|---|---|
-| Parent `orders[].state` documented enum | `CONFIRMED_DOCUMENTED` | Current parent-order allowlist matches the documented values. Keep list/source coverage partial until the seller payload and pagination profile are verified. |
-| Nested `supplies[].state` enum and exact `filter.states` acceptance | `NOT_VERIFIED` | Use only the current tested nested-state allowlist; an unsupported or missing nested status makes coverage partial. Do not infer the filter's accepted values from the parent enum. |
+| Parent `orders[].state` documented enum | `CONFIRMED_DOCUMENTED` | The enum describes response values, not accepted filter values. Keep list/source coverage partial until the seller payload and pagination profile are verified. |
+| `filter.states` acceptance | `UNSPECIFIED_REJECTED_BY_SELLER_RESPONSE`; all remaining values `NOT_VERIFIED` | Exclude `UNSPECIFIED` from list filters. The other 11 documented values remain the current request profile but must not be described as seller-verified. |
+| Nested `supplies[].state` enum | `NOT_VERIFIED` | Use only the current tested nested-state allowlist; an unsupported or missing nested status makes coverage partial. Do not infer nested state or filter acceptance from the parent enum. |
 | Raw list cursor field and proof of terminal page | `NOT_VERIFIED` beyond current application's `last_id` wrapper | Do not call a full page complete without reliable terminal-page proof; repeated cursor is partial/conflict. |
 | Exact raw details response keys and nested supply bundle linkage | `NOT_VERIFIED` beyond current application's synthetic adapter shape | Require a strict normalizer; malformed/missing linkage is unknown. |
 | Exact bundle request/response JSON, pagination, per-SKU quantity key/type | Confirmed by owner-pasted official operation docs; raw parser and synthetic pagination tests implemented in FB22 | Use documented fields/types only. Process one bundle per request; paginate using `has_next`/`last_id` under the shared action budget. Owner text is not a seller-specific response. |
@@ -55,6 +57,7 @@ The fixtures under `tests/fixtures/fifo_cost_batch_source/` remain synthetic and
 ## Evidence reviewed
 
 - Owner-provided official operation descriptions for `/v1/supply-order/bundle`, `/v3/supply-order/list`, and `/v3/supply-order/get`, received 2026-11-14 and 2026-11-15; they establish the request/response fields and parent-order enum recorded above, but do not prove seller-specific payloads, dispatch or physical receipt semantics.
+- Owner-provided read-only terminal output for `/v3/supply-order/list`, received 2026-11-17: seller response HTTP 400 rejects `UNSPECIFIED` in `filter.states`. No further live seller call was made for this fix; acceptance of other filter values remains unverified.
 - Ozon for Developers, “Изменения в методах Seller API при работе с поставками FBO”, published 2026-01-19; cross-dock `storage_warehouse.arrival_date` is null from 2026-02-16.
 - Ozon for Developers, “Изменения в методах Seller API для работы с заявками на поставку”, published 2025-11-20; v2 list/get were to be replaced by v3.
 - Existing adapter and synthetic tests: `app/api/ozon_client.py`, `tests/test_experimental_supply_act_diagnostic.py`, `tests/test_cross_docking_supply_source.py`, and `app/services/fifo_cost_source_collection_service.py`.

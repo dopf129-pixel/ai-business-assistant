@@ -1,3 +1,10 @@
+# 2026-11-17 — FIFO supply-list filter validation fix
+
+- `FifoCostSourceCollectionService` now sends the 11 non-zero parent order states and excludes `UNSPECIFIED`; direct Ozon list-wrapper calls reject `UNSPECIFIED` locally. Only this one filter value is confirmed rejected by the owner's seller-specific response; remaining filter values and historical coverage are not newly verified.
+- Both ordinary and durable FIFO scans preserve `FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE` and add `FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED` only for `OZON_HTTP_ERROR` with exact integer status 400. Telegram explains that this is a rejected request, not evidence that no supplies exist. The issue remains safe after durable scan restoration. FIFO/accounting state is not changed by source reads.
+- A follow-up review fix prioritizes that HTTP 400 reason before Telegram's visible-message and 12-code retention limits, including when stored codes are sorted and restored. Linked profile: **56 passed**. Verify [44072993944](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44072993944) passed on code SHA `bdd3d8bf8c52dbc7dd126c0c3dc82c703fb92b7b`: Windows/Linux full suites (5,470 each), compile, production Docker build and runtime smoke.
+- Synthetic focused regressions: **12 passed**; related profile: **108 passed**; isolated full suite: **5,469 passed**. Compile and diff checks passed. Exact-head Verify on implementation SHA `003ca113669a1e7fe50cc115e7d830bef727ce28` passed Windows/Linux full tests (5,469 each), compile, production Docker build and runtime smoke. PR #737 is open; see `FIFO_SUPPLY_LIST_FILTER_FIX_REVIEW_2026-11-17.md` for evidence and limits.
+
 # 2026-11-17 — FIFO scope with product_id and no offer_id
 
 - Fixed PR #736 review finding in both direct bundle composition and durable batch scanning: an optional scope `offer_id` is compared only when present. Exact SKU and known numeric `product_id` checks remain. The new synthetic test failed before the fix (`CONFLICT`) and passes on both paths.
