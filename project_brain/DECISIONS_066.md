@@ -27,6 +27,20 @@ The repository has dated seller cost history, mutable current-cost projection, P
 
 Accepted for implementation within the user-approved FC00–FC35 task; independent review is required before merge. The factual cutoff gate remains blocked pending sanitized owner validation.
 
+## Addendum — 2026-11-14: automatic batch source boundary (FB11–FB12)
+
+- The automatic supply reader is a separate explicit action, not part of opening or viewing a card. Validate exact tenant/store/SKU, case revision, automatic supply mode, and active rule revision before the first request.
+- Reuse `PeriodProfitOperationTrace` for one 20-second/10-attempt root budget. Each nested request is limited to one attempt and at most 8 seconds or remaining time. The first skeleton allowlists only the existing v3 order-list wrapper and reads at most one page.
+- Until raw state and cursor coverage are verified, successful transport stays `PARTIAL`. Do not return or persist raw payload/IDs or infer complete coverage. Production wiring, pagination/details, bundle normalization, checkpoint and manifest publication remain later implementation stages.
+- The list/details adapter caps list pages at 100 and detail batches at 50. It deduplicates overlapping order and supply references and reports source mutation; a full 100-row page without a cursor is never terminal. Its interim continuation is memory-only, single-use, 30-minute and bound to exact case/rule scope. Durable encrypted checkpoints remain a separate stage.
+
+## Addendum — 2026-11-14: durable automatic batch scan checkpoints (FB15)
+
+- Keep scan persistence in the FIFO-owned SQLite repository. Schema v18 adds only immutable scan-to-observation links on top of the v17 rule/observation schema; it does not create FIFO rates, layers, events, allocations, or COGS.
+- Encrypt resumable cursor state with the existing tenant Fernet key. Bind each revision to the exact owner/store/SKU/case revision, batch rule, source-profile fingerprint, and requested date window; expire resumable checkpoints after 30 minutes.
+- Commit each page's immutable observations, scan links, and mutable checkpoint CAS in one transaction. A restart resumes from the latest committed checkpoint revision; a retry must not duplicate evidence. Missing keys, stale scope/rule/source/window, expiry, and CAS conflicts fail closed.
+- A durable checkpoint is transport progress, not proof of complete source history, batch membership, SKU quantity, or physical receipt. Production source wiring and manifest publication remain separate stages.
+
 ## Addendum — 2026-11-09: temporal rate boundaries and durable evidence
 
 - Continue the same tenant-scoped FIFO repository, allocation kernel, replay and `fifo_cost_schema`. A later cost change is a proof-bound temporal boundary; it does not create a purchase quantity. At that boundary, materialize only the independently reconciled residual of the previously open rate behind older finite FIFO balances, then activate the new open rate. Never infer a residual from future sales or apply the latest rate retroactively.
@@ -76,3 +90,14 @@ Accepted for implementation within the user-approved FC00–FC35 task; independe
 - Period Profit's `current_sku_product_cost` is the full-month SKU amount. When the reconstructed physical-sale mapping covers only a subset, that subset's prior FIFO COGS must not exceed the full-month SKU amount. Late-entry impact replaces only the mapped subset; prior same-SKU sales and all other store COGS remain unchanged.
 - An expired READY seal may be reopened only when its exact ID/fingerprint is the current seal at the expected case revision and its persisted expiry has passed. The operation appends an `AWAITING_EVIDENCE` revision with CAS/idempotency and no FIFO event, allocation, or projection writes. Runtime then repeats review/prepare from current durable evidence; applying a refreshed seal remains an independent owner action.
 - These rules refine the existing Decision 066 cutoff and append-only boundaries; they do not close the full movement-source blocker or verify the owner's actual case.
+# Addendum — 2026-11-14: automatic batch evidence deduplication (FB16)
+
+- Canonicalize one discovered `SUPPLY+SKU` as a deterministic digest scoped to exact owner/store/product/offer/SKU and the opaque supply digest. Keep owner declarations and Seller API observations in separate typed fields with their original references; only link matching evidence and never add the same declared/shipped amount twice.
+- A manual `ORDER` declaration is retained as a parent control over currently linked child supplies. It is not a supply and is never added to its children. Missing child linkage stays unresolved; incomplete quantities stay unverifiable. Same-source timestamp refreshes deduplicate, cumulative acceptance replay does not increase totals, and a novel decrease or conflicting content/date/quantity requires review while preserving both evidence values.
+- This pure layer does not persist, publish source coverage, establish physical receipt timing, declare a manifest ready, or write FIFO rates/layers/events/allocations/COGS. R1 and the raw Ozon source-schema gaps remain unchanged.
+
+# Addendum — 2026-11-14: automatic batch manifest totals (FB17)
+
+- Build read-only totals only from the exact case/rule/source scan. Keep found composition, included dispatched composition, accepted quantity, pending quantity, and planned-but-not-shipped quantity separate. `accepted_units` is a complete total only when every included dispatched supply has known accepted units; `known_subtotal` retains the known accepted portion and the unknown count explains why it is partial.
+- Compare a confirmed owner control only for the same kind and exact scan window. Other dated windows remain separately `WINDOW_NOT_COMPARABLE`; they do not cap later supplies. A legacy case total without a window is exposed as `UNBOUNDED_LEGACY_CONTROL` and is never assigned a date or inserted into automatic totals. Multiple exact controls cannot be sealed by the current one-slot manifest contract and therefore keep it non-current.
+- Empty or incomplete data never establishes a zero total. Scan `source_as_of` is the only source for `current_through`; capture time and act date do not become dispatch/receipt facts. The manifest builder does not persist or apply FIFO evidence and leaves R1 independent.

@@ -1,3 +1,34 @@
+# 2026-11-14 — FIFO automatic batch durable scan checkpoint (PR B, FB15)
+
+- Added an additive FIFO schema v18 link table for associating immutable normalized supply observations with one durable scan. The new table does not alter schema-v17 rules, observations, or decisions.
+- Added a tenant-key-encrypted, 30-minute continuation checkpoint bound to the exact owner/store/SKU/case revision, rule revision/fingerprint, source profile, and requested date window. Each page's observation rows, scan links, and checkpoint CAS are committed in one SQLite transaction; a restart can resume from the latest revision without duplicate evidence.
+- Missing encryption keys, expired/stale bindings, wrong scope, malformed cursors, quota overflow, and revision races fail closed. This stage is not yet wired into the source workflow and does not claim raw Ozon coverage, physical receipt dates, or a ready manifest.
+- FB15 linked synthetic profile: **127 passed** across batch source/contracts/acceptance/checkpoint and schema migration tests. `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
+# 2026-11-14 — FIFO automatic batch acceptance verification (PR B, FB14)
+
+- Reused and re-verified the existing act normalizer and cumulative acceptance reconciler rather than adding a competing implementation. Repeated act snapshots deduplicate, independent acts sum, newer incomplete reads retain the last known accepted quantity without claiming a complete result, and decreasing totals require documented correction review.
+- Missing act evidence stays unknown; explicit zero requires its own evidence. Act document dates and API capture times remain documentary only; normalized receipt `effective_at` stays unset. This verification does not yet connect act reads or publish batch observations.
+- FB14 linked synthetic profile: **98 passed** across source collection/normalization, acceptance and transition reconciliation, and batch contracts/store.
+
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (PR B, FB13)
+
+- Added a typed normalizer for already-verified per-SKU observations. It matches the exact owner/store/SKU and supply/order references, keeps planned and shipped quantities separate, rejects duplicate mappings, and distinguishes proven zero from missing data.
+- Because Ozon's public guide does not expose the exact bundle JSON schema or quantity semantics, the source entry point validates the current case/rule and returns `UNKNOWN` without making an HTTP request. Empty, raw/unverified, or partial compositions never become a zero or a confirmed total.
+- FB13 linked synthetic profile: **81 passed**. Changed modules compile. No production bundle request, live API, or bot was used.
+
+# 2026-11-14 — FIFO automatic batch order/details scan (PR B, FB12)
+
+- Extended the bounded adapter to follow the local v3 list cursor, read each unique order's nested supplies, and batch order details at no more than 50 IDs per request. Overlapping pages are deduplicated but flagged as a changing source; repeated cursors and malformed identity coverage fail closed. A full 100-row page without a cursor is never called complete.
+- Opaque process-local continuation is bound to the exact owner/store/SKU/case/rule fingerprint and expires after 30 minutes. It is only an interim transport checkpoint: no raw IDs are returned/persisted, no observations/manifests are written, and exact raw state/cursor profile remains unverified so all otherwise successful results stay PARTIAL.
+- FB12 linked Windows/Python 3.12 profile: **63 passed** across source, rule, classifier, readiness and store tests. `compileall`, `git diff --check`, and tracked `data/` equality pass; the first expanded run caught and fixed duplicate supply-ID counting.
+
+# 2026-11-14 — FIFO automatic batch supply source skeleton (PR B, FB11)
+
+- Added `FifoCostBatchSupplySourceService.collect_supplies` as an explicit, read-only entry point. Before any request it verifies the exact tenant/store/SKU case revision, automatic mode, and active rule revision. The allowlisted list wrapper gets one page per action, with a shared 20-second/10-request trace, one attempt, and timeout capped at 8 seconds and remaining budget.
+- Until the raw supply state profile and pagination proof are verified, a successful response remains `PARTIAL`; raw Ozon payload/IDs are neither returned nor persisted. No UI read is wired to this explicit source action, and continuation/checkpoint, details, bundle, normalization, persistence, and production composition remain later stages.
+- FB11 linked profile: **36 passed**. Targeted modules compile, `git diff --check` passes, and tracked `data/` is unchanged. No live API or bot was used.
+
 # 2026-11-14 — FIFO automatic batch PR A local checkpoint (FB10)
 
 - In an isolated disposable copy with project `data/` and secrets excluded, the full Windows/Python 3.12 suite passed: **5,346 passed in 95.82s**. The copy used a synthetic tax policy and the preserved `.fl12-deps/` only as test libraries.
@@ -3035,3 +3066,26 @@ Summary Report теперь включает:
 - Added an exact-scope, immutable preview and atomic owner confirmation for per-SKU batch cost rules. Confirmation binds the saved case revision, cost, zero old-home/transit facts, store timezone, boundary date and first-day supply policy; successor rules close the prior interval before the new rule is appended.
 - Confirmation changes only the case's `supply_total_mode` and appends rule evidence. It does not write FIFO rates, layers, events, allocations or COGS. A bounded in-memory preview expires after 15 minutes; persisted idempotency receipts make identical retries safe after process restart.
 - Targeted linked profile: **91 passed** across batch contracts/service/store, transition contracts/store/service/apply and v13/v16 migration tests. Full pytest and exact-SHA CI remain planned for FB10.
+# 2026-11-14 — FIFO automatic batch evidence deduplication (PR B, FB16)
+
+- Added a pure canonical `SUPPLY+SKU` reconciliation boundary for API observations and owner declarations. It preserves the two evidence sources and revision references, chooses one current supply observation, and reports quantity/date conflicts for review.
+- An owner `ORDER` declaration remains a separate control over its child supplies; it is never counted as another supply or copied into child quantities. Cumulative acceptance snapshots retain the known maximum and flag a novel decrease for review.
+- FB16 does not publish scan coverage, build a ready manifest, persist source rows, or make FIFO/accounting writes. Local linked source/acceptance/dedup profile: **142 passed**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
+# 2026-11-14 — FIFO automatic batch manifest totals (PR B, FB17)
+
+- Added a pure manifest builder for exact-case/rule scan evidence. It keeps found composition, dispatched composition, accepted quantities, pending quantities, and declared-but-not-shipped planned quantities separate; known accepted subtotal and missing-supply count remain visible for partial evidence.
+- Dated owner controls are compared only when the kind and exact requested window match. Historical controls remain separately labelled and do not cap later supplies; an old case total is reported as `UNBOUNDED_LEGACY_CONTROL` without a fabricated date. Empty/partial sources stay UNKNOWN/PARTIAL, and no receipt time or FIFO movement is inferred.
+- FB17 linked synthetic profile: **154 passed** across FB11–FB17 source/normalizer/acceptance/checkpoint/dedup/manifest and schema tests. Three adversarial regressions verify malformed records and child links fail closed. Compilation, `git diff --check`, and tracked `data/` equality passed. The manifest builder is not yet wired to production source publishing or readiness.
+
+# 2026-11-14 — FIFO automatic batch negative-source verification (PR B, FB18)
+
+- Extended the linked regressions for mixed source-profile evidence and aggregate overflow; malformed evidence returns a typed non-current/error result rather than a zero or a usable manifest.
+- Strengthened the denied-list-API test to verify no scan/observation staging rows and no FIFO event, layer, or allocation rows are written. Existing tests cover absent acts, partial bundle composition, bool quantity rejection, duplicate pages, repeated cursors, restart checkpoints, and unsupported raw states.
+- FB18 linked synthetic Windows/Python 3.12 profile: **156 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Raw Ozon status/pagination/bundle schemas remain unverified; no real API, Telegram, FIFO apply, or COGS write was performed.
+
+# 2026-11-14 — FIFO automatic batch PR B checkpoint (FB19)
+
+- Added the independent review handoff and a source capability matrix that separates tested local wrappers from unverified Ozon raw schemas and the unresolved R1 movement source.
+- Linked source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning profile: **233 passed**; isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
+- PR B publication and exact-head hosted CI are pending; no live Ozon/Telegram call, FIFO apply, bot launch, merge, or deployment occurred.

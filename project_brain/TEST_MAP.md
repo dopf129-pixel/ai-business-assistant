@@ -1,3 +1,15 @@
+# 2026-11-14 — FIFO automatic batch durable scan checkpoint (FB15)
+
+- `tests/test_fifo_cost_batch_scan_checkpoint_service.py` covers encrypted continuation storage, restart after a committed page, stale-reference resume from the latest checkpoint revision, exact case/rule/scope/source-profile/range binding, TTL expiry, observation/checkpoint CAS rollback, duplicate page rejection, terminal publish behavior, append-only scan links, and missing-key fail-closed behavior.
+- `tests/test_fifo_cost_transition_schema_v16.py::test_v17_upgrade_adds_scan_observation_links_and_preserves_prior_evidence` covers the PR A schema-v17 to PR B schema-v18 migration while preserving prior period-confirmation evidence and Planning `PRAGMA user_version`. The linked profile also includes batch source, normalizer, acceptance reconciliation, and v13/v16 migration tests.
+- FB15 linked profile: **127 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. All fixtures use synthetic rows and temporary SQLite databases.
+
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
+
+- `tests/test_fifo_cost_batch_bundle_normalizer.py` covers exact SKU selection from mixed-SKU normalized rows (including row-order invariance), planned versus shipped quantities, partial composition, empty/raw/unverified input, explicit zero versus unknown, wrong scope/supply/order, duplicate mappings, and unsupported profile behavior.
+- `tests/test_fifo_cost_batch_supply_source.py::test_bundle_source_gap_is_explicit_unknown_and_does_not_guess_an_endpoint` verifies the source validates its current case/rule then returns `UNKNOWN` with zero HTTP attempts and no persistence; the invalid-reference test verifies fail-closed validation before network access.
+- Linked FB13 profile: **81 passed** across bundle normalizer, bounded source, batch contracts/rules/classifier/store, and readiness tests. `compileall` passed on changed Python modules; no full-suite claim is made.
+
 # 2026-11-14 — FIFO automatic batch rule verification through FB10
 
 - FB09 adds readiness regressions in `tests/test_fifo_cost_transition_readiness_service.py`: AUTO without a manifest reports a source gap without requiring an owner total; empty/partial manifests and unknown quantities remain incomplete; a complete scoped manifest removes only the supply-manifest requirement; a wrong case is rejected; dated-control mode cannot fall through the legacy-total path. The complete fixture deliberately has no physical receipt timestamp, leaving R1/cutoff independent. Linked readiness/review/transition/apply/cutoff bridge/batch-contract profile: **81 passed**; module compilation, `git diff --check`, and tracked `data/` equality pass.
@@ -1689,6 +1701,11 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - GitHub CI run **38604317400** passed on implementation SHA `acb1e196`: Windows verification, full Linux verification, production Docker image build and runtime smoke. PR #695 remains open for independent architecture review; no merge/deploy was performed.
 
 # Test Map
+
+## FIFO automatic batch source, FB11–FB12
+
+- `tests/test_fifo_cost_batch_supply_source.py` covers exact current case/rule basis validation before network; stale case/rule and foreign-owner rejection with zero fake calls; allowlisted list/details requests with `max_attempts=1`, <=8s timeouts, actual attempt count and shared parent budget; details batches <=50; nested supply aggregation and deduplication; overlapping pages; cursor loops and full-page missing cursor proof; scoped process-local continuation; unknown state reporting; no raw response leakage, no scan/observation writes, and successful transport remaining PARTIAL while source profile is unverified.
+- FB11 profile: **36 passed**. FB12 linked source/rule/classifier/readiness/store profile: **63 passed**. Compileall, `git diff --check`, and tracked `data/` comparison passed. All HTTP behavior is exercised only by a fake client.
 
 ## Period Profit bounded Ozon quantity reads
 
@@ -6999,3 +7016,31 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Regression cases cover owner-confirmed vs filename-candidate/unknown dates; duplicate/missing SKU or quantity; formula and Excel-error cells; exact header casing with whitespace/NBSP normalization; fractional values; all four component totals and balance; malformed/extra columns; external relationships, relationship/ZIP traversal, ZIP entry and compression-ratio limits.
 - At the initial FL12 code SHA `1f209a23`, the focused set had **21 passed** and linked profile **409 passed**. Shared XLSX preflight hardening in FL13 adds a hidden-sheet test; current counts are **22 FL12** and **423 linked**. Fixtures use synthetic in-memory workbooks; owner files, databases, Ozon and Telegram were not accessed.
 
+# 2026-11-14 — FIFO automatic batch acceptance verification (FB14)
+
+- `tests/test_fifo_cost_supply_acceptance_reconciliation_service.py` covers cumulative 40/70/100, stale duplicate snapshots, independent act sums, duplicate act replay, explicit zero vs missing act evidence, partial/newer incomplete reads, downward correction review, and SKU/declaration conflicts.
+- `tests/test_fifo_cost_source_normalizer.py` covers act-summary/product-line reconciliation, multiple partial acts, exact SKU matching, correction/duplicate representation, incomplete/unknown act states, missing act as EMPTY rather than zero, and documentary `created_date` with `effective_at is None`.
+- `tests/test_fifo_cost_transition_supply_reconciliation_service.py` covers missing receiving observations retaining the last known value without zeroing, later present refresh without duplicate receipt, pending vs final discrepancy, and acceptance bound to exact declaration digest. Linked profile including source collection, batch contracts and store: **98 passed**.
+
+# 2026-11-14 — FIFO automatic batch SKU composition boundary (FB13)
+# `tests/test_fifo_cost_batch_bundle_normalizer.py` and `tests/test_fifo_cost_batch_supply_source.py` cover exact SKU selection, planned versus shipped quantity, partial/unknown/explicit zero, wrong scope and references, and fail-closed source behavior while the raw bundle schema is unverified. FB13 linked profile: **81 passed**.
+# 2026-11-14 — FIFO automatic batch evidence deduplication (FB16)
+
+- `tests/test_fifo_cost_batch_supply_deduplicator.py` covers deterministic scoped `SUPPLY+SKU` keys; repeated page/capture deduplication; current source version; cumulative acceptance replay and correction review; owner/API provenance separation; supply and ORDER control reconciliation without double-counting; unresolved parent controls; wrong scope/key and same-fingerprint content conflicts; and declaration revision conflicts.
+- Linked synthetic Windows/Python 3.12 profile across batch source, normalizer, acceptance reconciliation, scan checkpoint, deduplicator, and schema regressions: **142 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Tests use synthetic values and temporary databases; no live Ozon/Telegram call or owner-data access.
+
+# 2026-11-14 — FIFO automatic batch manifest totals (FB17)
+
+- `tests/test_fifo_cost_batch_manifest_builder.py` covers B12's 500/300/200 declared and 500/180/unknown accepted quantities; B23's 6,982 dated control plus 100 later units without a permanent cap; B24 exact-window mismatch blocking; B25 unbounded legacy labeling; B09 parent ORDER not added above child supplies; B41 empty/partial is UNKNOWN rather than zero; and B42 timestamp-only fingerprint stability plus status refresh membership reuse.
+- Additional cases verify exact control-kind/window match, independent R1 physical receipt timing, and fail-closed handling for malformed record containers, invalid supply digests, and malformed owner-order links. Linked synthetic Windows/Python 3.12 profile across `test_fifo_cost_batch_*.py`, acceptance/receiving reconciliation, and v13/v16 schema migrations: **154 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
+# 2026-11-14 — FIFO automatic batch negative-source verification (FB18)
+
+- Source regressions cover denied list access without raw-error leakage or writes to staged source/FIFO tables; empty act evidence (`None`) vs documented zero; incomplete bundle and unsupported raw state; bool/invalid quantities; aggregate overflow and mixed source profile; repeated/duplicate pages, repeated cursors, overlapping mutable pages, and durable restart checkpoints.
+- Linked synthetic Windows/Python 3.12 profile across `test_fifo_cost_batch_*.py`, acceptance/receiving reconciliation, and v13/v16 schema migrations: **156 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram request or FIFO/COGS apply occurred; raw schemas remain unverified.
+
+# 2026-11-14 — FIFO automatic batch PR B checkpoint (FB19)
+
+- Linked source, normalizer, acceptance, checkpoint, deduplication, manifest, v13/v16 migration, and existing cross-docking/planning cross-docking regressions: **233 passed in 9.62s**. `compileall` on changed batch modules/repository and linked tests, `git diff --check`, and `git diff --exit-code -- data` passed.
+- Disposable Windows/Python 3.12 full suite in a clean copy without `.git`, `.venv`, real `data/`, or secret `.env`: **5,405 passed in 99.02s**; `compileall app` passed. The copy used a synthetic USN_INCOME 6% policy and safe `.env.example`; all test writes stayed inside that temporary copy.
+- Source matrix and remaining source gaps are documented in `FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md` and the PR B handoff. Hosted current-SHA CI is pending publication.
