@@ -1,3 +1,8 @@
+# 2026-11-17 — FIFO scope with product_id and no offer_id
+
+- Fixed PR #736 review finding in both direct bundle composition and durable batch scanning: an optional scope `offer_id` is compared only when present. Exact SKU and known numeric `product_id` checks remain. The new synthetic test failed before the fix (`CONFLICT`) and passes on both paths.
+- Linked FIFO batch/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused regression, `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Hosted CI will be recorded after the fix is published.
+
 # 2026-11-16 — FIFO rule-chain freshness after initial dispatch-date edit
 
 - Fixed PR #736 review finding: rule freshness now compares the case dispatch date to the first immutable `CONFIRM` boundary across the whole FIFO rule chain, rather than skipping the comparison after successors are added. A changed initial date blocks active-rule use, source collection and manifest output; valid successors remain usable when the root date is unchanged. Missing/ambiguous root history fails closed.

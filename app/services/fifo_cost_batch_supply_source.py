@@ -241,7 +241,10 @@ class FifoCostBatchSupplySourceService:
                             and str(scope.product_id).isdigit()
                             and str(item.product_id) != str(scope.product_id)
                         )
-                        or str(item.offer_id) != scope.offer_id
+                        or (
+                            scope.offer_id is not None
+                            and str(item.offer_id) != scope.offer_id
+                        )
                     ):
                         issue = "FIFO_BATCH_BUNDLE_SKU_MAPPING_CONFLICT"
                         source_status = "CONFLICT"
@@ -897,7 +900,10 @@ class FifoCostBatchSupplySourceService:
                             and str(scope.product_id).isdigit()
                             and str(item.product_id) != str(scope.product_id)
                         )
-                        or str(item.offer_id) != scope.offer_id
+                        or (
+                            scope.offer_id is not None
+                            and str(item.offer_id) != scope.offer_id
+                        )
                     ):
                         mapping_conflict = True
                         break

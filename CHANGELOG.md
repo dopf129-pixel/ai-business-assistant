@@ -1,3 +1,8 @@
+# 2026-11-17 — Match FIFO supplies when offer_id is optional
+
+- Bundle rows for an exact SKU and known numeric `product_id` are no longer rejected because the scope has no `offer_id`. The same conditional comparison is applied to direct composition reads and durable supply scans; provided identifiers still must match.
+- Added a synthetic durable-scan regression that first reproduced `CONFLICT` and now verifies both read paths accept the row. Linked FIFO/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked-data equality passed. Hosted CI is pending publication of this fix.
+
 # 2026-11-16 — Invalidate FIFO successor chain after dispatch-date correction
 
 - Active FIFO rules now validate the original dispatch boundary from the immutable first `CONFIRM` event against the current case. Editing the case's first dispatch date makes the entire successor chain stale; a valid later successor still works when the original date is unchanged. Incomplete or ambiguous history fails closed.

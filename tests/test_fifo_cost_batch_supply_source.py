@@ -140,10 +140,11 @@ class _FakeOzon:
         return pages.get(options.get("last_id"), {"error": True, "code": "SYNTHETIC_BUNDLE_PAGE_MISSING"})
 
 
-def _case():
+def _case(scope=None):
+    scope = scope or SCOPE
     return TransitionCase(
         metadata=TransitionMetadata(
-            scope=SCOPE,
+            scope=scope,
             source_kind=EvidenceSourceKind.OWNER_INPUT,
             completeness=EvidenceCompleteness.PARTIAL,
             source_fingerprint="a" * 64,
@@ -174,8 +175,9 @@ def _case():
 
 def _setup(
     tmp_path, monkeypatch, *, ozon_error=False, list_pages=None, details=None,
-    bundle_pages=None, durable_source=False,
+    bundle_pages=None, durable_source=False, scope=None,
 ):
+    scope = scope or SCOPE
     monkeypatch.setenv(
         "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
     )
@@ -185,20 +187,20 @@ def _setup(
     )
     tenant_token = set_current_tenant_user_id(TENANT_SCOPE)
     saved = repository.save_transition_case(
-        case=_case(), expected_revision=0, idempotency_key="create-batch-src-01",
+        case=_case(scope), expected_revision=0, idempotency_key="create-batch-src-01",
     )
     assert saved["error"] is False, saved
     rule_service = FifoCostBatchRuleService(
         repository, now_provider=lambda: NOW,
     )
     preview_result = rule_service.preview_rule(
-        SCOPE, "case_batch_src_01", 1,
+        scope, "case_batch_src_01", 1,
         BatchRuleInput("2026-11-05", BatchStartDayPolicy.ALL_OWNER_CONFIRMED),
     )
     assert preview_result["error"] is False, preview_result
     preview = preview_result["preview"]
     confirmed = rule_service.confirm_rule(
-        SCOPE, "case_batch_src_01", 1, preview.preview_id,
+        scope, "case_batch_src_01", 1, preview.preview_id,
         preview.preview_fingerprint, "confirm-batch-src-01",
     )
     assert confirmed["error"] is False, confirmed
@@ -1164,6 +1166,56 @@ def test_bundle_source_requires_exact_nested_bundle_reference_before_http(
             ).fetchone()[0] == 0
         finally:
             connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_durable_bundle_scan_matches_known_product_when_offer_id_is_unset(
+    tmp_path, monkeypatch,
+):
+    scope = replace(SCOPE, product_id="101", offer_id=None)
+    supply_id = "2000070135564"
+    order_id = "3000000000001"
+    bundle_id = "bundle-product-only"
+    details = {
+        order_id: {
+            "order_id": order_id,
+            "state": "COMPLETED",
+            "supplies": [{
+                "supply_id": supply_id, "bundle_id": bundle_id,
+                "state": "COMPLETED", "is_crossdock": True,
+            }],
+        },
+    }
+    bundle_page = {
+        "items": [{
+            "sku": int(scope.sku), "quantity": 200,
+            "product_id": 101, "offer_id": "hook-2",
+        }],
+        "total_count": 1, "has_next": False, "last_id": "",
+    }
+    _repository, _rules, source, _ozon, tenant_token, confirmed = _setup(
+        tmp_path, monkeypatch, durable_source=True, scope=scope,
+        list_pages=[{"order_ids": [order_id], "last_id": None}],
+        details=details, bundle_pages={bundle_id: {None: bundle_page}},
+    )
+    try:
+        composition = source.get_supply_composition(
+            scope, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"], "a" * 64, bundle_id=bundle_id,
+        )
+        assert composition.status == "COMPLETE"
+        assert composition.planned_quantity == 200
+
+        result = source.collect_supplies(
+            scope, "case_batch_src_01", confirmed["case_revision"],
+            confirmed["rule_revision"],
+        )
+
+        assert result.status == "COMPLETE"
+        assert result.candidates_observed == 1
+        assert result.sku_composition_complete is True
+        assert result.source_status == "PARTIAL"
     finally:
         reset_current_tenant_user_id(tenant_token)
 

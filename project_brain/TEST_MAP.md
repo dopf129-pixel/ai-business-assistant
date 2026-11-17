@@ -1,3 +1,8 @@
+# 2026-11-17 — Optional offer_id in FIFO supply identity
+
+- `tests/test_fifo_cost_batch_supply_source.py::test_durable_bundle_scan_matches_known_product_when_offer_id_is_unset` covers scope identified by numeric `product_id` and SKU with no expected `offer_id`, while the API bundle row supplies an offer ID. It asserts both direct composition and durable collection accept the exact product/SKU row. The durable path failed before the fix with `CONFLICT`.
+- Linked FIFO batch and transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked `data/` equality passed.
+
 # 2026-11-16 — FIFO rule-chain freshness regression
 
 - `tests/test_fifo_cost_batch_manifest_read_service.py::test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_interval`: proves a successor with a later start remains valid against the first immutable confirmation date; changing the case's original `dispatch_date` after a complete scan makes `read_active_rule`, `read_collection_basis`, and `read_current_manifest` reject the full chain. A successor without its initial rule history fails closed.
