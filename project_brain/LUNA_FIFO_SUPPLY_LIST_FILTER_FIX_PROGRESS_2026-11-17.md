@@ -2,7 +2,7 @@
 
 ## Status
 
-- Current stage: FLF06 review finding fixed locally; linked checks pass; exact-head hosted CI for the follow-up is pending.
+- Current stage: FLF06 review finding fixed and code SHA `bdd3d8bf8c52dbc7dd126c0c3dc82c703fb92b7b` passed hosted Verify; recording the hosted result in the review packet before a documentation-only follow-up commit.
 - Branch: `codex/fifo-supply-list-filter-fix-20261117`.
 - Base: `main` at `23d8a212fd25692b53a082071ef01b9babedff5f`.
 - Owner data, `.env`, runtime database and Desktop working copy: untouched.
@@ -41,4 +41,5 @@ Implementation review is complete. A documentation-only follow-up adds the CI ev
 - Added stable priority ordering for that actionable code before both display slicing and the 12-code capture/restore limits. Other issue codes retain their relative order. Restored-scan conflict classification still examines every saved code before display truncation, so the prioritization cannot weaken the existing fail-closed conflict guard. No collection semantics, FIFO state, source calls, or stored schema changed.
 - Added a synthetic regression for insertion-order and sorted-order rendering limits. Extended the durable HTTP 400 regression with more than 12 alphabetically earlier warning codes; actual restored card text must still show the rejected-request reason.
 - Focused HTTP 400/other error/filter tests: **11 passed**. Linked FIFO source, batch-rule and checkpoint profile: **56 passed in 6.78s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. No live API, Telegram, bot, or owner data was used.
-- Next: commit and publish this review fix to PR #737, then confirm Windows/Linux exact-head CI before handoff. Do not merge or deploy.
+- Exact-head Verify [44072993944](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44072993944) passed for code SHA `bdd3d8bf8c52dbc7dd126c0c3dc82c703fb92b7b`: Windows and Linux full suites **5,470 passed each**, compile passed, production Docker build and runtime smoke passed. Artifact [14323736912](https://api.github.com/repos/dopf129-pixel/ai-business-assistant/actions/artifacts/14323736912/zip), digest `sha256:75e7ce2a03e9246e44e0260cb85e609e468d77820f6e99b96327a6e39d52b139`.
+- Next: publish the verification evidence in PR #737 and confirm CI on the resulting documentation-only head. Do not merge or deploy.
