@@ -2,7 +2,7 @@
 
 ## Status
 
-- Current stage: FLF05 in progress; implementation and local verification complete, PR and exact-head CI pending.
+- Current stage: FLF05 complete for implementation SHA; a documentation-only review-packet follow-up is being published and will receive its own exact-head CI.
 - Branch: `codex/fifo-supply-list-filter-fix-20261117`.
 - Base: `main` at `23d8a212fd25692b53a082071ef01b9babedff5f`.
 - Owner data, `.env`, runtime database and Desktop working copy: untouched.
@@ -21,7 +21,7 @@ The owner already ran one read-only `/v3/supply-order/list` call on 2026-11-17. 
 | FLF02 | Complete | local changes | Removed only `UNSPECIFIED` from the shared 11-state filter; direct wrapper rejects single/mixed occurrences before HTTP. Other values and order are unchanged. |
 | FLF03 | Complete | local changes | Both list paths now retain the generic unavailable issue and prepend a fixed request-rejected issue only for exact `OZON_HTTP_ERROR` plus integer 400. Durable persistence and Telegram restore render the safe message. 429, timeout and string `"400"` do not receive it. |
 | FLF04 | Complete | local changes | Related FIFO/list/cross-docking profile: **108 passed in 8.27s**. Full suite in disposable source copy without `.git`, `.env`, runtime/user data, or project `data/` (only synthetic 6% USN_INCOME policy): **5,469 passed in 111.21s**. `compileall -q app tests` passed with one pre-existing float-identity SyntaxWarning. `git diff --check` and `git diff --exit-code -- data` passed. |
-| FLF05 | In progress | — | Changelog, current state, test map, source contract and this progress journal are updated. Preparing one PR; exact-SHA Windows/Linux CI and independent review handoff remain. `DECISIONS.md` unchanged because no architectural decision was introduced. |
+| FLF05 | Complete for implementation SHA | `003ca113669a1e7fe50cc115e7d830bef727ce28` | Changelog, current state, test map, source contract, task and progress journal updated; PR #737 opened. Exact-head Verify run [44062802652](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44062802652) passed on Windows/Linux, 5,469 tests each, compile, production Docker build/runtime smoke. Successful rerun artifact `14319726631`, digest `sha256:2751dd2595f65379115a6f39f1b455f628c74ec8ba3d5a65e75e176da2ef50a7`. The first Linux attempt failed one unrelated random-token assertion; rerunning the failed job passed without code changes. `DECISIONS.md` unchanged because no architectural decision was introduced. |
 
 ## Verification notes
 
@@ -29,7 +29,8 @@ The owner already ran one read-only `/v3/supply-order/list` call on 2026-11-17. 
 - No schema, FIFO rule, quantity, event, layer, allocation, profit, or HTTP/time budget behavior was changed.
 - Full-suite disposable copy: `C:\Users\GELASH~1\AppData\Local\Temp\fifo-filter-full-ba834d47f499496aa2b10c5bbce4f737`.
 - A preliminary disposable-copy setup call named a nonexistent test path and ran no tests; the subsequent valid baseline and fixed-code profiles are the results recorded above.
+- Independent review packet: `project_brain/FIFO_SUPPLY_LIST_FILTER_FIX_REVIEW_2026-11-17.md`.
 
 ## Resume
 
-Continue with FLF05: review the final diff, commit the requested files, push this branch, open a PR to `main`, wait for exact-head Windows/Linux CI, and finish the independent-review packet. Keep FIFO/R1 readiness semantics unchanged and do not use owner files as test fixtures.
+Implementation review is complete. A documentation-only follow-up adds the CI evidence and independent-review packet to PR #737; verify the final PR head's own Windows/Linux checks before handoff. Keep FIFO/R1 readiness semantics unchanged and do not use owner files as test fixtures.

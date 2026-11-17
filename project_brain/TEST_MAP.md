@@ -2,7 +2,7 @@
 
 - `tests/test_fifo_cost_batch_supply_source.py::test_supply_list_filter_allowlist_excludes_zero_unspecified_enum` pins the 11 retained filter values; `::test_supply_list_filter_omits_unspecified_and_reads_empty_page` covers ordinary and durable scanning with a synthetic server that rejects `UNSPECIFIED`, asserting a valid empty page is read without claiming FIFO-ready completeness.
 - `::test_list_http_400_has_safe_specific_issue_and_preserves_failure_status` covers both scan paths, fixed/safe diagnostics, no FIFO writes, durable issue-code persistence and Telegram restoration. `::test_non_400_list_errors_do_not_claim_request_validation` covers 429, timeout, and string `"400"` status. `tests/test_experimental_supply_act_diagnostic.py::test_supply_order_list_client_rejects_invalid_cursor_and_limit` now also proves single/mixed `UNSPECIFIED` is rejected before `_post`.
-- Focused regression profile: **12 passed**. Full affected profile and isolated full suite are pending.
+- Focused regression profile: **12 passed**; related FIFO/list/cross-docking profile: **108 passed in 8.27s**; full disposable suite: **5,469 passed in 111.21s**; isolated compile and diff/data checks passed. Exact-head Verify [44062802652](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44062802652) passed on implementation SHA `003ca113669a1e7fe50cc115e7d830bef727ce28`: Windows/Linux each passed 5,469 tests and compile; production Docker build/runtime smoke passed. The first Linux attempt hit one unrelated random-token assertion and the failed job passed on retry without code changes. Review packet: `project_brain/FIFO_SUPPLY_LIST_FILTER_FIX_REVIEW_2026-11-17.md`.
 
 # 2026-11-17 — Optional offer_id in FIFO supply identity
 
