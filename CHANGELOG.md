@@ -1,3 +1,9 @@
+# 2026-11-13 — FIFO automatic batch rule specification
+
+- Added a Luna specification for optional manual shipment totals, per-SKU batch rules, bounded supply discovery, exact SKU quantities, grouped owner confirmation and integration with the existing FIFO workflow.
+- Stages FB00–FB31, a v17 migration plan, three dependent implementation PRs and B01–B45 acceptance cases are specified. Product implementation has not started.
+- Rule confirmation and supply enumeration do not resolve the separate R1 inventory movement coverage blocker.
+
 # 2026-11-13 — FIFO review fixes R18–R20
 
 - Physical-sales confirmation idempotency now includes the saved case revision. Re-uploading and explicitly selecting an identical confirmed CSV, including A→B→A→B version changes, creates a distinct confirmation while reusing the immutable document row.

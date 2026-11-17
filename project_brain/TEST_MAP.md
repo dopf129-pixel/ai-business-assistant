@@ -1,3 +1,10 @@
+# 2026-11-13 — Planned FIFO automatic batch rule verification
+
+- Specification: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md, matrix B01–B45.
+- Planned coverage: nullable totals and wizard resume; scoped rules/v17 migration; supply states/pagination/SKU composition; cumulative acceptance/dedup; budgets/checkpoints; grouped confirmation; unchanged cutoff/R1 gates; exact apply/retry; old costs/frozen plans.
+- These tests are planned, not implemented or executed. Luna records actual names/results in LUNA_FIFO_AUTO_BATCH_RULE_PROGRESS_2026-11-13.md.
+- This change is documentation only; no local product test run is required for the specification.
+
 # 2026-11-13 — FIFO review fixes R18–R20
 
 - `tests/test_telegram_fifo_cost_transition_runtime_service.py::test_physical_sales_document_is_selected_previewed_saved_and_confirmed_separately` now re-selects identical saved CSVs and runs A→B→A→B; it verifies the immutable documents are reused and every explicit confirmation succeeds at a distinct case revision.
