@@ -21,6 +21,12 @@ from services.fifo_cost_transition_evidence_service import (
 from services.fifo_cost_transition_review_service import (
     FifoCostTransitionReviewService,
 )
+from services.fifo_cost_batch_rule_contracts import (
+    BatchRuleInput,
+    BatchStartDayPolicy,
+)
+from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
+from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
 from services.fifo_cost_history_service import FifoCostHistoryService
 from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.tax_service import TaxService
@@ -31,6 +37,7 @@ from test_fifo_cost_transition_atomic_apply import (
     STORE,
     TAX_POLICY,
     _prepared_repository,
+    _bridge_inputs,
     _table_counts,
     _transition_no_write_snapshot,
     TENANT,
@@ -57,9 +64,14 @@ NONE_POLICY = {
 
 
 class _ReadyReview:
-    def __init__(self, *, initialized=False, case_revision=3):
+    def __init__(
+        self, *, initialized=False, case_revision=3,
+        automatic_batch_manifest_seal=None, after_assess=None,
+    ):
         self.initialized = initialized
         self.case_revision = case_revision
+        self.automatic_batch_manifest_seal = automatic_batch_manifest_seal
+        self.after_assess = after_assess
 
     def assess(
         self, *, case_id, identity, for_transition_prepare=False,
@@ -68,7 +80,7 @@ class _ReadyReview:
         from types import SimpleNamespace
 
         assert for_transition_prepare is True
-        return {
+        result = {
             "error": False,
             "case_revision": self.case_revision,
             "current_case_revision": self.case_revision + 1,
@@ -77,7 +89,11 @@ class _ReadyReview:
             "proposal": object(),
             "fifo_queue_initialized": self.initialized,
             "fifo_remaining_status": "COMPLETE",
+            "automatic_batch_manifest_seal": self.automatic_batch_manifest_seal,
         }
+        if callable(self.after_assess):
+            self.after_assess()
+        return result
 
 
 class _SavedEvidence:
@@ -227,6 +243,138 @@ def _reconstruct(repository, bridge, cutover):
         idempotency_key="prepare-apply-service-0001",
         initial_opening_cutover=cutover,
     )
+
+
+def test_auto_batch_source_change_inside_apply_is_atomic_stale_rejection(tmp_path):
+    from services.fifo_cost_transition_service import FifoCostTransitionService as TransitionService
+
+    repository, tenant, stock, _old_bridge, _impact, cutover, _prepared, clock = (
+        _prepared_repository(tmp_path, prepare=False)
+    )
+    source_state = ["d" * 64]
+    repository._read_auto_batch_source_fingerprint = (
+        lambda _connection, **_kwargs: source_state[0]
+    )
+    try:
+        rule_service = FifoCostBatchRuleService(
+            repository, now_provider=lambda: clock[0],
+        )
+        initial = repository.read_transition_case(case_id=CASE_ID, **IDENTITY)
+        assert initial["error"] is False, initial
+        rule_preview = rule_service.preview_rule(
+            SCOPE, CASE_ID, initial["case_revision"],
+            BatchRuleInput(
+                "2026-11-05", BatchStartDayPolicy.ALL_OWNER_CONFIRMED,
+            ),
+        )
+        assert rule_preview["error"] is False, rule_preview
+        confirmed = rule_service.confirm_rule(
+            SCOPE, CASE_ID, initial["case_revision"],
+            rule_preview["preview"].preview_id,
+            rule_preview["preview"].preview_fingerprint,
+            "fb25-auto-rule-confirm-01",
+        )
+        assert confirmed["error"] is False, confirmed
+
+        current = repository.read_transition_case(case_id=CASE_ID, **IDENTITY)
+        assert current["error"] is False, current
+        case = TransitionService._case_from_payload(current["case"])
+        assert case.supply_total_mode.value == "AUTO_FROM_SUPPLIES"
+        assert case.case_revision == initial["case_revision"] + 1
+        bridge = _bridge_inputs(case, stock)
+        cutover = {**cutover, "case_revision": case.case_revision}
+
+        connection = repository.get_connection()
+        try:
+            rules = FifoCostBatchSupplyStore.read_rule_revisions(
+                connection, scope=SCOPE, case_id=CASE_ID,
+                tenant_fingerprint=repository._tenant_scope(STORE)[
+                    "tenant_fingerprint"
+                ],
+            )
+        finally:
+            connection.close()
+        assert rules
+        seal_material = {
+            "schema_version": 1,
+            "rule_revision": rules[-1]["rule_revision"],
+            "rule_fingerprint": rules[-1]["rule_fingerprint"],
+            "scan_revision": 1,
+            "observation_set_fingerprint": "a" * 64,
+            "manifest_fingerprint": "b" * 64,
+            "source_storage_fingerprint": source_state[0],
+        }
+        seal = {
+            **seal_material,
+            "seal_fingerprint": repository._sha256(seal_material),
+        }
+        tax_fingerprint = FifoCostLateEntryImpactService._normalize_policy(
+            NONE_POLICY,
+        )["fingerprint"]
+        reconstruction = repository.reconstruct_transition_preview(
+            case_id=CASE_ID, **IDENTITY,
+            expected_case_revision=case.case_revision,
+            effective_date="2026-11-07", cutoff_bridge=bridge,
+            tax_policy_fingerprint=tax_fingerprint,
+            idempotency_key="fb25-auto-reconstruct-01",
+            initial_opening_cutover=cutover,
+        )
+        assert reconstruction["error"] is False, reconstruction
+        bundle = _bundle(
+            (_make_period_summary(reconstruction),),
+            case_revision=case.case_revision,
+        )
+        review = _ReadyReview(
+            initialized=False, case_revision=case.case_revision,
+            automatic_batch_manifest_seal=seal,
+        )
+        service = _service(
+            repository, bridge, cutover, bundle, clock,
+            review_service=review,
+        )
+        before_stale_prepare = _transition_no_write_snapshot(repository)
+        review.after_assess = lambda: source_state.__setitem__(0, "e" * 64)
+        stale_prepare = service.prepare(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=case.case_revision,
+            idempotency_key="fb25-auto-prepare-stale-01",
+        )
+        assert stale_prepare == {
+            "error": True, "code": "FIFO_TRANSITION_PREVIEW_STALE",
+        }
+        assert _transition_no_write_snapshot(repository) == before_stale_prepare
+
+        source_state[0] = "d" * 64
+        review.after_assess = None
+        prepared = service.prepare(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=case.case_revision,
+            idempotency_key="fb25-auto-prepare-01",
+        )
+        assert prepared["error"] is False, prepared
+        preview = service.read_preview(
+            case_id=CASE_ID, identity=IDENTITY,
+            preview_id=prepared["preview_id"],
+        )
+        assert preview["error"] is False, preview
+        assert preview["preview"]["automatic_batch_manifest_seal"] == seal
+
+        before_apply = _transition_no_write_snapshot(repository)
+        review.after_assess = lambda: source_state.__setitem__(0, "f" * 64)
+        result = service.apply(
+            case_id=CASE_ID, identity=IDENTITY,
+            expected_case_revision=prepared["case_revision"],
+            expected_preview_id=prepared["preview_id"],
+            expected_preview_fingerprint=prepared["preview_fingerprint"],
+            idempotency_key="fb25-auto-apply-race-01",
+        )
+        assert result == {
+            "error": True, "code": "FIFO_TRANSITION_PREVIEW_STALE",
+        }
+        assert _transition_no_write_snapshot(repository) == before_apply
+        assert _table_counts(repository)["fifo_cost_transition_commits"] == 0
+    finally:
+        reset_current_tenant_user_id(tenant)
 
 
 def test_prepare_seals_real_impact_without_changing_fifo_until_apply(tmp_path):

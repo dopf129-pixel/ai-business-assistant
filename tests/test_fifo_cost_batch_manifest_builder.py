@@ -3,6 +3,7 @@ from decimal import Decimal
 import hashlib
 
 from cryptography.fernet import Fernet
+import pytest
 
 from services.fifo_cost_batch_manifest_builder import FifoCostBatchManifestBuilder
 from services.fifo_cost_batch_rule_classifier import FifoCostBatchRuleClassifier
@@ -22,6 +23,7 @@ from services.fifo_cost_batch_rule_contracts import (
     SupplyScanCoverage,
     SupplySkuObservation,
     canonical_membership_binding_fingerprint,
+    canonical_membership_group_binding_fingerprint,
 )
 from services.fifo_cost_batch_supply_deduplicator import FifoCostBatchSupplyDeduplicator
 from services.fifo_cost_transition_contracts import (
@@ -169,15 +171,19 @@ def _order_declaration(order, units):
     )
 
 
-def _build(observations, *, coverage=None, case=None, controls=(), declarations=(), decisions=()):
-    rule = _rule()
+def _build(
+    observations, *, coverage=None, case=None, controls=(), declarations=(),
+    decisions=(), rule=None, rule_history=None,
+):
+    rule = rule or _rule()
+    rule_history = rule_history or (rule,)
     dedup = FifoCostBatchSupplyDeduplicator.reconcile(
         scope=SCOPE, case_id=CASE_ID, observations=tuple(observations),
         declarations=tuple(declarations),
     )
     classifications = tuple(
         FifoCostBatchRuleClassifier.classify_supply(
-            (rule,), item.current_observation, decisions,
+            rule_history, item.current_observation, decisions,
         )
         for item in dedup.records if item.current_observation is not None
     )
@@ -186,7 +192,94 @@ def _build(observations, *, coverage=None, case=None, controls=(), declarations=
         coverage=coverage or _coverage(), deduplication=dedup,
         classifications=classifications, membership_decisions=decisions,
         total_controls=tuple(controls),
+        rule_history=rule_history,
     )
+
+
+@pytest.mark.parametrize("current_count,owner_only_count", [(0, 1), (1, 2)])
+def test_owner_only_supplies_do_not_overflow_found_membership_count(
+    current_count, owner_only_count,
+):
+    observations = tuple(
+        _observation(f"current-{index}", 100, 100)
+        for index in range(current_count)
+    )
+    declarations = tuple(
+        replace(
+            _order_declaration(f"missing-{index}", 100),
+            declaration_id=f"owner-only-supply-{index}",
+            reference_kind=SupplyReferenceKind.SUPPLY,
+            reference_digest=_digest(f"supply-missing-{index}"),
+        )
+        for index in range(owner_only_count)
+    )
+    result = _build(
+        observations, declarations=declarations,
+        coverage=_coverage(supplies_seen=current_count, sku_rows_seen=current_count),
+    )
+
+    assert result.manifest is not None, result
+    assert result.status == ("PARTIAL" if current_count else "UNKNOWN")
+    assert result.manifest.found_supply_count == current_count
+    assert result.manifest.undecided_supply_count == 0
+    assert result.manifest.coverage.membership_complete is False
+    assert result.manifest.freshness is not ManifestFreshness.CURRENT
+    assert "FIFO_BATCH_OWNER_SUPPLY_NOT_FOUND" in result.issue_codes
+
+
+def test_valid_supply_outside_active_rule_does_not_block_complete_manifest():
+    current = _observation("current", 100, 100, date="2026-11-06")
+    before_boundary = _observation("old", 50, 50, date="2026-11-04")
+
+    result = _build(
+        (current, before_boundary),
+        coverage=_coverage(supplies_seen=2, sku_rows_seen=2),
+    )
+
+    assert result.status == "COMPLETE"
+    assert result.manifest.declared_in_found_supplies == 150
+    assert result.manifest.declared_in_shipped_supplies == 100
+    assert result.manifest.included_supply_count == 1
+    assert result.manifest.undecided_supply_count == 0
+
+
+def test_owner_excluded_exact_supply_is_informational_for_complete_manifest():
+    rule = _rule()
+    included = _observation("included", 100, 100)
+    excluded = replace(
+        _observation("excluded", 50, 50),
+        dispatch_local_date=None,
+        dispatch_time_status=DispatchTimeStatus.UNKNOWN,
+    )
+    binding = canonical_membership_group_binding_fingerprint(
+        scope=SCOPE, rule_id=rule.rule_id, rule_revision=rule.rule_revision,
+        rule_fingerprint=rule.rule_fingerprint,
+        decision=MembershipDecisionKind.EXCLUDED,
+        record_keys=(excluded.record_key,),
+    )
+    decision = BatchMembershipDecision(
+        decision_id="owner-exclusion-001", revision=1,
+        scope=SCOPE, case_id=CASE_ID, rule_id=rule.rule_id,
+        rule_revision=rule.rule_revision,
+        decision=MembershipDecisionKind.EXCLUDED,
+        source=MembershipDecisionSource.OWNER_SELECTED_SET,
+        record_keys=(excluded.record_key,),
+        relevant_source_fingerprints=((excluded.record_key, excluded.source_fingerprint),),
+        candidate_set_fingerprint=_digest("excluded-set"),
+        membership_binding_fingerprint=binding,
+        idempotency_key="owner-exclusion-key-001", confirmed_at=NOW,
+    )
+
+    result = _build(
+        (included, excluded), decisions=(decision,), rule=rule,
+        coverage=_coverage(supplies_seen=2, sku_rows_seen=2),
+    )
+
+    assert result.status == "COMPLETE"
+    assert result.issue_codes == ()
+    assert result.manifest.included_supply_count == 1
+    assert result.manifest.undecided_supply_count == 0
+    assert result.manifest.declared_in_shipped_supplies == 100
 
 
 def test_b12_manifest_keeps_known_accepted_subtotal_and_missing_count_separate():

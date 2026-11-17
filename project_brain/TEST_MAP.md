@@ -1,3 +1,96 @@
+# 2026-11-17 — Optional offer_id in FIFO supply identity
+
+- `tests/test_fifo_cost_batch_supply_source.py::test_durable_bundle_scan_matches_known_product_when_offer_id_is_unset` covers scope identified by numeric `product_id` and SKU with no expected `offer_id`, while the API bundle row supplies an offer ID. It asserts both direct composition and durable collection accept the exact product/SKU row. The durable path failed before the fix with `CONFLICT`.
+- Linked FIFO batch and transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked `data/` equality passed. Exact-head Verify [44044868868](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44044868868) passed on code SHA `b394c853137e993c365054d997bbd59ae1ccff36` for Windows/Linux suites, compile, and production Docker build/runtime smoke.
+
+# 2026-11-16 — FIFO rule-chain freshness regression
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_rule_rehydration_keeps_closed_base_event_and_manifest_uses_active_interval`: proves a successor with a later start remains valid against the first immutable confirmation date; changing the case's original `dispatch_date` after a complete scan makes `read_active_rule`, `read_collection_basis`, and `read_current_manifest` reject the full chain. A successor without its initial rule history fails closed.
+- Rule/manifest profile: **27 passed in 5.30s** on Windows/Python 3.12; full isolated configured suite: **5,458 passed in 139.69s**. `compileall`, `git diff --check`, and tracked-data equality passed. Exact-head Verify [43948119855](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43948119855) passed on `c3976787078c37ab900e004f140cd9abd91c22d7`, including Windows/Linux full suites and compile plus production Docker build/runtime smoke.
+
+# 2026-11-16 — FIFO manifest counts with missing supplies
+
+- Fixed PR #736 review finding: `undecided_supply_count` now counts unresolved membership only among API rows found in the current scan. Historical missing and owner-only records remain unresolved for completeness, preserving their issue codes and missing keys; they cannot make a partial manifest complete or authorize FIFO apply. The existing strict counter contract is retained.
+- Regressions cover all supplies disappearing, more missing than current supplies, simultaneous missing/history and unresolved current membership, and unmatched owner declarations with zero/one current rows. All six selected cases failed before the fix; all six pass after it, including the production readiness path. Full isolated pytest: **5,458 passed in 94.85s**. Full compile, `git diff --check` and unchanged tracked `data/` passed. Hosted CI for the new commit is pending.
+
+# 2026-11-16 — FIFO auto-batch review regressions
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_supply_missing_from_latest_scan_stays_unknown_and_blocks_manifest` persists two supplies, publishes a later same-rule scan with one missing, and verifies its opaque key is retained in the typed manifest, prior acceptance stays on the missing record, and accepted/pending totals do not claim completeness.
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_changed_case_cost_invalidates_old_rule_manifest_and_source_basis` changes the case cost after confirmation, verifies old source collection and manifest use are blocked, and verifies a successor-rule preview uses the corrected cost.
+- Focused manifest/rule/contract profile: **38 passed**; linked FIFO batch plus transition readiness/review/apply/production profile: **203 passed**; full isolated pytest: **5,453 passed in 111.30s**. Full compile passed with one pre-existing float-identity `SyntaxWarning`. The full run used a disposable tracked-source copy without project `data/` or secrets and a synthetic USN_INCOME 6% policy.
+
+# FIFO automatic-batch review follow-up — 2026-11-15
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py::test_latest_manifest_reconciles_acceptance_against_prior_observations`: a newer scan with accepted quantity 90 after an earlier 100 for the same supply remains review-required and does not publish 90 as a complete accepted total.
+- `tests/test_fifo_cost_batch_supply_source.py::test_telegram_bundle_review_confirms_exact_set_without_fifo_writes_or_identity_leaks`: grouped inclusion, exclusion, re-inclusion correction, and stale preview rejection after a newer changed-quantity scan; all remain read-only for FIFO/COGS.
+- `tests/test_fifo_cost_batch_supply_source.py::test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart`: a new Telegram runtime rehydrates a saved partial scan and continues from the persisted cursor without repeating earlier pages or detail calls.
+- `tests/test_fifo_cost_batch_supply_source.py::test_unavailable_new_scan_is_persisted_and_supersedes_previous_published_scan`: a no-progress source failure becomes the newest `FAILED` checkpoint instead of exposing an older `PUBLISHED` scan as current.
+- Linked Windows/Python 3.12 profile: **189 passed** across FIFO batch tests and production/readiness/review/apply services; focused source/manifest/Telegram/checkpoint profile: **53 passed**. Exact-head Verify [run 43754510424](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43754510424) passed on SHA `26e7d3c4617189d93b57d61405c59acfc803b453`: Windows/Linux full suites and compile passed; Linux production Docker build/runtime smoke and SHA-bound report/artifact passed.
+
+# FIFO automatic-batch PR C review regressions — 2026-11-15
+
+- `tests/test_fifo_cost_batch_supply_source.py` and `test_fifo_cost_batch_scan_checkpoint_service.py`: exact new-case observation binding after an earlier case was cancelled; maximum-size nested continuation round-trip; v18-to-v19 upgrade preserves the old token column.
+- `tests/test_fifo_cost_batch_supply_deduplicator.py`: manual supply/order declarations match API references through stable transition digests while legacy record and reference digests remain unchanged.
+- `tests/test_fifo_cost_batch_manifest_read_service.py`: full immutable rule history (including closed/replaced revisions), active interval selection, and a concurrent scan writer cannot produce a torn manifest/fingerprint snapshot.
+- `tests/test_fifo_cost_batch_manifest_builder.py`: valid `OUTSIDE_RULE` and owner-excluded information outcomes do not block, while prior interval membership does not leak into active quantity totals.
+- `tests/test_fifo_cost_batch_rule_classifier.py` and `tests/test_fifo_cost_batch_rule_regressions.py`: overlapping owner-selected groups resolve to a later correction; same-time conflicting outcomes fail closed; Telegram review rows expose unique masked IDs and cross-dock labels without leaking raw identifiers.
+- Linked affected Windows/Python 3.12 profile: **125 passed in 8.64s**; migration/checkpoint profile (`test_fifo_cost_transition_schema_v13.py`, `test_fifo_cost_transition_schema_v16.py`, `test_fifo_cost_batch_scan_checkpoint_service.py`): **29 passed in 2.63s**. Full configured suite in a disposable copy without repository `data/` or `.env`: **5,446 passed in 108.09s**, no skips/deselections. Isolated `compileall -q app tests` passed with one pre-existing float-identity `SyntaxWarning`. Exact-head Verify [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054) passed on code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e`; it includes Windows/Linux full suites, compile, and production Docker build/runtime smoke.
+
+# 2026-11-15 — FIFO automatic batch first-day selection (FB30)
+
+- `tests/test_fifo_cost_batch_rule_regressions.py::test_start_day_no_or_unknown_saves_pending_explicit_rule_and_invalidates_all_day_button` verifies that NO/UNKNOWN saves an explicit rule with `boundary_supply_digests_json=[]`, invalidates the previous all-day ticket, leaves the FIFO queue uninitialized, and explains that no first-day supply is included until the owner confirms exact rows.
+- `tests/test_fifo_cost_batch_rule_classifier.py::test_owner_selected_exact_first_day_decision_resolves_boundary` verifies that an empty explicit boundary remains `NEEDS_CONFIRMATION` before an exact owner membership decision and becomes eligible only after that decision. `tests/test_fifo_cost_batch_rule_service.py::test_explicit_first_day_supply_set_can_wait_for_owner_selection` covers the pending empty-set contract.
+- Linked Windows/Python 3.12 profile: **36 passed** across the batch rule service, classifier, and Telegram rule regressions. Broader FIFO batch/production transition-readiness-review-apply profile: **177 passed in 20.24s**. The FB29 full suite passed 5,437 tests at code SHA `cc329692d5c259595ef1419f9dbfde483071da66` before this change; exact-head CI is still needed.
+
+# 2026-11-15 — FIFO automatic batch full isolated profile (FB29)
+
+- Full CI-configured suite (`python -m pytest -p no:cacheprovider -q`, `tests/` and `app/tests/` per `pytest.ini`) passed at code SHA `cc329692d5c259595ef1419f9dbfde483071da66`: **5,437 passed in 104.33s**, no skip/deselect. It ran from a disposable copy without repository runtime data, local session/memory/database files or credentials; only a synthetic `USN_INCOME 6%` policy was supplied.
+- `python -m compileall -q app tests` passed. One existing `SyntaxWarning` is emitted by `tests/test_unit_economics_returns_impact_integrity_v971_v980.py` for an identity comparison to a float literal; this FB29 profile did not change that unrelated test.
+
+# 2026-11-15 — FIFO automatic batch crash/migration/backup (FB28)
+
+- `tests/test_fifo_cost_backup_restore.py::test_public_backup_restore_preserves_fifo_auto_batch_rule_and_manifest` uses public backup, archive verification, dry-run restore and restore APIs. It verifies encrypted observation retention, rule and manifest reconstruction after restart, unknown acceptance remains unknown, and no FIFO rates/layers/allocations/events are written.
+- Crash/CAS/idempotency and prepare/apply race coverage: `tests/test_fifo_cost_transition_apply_service.py`, `tests/test_fifo_cost_transition_atomic_apply.py`, `tests/test_fifo_cost_batch_scan_checkpoint_service.py`, and `tests/test_fifo_cost_batch_rule_service.py`. Bounded storage/key and migration rollback coverage: `tests/test_fifo_cost_transition_schema_v16.py` and `tests/test_fifo_cost_batch_manifest_read_service.py`. Stale interval/first-day choices: `tests/test_fifo_cost_batch_rule_classifier.py` and `tests/test_fifo_cost_batch_rule_regressions.py`.
+- FB28 linked Windows/Python 3.12 profile: **235 passed in 29.13s**. Compile, diff and tracked-data checks passed. All newly introduced evidence is synthetic and temporary.
+
+# 2026-11-15 — FIFO automatic batch positive production E2E (FB27)
+
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket[auto-batch-production-happy-path]` traverses the real factory/runtime with fake Ozon responses, paginated order listings, mixed-SKU bundle composition, a full normalized synthetic manifest, cutoff/movement/finance evidence, explicit apply, production graph restart and exact commit retry. It asserts one transition commit and that retry makes no network request. No repository, readiness, validator or apply service is replaced with a success stub.
+- Both legacy cases remain in the parametrized test: missing receiving evidence stays blocked and explicit owner confirmation preserves the old positive path. `tests/test_fifo_cost_transition_readiness_service.py` confirms source-observation lag is not borrowed from legacy declarations in AUTO mode, while incomplete manifests and independent cutoff/R1 gates still block. The production retry exposed and now covers manifest-seal inclusion in exact AUTO commit fingerprints.
+- Linked profile: **177 passed** across `tests/test_fifo_cost_batch_*.py`, transition production workflow, readiness, review, apply and transition service tests. Compile, diff check and tracked data equality pass. All source rows are synthetic; no live Ozon/Telegram request or owner data was used.
+
+# 2026-11-15 — FIFO automatic batch history and consumers (FB26)
+
+- `tests/test_fifo_cost_batch_rule_service.py` verifies the active-rule read returns only the saved revision metadata needed for explanation (revision, event kind, predecessor revision, rule price, and owner confirmation time) for both initial confirmation and replacement.
+- `tests/test_fifo_cost_batch_rule_regressions.py::test_automatic_batch_card_is_offline_and_refresh_is_scoped_bounded_and_replay_safe` verifies the Telegram card distinguishes rule version/rate from FIFO current cost, labels bot request time separately from unavailable Ozon as-of, reports local page/detail coverage, and confirms rule confirmation plus incomplete supply refresh leave the canonical 21.00 ₽ legacy cost and cost revision unchanged.
+- B32 is covered by `tests/test_fifo_cost_temporal_rate_replay.py` mixed-rate allocation (3×21.00 + 2×14.65 = 92.30 ₽) and `tests/test_period_profit_fifo_cost_integration.py`; B38 is covered by original-lineage return replay in `tests/test_fifo_cost_temporal_rate_replay.py::test_mr04_mr05_return_from_closed_rate_restores_cost_and_origin_before_current_rate` and `tests/test_fifo_cost_return_repository.py::test_fc18_partial_return_of_multilayer_sale_uses_latest_fifo_basis`; B39 is covered by `tests/test_saved_planning_plan_telegram_flow.py::test_fc27_fifo_saved_plan_survives_restart_copy_new_revision_and_export`.
+- Linked Windows/Python 3.12 profile: **183 passed**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic fixtures only; no live Ozon/Telegram calls, owner data, or bot launch.
+
+# 2026-11-15 — FIFO automatic batch prepare/apply seals (FB25)
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py` verifies that typed review returns the same validated seal as the manifest reader, scoped source fingerprints change with newer source state, malformed/tampered seals are rejected, and a row-limit breach makes the manifest unavailable instead of reading unbounded history.
+- `tests/test_fifo_cost_transition_apply_service.py::test_auto_batch_source_change_inside_apply_is_atomic_stale_rejection` verifies a source change after review but before preview preparation is rejected without any state change; after a fresh prepare, another source change between apply review and commit is rejected with no partial FIFO, case, preview, or commit writes.
+- `tests/test_fifo_cost_batch_supply_source.py::test_parent_order_state_allowlist_matches_documented_v3_enum` pins the parent `orders[].state` allowlist to the Ozon-documented enum. It does not validate the separate nested `supplies[].state` enum or live Seller API payloads.
+- FB25 linked profile: **44 passed** across manifest/readiness/review/transition apply/atomic apply; all FIFO batch tests: **127 passed**. `compileall`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic SQLite and fake source state only.
+
+# 2026-11-15 — FIFO automatic batch manifest readiness bridge (FB24)
+
+- `tests/test_fifo_cost_batch_manifest_read_service.py` seeds a temporary tenant-scoped SQLite case, confirms a synthetic automatic rule, persists a published scan through the production checkpoint API, and verifies the read service rebuilds a typed manifest with planned/shipped composition, accepted unknown, source provenance, and source-profile issues preserved.
+- The same module verifies a newer partial scan blocks fallback to an older published scan; `tests/test_fifo_cost_transition_review_service.py::test_legacy_case_does_not_consult_automatic_batch_manifest_provider` verifies legacy cases do not enter the new source path. Review assertions confirm the typed manifest fingerprint appears as saved readiness evidence while apply remains blocked and FIFO events/layers/allocations stay empty.
+- `tests/test_fifo_cost_transition_production_workflow.py` asserts one shared manifest reader is wired into the production review factory. Linked manifest/readiness/review/apply/store/checkpoint/production profile: **77 passed**; all FIFO batch-specific tests: **124 passed**. No live Ozon/Telegram calls or owner data were used.
+
+# 2026-11-14 — FIFO automatic batch Telegram card and bounded refresh (FB21)
+
+- `tests/test_fifo_cost_batch_rule_regressions.py` covers rendering the current-rule card without network access, refresh binding to the exact tenant/store/SKU/case/rule revision, bounded source invocation and continuation UI, stale ticket rejection, duplicate replay, cross-tenant cached-result rejection, retry failure retaining the last successful read, safe error wording, privacy, and no FIFO state change. “Проверить найденные” does not make an Ozon call or infer exact SKU membership.
+- `tests/test_telegram_calculation_inflight_dedup.py` verifies `fifo_transition:batch_refresh` uses the existing shared in-flight duplicate guard. `telegram_progress_feedback` uses the specific safe progress label for this action.
+- FB21 linked profile: **198 passed** across all `tests/test_fifo_cost_batch_*.py`, production transition workflow, cross-docking/planning adapter regressions, and Telegram in-flight guard. `compileall`, `git diff --check`, and tracked `data/` equality passed. All Ozon behavior was synthetic; no real bot was run.
+
+# 2026-11-14 — FIFO automatic batch production assembly (FB20)
+
+- `tests/test_fifo_cost_batch_supply_source.py::test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon` assembles the existing transition workflow with temporary SQLite and a fake Ozon client. It asserts that the automatic source reuses the existing client, the source/checkpoint/store/dedup/manifest dependencies are the exact instances exposed to the batch adapter, the bounded source call is still fail-closed PARTIAL, and it writes no staged observations or scans.
+- `tests/test_fifo_cost_transition_production_workflow.py::test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket` additionally asserts the existing end-to-end production graph uses the composed batch services while preserving the independent cutoff receiving gate.
+- FB20 linked profile: **187 passed** across batch modules, production workflow, and cross-docking/planning regressions; `compileall`, `git diff --check`, and tracked `data/` equality passed. Network is fake; DB is temporary.
+
 # 2026-11-14 — FIFO automatic batch durable scan checkpoint (FB15)
 
 - `tests/test_fifo_cost_batch_scan_checkpoint_service.py` covers encrypted continuation storage, restart after a committed page, stale-reference resume from the latest checkpoint revision, exact case/rule/scope/source-profile/range binding, TTL expiry, observation/checkpoint CAS rollback, duplicate page rejection, terminal publish behavior, append-only scan links, and missing-key fail-closed behavior.
@@ -17,6 +110,7 @@
 
 - Specification: LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md, matrix B01–B45.
 - Planned coverage: nullable totals and wizard resume; scoped rules/v17 migration; supply states/pagination/SKU composition; cumulative acceptance/dedup; budgets/checkpoints; grouped confirmation; unchanged cutoff/R1 gates; exact apply/retry; old costs/frozen plans.
+- PR C review regressions: `tests/test_fifo_cost_batch_manifest_read_service.py::test_latest_scan_uses_latest_quantity_and_detects_replayed_acceptance_decrease` covers a repeated old source fingerprint after a newer quantity and a temporally decreasing acceptance value; `tests/test_fifo_cost_batch_supply_source.py::test_resumed_scan_cannot_overwrite_a_newer_scan_committed_during_resume` covers the load-to-commit race and rejects later retries without another Ozon request. Correctly selected FIFO/transition test profile: **897 passed**.
 - FB04 tests: `test_fifo_cost_batch_supply_store.py`, `test_fifo_cost_transition_schema_v16.py`, and `test_fifo_cost_transition_schema_v13.py` cover scoped append/read helpers, idempotent rule and timestamp-only observation replay, exact decision-observation foreign keys, scan checkpoint CAS, immutable evidence guards, fresh schema v17, v12–v16 upgrade, rollback after injected index failure, future-version fail-closed, and unchanged Planning `PRAGMA user_version`. `test_fifo_cost_transition_service.py` verifies `supply_total_mode` persists and legacy payloads default safely. Combined with repository, transition store/apply, and contract tests: **121 passed**; `compileall`, `git diff --check`, and tracked `data/` equality pass.
 - Implemented so far: `tests/test_fifo_cost_batch_rule_contracts.py` covers immutable rule/observation/decision/coverage/manifest validators and passes **8 tests**; together with `tests/test_fifo_cost_transition_contracts.py`, the focused profile passes **21 tests**. The former FB01 unknown-total baseline is now green as part of FB08.
 - `tests/fixtures/fifo_cost_batch_source/` contains only synthetic normalized adapter shapes; these are not raw Ozon examples.
@@ -1701,6 +1795,17 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - GitHub CI run **38604317400** passed on implementation SHA `acb1e196`: Windows verification, full Linux verification, production Docker image build and runtime smoke. PR #695 remains open for independent architecture review; no merge/deploy was performed.
 
 # Test Map
+
+# FIFO automatic batch follow-up supplies and price boundary (FB23)
+
+- `tests/test_fifo_cost_batch_supply_source.py::test_b23_later_refresh_adds_supply_without_new_cost_or_manual_total` performs two distinct durable synthetic scans. The later scan adds 100 declared units to the earlier 6,982 composition under the same confirmed 14.65 rule; case manual total stays `None`, shipped/accepted/date stay unknown, and no FIFO event/layer/allocation is written.
+- `tests/test_fifo_cost_batch_manifest_builder.py::test_b23_historical_control_does_not_cap_later_found_supplies` confirms the dated 6,982 control does not cap later found quantity (7,082), and is not comparable to the later window. `tests/test_fifo_cost_batch_rule_classifier.py::test_next_boundary_closes_old_interval_and_selects_new_cost_rule` and `tests/test_fifo_cost_batch_rule_service.py::test_successor_atomically_closes_previous_rule_and_same_day_is_rejected` verify preview/confirm successor intervals and same-day rejection. `tests/test_fifo_cost_transition_atomic_apply.py::test_ordinary_fifo_rate_change_remains_available_after_one_late_transition` verifies a new-price preview/confirm remains the separate post-APPLIED workflow.
+- Telegram guidance regression is included in `tests/test_fifo_cost_batch_rule_regressions.py::test_production_fifo_workflow_uses_one_shared_batch_graph_and_fake_ozon`; guidance points to the existing SKU FIFO “Новая себестоимость” action and requires correction/replay for a past boundary. FB23 linked batch profile: **77 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed; all API behavior uses fake responses.
+
+## FIFO automatic batch bundle source and group selection (FB22)
+
+- `tests/test_experimental_supply_act_diagnostic.py` covers the documented `/v1/supply-order/bundle` endpoint/body, cursor/limit forwarding, timeout/attempt observer, and invalid input rejection. `tests/test_fifo_cost_batch_bundle_normalizer.py` covers exact SKU rows, one-supply binding, planned versus shipped quantity, partial/unknown/zero and conflicts. `tests/test_fifo_cost_batch_supply_source.py` covers raw documented fields, pagination/`has_next`/cursor/total consistency, one-bundle-per-request binding, shared 20-second/10-attempt budget, durable restart continuation, encrypted lookup, and failure without writes. `tests/test_fifo_cost_batch_rule_classifier.py` covers exact set sealing and append-only include/exclude owner decisions. `tests/test_fifo_cost_batch_rule_regressions.py` exercises the production Telegram adapter with synthetic SQLite/fake network, safe redaction, stale tickets, selected-set confirmation, and no FIFO/COGS writes.
+- Linked FB22 synthetic Windows/Python 3.12 profile: **76 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram calls are performed by these tests. Bundle quantity remains declared composition only.
 
 ## FIFO automatic batch source, FB11–FB12
 

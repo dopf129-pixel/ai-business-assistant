@@ -340,6 +340,61 @@ class OzonClient(BaseOzonClient):
             **options,
         )
 
+    def get_supply_order_bundle(
+        self,
+        bundle_ids,
+        last_id=None,
+        limit=100,
+        timeout=8,
+        max_attempts=1,
+        total_timeout=10,
+        request_attempt_observer=None,
+    ):
+        """Read a cursor page of SKU composition for one or more bundles.
+
+        Callers that need to bind rows to a nested supply must pass exactly one
+        bundle id: the documented item rows do not echo their parent bundle id.
+        """
+        try:
+            if not isinstance(bundle_ids, (list, tuple)) or not 1 <= len(bundle_ids) <= 100:
+                raise ValueError
+            parsed_ids = []
+            for bundle_id in bundle_ids:
+                if not isinstance(bundle_id, str):
+                    raise ValueError
+                raw = bundle_id
+                if not raw or len(raw) > 256:
+                    raise ValueError
+                parsed_ids.append(raw)
+            if type(limit) is not int or not 1 <= limit <= 100:
+                raise ValueError
+            page_limit = limit
+            cursor = None
+            if last_id is not None:
+                if not isinstance(last_id, str):
+                    raise ValueError
+                cursor = last_id
+                if not cursor or len(cursor) > 256:
+                    raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ORDER_BUNDLE_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        payload = {"bundle_ids": parsed_ids, "limit": page_limit}
+        if cursor is not None:
+            payload["last_id"] = cursor
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+            "total_timeout": total_timeout,
+        }
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
+        return self._post("/v1/supply-order/bundle", payload, **options)
+
     def get_fbo_postings(
         self,
         since,

@@ -39,6 +39,7 @@ from services.fifo_cost_transition_contracts import (
     TransitionEvidenceConfirmation,
     TransitionEvidenceConfirmationKind,
     TransitionMetadata,
+    ScopeIdentity,
     TransitionState,
 )
 from services.fifo_cost_transition_store import FifoCostTransitionStore
@@ -48,7 +49,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 18
+    SCHEMA_VERSION = 19
     MAX_RATE_CHAIN = 100_000
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
@@ -149,6 +150,7 @@ class FifoCostRepository:
         "fifo_cost_batch_membership_decisions",
         "fifo_cost_batch_membership_decision_observations",
         "fifo_cost_batch_supply_scans",
+        "fifo_cost_batch_scan_continuations",
         "fifo_cost_batch_scan_observations",
         "fifo_cost_batch_total_controls",
     )
@@ -890,6 +892,25 @@ class FifoCostRepository:
                 "tax_policy_fingerprint": preview.get("tax_policy_fingerprint"),
                 "bridge_fingerprint": preview.get("bridge_fingerprint"),
             })
+            case_payload = case.get("case")
+            automatic_mode = (
+                isinstance(case_payload, dict)
+                and case_payload.get("supply_total_mode") == "AUTO_FROM_SUPPLIES"
+            )
+            stored_batch_seal = self._normalize_auto_batch_manifest_seal(
+                preview.get("automatic_batch_manifest_seal"),
+            )
+            if automatic_mode:
+                if stored_batch_seal is None:
+                    return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
+                expected_commit_fingerprint = self._sha256({
+                    "commit_payload_fingerprint": expected_commit_fingerprint,
+                    "automatic_batch_manifest_seal": stored_batch_seal[
+                        "seal_fingerprint"
+                    ],
+                })
+            elif preview.get("automatic_batch_manifest_seal") is not None:
+                return self._error("FIFO_TRANSITION_IDEMPOTENCY_CONFLICT")
             if (
                 prior["preview_id"] != preview_id
                 or prior["case_revision"] != expected_case_revision + 1
@@ -1063,6 +1084,7 @@ class FifoCostRepository:
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         expected_case_revision, effective_date, cutoff_bridge, impact_preview,
         tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
+        automatic_batch_manifest_seal=None,
     ):
         """Persist a complete, scope-bound replay for later confirmation."""
         return self._build_transition_preview(
@@ -1074,6 +1096,7 @@ class FifoCostRepository:
             tax_policy_fingerprint=tax_policy_fingerprint,
             idempotency_key=idempotency_key,
             initial_opening_cutover=initial_opening_cutover,
+            automatic_batch_manifest_seal=automatic_batch_manifest_seal,
             read_only_reconstruction=False,
         )
 
@@ -1081,7 +1104,7 @@ class FifoCostRepository:
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         expected_case_revision, effective_date, cutoff_bridge, impact_preview,
         tax_policy_fingerprint, idempotency_key, initial_opening_cutover=None,
-        read_only_reconstruction=False,
+        automatic_batch_manifest_seal=None, read_only_reconstruction=False,
     ):
         """Build baseline/candidate replays and optionally seal the candidate.
 
@@ -1164,6 +1187,28 @@ class FifoCostRepository:
                     connection.rollback()
                     return self._error("FIFO_TRANSITION_REVISION_CONFLICT")
                 case = case_result["case"]
+                automatic_mode = case.get("supply_total_mode") == "AUTO_FROM_SUPPLIES"
+                normalized_batch_seal = self._normalize_auto_batch_manifest_seal(
+                    automatic_batch_manifest_seal,
+                )
+                if not read_only_reconstruction and (
+                    (automatic_mode and normalized_batch_seal is None)
+                    or (not automatic_mode and automatic_batch_manifest_seal is not None)
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_BATCH_MANIFEST_SEAL_REQUIRED")
+                if automatic_mode and not read_only_reconstruction:
+                    source_fingerprint = self._read_auto_batch_source_fingerprint(
+                        connection, case_id=case_id, identity=identity,
+                        tenant_scope=scope,
+                    )
+                    if (
+                        source_fingerprint is None
+                        or source_fingerprint
+                        != normalized_batch_seal["source_storage_fingerprint"]
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_PREVIEW_STALE")
                 cutover_recorded_at = now_text
                 last_preview = case.get("last_preview")
                 if (
@@ -1533,6 +1578,10 @@ class FifoCostRepository:
                     "idempotency_key": idempotency_key,
                     "initial_opening_cutover": staged_initial_cutover,
                 }
+                if normalized_batch_seal is not None:
+                    preview_payload["automatic_batch_manifest_seal"] = (
+                        normalized_batch_seal
+                    )
                 if len(self._canonical_json(preview_payload).encode("utf-8")) > 262_144:
                     connection.rollback()
                     return self._error("FIFO_TRANSITION_PREVIEW_TOO_LARGE")
@@ -1802,6 +1851,7 @@ class FifoCostRepository:
         self, *, case_id, store_id, product_id=None, offer_id=None, sku,
         expected_case_revision, preview_id, idempotency_key, cutoff_bridge,
         impact_preview, current_tax_policy_fingerprint,
+        automatic_batch_manifest_seal=None,
     ):
         """Atomically apply one transition rate, complete replay, and case audit."""
         scope = self._tenant_scope(store_id)
@@ -1870,6 +1920,30 @@ class FifoCostRepository:
                     connection.rollback()
                     return self._error("FIFO_TRANSITION_PREVIEW_STALE")
                 payload = json.loads(preview_row["payload_json"])
+                automatic_mode = (
+                    case_result.get("case", {}).get("supply_total_mode")
+                    == "AUTO_FROM_SUPPLIES"
+                )
+                stored_batch_seal = self._normalize_auto_batch_manifest_seal(
+                    payload.get("automatic_batch_manifest_seal"),
+                )
+                supplied_batch_seal = self._normalize_auto_batch_manifest_seal(
+                    automatic_batch_manifest_seal,
+                )
+                if automatic_mode:
+                    if (
+                        stored_batch_seal is None
+                        or supplied_batch_seal is None
+                        or stored_batch_seal != supplied_batch_seal
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_PREVIEW_STALE")
+                elif (
+                    payload.get("automatic_batch_manifest_seal") is not None
+                    or automatic_batch_manifest_seal is not None
+                ):
+                    connection.rollback()
+                    return self._error("FIFO_TRANSITION_PREVIEW_STALE")
                 commit_payload_fingerprint = self._sha256({
                     "case_id": case_id,
                     "preview_id": preview_id,
@@ -1878,6 +1952,13 @@ class FifoCostRepository:
                     "tax_policy_fingerprint": impact_policy_fingerprint,
                     "bridge_fingerprint": cutoff_bridge.source_set_fingerprint,
                 })
+                if automatic_mode:
+                    commit_payload_fingerprint = self._sha256({
+                        "commit_payload_fingerprint": commit_payload_fingerprint,
+                        "automatic_batch_manifest_seal": stored_batch_seal[
+                            "seal_fingerprint"
+                        ],
+                    })
                 prior = connection.execute(
                     """SELECT commit_id, payload_fingerprint, preview_id,
                               case_revision, complete_through, committed_at
@@ -1901,6 +1982,18 @@ class FifoCostRepository:
                         "complete_through": prior["complete_through"],
                         "committed_at": prior["committed_at"], "replayed": True,
                     }
+                if automatic_mode:
+                    source_fingerprint = self._read_auto_batch_source_fingerprint(
+                        connection, case_id=case_id, identity=identity,
+                        tenant_scope=scope,
+                    )
+                    if (
+                        source_fingerprint is None
+                        or source_fingerprint
+                        != stored_batch_seal["source_storage_fingerprint"]
+                    ):
+                        connection.rollback()
+                        return self._error("FIFO_TRANSITION_PREVIEW_STALE")
                 if (
                     impact_policy_fingerprint != current_tax_policy_fingerprint
                     or payload.get("bridge_fingerprint") != cutoff_bridge.source_set_fingerprint
@@ -8658,6 +8751,70 @@ class FifoCostRepository:
     def _valid_digest(cls, value):
         return isinstance(value, str) and cls._HEX_DIGEST.fullmatch(value) is not None
 
+    @classmethod
+    def _normalize_auto_batch_manifest_seal(cls, value):
+        """Validate the minimal, non-identifying batch evidence seal."""
+        keys = {
+            "schema_version", "rule_revision", "rule_fingerprint",
+            "scan_revision", "observation_set_fingerprint",
+            "manifest_fingerprint", "source_storage_fingerprint",
+            "seal_fingerprint",
+        }
+        if not isinstance(value, dict) or set(value) != keys:
+            return None
+        if (
+            type(value.get("schema_version")) is not int
+            or value["schema_version"] != 1
+            or type(value.get("rule_revision")) is not int
+            or not 1 <= value["rule_revision"] <= 100
+            or type(value.get("scan_revision")) is not int
+            or value["scan_revision"] < 1
+            or any(not cls._valid_digest(value.get(key)) for key in (
+                "rule_fingerprint", "observation_set_fingerprint",
+                "manifest_fingerprint", "source_storage_fingerprint",
+                "seal_fingerprint",
+            ))
+        ):
+            return None
+        material = {key: value[key] for key in sorted(keys - {"seal_fingerprint"})}
+        if cls._sha256(material) != value["seal_fingerprint"]:
+            return None
+        return material | {"seal_fingerprint": value["seal_fingerprint"]}
+
+    @staticmethod
+    def _read_auto_batch_source_fingerprint(
+        connection, *, case_id, identity, tenant_scope,
+    ):
+        """Read the exact scoped source digest on the caller's SQL transaction."""
+        try:
+            tenant_id = str(get_current_tenant_user_id() or "").strip()
+            owner_id, scoped_store = split_store_tenant_scope(tenant_id)
+            if (
+                not owner_id
+                or scoped_store != identity.get("store_id")
+                or not isinstance(tenant_scope, dict)
+                or tenant_scope.get("error")
+                or not FifoCostRepository._valid_digest(
+                    tenant_scope.get("tenant_fingerprint"),
+                )
+            ):
+                return None
+            scope = ScopeIdentity(
+                owner_id=owner_id, store_id=identity["store_id"],
+                sku=identity["sku"], product_id=identity.get("product_id"),
+                offer_id=identity.get("offer_id"),
+            )
+            from services.fifo_cost_batch_supply_store import (
+                FifoCostBatchSupplyStore,
+            )
+
+            return FifoCostBatchSupplyStore.read_scope_source_fingerprint(
+                connection, scope=scope, case_id=case_id,
+                tenant_fingerprint=tenant_scope["tenant_fingerprint"],
+            )
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return None
+
     @staticmethod
     def _canonical_json(value):
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -11639,6 +11796,18 @@ class FifoCostRepository:
                     )
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_scan_continuations (
+                case_id TEXT NOT NULL,
+                scan_id TEXT NOT NULL,
+                encrypted_resumable_token BLOB NOT NULL CHECK(
+                    length(encrypted_resumable_token) BETWEEN 80 AND 1048576
+                ),
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(case_id, scan_id),
+                FOREIGN KEY(case_id, scan_id)
+                    REFERENCES fifo_cost_batch_supply_scans(case_id, scan_id)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_batch_total_controls (
                 control_id TEXT PRIMARY KEY CHECK(length(control_id) BETWEEN 8 AND 96),
                 control_revision INTEGER NOT NULL CHECK(control_revision >= 1),
@@ -11958,6 +12127,9 @@ class FifoCostRepository:
                 "sku_composition_complete", "historical_window_proven",
                 "membership_complete", "quantity_complete",
                 "physical_receipt_timing_complete", "encrypted_resumable_token",
+            },
+            "fifo_cost_batch_scan_continuations": {
+                "case_id", "scan_id", "encrypted_resumable_token", "updated_at",
             },
             "fifo_cost_batch_scan_observations": {
                 "case_id", "scan_id", "record_key", "source_fingerprint",

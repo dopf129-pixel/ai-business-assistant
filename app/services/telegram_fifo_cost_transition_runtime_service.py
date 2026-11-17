@@ -17,6 +17,7 @@ from services.fifo_cost_transition_contracts import (
     EvidenceSourceKind,
     ReportType,
     ScopeIdentity,
+    SupplyTotalMode,
     TransitionCase,
     TransitionMetadata,
     TransitionReasonCode,
@@ -297,7 +298,12 @@ class TelegramFifoCostTransitionRuntimeService:
         with self._lock:
             self._purge(now)
             ticket = self._tickets.get((owner, token))
-            if isinstance(ticket, dict) and ticket.get("confirmed_result") is not None:
+            if (
+                isinstance(ticket, dict)
+                and ticket.get("tenant") == tenant
+                and ticket.get("action") == action
+                and ticket.get("confirmed_result") is not None
+            ):
                 return dict(ticket["confirmed_result"])
         if (
             not isinstance(ticket, dict) or ticket.get("tenant") != tenant
@@ -1606,6 +1612,12 @@ class TelegramFifoCostTransitionRuntimeService:
         session = self._sessions.get(owner)
         if not isinstance(session, dict):
             return self._stale()
+        if (
+            self.batch_rule_telegram_service is not None
+            and session.get("case", {}).get("supply_total_mode")
+            == SupplyTotalMode.AUTO_FROM_SUPPLIES.value
+        ):
+            return self._show_summary(owner)
         manifest = self.transition_service.get_supply_manifest(
             case_id=session["case_id"], **session["identity"],
         )
@@ -1685,6 +1697,11 @@ class TelegramFifoCostTransitionRuntimeService:
                         identity=dict(session["identity"]),
                     )
             return self._show_applied_summary(owner, receipt)
+        automatic_batch = (
+            self.batch_rule_telegram_service is not None
+            and case.get("case", {}).get("supply_total_mode")
+            == SupplyTotalMode.AUTO_FROM_SUPPLIES.value
+        )
         manifest = self.transition_service.get_supply_manifest(
             case_id=session["case_id"], **session["identity"],
         )
@@ -1719,6 +1736,24 @@ class TelegramFifoCostTransitionRuntimeService:
                 )
         else:
             cutoff_summary = "Cutoff и ручное количество на приёмке не подтверждены"
+        if automatic_batch:
+            legacy_total = case["case"].get("declared_shipped_units")
+            batch_quantity_summary = (
+                f"Ранее введённый общий итог {legacy_total} шт. остаётся только legacy-контролем и не ограничивает автоматический состав."
+                if legacy_total is not None else
+                "Автоматический режим: общий итог вручную не задан; состав поставок проверяется отдельно."
+            )
+        else:
+            batch_quantity_summary = (
+                f"Отправлено новой партии: {case['case'].get('declared_shipped_units')} шт.; "
+                "количество новой партии дома: неизвестно"
+            )
+        supply_summary = (
+            "Список поставок будет сверяться отдельно; результат чтения API сам по себе не подтверждает количество SKU."
+            if automatic_batch else
+            f"Поставки: {manifest.get('known_assigned_units') if isinstance(manifest, dict) else 'нет данных'} из "
+            f"{manifest.get('owner_declared_total') if isinstance(manifest, dict) else 'нет данных'} шт."
+        )
         text = (
             f"🧾 Черновик поздней партии · {session['display_name']} · SKU {session['identity']['sku']}\n"
             f"Состояние: {case['state']} · редакция {case['case_revision']}\n"
@@ -1726,21 +1761,28 @@ class TelegramFifoCostTransitionRuntimeService:
             f"Новая стоимость: {self._format_cost(case['case'])} ₽/шт.\n"
             f"Дата отправки: {case['case'].get('dispatch_date')}\n"
             f"Старый остаток дома/в пути: {case['case'].get('owner_old_home_units')} / {case['case'].get('owner_old_transit_units')} шт.\n"
-            f"Отправлено новой партии: {case['case'].get('declared_shipped_units')} шт.; "
-            f"количество новой партии дома: неизвестно\n"
-            f"Поставки: {manifest.get('known_assigned_units') if isinstance(manifest, dict) else 'нет данных'} из "
-            f"{manifest.get('owner_declared_total') if isinstance(manifest, dict) else 'нет данных'} шт.; "
+            f"{batch_quantity_summary}\n"
+            f"{supply_summary}; "
             f"отчётов сохранено: {report_count if report_count is not None else 'не удалось прочитать'}\n"
             f"{cutoff_summary}\n\n"
             "Это сохранённые сведения для сверки. История FIFO, текущая себестоимость и прибыль не применялись."
         )
+        if automatic_batch:
+            text += "\n\n" + "\n".join(
+                self.batch_rule_telegram_service.summary_lines(self, owner, session),
+            )
         if case.get("state") == "READY_TO_CONFIRM":
             text += "\nСохранённый предпросмотр доступен через кнопку «Посмотреть пересчёт»; применить его можно только после просмотра и отдельного подтверждения."
         buttons = []
         if case.get("state") in self._EDITABLE_STATES:
+            if automatic_batch:
+                buttons.extend(self.batch_rule_telegram_service.summary_buttons(self, owner, session))
+            else:
+                buttons.extend([
+                    {"text": "📦 Поставки", "callback": self._issue_ticket(owner, session, "supply")},
+                    {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
+                ])
             buttons.extend([
-                {"text": "📦 Поставки", "callback": self._issue_ticket(owner, session, "supply")},
-                {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
                 {"text": "📄 Добавить отчёт", "callback": self._issue_ticket(owner, session, "reports")},
                 {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
                 {"text": "🧾 Задать начальный состав FIFO", "callback": self._issue_ticket(owner, session, "opening_composition")},

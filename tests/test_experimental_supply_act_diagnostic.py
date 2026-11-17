@@ -136,6 +136,103 @@ def test_supply_orders_details_client_batches_up_to_fifty_ids(monkeypatch):
     ]
 
 
+def test_supply_order_bundle_client_uses_documented_cursor_contract(monkeypatch):
+    calls = []
+
+    def post(self, endpoint, payload, **options):
+        calls.append((endpoint, payload, options))
+        return {
+            "error": False, "items": [{"sku": 123, "quantity": 4}],
+            "total_count": 1, "has_next": False, "last_id": "",
+        }
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client", api_key="secret", credential_provider=object(),
+    )
+
+    result = client.get_supply_order_bundle(
+        ["2000070135564"], timeout=7, max_attempts=1, total_timeout=9,
+    )
+
+    assert result["items"] == [{"sku": 123, "quantity": 4}]
+    assert calls == [(
+        "/v1/supply-order/bundle",
+        {"bundle_ids": ["2000070135564"], "limit": 100},
+        {"timeout": 7, "max_attempts": 1, "total_timeout": 9},
+    )]
+
+
+def test_supply_order_bundle_client_forwards_cursor_and_observer(monkeypatch):
+    calls = []
+    observer = lambda endpoint=None: None
+
+    def post(self, endpoint, payload, **options):
+        calls.append((endpoint, payload, options))
+        return {"error": False, "items": [], "total_count": 0,
+                "has_next": False, "last_id": ""}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client", api_key="secret", credential_provider=object(),
+    )
+    client.get_supply_order_bundle(
+        ["2000070135564"], last_id="cursor-2", limit=8,
+        timeout=3, max_attempts=1, total_timeout=3,
+        request_attempt_observer=observer,
+    )
+
+    assert calls[0][1] == {
+        "bundle_ids": ["2000070135564"], "last_id": "cursor-2", "limit": 8,
+    }
+    assert calls[0][2]["request_attempt_observer"] is observer
+
+
+def test_supply_order_bundle_client_preserves_opaque_documented_strings(monkeypatch):
+    calls = []
+
+    def post(self, endpoint, payload, **options):
+        calls.append((endpoint, payload, options))
+        return {"error": False}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client", api_key="secret", credential_provider=object(),
+    )
+    client.get_supply_order_bundle(
+        ["bundle id+/=%:alpha"], last_id="cursor +/=%:next", limit=8,
+    )
+
+    assert calls[0][1] == {
+        "bundle_ids": ["bundle id+/=%:alpha"],
+        "last_id": "cursor +/=%:next", "limit": 8,
+    }
+
+
+def test_supply_order_bundle_client_rejects_invalid_inputs_without_request(monkeypatch):
+    calls = []
+
+    def post(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"error": False}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client", api_key="secret", credential_provider=object(),
+    )
+
+    for bundle_ids, kwargs in (
+        ([], {}), ([True], {}), ([123], {}), ([""], {}),
+        (["1"], {"limit": 101}), (["1"], {"last_id": ""}),
+        (["1"], {"last_id": 123}),
+    ):
+        options = dict(kwargs)
+        result = client.get_supply_order_bundle(bundle_ids, **options)
+        assert result["error"] is True
+        assert result["code"] == "OZON_SUPPLY_ORDER_BUNDLE_REQUEST_INVALID"
+    assert calls == []
+
+
 def test_supply_order_list_client_rejects_invalid_cursor_and_limit(monkeypatch):
     calls = []
 

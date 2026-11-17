@@ -73,6 +73,12 @@ from services.period_profit_effective_cost_service import (
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
+from services.fifo_cost_batch_supply_source import FifoCostBatchSupplySourceService
+from services.fifo_cost_batch_scan_checkpoint_service import FifoCostBatchScanCheckpointService
+from services.fifo_cost_batch_supply_store import FifoCostBatchSupplyStore
+from services.fifo_cost_batch_supply_deduplicator import FifoCostBatchSupplyDeduplicator
+from services.fifo_cost_batch_manifest_builder import FifoCostBatchManifestBuilder
+from services.fifo_cost_batch_manifest_read_service import FifoCostBatchManifestReadService
 from services.telegram_fifo_cost_batch_rule_service import TelegramFifoCostBatchRuleService
 from services.fifo_cost_transition_evidence_service import (
     FifoCostTransitionEvidenceService,
@@ -221,10 +227,28 @@ def create_fifo_cost_transition_workflow(
         transition_service,
         physical_sales_service=physical_sales_evidence_service,
     )
+    batch_rule_service = FifoCostBatchRuleService(repository)
+    batch_scan_checkpoint_service = FifoCostBatchScanCheckpointService(
+        repository, now_provider=now_provider,
+    )
+    batch_supply_source_service = FifoCostBatchSupplySourceService(
+        rule_service=batch_rule_service,
+        ozon_client=getattr(source_collection_service, "ozon_client", None),
+        scan_checkpoint_service=batch_scan_checkpoint_service,
+        utc_clock=now_provider,
+    )
+    batch_supply_store = FifoCostBatchSupplyStore
+    batch_supply_deduplicator = FifoCostBatchSupplyDeduplicator()
+    batch_manifest_builder = FifoCostBatchManifestBuilder()
+    batch_manifest_read_service = FifoCostBatchManifestReadService(
+        repository, manifest_builder=batch_manifest_builder,
+        now_provider=now_provider,
+    )
     review_service = FifoCostTransitionReviewService(
         transition_service=transition_service,
         history_service=history_service,
         evidence_service=evidence_service,
+        automatic_batch_manifest_service=batch_manifest_read_service,
     )
     impact_service = FifoCostLateEntryImpactService(tax_service)
     resolved_tax_configuration_service = (
@@ -275,9 +299,13 @@ def create_fifo_cost_transition_workflow(
             impact_service=impact_service,
         )
     )
-    batch_rule_service = FifoCostBatchRuleService(repository)
     batch_rule_telegram_service = TelegramFifoCostBatchRuleService(
         batch_rule_service, repository,
+        supply_source_service=batch_supply_source_service,
+        scan_checkpoint_service=batch_scan_checkpoint_service,
+        supply_store=batch_supply_store,
+        supply_deduplicator=batch_supply_deduplicator,
+        manifest_builder=batch_manifest_builder,
     )
     runtime_service = TelegramFifoCostTransitionRuntimeService(
         transition_service=transition_service,
@@ -310,6 +338,12 @@ def create_fifo_cost_transition_workflow(
         "apply_service": apply_service,
         "period_summary_collection_service": period_summary_collection_service,
         "batch_rule_service": batch_rule_service,
+        "batch_supply_source_service": batch_supply_source_service,
+        "batch_scan_checkpoint_service": batch_scan_checkpoint_service,
+        "batch_supply_store": batch_supply_store,
+        "batch_supply_deduplicator": batch_supply_deduplicator,
+        "batch_manifest_builder": batch_manifest_builder,
+        "batch_manifest_read_service": batch_manifest_read_service,
         "batch_rule_telegram_service": batch_rule_telegram_service,
         "report_import_service": report_import_service,
         "physical_sales_import_service": physical_sales_import_service,

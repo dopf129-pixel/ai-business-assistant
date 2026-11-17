@@ -57,6 +57,27 @@ def test_identical_calculation_callback_is_rejected_while_first_is_running(monke
     assert len(adapter.calls) == 2
 
 
+def test_fifo_batch_refresh_callback_uses_shared_inflight_guard(monkeypatch):
+    monkeypatch.setattr(
+        TelegramBotService,
+        "_resolve_tenant_scope",
+        staticmethod(lambda user_id: f"{user_id}::store-a"),
+    )
+    adapter = _BlockingAdapter()
+    bot = TelegramBotService(adapter)
+    callback = "fifo_transition:batch_refresh:0123456789ab"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(bot.on_callback, "seller-a", callback)
+        assert adapter.started.wait(timeout=1)
+        duplicate = bot.on_callback("seller-a", callback)
+        assert duplicate["code"] == "TELEGRAM_CALCULATION_ALREADY_RUNNING"
+        assert "запрос уже выполняется" in duplicate["message"].lower()
+        assert len(adapter.calls) == 1
+        adapter.release.set()
+        assert first.result(timeout=1)["message"] == "calculated"
+
+
 def test_same_callback_for_another_store_is_not_coalesced(monkeypatch):
     active_store = {"value": "store-a"}
     monkeypatch.setattr(
@@ -179,6 +200,12 @@ def test_calculation_callback_detection_excludes_custom_period_setup():
     )
     assert TelegramBotService._is_calculation_callback(
         "period_profit_refresh:0123456789ab"
+    )
+    assert TelegramBotService._is_calculation_callback(
+        "fifo_transition:batch_refresh:0123456789ab"
+    )
+    assert not TelegramBotService._is_calculation_callback(
+        "fifo_transition:batch_check_found:0123456789ab"
     )
     assert not TelegramBotService._is_calculation_callback("period_profit:custom")
     assert not TelegramBotService._is_calculation_callback(

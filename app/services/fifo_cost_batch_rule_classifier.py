@@ -16,6 +16,7 @@ from services.fifo_cost_batch_rule_contracts import (
     SupplyMembershipClassification,
     SupplySkuObservation,
     canonical_membership_binding_fingerprint,
+    canonical_membership_group_binding_fingerprint,
 )
 from services.fifo_cost_transition_contracts import NormalizedSupplyStatus
 
@@ -388,7 +389,28 @@ class FifoCostBatchRuleClassifier:
             if f"{item['decision'].decision_id}-r{item['decision'].revision}"
             not in superseded_refs
         ]
-        return active, None
+        # One owner review may cover a different overlapping group on a later
+        # pass. Resolve each exact supply/rule to the newest confirmed group
+        # rather than treating every immutable group as simultaneously active.
+        by_rule = defaultdict(list)
+        for item in active:
+            decision = item["decision"]
+            by_rule[(decision.rule_id, decision.rule_revision)].append(item)
+        resolved = []
+        for candidates in by_rule.values():
+            newest_at = max(item["decision"].confirmed_at for item in candidates)
+            newest = [
+                item for item in candidates
+                if item["decision"].confirmed_at == newest_at
+            ]
+            outcomes = {item["decision"].decision for item in newest}
+            if len(outcomes) > 1:
+                return (), "CONCURRENT_MEMBERSHIP_DECISIONS"
+            resolved.append(max(
+                newest,
+                key=lambda item: item["decision"].decision_id,
+            ))
+        return resolved, None
 
     @staticmethod
     def _same_rule_basis(base, close):
@@ -418,6 +440,21 @@ class FifoCostBatchRuleClassifier:
         matches = []
         for item in candidates:
             rule = item["interval"]["base"]
+            decision = item["decision"]
+            group_binding = canonical_membership_group_binding_fingerprint(
+                scope=observation.scope,
+                rule_id=rule.rule_id,
+                rule_revision=rule.rule_revision,
+                rule_fingerprint=rule.rule_fingerprint,
+                decision=decision.decision,
+                record_keys=decision.record_keys,
+            )
+            if group_binding == decision.membership_binding_fingerprint:
+                matches.append(item)
+                continue
+            # Read decisions written before exact grouped selections were added.
+            if len(decision.record_keys) != 1:
+                continue
             binding = canonical_membership_binding_fingerprint(
                 scope=observation.scope,
                 supply_ref_digest=observation.supply_ref_digest,
@@ -427,7 +464,7 @@ class FifoCostBatchRuleClassifier:
                 dispatch_local_date=confirmed_dispatch_date,
                 owner_selected=True,
             )
-            if binding == item["decision"].membership_binding_fingerprint:
+            if binding == decision.membership_binding_fingerprint:
                 matches.append(item)
         return matches
 

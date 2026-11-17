@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
+from decimal import Decimal
 import hashlib
 import json
 import re
@@ -229,6 +230,11 @@ class FifoCostBatchRuleService:
             return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
         if rule.get("rule_revision") != rule_revision:
             return self._error("FIFO_BATCH_RULE_REVISION_CONFLICT")
+        initial_rule_start_date = self._initial_rule_start_date(rows_result["items"])
+        if not self.case_inputs_match_rule(
+            rule, case, initial_rule_start_date=initial_rule_start_date,
+        ):
+            return self._error("FIFO_BATCH_RULE_CASE_INPUTS_STALE")
         return {
             "error": False,
             "code": "FIFO_BATCH_COLLECTION_BASIS_VALID",
@@ -238,6 +244,59 @@ class FifoCostBatchRuleService:
             "rule_fingerprint": rule["rule_fingerprint"],
             "start_local_date": rule["start_local_date"],
             "store_timezone": rule["store_timezone"],
+        }
+
+    def read_active_rule(
+        self, scope: ScopeIdentity, case_id: str, expected_case_revision: int,
+    ) -> dict:
+        """Read the current owner-confirmed rule without triggering source I/O."""
+        if (
+            not isinstance(scope, ScopeIdentity)
+            or not isinstance(case_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{8,96}", case_id)
+            or type(expected_case_revision) is not int
+            or expected_case_revision < 1
+        ):
+            return self._error("FIFO_BATCH_ACTIVE_RULE_INPUT_INVALID")
+        case_result = self._read_case(scope, case_id)
+        if case_result.get("error"):
+            return case_result
+        if case_result.get("case_revision") != expected_case_revision:
+            return self._error("FIFO_BATCH_CASE_REVISION_CONFLICT")
+        if case_result["case"].supply_total_mode is not SupplyTotalMode.AUTO_FROM_SUPPLIES:
+            return self._error("FIFO_BATCH_SUPPLY_MODE_MISMATCH")
+        tenant = self.repository._tenant_scope(scope.store_id)
+        if tenant.get("error"):
+            return tenant
+        rows_result = self._read_rules(scope, case_id, tenant["tenant_fingerprint"])
+        if rows_result.get("error"):
+            return rows_result
+        active = self._active_rule(rows_result["items"])
+        if active.get("error"):
+            return active
+        rule = active.get("item")
+        if rule is None:
+            return self._error("FIFO_BATCH_ACTIVE_RULE_UNAVAILABLE")
+        initial_rule_start_date = self._initial_rule_start_date(rows_result["items"])
+        inputs_current = self.case_inputs_match_rule(
+            rule, case_result["case"],
+            initial_rule_start_date=initial_rule_start_date,
+        )
+        return {
+            "error": False,
+            "code": "FIFO_BATCH_ACTIVE_RULE_READ",
+            "case_revision": expected_case_revision,
+            "rule_id": rule["rule_id"],
+            "rule_revision": rule["rule_revision"],
+            "rule_fingerprint": rule["rule_fingerprint"],
+            "event_kind": rule["event_kind"],
+            "predecessor_rule_revision": rule["predecessor_rule_revision"],
+            "start_local_date": rule["start_local_date"],
+            "new_unit_cost_rub": rule["new_unit_cost_rub"],
+            "store_timezone": rule["store_timezone"],
+            "start_day_policy": rule["start_day_policy"],
+            "confirmed_at_utc": rule["confirmed_at_utc"],
+            "inputs_current": inputs_current,
         }
 
     def confirm_rule(
@@ -531,6 +590,88 @@ class FifoCostBatchRuleService:
         return None
 
     @staticmethod
+    def _initial_rule_start_date(rule_history) -> str | None:
+        """Return the immutable first confirmed boundary from complete history.
+
+        A missing, truncated, or structurally ambiguous chain cannot establish
+        the case's original dispatch boundary and therefore keeps successors
+        stale instead of silently treating the active rule as the new origin.
+        """
+        if not isinstance(rule_history, (tuple, list)) or not rule_history:
+            return None
+
+        confirmations = []
+        for item in rule_history:
+            if isinstance(item, dict):
+                event_kind = item.get("event_kind")
+                revision = item.get("rule_revision")
+                start_date = item.get("start_local_date")
+                predecessor_rule_id = item.get("predecessor_rule_id")
+            else:
+                event_kind = getattr(item, "event_kind", None)
+                revision = getattr(item, "rule_revision", None)
+                start_date = getattr(item, "start_local_date", None)
+                predecessor_rule_id = getattr(item, "predecessor_rule_id", None)
+            if isinstance(event_kind, BatchRuleEventKind):
+                event_kind = event_kind.value
+            if event_kind == BatchRuleEventKind.CONFIRM.value:
+                confirmations.append((revision, start_date, predecessor_rule_id))
+
+        if len(confirmations) != 1:
+            return None
+        revision, start_date, predecessor_rule_id = confirmations[0]
+        if (
+            revision != 1
+            or predecessor_rule_id is not None
+            or not isinstance(start_date, str)
+            or not start_date
+        ):
+            return None
+        return start_date
+
+    @staticmethod
+    def case_inputs_match_rule(
+        rule, case: TransitionCase, *, initial_rule_start_date: str | None = None,
+    ) -> bool:
+        """Return whether the confirmed rule still matches current case inputs.
+
+        A successor may start after the case's original dispatch date. Validate
+        the active rule's chain against the immutable first CONFIRM boundary,
+        while keeping cost, timezone and old-stock assumptions current for each
+        active rule. A successor without its root boundary fails closed.
+        """
+        if not isinstance(case, TransitionCase):
+            return False
+        if isinstance(rule, dict):
+            rule_cost = rule.get("new_unit_cost_rub")
+            rule_timezone = rule.get("store_timezone")
+            rule_start_date = rule.get("start_local_date")
+            rule_revision = rule.get("rule_revision")
+        else:
+            rule_cost = getattr(rule, "new_unit_cost_rub", None)
+            rule_timezone = getattr(rule, "store_timezone", None)
+            rule_start_date = getattr(rule, "start_local_date", None)
+            rule_revision = getattr(rule, "rule_revision", None)
+        try:
+            cost_matches = (
+                rule_cost is not None
+                and case.new_unit_cost_rub is not None
+                and Decimal(str(rule_cost)) == case.new_unit_cost_rub
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            return False
+        if initial_rule_start_date is None and rule_revision == 1:
+            initial_rule_start_date = rule_start_date
+        return bool(
+            cost_matches
+            and rule_timezone == case.metadata.store_timezone
+            and case.owner_old_home_units == 0
+            and case.owner_old_transit_units == 0
+            and initial_rule_start_date is not None
+            and initial_rule_start_date == case.dispatch_date
+        )
+
+    @staticmethod
     def _decode_case(payload: dict) -> TransitionCase:
         return FifoCostTransitionService._case_from_payload(payload)
 
@@ -584,14 +725,14 @@ class FifoCostBatchRuleService:
         cost_input_fingerprint, boundary_supply_digests,
         predecessor_rule_id, predecessor_rule_revision, event_kind,
         end_local_date_exclusive, owner_confirmation_fingerprint,
-        confirmed_at_utc,
+        confirmed_at_utc, policy_version=1, applied_rate_reference=None,
     ) -> BatchRuleRevision:
         payload = {
             "scope": cls._scope_payload(scope),
             "case_id": case_id,
             "rule_id": rule_id,
             "rule_revision": rule_revision,
-            "policy_version": 1,
+            "policy_version": policy_version,
             "start_local_date": start_local_date,
             "store_timezone": store_timezone,
             "start_day_policy": start_day_policy.value,
@@ -606,14 +747,14 @@ class FifoCostBatchRuleService:
             "end_local_date_exclusive": end_local_date_exclusive,
             "owner_confirmation_fingerprint": owner_confirmation_fingerprint,
             "confirmed_at_utc": confirmed_at_utc,
-            "applied_rate_reference": None,
+            "applied_rate_reference": applied_rate_reference,
         }
         return BatchRuleRevision(
             scope=scope,
             case_id=case_id,
             rule_id=rule_id,
             rule_revision=rule_revision,
-            policy_version=1,
+            policy_version=policy_version,
             start_local_date=start_local_date,
             store_timezone=store_timezone,
             start_day_policy=start_day_policy,
@@ -629,7 +770,7 @@ class FifoCostBatchRuleService:
             owner_confirmation_fingerprint=owner_confirmation_fingerprint,
             confirmed_at_utc=confirmed_at_utc,
             rule_fingerprint=cls._digest(payload),
-            applied_rate_reference=None,
+            applied_rate_reference=applied_rate_reference,
         )
 
     @staticmethod

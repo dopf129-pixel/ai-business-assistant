@@ -12,6 +12,7 @@ from services.fifo_cost_batch_rule_contracts import (
     BatchTotalControlKind,
     BatchTotalControlStatus,
     MAX_BATCH_TOTAL,
+    MAX_SCAN_SUPPLIES,
     ManifestFreshness,
     SupplyMembership,
     SupplyMembershipClassification,
@@ -99,6 +100,7 @@ class FifoCostBatchManifestBuilder:
         classifications: tuple[SupplyMembershipClassification, ...],
         membership_decisions: tuple[BatchMembershipDecision, ...] = (),
         total_controls: tuple[BatchTotalControl, ...] = (),
+        rule_history: tuple[BatchRuleRevision, ...] | None = None,
     ) -> FifoCostBatchManifestBuildResult:
         """Build one manifest for an exact case/rule/scan and dated control set.
 
@@ -117,7 +119,7 @@ class FifoCostBatchManifestBuilder:
             return cls._error(deduplication.code)
         invalid = cls._validate_inputs(
             case, rule, coverage, deduplication, classifications,
-            membership_decisions, total_controls,
+            membership_decisions, total_controls, rule_history,
         )
         if invalid:
             return cls._error(invalid)
@@ -127,34 +129,54 @@ class FifoCostBatchManifestBuilder:
         classification_by_key = {item.record_key: item for item in classifications}
         api_records = tuple(record for record in records if record.current_observation is not None)
         included: list[CanonicalSupplySkuRecord] = []
-        undecided = 0
+        undecided_record_keys: set[str] = set()
         issues = set(deduplication.issue_codes)
         issues.update(coverage.issue_codes)
         for record in records:
             classification = classification_by_key.get(record.record_key)
-            if classification is not None:
-                issues.update(classification.issue_codes)
             if record.status is SupplyLinkStatus.REVIEW_REQUIRED:
                 issues.update(record.issues)
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 continue
             if record.current_observation is None:
                 # An owner-only reference is not an Ozon-discovered supply.
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 issues.add("FIFO_BATCH_OWNER_SUPPLY_NOT_FOUND")
                 continue
             if classification is None:
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 issues.add("FIFO_BATCH_MEMBERSHIP_UNDECIDED")
                 continue
             if classification.membership is SupplyMembership.ELIGIBLE:
-                included.append(record)
+                if (
+                    classification.rule_id == rule.rule_id
+                    and classification.rule_revision == rule.rule_revision
+                    and classification.rule_fingerprint == rule.rule_fingerprint
+                ):
+                    included.append(record)
+                # A supply may be eligible for an older interval without
+                # belonging to the active rule's quantity manifest.
+            elif classification.membership in {
+                SupplyMembership.EXCLUDED,
+                SupplyMembership.OUTSIDE_RULE,
+            }:
+                # These are valid terminal outcomes, not incomplete evidence.
+                continue
             elif classification.membership in {
                 SupplyMembership.NEEDS_CONFIRMATION,
                 SupplyMembership.CONFLICT,
             }:
-                undecided += 1
+                undecided_record_keys.add(record.record_key)
                 issues.update(classification.issue_codes)
+
+        # All unresolved evidence blocks completeness, including historical
+        # and owner-only records absent from this scan. The public membership
+        # count is a subset of currently API-found supplies, as its contract
+        # requires; missing records retain their own keys and issue codes.
+        undecided = len(undecided_record_keys)
+        undecided_found_count = sum(
+            record.record_key in undecided_record_keys for record in api_records
+        )
 
         found_composition = [
             item.current_observation.shipped_composition_quantity for item in api_records
@@ -162,6 +184,13 @@ class FifoCostBatchManifestBuilder:
         found_total, found_overflow = cls._complete_total(found_composition)
         if found_overflow:
             return cls._error("FIFO_BATCH_MANIFEST_AGGREGATE_OVERFLOW")
+
+        missing_supply_count = sum(
+            "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in record.issues
+            for record in records
+        )
+        if coverage.unknown_supply_count + missing_supply_count > MAX_SCAN_SUPPLIES:
+            return cls._error("FIFO_BATCH_MANIFEST_SUPPLY_LIMIT_REACHED")
 
         dispatched = tuple(
             record for record in included
@@ -182,7 +211,11 @@ class FifoCostBatchManifestBuilder:
         dispatched_keys = {item.record_key for item in dispatched}
         accepted_values = [item.effective_accepted_quantity for item in dispatched]
         accepted_known = [value for value in accepted_values if value is not None]
-        accepted_complete = bool(dispatched) and len(accepted_known) == len(dispatched)
+        accepted_complete = (
+            bool(dispatched)
+            and len(accepted_known) == len(dispatched)
+            and missing_supply_count == 0
+        )
         accepted_total, accepted_overflow = (
             cls._bounded_sum(accepted_known) if accepted_complete else (None, False)
         )
@@ -209,7 +242,7 @@ class FifoCostBatchManifestBuilder:
         unknown_quantity_count = len(unknown_quantity_keys)
 
         pending_values = []
-        pending_complete = bool(dispatched)
+        pending_complete = bool(dispatched) and missing_supply_count == 0
         for record in dispatched:
             shipped_units = record.current_observation.shipped_composition_quantity
             accepted_units = record.effective_accepted_quantity
@@ -284,6 +317,7 @@ class FifoCostBatchManifestBuilder:
             coverage,
             membership_complete=membership_complete,
             quantity_complete=composition_complete,
+            unknown_supply_count=(coverage.unknown_supply_count + missing_supply_count),
             unknown_quantity_supply_count=max(
                 coverage.unknown_quantity_supply_count,
                 sum(
@@ -352,11 +386,15 @@ class FifoCostBatchManifestBuilder:
             unknown_quantity_supply_count=unknown_quantity_count,
             found_supply_count=len(api_records),
             included_supply_count=len(included),
-            undecided_supply_count=undecided,
+            undecided_supply_count=undecided_found_count,
             coverage=computed_coverage,
             current_through=current_through,
             freshness=freshness,
             issues=tuple(sorted(issues)),
+            missing_supply_record_keys=tuple(sorted(
+                record.record_key for record in records
+                if "FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN" in record.issues
+            )),
         )
         if not api_records:
             status, code = "UNKNOWN", "FIFO_BATCH_MANIFEST_SOURCE_EMPTY"
@@ -375,7 +413,7 @@ class FifoCostBatchManifestBuilder:
     @classmethod
     def _validate_inputs(
         cls, case, rule, coverage, deduplication, classifications,
-        decisions, controls,
+        decisions, controls, rule_history,
     ):
         if not isinstance(case, TransitionCase) or not isinstance(rule, BatchRuleRevision):
             return "FIFO_BATCH_MANIFEST_INPUT_INVALID"
@@ -407,6 +445,26 @@ class FifoCostBatchManifestBuilder:
             not isinstance(item, BatchTotalControl) for item in controls
         ):
             return "FIFO_BATCH_MANIFEST_CONTROLS_INVALID"
+        if rule_history is None:
+            rule_history = (rule,)
+        if (
+            not isinstance(rule_history, tuple) or not rule_history
+            or len(rule_history) > 100
+            or any(not isinstance(item, BatchRuleRevision) for item in rule_history)
+            or rule not in rule_history
+            or any(item.scope != scope or item.case_id != case.case_id for item in rule_history)
+        ):
+            return "FIFO_BATCH_MANIFEST_RULE_HISTORY_INVALID"
+        valid_rule_refs = {
+            (item.rule_id, item.rule_revision, item.rule_fingerprint)
+            for item in rule_history
+        }
+        valid_rule_pairs = {
+            (item.rule_id, item.rule_revision)
+            for item in rule_history
+        }
+        if len(valid_rule_pairs) != len(rule_history):
+            return "FIFO_BATCH_MANIFEST_RULE_HISTORY_INVALID"
         if not isinstance(deduplication.records, tuple):
             return "FIFO_BATCH_MANIFEST_RECORDS_INVALID"
         if len(deduplication.records) > _MAX_RECORDS:
@@ -487,9 +545,15 @@ class FifoCostBatchManifestBuilder:
             return "FIFO_BATCH_MANIFEST_MEMBERSHIP_RECORD_NOT_FOUND"
         if any(
             item.scope != scope or item.case_id != case.case_id
-            or item.rule_id != rule.rule_id
-            or item.rule_revision != rule.rule_revision
-            or item.rule_fingerprint != rule.rule_fingerprint
+            or (
+                item.rule_id is not None
+                and (item.rule_id, item.rule_revision, item.rule_fingerprint)
+                not in valid_rule_refs
+            )
+            or (
+                item.rule_id is None
+                and item.membership is not SupplyMembership.OUTSIDE_RULE
+            )
             or record_by_key[item.record_key].current_observation is None
             or record_by_key[item.record_key].current_observation.source_fingerprint != item.source_fingerprint
             for item in classifications
@@ -497,7 +561,7 @@ class FifoCostBatchManifestBuilder:
             return "FIFO_BATCH_MANIFEST_MEMBERSHIP_SCOPE_MISMATCH"
         if any(
             item.scope != scope or item.case_id != case.case_id
-            or item.rule_id != rule.rule_id or item.rule_revision != rule.rule_revision
+            or (item.rule_id, item.rule_revision) not in valid_rule_pairs
             for item in decisions
         ):
             return "FIFO_BATCH_MANIFEST_DECISION_SCOPE_MISMATCH"

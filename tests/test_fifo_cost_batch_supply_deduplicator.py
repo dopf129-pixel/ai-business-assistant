@@ -21,6 +21,7 @@ from services.fifo_cost_transition_contracts import (
     SupplyDeclaration,
     SupplyReferenceKind,
     TransitionMetadata,
+    supply_reference_digest,
 )
 
 
@@ -39,7 +40,8 @@ def _digest(value):
 def _observation(
     supply="supply-a", *, order="order-a", quantity=100, captured_at="2026-11-13T10:00:00Z",
     source="source-a", accepted=None, scope=_SCOPE, record_key=None,
-    dispatch_date="2026-11-05",
+    dispatch_date="2026-11-05", transition_order_reference_digest=None,
+    transition_supply_reference_digest=None,
 ):
     supply_digest = _digest(supply)
     return SupplySkuObservation(
@@ -70,10 +72,15 @@ def _observation(
         explicit_zero_fields=(),
         membership=SupplyMembership.ELIGIBLE,
         issues=(),
+        transition_order_reference_digest=transition_order_reference_digest,
+        transition_supply_reference_digest=transition_supply_reference_digest,
     )
 
 
-def _declaration(reference, kind, units, *, declaration_id=None, revision=1, date="2026-11-05", scope=_SCOPE):
+def _declaration(
+    reference, kind, units, *, declaration_id=None, revision=1,
+    date="2026-11-05", scope=_SCOPE, reference_digest=None,
+):
     kind = kind if isinstance(kind, SupplyReferenceKind) else SupplyReferenceKind(kind)
     return SupplyDeclaration(
         metadata=TransitionMetadata(
@@ -85,7 +92,7 @@ def _declaration(reference, kind, units, *, declaration_id=None, revision=1, dat
         declaration_id=declaration_id or f"decl-{reference}",
         revision=revision,
         reference_kind=kind,
-        reference_digest=_digest(reference),
+        reference_digest=reference_digest or _digest(reference),
         encrypted_lookup_reference=_FERNET.encrypt(reference.encode()).decode("ascii"),
         declared_shipped_units=units,
         dispatch_date=date,
@@ -177,6 +184,76 @@ def test_owner_supply_declaration_matches_api_without_doubling_quantity():
     assert record.owner_declared_units == 100
     assert record.owner_declaration_refs == ((declaration.declaration_id, 1),)
     assert len(record.observations) == 1
+
+
+def test_transition_supply_reference_links_manual_declaration_without_changing_legacy_record_key():
+    supply_id = "2000070135564"
+    order_id = "3000070135564"
+    supply_reference = supply_reference_digest(
+        owner_id=_SCOPE.owner_id, store_id=_SCOPE.store_id,
+        reference_kind=SupplyReferenceKind.SUPPLY, reference_id=supply_id,
+    )
+    order_reference = supply_reference_digest(
+        owner_id=_SCOPE.owner_id, store_id=_SCOPE.store_id,
+        reference_kind=SupplyReferenceKind.ORDER, reference_id=order_id,
+    )
+    observation = _observation(
+        transition_supply_reference_digest=supply_reference,
+        transition_order_reference_digest=order_reference,
+    )
+    declaration = _declaration(
+        supply_id, SupplyReferenceKind.SUPPLY, 100,
+        reference_digest=supply_reference,
+    )
+
+    result = FifoCostBatchSupplyDeduplicator.reconcile(
+        scope=_SCOPE, case_id=_CASE_ID,
+        observations=(observation,), declarations=(declaration,),
+    )
+
+    assert result.status == "NORMALIZED"
+    assert len(result.records) == 1
+    assert result.records[0].record_key == observation.record_key
+    assert result.records[0].supply_ref_digest == observation.supply_ref_digest
+    assert result.records[0].order_ref_digest == observation.order_ref_digest
+    assert result.records[0].status is SupplyLinkStatus.RECONCILED
+    assert result.records[0].owner_declared_units == 100
+
+
+def test_transition_order_reference_links_order_control_to_child_supplies():
+    order_id = "3000070135564"
+    order_reference = supply_reference_digest(
+        owner_id=_SCOPE.owner_id, store_id=_SCOPE.store_id,
+        reference_kind=SupplyReferenceKind.ORDER, reference_id=order_id,
+    )
+    observations = (
+        _observation(
+            "supply-1", order="order-a", quantity=100, source="source-1",
+            transition_order_reference_digest=order_reference,
+        ),
+        _observation(
+            "supply-2", order="order-a", quantity=200, source="source-2",
+            transition_order_reference_digest=order_reference,
+        ),
+    )
+    declaration = _declaration(
+        order_id, SupplyReferenceKind.ORDER, 300,
+        reference_digest=order_reference,
+    )
+
+    result = FifoCostBatchSupplyDeduplicator.reconcile(
+        scope=_SCOPE, case_id=_CASE_ID,
+        observations=observations, declarations=(declaration,),
+    )
+
+    assert len(result.records) == 2
+    assert {record.order_ref_digest for record in result.records} == {
+        item.order_ref_digest for item in observations
+    }
+    assert len(result.order_controls) == 1
+    assert result.order_controls[0].status is OwnerOrderControlStatus.RECONCILED
+    assert result.order_controls[0].order_ref_digest == observations[0].order_ref_digest
+    assert result.order_controls[0].api_shipped_units == 300
 
 
 def test_owner_and_api_quantity_disagreement_requires_review_and_keeps_both_values():

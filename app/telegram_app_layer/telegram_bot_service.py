@@ -70,7 +70,7 @@ class TelegramBotService:
                 if key in _INFLIGHT_CALCULATION_KEYS:
                     return {
                         "error": False,
-                        "message": "Этот расчёт уже выполняется. Дождитесь ответа на первое нажатие.",
+                        "message": "Этот запрос уже выполняется. Дождитесь ответа на первое нажатие.",
                         "code": "TELEGRAM_CALCULATION_ALREADY_RUNNING",
                         "read_only": True,
                         "executed": False,
@@ -105,6 +105,8 @@ class TelegramBotService:
         parts = str(callback or "").strip().split(":")
         if len(parts) < 2:
             return False
+        if parts[0] == "fifo_transition":
+            return parts[1] == "batch_refresh"
         if parts[0] in {
             "period_profit",
             "period_profit_pre_cogs",

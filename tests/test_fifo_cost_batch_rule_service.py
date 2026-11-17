@@ -151,6 +151,13 @@ def test_preview_is_read_only_and_confirm_only_switches_case_mode(tmp_path, monk
         )
         assert case_result["case"]["supply_total_mode"] == "AUTO_FROM_SUPPLIES"
         assert case_result["case"]["declared_shipped_units"] is None
+        active = service.read_active_rule(SCOPE, "case_batch_001", 2)
+        assert active["error"] is False, active
+        assert active["rule_revision"] == 1
+        assert active["event_kind"] == "CONFIRM"
+        assert active["predecessor_rule_revision"] is None
+        assert active["new_unit_cost_rub"] == "14.65"
+        assert active["confirmed_at_utc"] == "2026-11-13T12:00:00.000000Z"
         assert _count(repository, "fifo_cost_batch_rule_revisions") == 1
         assert _count(repository, "fifo_cost_events") == 0
         assert _count(repository, "fifo_cost_layers") == 0
@@ -160,11 +167,11 @@ def test_preview_is_read_only_and_confirm_only_switches_case_mode(tmp_path, monk
         reset_current_tenant_user_id(token)
 
 
-def test_explicit_first_day_supply_set_must_be_nonempty():
-    with pytest.raises(TransitionContractError):
-        BatchRuleInput(
-            "2026-11-05", BatchStartDayPolicy.EXPLICIT_SUPPLY_SET, (),
-        )
+def test_explicit_first_day_supply_set_can_wait_for_owner_selection():
+    rule_input = BatchRuleInput(
+        "2026-11-05", BatchStartDayPolicy.EXPLICIT_SUPPLY_SET, (),
+    )
+    assert rule_input.boundary_supply_digests == ()
 
 
 @pytest.mark.parametrize("field,value", [
@@ -396,6 +403,12 @@ def test_successor_atomically_closes_previous_rule_and_same_day_is_rejected(
         ]
         assert ordered[1]["end_local_date_exclusive"] == "2026-11-20"
         assert ordered[2]["predecessor_rule_revision"] == 2
+        active = service.read_active_rule(SCOPE, "case_batch_001", 4)
+        assert active["error"] is False, active
+        assert active["rule_revision"] == 3
+        assert active["event_kind"] == "REPLACE"
+        assert active["predecessor_rule_revision"] == 2
+        assert active["new_unit_cost_rub"] == "13.50"
         assert _count(repository, "fifo_cost_events") == 0
         assert _count(repository, "fifo_cost_layers") == 0
     finally:

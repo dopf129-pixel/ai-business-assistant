@@ -18,6 +18,7 @@ from services.fifo_cost_batch_rule_contracts import (
     SupplyMembership,
     SupplySkuObservation,
     canonical_membership_binding_fingerprint,
+    canonical_membership_group_binding_fingerprint,
 )
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
@@ -205,9 +206,57 @@ def test_explicit_start_day_set_needs_exact_inclusion_but_later_date_is_automati
     assert later.membership is SupplyMembership.ELIGIBLE
 
 
-def test_owner_selected_exact_first_day_decision_resolves_boundary():
+def test_owner_group_decision_binds_every_record_and_survives_status_refresh():
     rule = _rule(policy=BatchStartDayPolicy.EXPLICIT_SUPPLY_SET)
+    first = _observation(date=None, dispatch_status=DispatchTimeStatus.UNKNOWN, supply="group-a")
+    second = _observation(date=None, dispatch_status=DispatchTimeStatus.UNKNOWN, supply="group-b")
+    record_keys = tuple(sorted((first.record_key, second.record_key)))
+    source_rows = tuple(sorted((
+        (first.record_key, first.source_fingerprint),
+        (second.record_key, second.source_fingerprint),
+    )))
+    decision = BatchMembershipDecision(
+        decision_id="decision_group_001", revision=1, scope=SCOPE,
+        case_id=rule.case_id, rule_id=rule.rule_id, rule_revision=rule.rule_revision,
+        decision=MembershipDecisionKind.INCLUDED,
+        source=MembershipDecisionSource.OWNER_SELECTED_SET,
+        record_keys=record_keys, relevant_source_fingerprints=source_rows,
+        candidate_set_fingerprint=_digest("whole-candidate-set"),
+        membership_binding_fingerprint=canonical_membership_group_binding_fingerprint(
+            scope=SCOPE, rule_id=rule.rule_id, rule_revision=rule.rule_revision,
+            rule_fingerprint=rule.rule_fingerprint,
+            decision=MembershipDecisionKind.INCLUDED, record_keys=record_keys,
+        ),
+        idempotency_key="decision-group-key-001", confirmed_at=NOW,
+    )
+
+    first_result = FifoCostBatchRuleClassifier.classify_supply(
+        (rule,), first, (decision,),
+    )
+    second_result = FifoCostBatchRuleClassifier.classify_supply(
+        (rule,), second, (decision,),
+    )
+    refreshed = replace(
+        second, normalized_status=NormalizedSupplyStatus.RECEIVING,
+        source_status="RECEIVING", source_fingerprint=_digest("group-b-refresh"),
+        captured_at="2026-11-14T13:00:00Z",
+    )
+    refreshed_result = FifoCostBatchRuleClassifier.classify_supply(
+        (rule,), refreshed, (decision,),
+    )
+
+    assert first_result.membership is SupplyMembership.ELIGIBLE
+    assert second_result.membership is SupplyMembership.ELIGIBLE
+    assert refreshed_result.membership is SupplyMembership.ELIGIBLE
+    assert refreshed_result.decision_ref == "decision_group_001-r1"
+
+
+def test_owner_selected_exact_first_day_decision_resolves_boundary():
+    rule = _rule(policy=BatchStartDayPolicy.EXPLICIT_SUPPLY_SET, boundary=())
     observation = _observation(supply="manually-selected")
+    pending = FifoCostBatchRuleClassifier.classify_supply((rule,), observation)
+    assert pending.membership is SupplyMembership.NEEDS_CONFIRMATION
+    assert pending.issue_codes == ("START_DAY_MEMBERSHIP_NEEDS_CONFIRMATION",)
     decision = _decision(observation, rule)
     result = FifoCostBatchRuleClassifier.classify_supply(
         (rule,), observation, (decision,),

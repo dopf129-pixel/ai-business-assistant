@@ -24,6 +24,7 @@ from services.fifo_cost_transition_contracts import (
     SupplyDeclaration,
     SupplyObservation,
     SupplyReferenceKind,
+    SupplyTotalMode,
     TransitionMetadata,
     TransitionReasonCode,
     UnknownValue,
@@ -65,6 +66,7 @@ class FifoCostTransitionReviewService:
         readiness_service=None,
         acceptance_reconciliation_service=None,
         evidence_service=None,
+        automatic_batch_manifest_service=None,
     ):
         self.transition_service = transition_service
         self.history_service = history_service
@@ -84,6 +86,7 @@ class FifoCostTransitionReviewService:
             acceptance_reconciliation_service
             or FifoCostSupplyAcceptanceReconciliationService()
         )
+        self.automatic_batch_manifest_service = automatic_batch_manifest_service
 
     def assess(
         self, *, case_id, identity, owner_confirmed_cutoff_date=None,
@@ -236,12 +239,32 @@ class FifoCostTransitionReviewService:
                     bridge_result.get("missing_requirements", ()),
                 ))
             )
+            automatic_batch_manifest = None
+            automatic_batch_manifest_status = None
+            automatic_batch_manifest_seal = None
+            if (
+                case.supply_total_mode is SupplyTotalMode.AUTO_FROM_SUPPLIES
+                and self.automatic_batch_manifest_service is not None
+            ):
+                manifest_result = self.automatic_batch_manifest_service.read_current_manifest(
+                    case=case, declarations=tuple(declarations),
+                )
+                if isinstance(manifest_result, dict):
+                    automatic_batch_manifest_status = (
+                        manifest_result.get("code")
+                        if manifest_result.get("error") is False
+                        else "FIFO_BATCH_MANIFEST_UNAVAILABLE"
+                    )
+                    if manifest_result.get("error") is False:
+                        automatic_batch_manifest = manifest_result.get("manifest")
+                        automatic_batch_manifest_seal = manifest_result.get("seal")
             readiness = self.readiness_service.assess(
                 case=case,
                 proposal=proposal,
                 supply_reconciliation=reconciliation,
                 cutoff_bridge=cutoff_bridge,
                 cutoff_bridge_missing_requirements=bridge_missing_requirements,
+                automatic_batch_manifest=automatic_batch_manifest,
             )
         except (TypeError, ValueError, KeyError, AttributeError):
             return self._error("FIFO_TRANSITION_EVIDENCE_INVALID")
@@ -274,6 +297,8 @@ class FifoCostTransitionReviewService:
             "cutoff_bridge_source_fingerprints": (
                 bridge_result.get("source_fingerprints", ())
             ),
+            "automatic_batch_manifest_status": automatic_batch_manifest_status,
+            "automatic_batch_manifest_seal": automatic_batch_manifest_seal,
             "ready_to_apply": readiness.ready_to_apply is True,
             "preview_only": True,
         }

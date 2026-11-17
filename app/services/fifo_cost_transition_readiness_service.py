@@ -573,9 +573,16 @@ class FifoCostTransitionReadinessService:
                 blocks_apply=True,
             ))
 
-        source_lag = self._source_lag(supply_reconciliation)
-        if source_lag is not None:
-            add(source_lag)
+        # This check describes freshness of legacy owner declarations and their
+        # API observations. AUTO mode has its own sealed manifest freshness and
+        # coverage gate above; OWNER_CONTROL must reconcile its dated control
+        # against that same manifest before it can proceed. Mixing the legacy
+        # declaration snapshot into either mode can block a complete manifest
+        # for evidence that is no longer authoritative for the active mode.
+        if case.supply_total_mode is SupplyTotalMode.LEGACY_OWNER_TOTAL:
+            source_lag = self._source_lag(supply_reconciliation)
+            if source_lag is not None:
+                add(source_lag)
 
         requirements_tuple = tuple(
             requirements[key] for key in sorted(requirements)

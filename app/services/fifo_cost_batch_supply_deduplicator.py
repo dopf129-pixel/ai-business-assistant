@@ -1,9 +1,9 @@
 """Pure reconciliation of manual supply declarations and API observations.
 
 Manual declarations and API observations remain distinct evidence with their
-original provenance. This module only links them by the exact scoped
-SUPPLY+SKU or ORDER digest and prevents a parent ORDER control from being
-counted again beside its child supplies.
+original provenance. Stable transition-reference digests link the exact
+owner/store SUPPLY or ORDER identifier while legacy observation keys stay
+unchanged. Parent ORDER controls are never counted beside their child supplies.
 """
 
 from __future__ import annotations
@@ -104,18 +104,37 @@ class FifoCostBatchSupplyDeduplicator:
         cls, *, scope: ScopeIdentity, case_id: str,
         observations: tuple[SupplySkuObservation, ...],
         declarations: tuple[SupplyDeclaration, ...],
+        acceptance_history: tuple[SupplySkuObservation, ...] = (),
     ) -> FifoCostBatchDeduplicationResult:
-        """Return a deterministic Supply+SKU set and separately linked controls."""
+        """Reconcile current rows and use older rows only for cumulative acceptance."""
         if not isinstance(scope, ScopeIdentity):
             return cls._error("FIFO_BATCH_SCOPE_INVALID")
         if not isinstance(case_id, str) or not case_id.strip() or len(case_id) > 96:
             return cls._error("FIFO_BATCH_CASE_ID_INVALID")
         if not isinstance(observations, tuple) or len(observations) > MAX_OBSERVATIONS:
             return cls._error("FIFO_BATCH_OBSERVATION_LIMIT_REACHED")
+        if not isinstance(acceptance_history, tuple) or len(acceptance_history) > MAX_OBSERVATIONS:
+            return cls._error("FIFO_BATCH_OBSERVATION_LIMIT_REACHED")
         if not isinstance(declarations, tuple) or len(declarations) > MAX_DECLARATIONS:
             return cls._error("FIFO_BATCH_DECLARATION_LIMIT_REACHED")
 
         api_groups: dict[str, dict] = {}
+        historical_acceptance: dict[str, list[SupplySkuObservation]] = {}
+        for observation in acceptance_history:
+            if not isinstance(observation, SupplySkuObservation):
+                return cls._error("FIFO_BATCH_OBSERVATION_INVALID")
+            if observation.scope != scope:
+                return cls._error("FIFO_BATCH_SCOPE_MISMATCH")
+            if observation.quantity_source_kind is not EvidenceSourceKind.OZON_API:
+                return cls._error("FIFO_BATCH_API_OBSERVATION_PROVENANCE_INVALID")
+            expected_key = cls.canonical_record_key(scope, observation.supply_ref_digest)
+            if observation.record_key != expected_key:
+                return cls._error("FIFO_BATCH_SUPPLY_RECORD_KEY_MISMATCH")
+            historical_acceptance.setdefault(
+                observation.supply_ref_digest, [],
+            ).append(observation)
+        owner_supply_to_api_ref: dict[str, str] = {}
+        owner_order_to_api_ref: dict[str, str] = {}
         for observation in observations:
             if not isinstance(observation, SupplySkuObservation):
                 return cls._error("FIFO_BATCH_OBSERVATION_INVALID")
@@ -129,12 +148,31 @@ class FifoCostBatchSupplyDeduplicator:
             group = api_groups.setdefault(observation.supply_ref_digest, {
                 "record_key": expected_key,
                 "order_ref_digest": observation.order_ref_digest,
+                "transition_supply_reference_digest": (
+                    observation.transition_supply_reference_digest
+                ),
                 "versions": {},
                 "capture_history": [],
                 "conflict": False,
             })
             if group["order_ref_digest"] != observation.order_ref_digest:
                 return cls._error("FIFO_BATCH_SUPPLY_ORDER_MAPPING_CONFLICT")
+            transition_supply_ref = observation.transition_supply_reference_digest
+            if transition_supply_ref is not None:
+                group_alias = group["transition_supply_reference_digest"]
+                if group_alias is not None and group_alias != transition_supply_ref:
+                    return cls._error("FIFO_BATCH_SUPPLY_REFERENCE_ALIAS_CONFLICT")
+                group["transition_supply_reference_digest"] = transition_supply_ref
+                mapped = owner_supply_to_api_ref.get(transition_supply_ref)
+                if mapped is not None and mapped != observation.supply_ref_digest:
+                    return cls._error("FIFO_BATCH_SUPPLY_REFERENCE_ALIAS_CONFLICT")
+                owner_supply_to_api_ref[transition_supply_ref] = observation.supply_ref_digest
+            transition_order_ref = observation.transition_order_reference_digest
+            if transition_order_ref is not None:
+                mapped = owner_order_to_api_ref.get(transition_order_ref)
+                if mapped is not None and mapped != observation.order_ref_digest:
+                    return cls._error("FIFO_BATCH_ORDER_REFERENCE_ALIAS_CONFLICT")
+                owner_order_to_api_ref[transition_order_ref] = observation.order_ref_digest
             content = cls._observation_content_fingerprint(observation)
             group["capture_history"].append(observation)
             prior = group["versions"].get(observation.source_fingerprint)
@@ -162,7 +200,16 @@ class FifoCostBatchSupplyDeduplicator:
                 manual_supply if declaration.reference_kind is SupplyReferenceKind.SUPPLY
                 else manual_order
             )
-            group = target.setdefault(declaration.reference_digest, {
+            reference_digest = declaration.reference_digest
+            if declaration.reference_kind is SupplyReferenceKind.SUPPLY:
+                reference_digest = owner_supply_to_api_ref.get(
+                    declaration.reference_digest, reference_digest,
+                )
+            else:
+                reference_digest = owner_order_to_api_ref.get(
+                    declaration.reference_digest, reference_digest,
+                )
+            group = target.setdefault(reference_digest, {
                 "units": declaration.declared_shipped_units,
                 "dates": set(() if declaration.dispatch_date is None else (declaration.dispatch_date,)),
                 "refs": [],
@@ -176,7 +223,12 @@ class FifoCostBatchSupplyDeduplicator:
                 group["conflict"] = True
             group["refs"].append((declaration.declaration_id, declaration.revision))
 
-        supply_refs = sorted(set(api_groups) | set(manual_supply))
+        # Historical-only API references remain visible as missing evidence.
+        # Dropping them here would turn a disappearing supply into an implicit
+        # zero and could incorrectly complete the latest manifest.
+        supply_refs = sorted(
+            set(api_groups) | set(manual_supply) | set(historical_acceptance)
+        )
         records = []
         for supply_ref in supply_refs:
             api = api_groups.get(supply_ref)
@@ -210,10 +262,22 @@ class FifoCostBatchSupplyDeduplicator:
                     issues.append("FIFO_BATCH_OBSERVATION_CURRENT_UNKNOWN")
                 if not api["conflict"]:
                     effective_accepted, acceptance_conflict = cls._reconcile_cumulative_acceptance(
-                        api["capture_history"],
+                        api["capture_history"] + historical_acceptance.get(supply_ref, []),
                     )
                     if acceptance_conflict:
                         issues.append("FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW")
+            elif historical_acceptance.get(supply_ref):
+                observations_for_supply = tuple(sorted(
+                    historical_acceptance[supply_ref],
+                    key=lambda item: (item.captured_at, item.source_fingerprint),
+                ))
+                order_ref = observations_for_supply[-1].order_ref_digest
+                effective_accepted, acceptance_conflict = cls._reconcile_cumulative_acceptance(
+                    observations_for_supply,
+                )
+                issues.append("FIFO_BATCH_SUPPLY_MISSING_FROM_CURRENT_SCAN")
+                if acceptance_conflict:
+                    issues.append("FIFO_BATCH_ACCEPTANCE_DECREASE_REQUIRES_REVIEW")
             elif owner is not None:
                 effective_accepted = None
 
@@ -416,21 +480,18 @@ class FifoCostBatchSupplyDeduplicator:
 
     @staticmethod
     def _reconcile_cumulative_acceptance(observations):
-        """Retain cumulative maximum on duplicate replays; review novel decreases."""
+        """Retain cumulative maximum and flag any later observed decrease."""
         ordered = sorted(observations, key=lambda item: (item.captured_at, item.source_fingerprint))
-        seen_fingerprints = set()
         maximum = None
         conflict = False
         for observation in ordered:
             quantity = observation.accepted_quantity
             if quantity is None:
-                seen_fingerprints.add(observation.source_fingerprint)
                 continue
             if maximum is None or quantity >= maximum:
                 maximum = quantity
-            elif observation.source_fingerprint not in seen_fingerprints:
+            else:
                 conflict = True
-            seen_fingerprints.add(observation.source_fingerprint)
         return maximum, conflict
 
     @staticmethod

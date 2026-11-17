@@ -155,11 +155,13 @@ def test_batch_store_scopes_appends_and_deduplicates_observation_refresh(tmp_pat
         assert replay["code"] == "FIFO_BATCH_IDEMPOTENT_REPLAY"
         first = FifoCostBatchSupplyStore.append_observation(
             connection, _observation(), tenant_fingerprint=_TENANT_FP,
+            case_id=_CASE_ID,
             observation_id="observation-1", recorded_at="2026-11-13T10:01:01Z",
         )
         refreshed = FifoCostBatchSupplyStore.append_observation(
             connection, _observation(captured_at="2026-11-13T10:02:00Z"),
-            tenant_fingerprint=_TENANT_FP, observation_id="observation-2",
+            tenant_fingerprint=_TENANT_FP, case_id=_CASE_ID,
+            observation_id="observation-2",
             recorded_at="2026-11-13T10:02:01Z",
         )
         assert first["observation_revision"] == 1
@@ -291,6 +293,7 @@ def test_batch_store_persists_exact_decision_references_and_scan_cas(tmp_path):
         )
         FifoCostBatchSupplyStore.append_observation(
             connection, observation, tenant_fingerprint=_TENANT_FP,
+            case_id=_CASE_ID,
             observation_id="observation-3", recorded_at="2026-11-13T10:01:01Z",
         )
         decision = BatchMembershipDecision(

@@ -33,6 +33,8 @@ from services.fifo_cost_transition_contracts import (
 
 
 MAX_BATCH_OBSERVATIONS = 20_000
+MAX_BATCH_MEMBERSHIP_DECISIONS = 20_000
+MAX_BATCH_SCAN_CONTINUATION_BYTES = 1_048_576
 MAX_SCAN_ORDERS = 2_000
 MAX_SCAN_SUPPLIES = 5_000
 MAX_SCAN_SKU_ROWS = 10_000
@@ -236,8 +238,6 @@ class BatchRuleInput:
         if not isinstance(self.start_day_policy, BatchStartDayPolicy):
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         boundary = _digest_tuple(self.boundary_supply_digests, max_items=MAX_SCAN_SUPPLIES)
-        if self.start_day_policy is BatchStartDayPolicy.EXPLICIT_SUPPLY_SET and not boundary:
-            _invalid(TransitionReasonCode.CONTRACT_INVALID)
         object.__setattr__(self, "boundary_supply_digests", boundary)
 
 
@@ -392,12 +392,21 @@ class SupplySkuObservation:
     explicit_zero_fields: tuple[str, ...]
     membership: SupplyMembership
     issues: tuple[str, ...] = ()
+    transition_order_reference_digest: str | None = None
+    transition_supply_reference_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, ScopeIdentity):
             _invalid(TransitionReasonCode.SCOPE_INVALID)
         for name in ("record_key", "order_ref_digest", "supply_ref_digest", "source_fingerprint"):
             object.__setattr__(self, name, normalize_digest(getattr(self, name)))
+        for name in (
+            "transition_order_reference_digest",
+            "transition_supply_reference_digest",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, normalize_digest(value))
         ciphertext = self.encrypted_lookup_payload
         if (
             not isinstance(ciphertext, str) or not 80 <= len(ciphertext) <= 4096
@@ -624,11 +633,14 @@ class AutomaticBatchManifest:
     unknown_quantity_supply_count: int
     found_supply_count: int
     included_supply_count: int
+    # Unresolved membership among currently API-found supplies only. Missing
+    # history and owner-only evidence still block completeness via issues.
     undecided_supply_count: int
     coverage: SupplyScanCoverage
     current_through: str | None
     freshness: ManifestFreshness
     issues: tuple[str, ...]
+    missing_supply_record_keys: tuple[str, ...] = ()
     manifest_fingerprint: str | None = None
     read_only: bool = True
 
@@ -670,6 +682,10 @@ class AutomaticBatchManifest:
         if not isinstance(self.freshness, ManifestFreshness):
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         object.__setattr__(self, "issues", _safe_issue_tuple(self.issues))
+        object.__setattr__(
+            self, "missing_supply_record_keys",
+            _digest_tuple(self.missing_supply_record_keys, max_items=MAX_SCAN_SUPPLIES),
+        )
         if type(self.read_only) is not bool or self.read_only is not True:
             _invalid(TransitionReasonCode.CONTRACT_INVALID)
         calculated = source_fingerprint(self.canonical_fingerprint_payload())
@@ -697,7 +713,7 @@ class AutomaticBatchManifest:
 
     def canonical_fingerprint_payload(self) -> Mapping[str, object]:
         """Stable business content; deliberately excludes capture timestamps."""
-        return MappingProxyType({
+        payload = {
             "rule_id": self.rule_id,
             "rule_revision": self.rule_revision,
             "rule_fingerprint": self.rule_fingerprint,
@@ -730,7 +746,14 @@ class AutomaticBatchManifest:
             },
             "freshness": self.freshness.value,
             "issues": tuple(sorted(self.issues)),
-        })
+        }
+        # Omit this additive field for ordinary manifests to retain their
+        # pre-change fingerprint and keep valid saved previews restart-safe.
+        if self.missing_supply_record_keys:
+            payload["missing_supply_record_keys"] = tuple(
+                sorted(self.missing_supply_record_keys)
+            )
+        return MappingProxyType(payload)
 
 
 def canonical_membership_binding_fingerprint(
@@ -767,6 +790,44 @@ def canonical_membership_binding_fingerprint(
             if dispatch_local_date is not None else None
         ),
         "owner_selected": owner_selected,
+    })
+
+
+def canonical_membership_group_binding_fingerprint(
+    *, scope: ScopeIdentity, rule_id: str, rule_revision: int,
+    rule_fingerprint: str, decision: MembershipDecisionKind,
+    record_keys: tuple[str, ...],
+) -> str:
+    """Bind one owner include/exclude decision to a bounded exact record set.
+
+    Source snapshots and transport status are deliberately excluded so a later
+    quantity/status refresh does not change ownership. The decision stores the
+    source fingerprints separately and the preview seals the complete candidate
+    set before confirmation.
+    """
+    if not isinstance(scope, ScopeIdentity):
+        _invalid(TransitionReasonCode.SCOPE_INVALID)
+    if type(rule_revision) is not int or rule_revision < 1:
+        _invalid(TransitionReasonCode.CONTRACT_INVALID)
+    if not isinstance(decision, MembershipDecisionKind):
+        _invalid(TransitionReasonCode.CONTRACT_INVALID)
+    keys = _digest_tuple(record_keys, max_items=MAX_DECISION_ROWS)
+    if not keys:
+        _invalid(TransitionReasonCode.CONTRACT_INVALID)
+    return source_fingerprint({
+        "scope": {
+            "owner_id": scope.owner_id,
+            "store_id": scope.store_id,
+            "product_id": scope.product_id,
+            "offer_id": scope.offer_id,
+            "sku": scope.sku,
+        },
+        "rule_id": _opaque(rule_id),
+        "rule_revision": rule_revision,
+        "rule_fingerprint": normalize_digest(rule_fingerprint),
+        "decision": decision.value,
+        "record_keys": keys,
+        "owner_selected": True,
     })
 
 

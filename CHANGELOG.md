@@ -1,3 +1,110 @@
+# 2026-11-17 — Match FIFO supplies when offer_id is optional
+
+- Bundle rows for an exact SKU and known numeric `product_id` are no longer rejected because the scope has no `offer_id`. The same conditional comparison is applied to direct composition reads and durable supply scans; provided identifiers still must match.
+- Added a synthetic durable-scan regression that first reproduced `CONFLICT` and now verifies both read paths accept the row. Linked FIFO/transition profile: **188 passed**; full isolated pytest: **5,459 passed in 97.47s**; focused two-path regression and isolated `compileall` passed. `git diff --check` and tracked-data equality passed. Exact-head Verify [44044868868](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44044868868) passed on code SHA `b394c853137e993c365054d997bbd59ae1ccff36`, including Windows/Linux tests and compile plus production Docker build/runtime smoke. Artifact `verification-b394c853137e993c365054d997bbd59ae1ccff36`, digest `sha256:13457425b54a78fa2a156288e0947c48f2504c2e305929fce453a27314e13d75`. CI reported only GitHub Actions/runner lifecycle notices.
+
+# 2026-11-16 — Invalidate FIFO successor chain after dispatch-date correction
+
+- Active FIFO rules now validate the original dispatch boundary from the immutable first `CONFIRM` event against the current case. Editing the case's first dispatch date makes the entire successor chain stale; a valid later successor still works when the original date is unchanged. Incomplete or ambiguous history fails closed.
+- Added an end-to-end regression that confirms a successor, publishes a complete manifest, then changes the case dispatch date and verifies active-rule, source-collection and manifest reads all reject the stale chain. The existing successor interval remains valid before the edit.
+- The new scenario failed before the fix on `inputs_current is False`, then passed. Focused rule/manifest profile: **27 passed in 5.30s**; full isolated pytest: **5,458 passed in 139.69s**; `compileall`, `git diff --check`, and unchanged tracked `data/` passed. Exact-head Verify [43948119855](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43948119855) passed on code SHA `c3976787078c37ab900e004f140cd9abd91c22d7`: Windows/Linux full suites and compile plus production Docker build/runtime smoke. SHA-bound artifact: `verification-7bc6d333c8425e02a0804e8aba45560a27315608` (`sha256:47ac3a302b58e39659e4e2903eadd2b92f0604e65b06179c64f580531430f245`).
+
+# 2026-11-16 — FIFO manifest counts with missing supplies
+
+- Fixed PR #736 review finding: `undecided_supply_count` now counts unresolved membership only among API rows found in the current scan. Historical missing and owner-only records remain unresolved for completeness, preserving their issue codes and missing keys; they cannot make a partial manifest complete or authorize FIFO apply. The existing strict counter contract is retained.
+- Regressions cover all supplies disappearing, more missing than current supplies, simultaneous missing/history and unresolved current membership, and unmatched owner declarations with zero/one current rows. All six selected cases failed before the fix; all six pass after it, including the production readiness path. Full isolated pytest: **5,458 passed in 94.85s**. Full compile, `git diff --check` and unchanged tracked `data/` passed. Hosted CI for the new commit is pending.
+
+# 2026-11-16 — FIFO auto-batch missing-supply and stale-cost guards
+
+- A supply observed in an earlier scan of the same confirmed rule but absent from the latest scan now remains explicit missing evidence, including its opaque record key in the typed manifest. Its prior acceptance history is retained; it is not converted to zero, and accepted/pending totals remain unknown until reconciled.
+- Confirmed FIFO batch rules are checked against the case's current unit cost and store timezone before source collection or manifest use. A changed cost marks the old rule stale while preserving the owner's ability to preview its successor. Added regressions for both review findings.
+- Focused manifest/rule/contract profile: **38 passed**; linked FIFO batch plus transition readiness/review/apply/production profile: **203 passed**. Full isolated pytest: **5,453 passed in 111.30s**; full `compileall -q app tests` passed with one pre-existing float-identity `SyntaxWarning`. The full run used a disposable tracked-source copy without project `data/` or secrets and a synthetic USN_INCOME 6% policy. No live Ozon/Telegram requests, bot launch, project-data edits, merge or deployment.
+
+# 2026-11-16 — FIFO scan-history and continuation race fixes
+
+- Manifest quantities now come from the newest scan's linked observations; prior scan occurrences are retained only for temporal acceptance checks. Replayed old fingerprints cannot replace newer quantity evidence, and a later accepted-quantity decrease remains a review conflict.
+- A resumed scan is rejected if another scan becomes newest before its page commit. Added regressions for `100 → 200 → 100` and the resume/commit race. Selected FIFO/transition profile: **897 passed**. Verify [43762931040](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43762931040) passed on SHA `8fdfcb2c89033c60a35cc7248e0e680939a5da39` (Windows/Linux full suites and compile; Linux production Docker build/runtime smoke and SHA-bound report).
+
+# 2026-11-15 — FIFO auto-batch PR C review follow-up
+
+- Manifest reads now include bounded historical observations for supplies present in the newest scan, so cumulative accepted-quantity decreases stay in review instead of appearing complete.
+- Telegram owner decisions can extend a same-outcome group or correct an older include/exclude choice; confirmation is rejected when its scan is no longer the newest persisted scan.
+- A restarted Telegram session restores the exact scoped scan and valid continuation without repeating source requests. Every new durable scan starts with a persisted staging checkpoint, and a no-progress source failure is persisted as the newest failed scan.
+- Added regressions for all five review findings. The linked FIFO batch/production/readiness/review/apply profile passes **189 tests**; exact-head CI is pending publication of this follow-up.
+
+# 2026-11-15 — FIFO auto-batch review fixes (R1–R8)
+
+- Fixed exact-case observation binding, preserved legacy API observation identities while linking owner declarations, and retained the complete append-only rule chain when rebuilding manifests.
+- Manifest construction now treats `OUTSIDE_RULE` and explicit owner exclusions as terminal non-blocking outcomes. Conflicting overlapping owner selections resolve to the newest confirmed decision, with same-time conflicts failing closed; Telegram can record a later correction.
+- Added masked, user-matchable supply labels and normalized SQLite boolean flags in the review card. Manifest rows and source fingerprint now come from one SQLite read snapshot.
+- Increased the bounded continuation contract to 1 MiB. FIFO schema v19 adds an encrypted continuation side table so existing v18 token columns and small saved tokens remain unchanged; per-case storage is capped and included in backup/fingerprint boundaries.
+- Added regression coverage for all eight review findings. Windows/Python 3.12: affected FIFO profile **125 passed**, schema/checkpoint migration profile **29 passed**, full isolated suite **5,446 passed in 108.09s**, and `compileall` passed. Exact-head Verify for code SHA `fe6ad7748601c2759d6c467b7c24ca354785710e` passed as run [43707563054](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43707563054), including Windows/Linux full suites, compile, and production Docker build/runtime smoke.
+
+# 2026-11-15 — FIFO automatic batch first-day selection and owner guide (FB30)
+
+- Completed the `Нет / не уверен — выбрать поставки` route: the owner may save an explicit first-day boundary with no rows included, then review and confirm exact supply rows after a bounded source refresh. A previously issued all-day confirmation button is stale after choosing the explicit route.
+- Added an owner guide that explains the automatic rule, unknown quantities, exact group review, continuation, dated controls, documented Ozon fields, and the independent R1 cutoff limitation. The rule still does not write FIFO layers or change profit.
+- Focused Windows/Python profile after this change: **36 passed** for rule contract, classifier and Telegram rule regressions; linked FIFO batch + production readiness/apply profile: **177 passed**. The FB29 full suite predates this FB30 code change; exact-head CI remains required.
+
+# 2026-11-15 — FIFO automatic batch full isolated verification (FB29)
+
+- Ran the complete configured pytest suite from a disposable copy at code SHA `cc329692d5c259595ef1419f9dbfde483071da66`, with no skip/deselect and without runtime seller data or credentials. A synthetic `USN_INCOME 6%` tax policy was the only initial data fixture.
+- **5,437 passed in 104.33s**; `compileall -q app tests` passed. The five tracked `data/` Git objects are unchanged from FB00. One malformed 48-character SHA-256 entry in the FB00 journal was corrected from the current file hash after confirming identical Git tree objects.
+
+# 2026-11-15 — FIFO automatic batch crash and backup coverage (FB28)
+
+- Added an end-to-end regression through the public backup/verify/dry-run restore/restore APIs for a confirmed automatic batch rule and its encrypted supply manifest. The restored case retains the same rule revision and manifest fingerprint, accepted units remain unknown, and no FIFO rates, layers, allocations or events are created.
+- Linked crash/migration coverage verifies atomic apply and retry, checkpoint CAS/key failure, bounded evidence, stale rule selections, migration rollback and future-schema rejection. No owner session file was modified or used as a fixture.
+- FB28 linked Windows/Python 3.12 profile: **235 passed in 29.13s** across FIFO batch, migration, backup/restore, atomic apply and production transition tests. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Synthetic data only; no live API/Telegram calls or bot launch.
+
+# 2026-11-15 — FIFO automatic batch production prepare/apply path (FB27)
+
+- Added a positive production-assembly regression for automatic batch selection through paginated fake supply orders, exact SKU bundle composition, a complete normalized synthetic manifest, full synthetic cutoff/movement/finance evidence, explicit Telegram apply, repository restart, and exact retry with one commit.
+- Fixed two issues exposed by that path: legacy supply-observation lag no longer blocks AUTO/OWNER_CONTROL when those modes use their own manifest/control gates; committed AUTO retries now include the saved automatic-manifest seal in the exact commit fingerprint, matching the original apply.
+- The test-only normalized fixture is not an Ozon fact. The documented bundle API confirms per-SKU composition/pagination but does not establish historical completeness, dispatched quantity or dispatch date. No live Ozon/Telegram request, bot launch, owner-data write, merge or deployment was performed.
+
+# 2026-11-15 — FIFO batch history and cost consumers (FB26)
+
+- The automatic batch card now identifies the confirmed rule revision and whether it is an initial confirmation or a replacement. It labels the rule price separately from current FIFO unit cost and explains that rule/source refresh alone does not change FIFO or profit.
+- The card distinguishes bot read time from an Ozon source as-of timestamp and reports request pagination/detail coverage without claiming historical completeness.
+- Added regressions proving that confirming the 14.65 ₽ batch rule and refreshing incomplete supply pages leave the canonical 21.00 ₽ current cost/revision unchanged. Existing mixed-layer COGS, return-lineage, Period Profit, and frozen saved-plan regressions remain green.
+- FB26 synthetic Windows/Python 3.12 profile: **183 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live Ozon/Telegram calls or owner data were used.
+
+# 2026-11-15 — FIFO automatic batch source seals for transition apply (FB25)
+
+- Added a minimal internal manifest seal for automatic supply mode and threaded it through readiness review, preview preparation, and explicit apply. Preparation and commit compare the exact scoped batch source inside the existing SQLite `BEGIN IMMEDIATE` transactions; source changes reject as stale before FIFO writes. Existing successful idempotent retries and legacy total mode remain on their prior paths.
+- Bounded seal reads to the existing per-case limits. Over-limit or malformed source state fails closed. Tests cover source changes before prepare and between apply review/commit, no partial FIFO/case/preview writes, seal tampering, and bounded reads.
+- The owner-provided Ozon schema now records the documented parent order-state enum separately from the still-unverified nested supply-state profile. No live Ozon/Telegram request or bot launch was made.
+
+# 2026-11-15 — FIFO automatic batch manifest in readiness (FB24)
+
+- Connected the existing typed manifest builder to the current read-only FIFO readiness review through a scoped SQLite read service. Review reconstructs only the newest published scan that matches the active rule and saved owner decisions; a newer partial/failing scan, ambiguous equal-time scans, stale set fingerprint, missing data, or storage error cannot fall back to an older result.
+- Kept source provenance and unknown counts in the typed manifest. Declared bundle composition remains separate from shipped/accepted evidence; no supply quantity is converted to inventory movement, FIFO layer, allocation, or COGS. Legacy cases do not read the automatic manifest provider.
+- Synthetic SQLite/readiness profile: **77 passed**; complete FIFO batch-specific profile: **124 passed**. Compile, diff, and tracked-data integrity checks are recorded in the FB24 progress journal. Raw Ozon status/date/history profile and R1 remain unverified.
+
+# 2026-11-15 — FIFO automatic batch follow-up supplies and cost boundaries (FB23)
+
+- Verified that a later explicit supply refresh appends the newly observed target-SKU composition under the existing confirmed rule without asking for another price or lifetime total. The original price, `declared_shipped_units=None`, and all FIFO movement tables remain unchanged; quantities from the bundle remain planned composition and dispatch date remains unknown.
+- The batch card now directs the owner to the existing SKU FIFO cost screen for a future price, where the effective-date preview and separate confirmation are required. Already applied boundaries are not edited retroactively; a past date requires the existing correction/replay path.
+- FB23 linked synthetic profile: **77 passed**; existing post-APPLIED rate preview/confirm regression also passed. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live requests, FIFO/COGS writes from the batch scanner, bot launch, merge, or deployment.
+
+# 2026-11-14 — FIFO automatic batch bundle scan and owner selection (FB22)
+
+- Implemented the documented read-only `/v1/supply-order/bundle` path: strict item/cursor/total validation, one bundle per request, bounded pagination inside the shared action budget, exact SKU normalization, encrypted durable lookup/checkpointing, and append-only group include/exclude decisions with an exact whole-set confirmation seal.
+- Telegram candidate pages expose only safe display data; IDs, offer IDs, names, and barcodes remain encrypted/private and absent from messages/callbacks. Bundle quantity is stored as planned composition only; dispatched and accepted quantities stay unknown. Owner selection records ownership evidence, never an Ozon fact or FIFO movement.
+- FB22 linked synthetic profile: **76 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. No live API/Telegram calls, FIFO apply, COGS writes, bot launch, merge, or deployment.
+
+# 2026-11-14 — FIFO automatic batch Telegram card and bounded refresh (PR C, FB21)
+
+- Added a no-network summary card for the active automatic batch rule, with bounded Ozon refresh, safe continuation/retry feedback, found-items check, rule guidance, and the existing readiness/preview/history controls retained. Refresh remains scoped to the current tenant/store/SKU/case/rule revision; it cannot claim exact SKU membership, source completeness, or FIFO readiness while the upstream payload profile is unverified.
+- Regressions cover offline card rendering, exact rule scope, bounded refresh, duplicate/stale callback handling, tenant isolation, safe failure retention, no-source “check found” action, privacy, and unchanged FIFO state. Linked profile: **198 passed**. `compileall`, `git diff --check`, and tracked `data/` equality passed. Synthetic sources only; no live API, bot launch, merge, or deployment.
+
+# 2026-11-14 — FIFO automatic batch production assembly (PR C, FB20)
+
+- Extended the existing FIFO transition workflow factory with the bounded automatic-supply source, durable scan-checkpoint service, supply evidence store, deduplicator, and pure manifest builder. The batch Telegram adapter receives the same composed dependencies; the supply source reuses the exact Ozon client already held by the existing transition source collection service.
+- Added a temporary-SQLite/fake-network regression that builds this production workflow, performs the bounded read, and verifies shared service/repository/client identity plus zero source-observation or scan writes. No second composition root, live API request, FIFO apply, or COGS mutation was added.
+- FB20 linked Windows/Python 3.12 profile: **187 passed** across batch source/contracts/store/rules/checkpoints/dedup/manifest, transition production workflow, and cross-docking/planning regressions. `compileall`, `git diff --check`, and tracked `data/` equality passed.
+
 # 2026-11-14 — FIFO automatic batch durable scan checkpoint (PR B, FB15)
 
 - Added an additive FIFO schema v18 link table for associating immutable normalized supply observations with one durable scan. The new table does not alter schema-v17 rules, observations, or decisions.
@@ -3089,3 +3196,5 @@ Summary Report теперь включает:
 - Added the independent review handoff and a source capability matrix that separates tested local wrappers from unverified Ozon raw schemas and the unresolved R1 movement source.
 - Linked source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning profile: **233 passed**; isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
 - PR B publication and exact-head hosted CI are pending; no live Ozon/Telegram call, FIFO apply, bot launch, merge, or deployment occurred.
+
+# 2026-11-15 — FIFO auto-batch PR C review follow-up

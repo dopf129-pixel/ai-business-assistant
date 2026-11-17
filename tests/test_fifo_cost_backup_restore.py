@@ -780,3 +780,270 @@ def test_backup_restore_preserves_late_entry_states_ciphertext_and_single_apply(
             reset_current_tenant_user_id(active_tenant)
         reset_current_tenant_user_id(tenant)
 
+
+def test_public_backup_restore_preserves_fifo_auto_batch_rule_and_manifest(
+    tmp_path, monkeypatch,
+):
+    from dataclasses import replace
+
+    from services.fifo_cost_batch_manifest_read_service import (
+        FifoCostBatchManifestReadService,
+    )
+    from services.fifo_cost_batch_rule_contracts import (
+        BatchRuleInput,
+        BatchStartDayPolicy,
+        DispatchTimeStatus,
+        SupplyMembership,
+        SupplyScanCoverage,
+        SupplySkuObservation,
+    )
+    from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
+    from services.fifo_cost_batch_scan_checkpoint_service import (
+        FifoCostBatchScanCheckpointService,
+    )
+    from services.fifo_cost_batch_supply_deduplicator import (
+        FifoCostBatchSupplyDeduplicator,
+    )
+    from services.fifo_cost_transition_contracts import (
+        EvidenceCompleteness,
+        EvidenceSourceKind,
+        NormalizedSupplyStatus,
+        SupplyTotalMode,
+        TransitionReasonCode,
+        UnknownValue,
+    )
+    from services.fifo_cost_transition_service import FifoCostTransitionService
+    from services.tenant_cipher_provider import encrypt_tenant_value
+
+    project = tmp_path / "auto-batch-backup-project"
+    storage = tmp_path / "auto-batch-backup-storage"
+    project.mkdir()
+    storage.mkdir()
+    monkeypatch.setenv("AI_ASSISTANT_STORAGE_ROOT", str(storage))
+    master_key = Fernet.generate_key().decode("ascii")
+    monkeypatch.setenv("OZON_CREDENTIAL_MASTER_KEY", master_key)
+
+    tenant = set_current_tenant_user_id(TENANT_SCOPE)
+    try:
+        batch_now = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+        repository = FifoCostRepository(
+            now_provider=lambda: batch_now,
+        )
+        base_case = _transition_case(
+            case_id="backup-auto-batch-case01", sku="3921245621",
+            owner=OWNER, store=STORE,
+        )
+        unknown_values = dict(base_case.unknown_values)
+        unknown_values["declared_shipped_units"] = UnknownValue(
+            TransitionReasonCode.SOURCE_PROOF_UNAVAILABLE,
+            EvidenceSourceKind.OWNER_INPUT,
+        )
+        batch_case = replace(
+            base_case,
+            metadata=replace(
+                base_case.metadata, store_timezone="Europe/Moscow",
+            ),
+            state=TransitionState.AWAITING_EVIDENCE,
+            declared_shipped_units=None,
+            supply_total_mode=SupplyTotalMode.LEGACY_OWNER_TOTAL,
+            unknown_values=unknown_values,
+        )
+        created = repository.save_transition_case(
+            case=batch_case, expected_revision=0,
+            idempotency_key="backup-auto-batch-case-create01",
+        )
+        assert created["error"] is False, created
+        scope = batch_case.metadata.scope
+        identity = {
+            "store_id": scope.store_id,
+            "product_id": scope.product_id,
+            "offer_id": scope.offer_id,
+            "sku": scope.sku,
+        }
+
+        rule_service = FifoCostBatchRuleService(
+            repository, now_provider=lambda: batch_now,
+        )
+        rule_preview = rule_service.preview_rule(
+            scope, batch_case.case_id, 1,
+            BatchRuleInput(
+                "2026-11-05", BatchStartDayPolicy.ALL_OWNER_CONFIRMED,
+            ),
+        )
+        assert rule_preview["error"] is False, rule_preview
+        preview = rule_preview["preview"]
+        confirmed = rule_service.confirm_rule(
+            scope, batch_case.case_id, 1, preview.preview_id,
+            preview.preview_fingerprint, "backup-auto-batch-rule-confirm01",
+        )
+        assert confirmed["error"] is False, confirmed
+        active_rule = rule_service.read_active_rule(
+            scope, batch_case.case_id, confirmed["case_revision"],
+        )
+        assert active_rule["error"] is False, active_rule
+
+        tenant_scope = repository._tenant_scope(scope.store_id)
+        assert tenant_scope["error"] is False, tenant_scope
+        captured_at = "2026-11-08T12:00:00.000000Z"
+        supply_digest = hashlib.sha256(b"synthetic-backup-supply-ref").hexdigest()
+        encrypted_lookup = encrypt_tenant_value(
+            "synthetic-private-supply-reference", master_key=master_key,
+        )
+        assert encrypted_lookup is not None
+        observation = SupplySkuObservation(
+            scope=scope,
+            record_key=FifoCostBatchSupplyDeduplicator.canonical_record_key(
+                scope, supply_digest,
+            ),
+            order_ref_digest=hashlib.sha256(b"synthetic-backup-order-ref").hexdigest(),
+            supply_ref_digest=supply_digest,
+            encrypted_lookup_payload=encrypted_lookup,
+            source_profile_version="synthetic-backup-v1",
+            source_fingerprint=hashlib.sha256(b"synthetic-backup-source").hexdigest(),
+            captured_at=captured_at,
+            source_as_of=captured_at,
+            source_status="IN_TRANSIT",
+            normalized_status=NormalizedSupplyStatus.IN_TRANSIT,
+            is_crossdock=True,
+            dispatch_local_date="2026-11-05",
+            dispatch_local_time=None,
+            dispatch_time_status=DispatchTimeStatus.CONFIRMED,
+            planned_declared_quantity=100,
+            shipped_composition_quantity=100,
+            accepted_quantity=None,
+            quantity_source_kind=EvidenceSourceKind.OZON_API,
+            quantity_coverage=EvidenceCompleteness.COMPLETE,
+            acceptance_fingerprint=None,
+            acceptance_version=None,
+            explicit_zero_fields=(),
+            membership=SupplyMembership.ELIGIBLE,
+            issues=(),
+        )
+        coverage = SupplyScanCoverage(
+            scan_id="backup-auto-batch-scan01", revision=1,
+            scope=scope, case_id=batch_case.case_id,
+            rule_revision=active_rule["rule_revision"],
+            requested_from="2026-11-05", requested_through="2026-11-08",
+            captured_at=captured_at, source_as_of=captured_at,
+            supported_state_profile=("IN_TRANSIT",),
+            list_pagination_complete=True, details_complete=True,
+            sku_composition_complete=True, historical_window_proven=False,
+            membership_complete=True, quantity_complete=True,
+            physical_receipt_timing_complete=False,
+            observation_set_fingerprint=hashlib.sha256(
+                b"synthetic-backup-observation-set",
+            ).hexdigest(),
+            source_contract_version="SYNTHETIC_BACKUP_TEST_V1",
+            orders_seen=1, supplies_seen=1, sku_rows_seen=1,
+            unknown_order_count=0, unknown_supply_count=0,
+            unknown_quantity_supply_count=0,
+            issue_codes=("SOURCE_PROFILE_UNVERIFIED",),
+        )
+        checkpoint = FifoCostBatchScanCheckpointService(
+            repository, now_provider=lambda: batch_now,
+        )
+        published = checkpoint.commit_page(
+            coverage=coverage,
+            tenant_fingerprint=tenant_scope["tenant_fingerprint"],
+            rule_id=active_rule["rule_id"],
+            rule_fingerprint=active_rule["rule_fingerprint"],
+            expected_case_revision=confirmed["case_revision"],
+            expected_scan_revision=0,
+            observations=(observation,),
+            status="PUBLISHED",
+            expires_at="2026-11-08T12:30:00.000000Z",
+            updated_at=captured_at, now=captured_at,
+        )
+        assert published["error"] is False, published
+
+        transition = FifoCostTransitionService(
+            repository, now_provider=lambda: batch_now,
+        )
+        case_result = transition.get_case(
+            case_id=batch_case.case_id, **identity,
+        )
+        assert case_result["error"] is False, case_result
+        typed_case = transition._case_from_payload(case_result["case"])
+        manifest_reader = FifoCostBatchManifestReadService(
+            repository, now_provider=lambda: batch_now,
+        )
+        before_manifest_result = manifest_reader.read_current_manifest(
+            case=typed_case,
+        )
+        assert before_manifest_result["error"] is False, before_manifest_result
+        before_manifest = before_manifest_result["manifest"]
+        assert before_manifest is not None
+        assert before_manifest.declared_in_shipped_supplies == 100
+        assert before_manifest.accepted_units is None
+
+        service = _backup_service(project, storage)
+        backup = service.backup()
+        assert backup["error"] is False, backup
+        assert service.verify_archive(backup["backup_path"])["error"] is False
+        tenant_folder = hashlib.sha256(
+            TENANT_SCOPE.encode("utf-8"),
+        ).hexdigest()[:24]
+        archived_database = (
+            f"files/storage/data/tenants/{tenant_folder}/ozon_assistant.db"
+        )
+        with zipfile.ZipFile(backup["backup_path"]) as archive:
+            assert archived_database in archive.namelist()
+            archived_bytes = archive.read(archived_database)
+            assert encrypted_lookup.encode("ascii") in archived_bytes
+            assert b"synthetic-private-supply-reference" not in archived_bytes
+
+        target = tmp_path / "auto-batch-restored"
+        dry_run = service.restore_archive(
+            backup["backup_path"], target, dry_run=True,
+        )
+        assert dry_run["status"] == "BOT_RESTORE_PLAN_READY", dry_run
+        assert not target.exists()
+        restored = service.restore_archive(backup["backup_path"], target)
+        assert restored["status"] == "BOT_RESTORE_COMPLETE", restored
+
+        monkeypatch.setenv("AI_ASSISTANT_STORAGE_ROOT", str(target / "storage"))
+        reopened = FifoCostRepository(now_provider=lambda: batch_now)
+        reopened_transition = FifoCostTransitionService(
+            reopened, now_provider=lambda: batch_now,
+        )
+        restored_case = reopened_transition.get_case(
+            case_id=batch_case.case_id, **identity,
+        )
+        assert restored_case["error"] is False, restored_case
+        assert restored_case["case"]["supply_total_mode"] == "AUTO_FROM_SUPPLIES"
+        assert restored_case["case_revision"] == confirmed["case_revision"]
+        restored_active_rule = FifoCostBatchRuleService(
+            reopened, now_provider=lambda: batch_now,
+        ).read_active_rule(
+            scope, batch_case.case_id, confirmed["case_revision"],
+        )
+        assert restored_active_rule["error"] is False, restored_active_rule
+        assert restored_active_rule["rule_id"] == active_rule["rule_id"]
+        assert restored_active_rule["rule_fingerprint"] == active_rule["rule_fingerprint"]
+        assert restored_active_rule["new_unit_cost_rub"] == "14.65"
+        restored_typed_case = reopened_transition._case_from_payload(
+            restored_case["case"],
+        )
+        restored_manifest_result = FifoCostBatchManifestReadService(
+            reopened, now_provider=lambda: batch_now,
+        ).read_current_manifest(case=restored_typed_case)
+        assert restored_manifest_result["error"] is False, restored_manifest_result
+        restored_manifest = restored_manifest_result["manifest"]
+        assert restored_manifest is not None
+        assert restored_manifest.manifest_fingerprint == before_manifest.manifest_fingerprint
+        assert restored_manifest.declared_in_shipped_supplies == 100
+        assert restored_manifest.accepted_units is None
+        connection = reopened.get_connection()
+        try:
+            for table in (
+                "fifo_cost_rate_changes", "fifo_cost_layers",
+                "fifo_cost_allocations", "fifo_cost_events",
+            ):
+                assert connection.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(tenant)
+

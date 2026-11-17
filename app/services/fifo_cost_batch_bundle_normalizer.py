@@ -19,7 +19,32 @@ from services.fifo_cost_transition_contracts import (
 
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_CURSOR_MAX = 256
 _MAX_ROWS = 10_000
+_MAX_QUANTITY = 1_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class FifoCostBatchBundleItem:
+    sku: int
+    quantity: int
+    product_id: int | None
+    offer_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FifoCostBatchBundlePage:
+    items: tuple[FifoCostBatchBundleItem, ...]
+    total_count: int
+    has_next: bool
+    last_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class FifoCostBatchBundlePageResult:
+    status: str
+    page: FifoCostBatchBundlePage | None
+    issue_codes: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +64,82 @@ class FifoCostBatchSupplyCompositionResult:
 
 class FifoCostBatchBundleNormalizer:
     """Map already-normalized typed rows to one exact owner/store/SKU scope."""
+
+    @classmethod
+    def parse_documented_page(
+        cls, response, *, requested_limit: int, prior_item_count: int = 0,
+    ) -> FifoCostBatchBundlePageResult:
+        """Parse only the documented bundle page keys and primitive types.
+
+        Names, barcodes, restrictions, and any unexpected raw fields are not
+        retained. ``quantity`` is composition only; callers must not treat it
+        as proof of shipment or receipt.
+        """
+        if (
+            type(requested_limit) is not int or not 1 <= requested_limit <= 100
+            or type(prior_item_count) is not int or not 0 <= prior_item_count <= _MAX_ROWS
+        ):
+            return cls._page_unknown("FIFO_BATCH_BUNDLE_PAGINATION_INPUT_INVALID")
+        if not isinstance(response, dict) or response.get("error") is True:
+            return cls._page_unknown("FIFO_BATCH_BUNDLE_RESPONSE_UNAVAILABLE")
+        items = response.get("items")
+        total_count = response.get("total_count")
+        has_next = response.get("has_next")
+        last_id = response.get("last_id")
+        if (
+            not isinstance(items, list) or len(items) > requested_limit
+            or len(items) > 100 or type(total_count) is not int
+            or not 0 <= total_count <= _MAX_ROWS
+            or type(has_next) is not bool or not isinstance(last_id, str)
+            or len(last_id) > _CURSOR_MAX
+        ):
+            return cls._page_unknown("FIFO_BATCH_BUNDLE_RESPONSE_INVALID")
+        cursor = last_id
+        if has_next and not cursor:
+            return cls._page_unknown("FIFO_BATCH_BUNDLE_CURSOR_MISSING")
+        if prior_item_count + len(items) > total_count:
+            return cls._page_unknown("FIFO_BATCH_BUNDLE_TOTAL_COUNT_CONFLICT")
+        if not has_next and prior_item_count + len(items) != total_count:
+            return cls._page_unknown("FIFO_BATCH_BUNDLE_TOTAL_COUNT_INCOMPLETE")
+
+        normalized = []
+        for item in items:
+            if not isinstance(item, dict):
+                return cls._page_unknown("FIFO_BATCH_BUNDLE_ITEM_INVALID")
+            sku = item.get("sku")
+            quantity = item.get("quantity")
+            product_id = item.get("product_id")
+            offer_id = item.get("offer_id")
+            if (
+                type(sku) is not int or not 0 < sku <= 9_223_372_036_854_775_807
+                or type(quantity) is not int or not 0 <= quantity <= _MAX_QUANTITY
+                or (product_id is not None and (
+                    type(product_id) is not int
+                    or not 0 < product_id <= 9_223_372_036_854_775_807
+                ))
+                or (offer_id is not None and (
+                    not isinstance(offer_id, str) or len(offer_id) > 256
+                ))
+            ):
+                return cls._page_unknown("FIFO_BATCH_BUNDLE_ITEM_INVALID")
+            normalized.append(FifoCostBatchBundleItem(
+                sku=sku, quantity=quantity, product_id=product_id,
+                offer_id=offer_id,
+            ))
+        return FifoCostBatchBundlePageResult(
+            status="PARTIAL" if has_next else "COMPLETE",
+            page=FifoCostBatchBundlePage(
+                items=tuple(normalized), total_count=total_count,
+                has_next=has_next, last_id=cursor,
+            ),
+            issue_codes=(),
+        )
+
+    @staticmethod
+    def _page_unknown(issue_code: str) -> FifoCostBatchBundlePageResult:
+        return FifoCostBatchBundlePageResult(
+            status="UNKNOWN", page=None, issue_codes=(issue_code,),
+        )
 
     @classmethod
     def normalize(
