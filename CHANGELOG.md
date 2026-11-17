@@ -1,8 +1,51 @@
+# 2026-11-14 — FIFO automatic batch PR A local checkpoint (FB10)
+
+- In an isolated disposable copy with project `data/` and secrets excluded, the full Windows/Python 3.12 suite passed: **5,346 passed in 95.82s**. The copy used a synthetic tax policy and the preserved `.fl12-deps/` only as test libraries.
+- `compileall` passed in the same copy. Local verification covered tree `74ffefcd`. Hosted Verify run [#43595401017](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43595401017) passed Windows/Linux full suites, compile, Linux production Docker build/runtime smoke, and SHA-bound report generation for PR head `0803bd0dbb0285e30b3296c7d2e7a22dda028ecb`.
+
+# 2026-11-14 — FIFO automatic batch manifest readiness (PR A, FB09)
+
+- Readiness now uses a typed automatic supply manifest for `AUTO_FROM_SUPPLIES`. An absent or partial manifest produces a specific source gap without requiring a lifetime owner total; a known subtotal remains explicitly partial, and empty listings, unknown quantities, or unresolved membership cannot satisfy the gate.
+- A complete exact scoped manifest removes only the supply-manifest gap. It does not establish physical receipt timing, cutoff movement coverage, R1, or apply readiness. `OWNER_CONTROL` remains blocked until its dated control is reconciled; legacy mode keeps its prior owner-total rule.
+- FB09 linked Windows/Python 3.12 profile: **81 passed**; readiness/test modules compile; `git diff --check` and tracked `data/` equality pass. No live source calls.
+
+# 2026-11-14 — FIFO automatic batch rule Telegram choices (PR A, FB08)
+
+- The late-entry wizard no longer requires a lifetime shipped-unit total when composed with the production batch-rule workflow. Owners can choose automatic Ozon supply discovery or an optional dated control, and the existing unknown-total draft resumes with its saved costs/date/old-stock values intact.
+- Automatic selection asks whether every same-SKU dispatch on the first date belongs to the new batch. “Не знаю” only opens that question; confirming the boundary rule is a separate action. Until a supply list is available, a mixed/unknown first day remains unresolved rather than silently including all supplies.
+- Dated manual controls record a typed quantity over an explicit date window, separate from legacy total and FIFO accounting. Confirming a rule or control does not create FIFO rates/layers/events/allocations or change profit. UI callbacks are invalidated when the workflow mode changes.
+- FB08 linked synthetic profile: **71 passed**; changed Python modules compile; `git diff --check` and tracked `data/` unchanged.
+
+# 2026-11-14 — FIFO dated owner quantity controls (PR A, FB07)
+
+- Added immutable typed controls for owner-reported quantities, each bound to an exact inclusive date window and a supported quantity kind (found, shipped, accepted, or planned units). Scoped SQLite append is idempotent, revision-checked, capped at the existing 100-row read boundary, and protected by immutable-table guards.
+- Dated controls remain separate from the legacy nullable total and from supply observations. Appending a control does not revise the transition case, switch its mode, create a shipment, or write FIFO events/rates/layers/COGS; it cannot become a lifetime cap on later auto-discovered supplies. Legacy `LEGACY_OWNER_TOTAL` behavior remains the default.
+- Contract/store plus FB05–FB06/legacy transition profile: **65 passed**; changed modules compile; diff and tracked data checks pass. Manifest comparison and owner UI remain in their scheduled later stages.
+
+# 2026-11-14 — FIFO automatic supply membership classification (PR A, FB06)
+
+- Added a deterministic, side-effect-free classifier for exact SKU supply observations against append-only batch-rule intervals. Proven dispatch dates select `[start, next_start)`; the first boundary remains explicit when policy requires it, and same-day, malformed, timezone-changing, or contradictory histories fail closed.
+- Owner membership decisions now follow the stable membership binding, not a full observation fingerprint. Ordinary status/quantity refreshes preserve the selection while its scope, supply, rule, and proven dispatch binding remain unchanged; a proven date conflict is surfaced instead of silently reusing a stale choice. Historical source fingerprints stay attached to the original decision.
+- Cancelled status does not erase a previously proven dispatch. Unknown dispatch remains unresolved. Rule service also rejects a successor when the case timezone changed without review. No FIFO rates, layers, events, allocations, or COGS are written by classification or rule confirmation.
+- Linked FB05–FB06 Windows profile: **39 passed**; modified modules compile. `git diff --check` and tracked `data/` comparison are recorded in the execution journal.
+
+# 2026-11-13 — FIFO automatic batch rule persistence (PR A, FB04)
+
+- Additive FIFO SQLite schema v17 stores immutable scoped batch-rule revisions, SKU-level supply observations, exact membership decisions, optional dated total controls, and a mutable CAS scan checkpoint. FIFO business tables use immutable triggers; encrypted lookup and continuation payloads stay separate from searchable digests.
+- Transition cases gain `supply_total_mode` with the `LEGACY_OWNER_TOTAL` default across typed payload readers/writers, preserving existing cases and avoiding implicit auto mode. Planning `PRAGMA user_version` and existing FIFO events/rates are unchanged.
+- Added transaction-bound scoped store helpers and migration/rollback/future-version tests. The combined repository/transition/schema/store/contracts profile: **121 passed**; compileall, `git diff --check`, and tracked `data/` unchanged.
+
+# 2026-11-13 — FIFO automatic batch rule contracts (PR A)
+
+- FB03 adds immutable, scoped contracts for batch rules, SKU observations, membership decisions, coverage and read-only manifests, with independent coverage flags, exact-zero/unknown distinction, encrypted lookups and stable manifest fingerprints.
+- Targeted profile (`test_fifo_cost_batch_rule_contracts.py` plus the existing FIFO transition contracts): **21 passed**. The FB01 UI red regression remains intentionally unresolved until the wizard stage FB08; no migration or source collection is available yet.
+- Source schema boundaries and verified Ozon facts are recorded in `project_brain/FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md`.
+
 # 2026-11-13 — FIFO automatic batch rule specification
 
 - Added a Luna specification for optional manual shipment totals, per-SKU batch rules, bounded supply discovery, exact SKU quantities, grouped owner confirmation and integration with the existing FIFO workflow.
 - Stages FB00–FB31, a v17 migration plan, three dependent implementation PRs and B01–B45 acceptance cases are specified. Product implementation has not started.
-- Rule confirmation and supply enumeration do not resolve the separate R1 inventory movement coverage blocker.
+- At specification creation, product implementation had not started. Rule confirmation and supply enumeration do not resolve the separate R1 inventory movement coverage blocker.
 
 # 2026-11-13 — FIFO review fixes R18–R20
 
@@ -2987,3 +3030,8 @@ Summary Report теперь включает:
 - Добавлен read-only parser узкого профиля «Оборотная ведомость» с проверкой точного SKU, периода, component totals и баланса. Проданные единицы и прочие расходы остаются раздельными; closing balance не объявляется физически доступным остатком.
 - XLSX preflight ограничивает архив, строки/колонки, compression ratio, макросы, внешние ссылки и traversal; формулы не исполняются. Добавлены `openpyxl` и `defusedxml` как runtime requirements.
 - Синтетическая fixture; общий XLSX preflight hardening FL13 добавил regression для скрытого листа, поэтому теперь 22 проверки FL12. Parser пока не подключён к Telegram и не сохраняет отчёт.
+# 2026-11-13 — FIFO automatic batch rule confirmation (PR A, FB05)
+
+- Added an exact-scope, immutable preview and atomic owner confirmation for per-SKU batch cost rules. Confirmation binds the saved case revision, cost, zero old-home/transit facts, store timezone, boundary date and first-day supply policy; successor rules close the prior interval before the new rule is appended.
+- Confirmation changes only the case's `supply_total_mode` and appends rule evidence. It does not write FIFO rates, layers, events, allocations or COGS. A bounded in-memory preview expires after 15 minutes; persisted idempotency receipts make identical retries safe after process restart.
+- Targeted linked profile: **91 passed** across batch contracts/service/store, transition contracts/store/service/apply and v13/v16 migration tests. Full pytest and exact-SHA CI remain planned for FB10.

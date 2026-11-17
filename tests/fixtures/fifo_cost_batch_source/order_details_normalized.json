@@ -1,0 +1,17 @@
+{
+  "fixture_kind": "synthetic_normalized_adapter_shape_not_raw_ozon_json",
+  "error": false,
+  "orders": [
+    {
+      "order_id": 1001,
+      "state": "COMPLETED",
+      "supplies": [
+        {
+          "supply_id": 2001,
+          "state": "COMPLETED",
+          "is_crossdock": true
+        }
+      ]
+    }
+  ]
+}

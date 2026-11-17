@@ -1,9 +1,18 @@
+# 2026-11-14 — FIFO automatic batch rule implementation in progress
+
+- Implementation PR A is being developed from spec PR #733 on `codex/fifo-auto-batch-foundation-20261113`, based on its open specification branch. FB00–FB09 implementation is complete: source boundaries and typed contracts are recorded; additive SQLite v17 stores scoped rule/observation/decision/control evidence and CAS scan checkpoints; owner rule preview and confirmation use exact case/rule-head CAS and durable idempotency; a pure classifier applies proven dispatch dates to rule intervals and preserves owner membership across ordinary status/quantity refreshes while the stable binding remains unchanged; optional owner quantity controls are immutable, dated and typed; the production Telegram wizard offers automatic supply mode or a separate dated owner control and resumes old drafts without resetting their inputs. Readiness distinguishes unavailable/partial/current automatic manifests from the unchanged legacy owner-total path. Legacy cases remain in `LEGACY_OWNER_TOTAL` until an owner confirms the automatic rule.
+- Rule confirmation changes only the case supply-total mode and appends owner rule evidence. It never writes FIFO rates, layers, events, allocations, or COGS. Successor confirmation atomically closes the prior local-date interval and appends the next rule. Preview tickets are bounded, process-local, and expire in 15 minutes; persisted receipts support retry after restart.
+- This remains an incomplete, non-deployable feature: bounded source adapter, manifest producer/persistence, source refresh and later prepare/apply sealing remain outstanding. FB01's unknown-total wizard regression now passes; mixed/unknown first-day membership remains unresolved until source selection is available. FB06–FB09 do not create FIFO rates, layers, events, allocations, or COGS. Dated owner controls are not yet compared to manifests; that remains FB17. An exact current manifest can clear only the supply-list gate; R1/cutoff and physical receipt timing remain separate.
+- The official-source contract marks raw bundle schema, complete state enum, and dispatch-date proof as unverified. Synthetic adapter fixtures are not raw Ozon payloads.
+- FB10 local isolated Windows/Python 3.12 verification passed **5,346 tests in 95.82s** plus `compileall` on tested tree `74ffefcd`, using no project `data/` or secrets and a synthetic tax policy. Verify run [#43595401017](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/43595401017) passed Windows/Linux full suites, compile, Linux production Docker build/runtime smoke and SHA-bound report generation for PR head `0803bd0dbb0285e30b3296c7d2e7a22dda028ecb`.
+- R1 inventory movement coverage remains a separate hard gate. No live API, owner data, Desktop bot, merge, or deployment has been used.
+
 # 2026-11-13 — Next FIFO work: automatic batch membership (specification only)
 
 - Product baseline: main 7965dcdd. Added LUNA_FIFO_AUTO_BATCH_RULE_TASK_2026-11-13.md and an unstarted progress journal for FB00–FB31.
 - Owner request: subsequent shipments of the same SKU belong to the new batch until the next confirmed cost boundary; remove the continuously maintained mandatory manual total.
 - The specification separates owner rule confirmation, source supply coverage and factual FIFO readiness. Automatic grouping requires proven dispatch timing or an exact grouped owner selection.
-- All implementation stages remain NOT_STARTED. R1 remains open. No owner data, live API or running bot was changed by this specification.
+- At specification creation, implementation stages were NOT_STARTED. R1 remains open. No owner data, live API or running bot was changed by that specification-only change.
 
 # 2026-11-13 — FIFO review fixes R18–R20
 

@@ -48,7 +48,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 16
+    SCHEMA_VERSION = 17
     MAX_RATE_CHAIN = 100_000
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
@@ -144,6 +144,12 @@ class FifoCostRepository:
         "fifo_cost_transition_bridge_evidence",
         "fifo_cost_transition_evidence_confirmations",
         "fifo_cost_allocation_rate_balances",
+        "fifo_cost_batch_rule_revisions",
+        "fifo_cost_batch_supply_observations",
+        "fifo_cost_batch_membership_decisions",
+        "fifo_cost_batch_membership_decision_observations",
+        "fifo_cost_batch_supply_scans",
+        "fifo_cost_batch_total_controls",
     )
 
     _APPEND_ONLY_TABLES = (
@@ -178,6 +184,11 @@ class FifoCostRepository:
         "fifo_cost_transition_bridge_evidence",
         "fifo_cost_transition_evidence_confirmations",
         "fifo_cost_allocation_rate_balances",
+        "fifo_cost_batch_rule_revisions",
+        "fifo_cost_batch_supply_observations",
+        "fifo_cost_batch_membership_decisions",
+        "fifo_cost_batch_membership_decision_observations",
+        "fifo_cost_batch_total_controls",
     )
 
     def __init__(self, db_path=None, *, now_provider=None):
@@ -8783,6 +8794,20 @@ class FifoCostRepository:
             )
             if "cost_input_mode" not in rate_columns:
                 cls._rebuild_rate_changes_v13(connection, rate_columns)
+        if version < 17:
+            case_columns = {
+                str(row[1]) for row in
+                connection.execute("PRAGMA table_info(fifo_cost_transition_cases)")
+            }
+            if "supply_total_mode" not in case_columns:
+                connection.execute(
+                    """ALTER TABLE fifo_cost_transition_cases
+                       ADD COLUMN supply_total_mode TEXT NOT NULL
+                           DEFAULT 'LEGACY_OWNER_TOTAL'
+                           CHECK(supply_total_mode IN (
+                               'LEGACY_OWNER_TOTAL', 'AUTO_FROM_SUPPLIES', 'OWNER_CONTROL'
+                           ))"""
+                )
 
     @classmethod
     def _rebuild_rate_changes_v13(cls, connection, old_columns):
@@ -11029,6 +11054,10 @@ class FifoCostRepository:
                 current_state TEXT NOT NULL CHECK(current_state IN (
                     'DRAFT', 'AWAITING_EVIDENCE', 'READY_TO_CONFIRM', 'APPLIED', 'CANCELLED'
                 )),
+                supply_total_mode TEXT NOT NULL DEFAULT 'LEGACY_OWNER_TOTAL'
+                    CHECK(supply_total_mode IN (
+                        'LEGACY_OWNER_TOTAL', 'AUTO_FROM_SUPPLIES', 'OWNER_CONTROL'
+                    )),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 CHECK(product_id IS NOT NULL OR offer_id IS NOT NULL),
@@ -11313,6 +11342,319 @@ class FifoCostRepository:
                 UNIQUE(allocation_id, rate_change_id),
                 CHECK(original_basis_kind <> 'RETURN_RESTORED' OR origin_sale_event_id IS NOT NULL)
             );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_rule_revisions (
+                rule_event_id TEXT PRIMARY KEY,
+                rule_id TEXT NOT NULL CHECK(length(rule_id) BETWEEN 8 AND 96),
+                rule_revision INTEGER NOT NULL CHECK(rule_revision BETWEEN 1 AND 100),
+                case_id TEXT NOT NULL,
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL CHECK(length(trim(store_id)) BETWEEN 1 AND 128),
+                sku TEXT NOT NULL CHECK(length(trim(sku)) BETWEEN 1 AND 64),
+                product_id TEXT,
+                offer_id TEXT,
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                policy_version INTEGER NOT NULL CHECK(policy_version = 1),
+                start_local_date TEXT NOT NULL,
+                store_timezone TEXT NOT NULL CHECK(length(trim(store_timezone)) BETWEEN 1 AND 128),
+                start_day_policy TEXT NOT NULL CHECK(start_day_policy IN (
+                    'ALL_OWNER_CONFIRMED', 'EXPLICIT_SUPPLY_SET'
+                )),
+                new_unit_cost_rub TEXT NOT NULL CHECK(length(trim(new_unit_cost_rub)) BETWEEN 1 AND 32),
+                cost_input_fingerprint TEXT NOT NULL CHECK(length(cost_input_fingerprint) = 64),
+                old_home_confirmed_zero INTEGER NOT NULL CHECK(old_home_confirmed_zero = 1),
+                old_transit_confirmed_zero INTEGER NOT NULL CHECK(old_transit_confirmed_zero = 1),
+                boundary_supply_digests_json TEXT NOT NULL CHECK(
+                    length(CAST(boundary_supply_digests_json AS BLOB)) <= 65536
+                ),
+                predecessor_rule_id TEXT,
+                predecessor_rule_revision INTEGER,
+                event_kind TEXT NOT NULL CHECK(event_kind IN ('CONFIRM', 'REPLACE', 'CLOSE', 'CANCEL')),
+                end_local_date_exclusive TEXT,
+                owner_confirmation_fingerprint TEXT NOT NULL
+                    CHECK(length(owner_confirmation_fingerprint) = 64),
+                confirmed_at_utc TEXT NOT NULL,
+                rule_fingerprint TEXT NOT NULL CHECK(length(rule_fingerprint) = 64),
+                applied_rate_reference TEXT CHECK(
+                    applied_rate_reference IS NULL OR
+                    length(applied_rate_reference) BETWEEN 8 AND 96
+                ),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 8 AND 128),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                recorded_at TEXT NOT NULL,
+                UNIQUE(case_id, rule_id, rule_revision),
+                UNIQUE(case_id, rule_revision),
+                UNIQUE(case_id, idempotency_key),
+                UNIQUE(case_id, rule_id, rule_revision, rule_fingerprint),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, sku, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                    ),
+                CHECK((predecessor_rule_id IS NULL) = (predecessor_rule_revision IS NULL)),
+                CHECK(predecessor_rule_revision IS NULL OR predecessor_rule_revision >= 1),
+                FOREIGN KEY(case_id, predecessor_rule_id, predecessor_rule_revision)
+                    REFERENCES fifo_cost_batch_rule_revisions(
+                        case_id, rule_id, rule_revision
+                    ),
+                CHECK(event_kind NOT IN ('CLOSE', 'CANCEL') OR
+                      end_local_date_exclusive IS NOT NULL),
+                CHECK(end_local_date_exclusive IS NULL OR
+                      end_local_date_exclusive > start_local_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_supply_observations (
+                observation_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL CHECK(length(trim(store_id)) BETWEEN 1 AND 128),
+                sku TEXT NOT NULL CHECK(length(trim(sku)) BETWEEN 1 AND 64),
+                product_id TEXT,
+                offer_id TEXT,
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                record_key TEXT NOT NULL CHECK(length(record_key) = 64),
+                observation_revision INTEGER NOT NULL CHECK(observation_revision >= 1),
+                order_ref_digest TEXT NOT NULL CHECK(length(order_ref_digest) = 64),
+                supply_ref_digest TEXT NOT NULL CHECK(length(supply_ref_digest) = 64),
+                encrypted_lookup_payload BLOB NOT NULL CHECK(
+                    length(encrypted_lookup_payload) BETWEEN 80 AND 4096
+                ),
+                source_profile_version TEXT NOT NULL
+                    CHECK(length(trim(source_profile_version)) BETWEEN 1 AND 64),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                captured_at TEXT NOT NULL,
+                source_as_of TEXT,
+                source_status TEXT CHECK(source_status IS NULL OR
+                    length(trim(source_status)) BETWEEN 1 AND 64),
+                normalized_status TEXT NOT NULL CHECK(normalized_status IN (
+                    'DECLARED', 'AT_DROPOFF', 'IN_TRANSIT', 'RECEIVING',
+                    'PARTIALLY_ACCEPTED', 'ACCEPTED', 'CANCELLED', 'UNKNOWN'
+                )),
+                is_crossdock INTEGER CHECK(is_crossdock IS NULL OR is_crossdock IN (0, 1)),
+                dispatch_local_date TEXT,
+                dispatch_local_time TEXT,
+                dispatch_time_status TEXT NOT NULL CHECK(
+                    dispatch_time_status IN ('CONFIRMED', 'UNKNOWN')
+                ),
+                planned_declared_quantity INTEGER CHECK(
+                    planned_declared_quantity IS NULL OR
+                    planned_declared_quantity BETWEEN 0 AND 1000000
+                ),
+                shipped_composition_quantity INTEGER CHECK(
+                    shipped_composition_quantity IS NULL OR
+                    shipped_composition_quantity BETWEEN 0 AND 1000000
+                ),
+                accepted_quantity INTEGER CHECK(
+                    accepted_quantity IS NULL OR accepted_quantity BETWEEN 0 AND 1000000
+                ),
+                quantity_source_kind TEXT NOT NULL CHECK(quantity_source_kind IN (
+                    'OWNER_INPUT', 'OWNER_IMPORTED', 'OZON_API', 'LOCAL_DERIVED'
+                )),
+                quantity_coverage TEXT NOT NULL CHECK(quantity_coverage IN (
+                    'COMPLETE', 'PARTIAL', 'UNKNOWN'
+                )),
+                acceptance_fingerprint TEXT CHECK(acceptance_fingerprint IS NULL OR
+                    length(acceptance_fingerprint) = 64),
+                acceptance_version INTEGER CHECK(
+                    acceptance_version IS NULL OR acceptance_version >= 1
+                ),
+                explicit_zero_fields_json TEXT NOT NULL CHECK(
+                    length(CAST(explicit_zero_fields_json AS BLOB)) <= 1024
+                ),
+                membership TEXT NOT NULL CHECK(membership IN (
+                    'ELIGIBLE', 'NEEDS_CONFIRMATION', 'OUTSIDE_RULE', 'EXCLUDED', 'CONFLICT'
+                )),
+                issues_json TEXT NOT NULL CHECK(length(CAST(issues_json AS BLOB)) <= 8192),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                recorded_at TEXT NOT NULL,
+                UNIQUE(case_id, record_key, observation_revision),
+                UNIQUE(case_id, record_key, source_fingerprint),
+                UNIQUE(case_id, observation_id, record_key, source_fingerprint),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, sku, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                    ),
+                CHECK((acceptance_fingerprint IS NULL) = (acceptance_version IS NULL)),
+                CHECK((accepted_quantity IS NULL) = (acceptance_fingerprint IS NULL)),
+                CHECK(dispatch_time_status <> 'CONFIRMED' OR dispatch_local_date IS NOT NULL),
+                CHECK((planned_declared_quantity = 0 AND
+                       instr(explicit_zero_fields_json, 'planned_declared_quantity') > 0)
+                      OR planned_declared_quantity <> 0 OR
+                      instr(explicit_zero_fields_json, 'planned_declared_quantity') = 0),
+                CHECK((shipped_composition_quantity = 0 AND
+                       instr(explicit_zero_fields_json, 'shipped_composition_quantity') > 0)
+                      OR shipped_composition_quantity <> 0 OR
+                      instr(explicit_zero_fields_json, 'shipped_composition_quantity') = 0),
+                CHECK((accepted_quantity = 0 AND
+                       instr(explicit_zero_fields_json, 'accepted_quantity') > 0)
+                      OR accepted_quantity <> 0 OR
+                      instr(explicit_zero_fields_json, 'accepted_quantity') = 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_membership_decisions (
+                decision_id TEXT PRIMARY KEY CHECK(length(decision_id) BETWEEN 8 AND 96),
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                case_id TEXT NOT NULL,
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                product_id TEXT,
+                offer_id TEXT,
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                rule_id TEXT NOT NULL,
+                rule_revision INTEGER NOT NULL CHECK(rule_revision BETWEEN 1 AND 100),
+                rule_fingerprint TEXT NOT NULL CHECK(length(rule_fingerprint) = 64),
+                decision TEXT NOT NULL CHECK(decision IN ('INCLUDED', 'EXCLUDED')),
+                source TEXT NOT NULL CHECK(source IN (
+                    'RULE_WITH_CONFIRMED_DISPATCH', 'OWNER_SELECTED_SET'
+                )),
+                record_keys_json TEXT NOT NULL CHECK(
+                    length(CAST(record_keys_json AS BLOB)) BETWEEN 2 AND 8192
+                ),
+                relevant_source_fingerprints_json TEXT NOT NULL CHECK(
+                    length(CAST(relevant_source_fingerprints_json AS BLOB)) BETWEEN 2 AND 8192
+                ),
+                candidate_set_fingerprint TEXT NOT NULL
+                    CHECK(length(candidate_set_fingerprint) = 64),
+                membership_binding_fingerprint TEXT NOT NULL
+                    CHECK(length(membership_binding_fingerprint) = 64),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 8 AND 96),
+                confirmed_at TEXT NOT NULL,
+                previous_decision_ref TEXT CHECK(
+                    previous_decision_ref IS NULL OR
+                    length(previous_decision_ref) BETWEEN 8 AND 96
+                ),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                recorded_at TEXT NOT NULL,
+                UNIQUE(case_id, decision_id, revision),
+                UNIQUE(case_id, decision_id),
+                UNIQUE(case_id, idempotency_key),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, sku, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                    ),
+                FOREIGN KEY(case_id, rule_id, rule_revision, rule_fingerprint)
+                    REFERENCES fifo_cost_batch_rule_revisions(
+                        case_id, rule_id, rule_revision, rule_fingerprint
+                    )
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_membership_decision_observations (
+                decision_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                record_key TEXT NOT NULL CHECK(length(record_key) = 64),
+                source_fingerprint TEXT NOT NULL CHECK(length(source_fingerprint) = 64),
+                PRIMARY KEY(decision_id, record_key),
+                FOREIGN KEY(case_id, decision_id)
+                    REFERENCES fifo_cost_batch_membership_decisions(case_id, decision_id),
+                FOREIGN KEY(case_id, record_key, source_fingerprint)
+                    REFERENCES fifo_cost_batch_supply_observations(
+                        case_id, record_key, source_fingerprint
+                    )
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_supply_scans (
+                scan_id TEXT NOT NULL CHECK(length(scan_id) BETWEEN 8 AND 96),
+                case_id TEXT NOT NULL,
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                product_id TEXT,
+                offer_id TEXT,
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                rule_id TEXT NOT NULL,
+                rule_revision INTEGER NOT NULL CHECK(rule_revision BETWEEN 1 AND 100),
+                rule_fingerprint TEXT NOT NULL CHECK(length(rule_fingerprint) = 64),
+                requested_from TEXT,
+                requested_through TEXT,
+                captured_at TEXT NOT NULL,
+                source_as_of TEXT,
+                supported_state_profile_json TEXT NOT NULL CHECK(
+                    length(CAST(supported_state_profile_json AS BLOB)) <= 8192
+                ),
+                list_pagination_complete INTEGER NOT NULL CHECK(list_pagination_complete IN (0, 1)),
+                details_complete INTEGER NOT NULL CHECK(details_complete IN (0, 1)),
+                sku_composition_complete INTEGER NOT NULL CHECK(sku_composition_complete IN (0, 1)),
+                historical_window_proven INTEGER NOT NULL CHECK(historical_window_proven IN (0, 1)),
+                membership_complete INTEGER NOT NULL CHECK(membership_complete IN (0, 1)),
+                quantity_complete INTEGER NOT NULL CHECK(quantity_complete IN (0, 1)),
+                physical_receipt_timing_complete INTEGER NOT NULL CHECK(
+                    physical_receipt_timing_complete IN (0, 1)
+                ),
+                observation_set_fingerprint TEXT NOT NULL
+                    CHECK(length(observation_set_fingerprint) = 64),
+                source_contract_version TEXT NOT NULL
+                    CHECK(length(trim(source_contract_version)) BETWEEN 1 AND 64),
+                orders_seen INTEGER NOT NULL CHECK(orders_seen BETWEEN 0 AND 2000),
+                supplies_seen INTEGER NOT NULL CHECK(supplies_seen BETWEEN 0 AND 5000),
+                sku_rows_seen INTEGER NOT NULL CHECK(sku_rows_seen BETWEEN 0 AND 10000),
+                unknown_order_count INTEGER NOT NULL CHECK(unknown_order_count BETWEEN 0 AND 2000),
+                unknown_supply_count INTEGER NOT NULL CHECK(unknown_supply_count BETWEEN 0 AND 5000),
+                unknown_quantity_supply_count INTEGER NOT NULL
+                    CHECK(unknown_quantity_supply_count BETWEEN 0 AND 5000),
+                issue_codes_json TEXT NOT NULL CHECK(
+                    length(CAST(issue_codes_json AS BLOB)) <= 8192
+                ),
+                encrypted_resumable_token BLOB CHECK(
+                    encrypted_resumable_token IS NULL OR
+                    length(encrypted_resumable_token) BETWEEN 80 AND 8192
+                ),
+                status TEXT NOT NULL CHECK(status IN (
+                    'STAGING', 'PARTIAL', 'PUBLISHED', 'FAILED', 'EXPIRED'
+                )),
+                expires_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(case_id, scan_id),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, sku, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                    ),
+                FOREIGN KEY(case_id, rule_id, rule_revision, rule_fingerprint)
+                    REFERENCES fifo_cost_batch_rule_revisions(
+                        case_id, rule_id, rule_revision, rule_fingerprint
+                    ),
+                CHECK((requested_from IS NULL) = (requested_through IS NULL)),
+                CHECK(requested_from IS NULL OR requested_through >= requested_from)
+            );
+
+            CREATE TABLE IF NOT EXISTS fifo_cost_batch_total_controls (
+                control_id TEXT PRIMARY KEY CHECK(length(control_id) BETWEEN 8 AND 96),
+                control_revision INTEGER NOT NULL CHECK(control_revision >= 1),
+                case_id TEXT NOT NULL,
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                product_id TEXT,
+                offer_id TEXT,
+                scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint) = 64),
+                total_units INTEGER NOT NULL CHECK(total_units BETWEEN 0 AND 5000000000),
+                window_from TEXT NOT NULL,
+                window_through TEXT NOT NULL,
+                control_kind TEXT NOT NULL CHECK(length(trim(control_kind)) BETWEEN 1 AND 64),
+                control_status TEXT NOT NULL CHECK(control_status IN (
+                    'OWNER_CONFIRMED', 'SUPERSEDED', 'REVOKED'
+                )),
+                source_proof_fingerprint TEXT NOT NULL
+                    CHECK(length(source_proof_fingerprint) = 64),
+                owner_confirmation_fingerprint TEXT NOT NULL
+                    CHECK(length(owner_confirmation_fingerprint) = 64),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 8 AND 96),
+                payload_fingerprint TEXT NOT NULL CHECK(length(payload_fingerprint) = 64),
+                confirmed_at TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                UNIQUE(case_id, control_id, control_revision),
+                UNIQUE(case_id, idempotency_key),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, sku, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                    ),
+                CHECK(window_through >= window_from)
+            );
             """
         for statement in statements.split(";"):
             if statement.strip():
@@ -11369,6 +11711,22 @@ class FifoCostRepository:
                 ON fifo_cost_transition_evidence_confirmations(case_id, evidence_id, confirmed_at);
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_allocation_rate_balances_rate
                 ON fifo_cost_allocation_rate_balances(allocation_id, rate_change_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_transition_cases_batch_scope
+                ON fifo_cost_transition_cases(
+                    owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                );
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_rules_case_date
+                ON fifo_cost_batch_rule_revisions(case_id, rule_id, start_local_date, rule_revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_observations_record
+                ON fifo_cost_batch_supply_observations(case_id, record_key, observation_revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_decisions_rule
+                ON fifo_cost_batch_membership_decisions(case_id, rule_id, rule_revision, revision);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_decision_observations_key
+                ON fifo_cost_batch_membership_decision_observations(case_id, record_key);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_scans_updated
+                ON fifo_cost_batch_supply_scans(case_id, updated_at, scan_id);
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_batch_controls_window
+                ON fifo_cost_batch_total_controls(case_id, window_from, window_through, control_revision);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_allocation_rate_balances_current
                 ON fifo_cost_allocation_rate_balances(allocation_id)
                 WHERE remaining_units IS NULL;
@@ -11411,6 +11769,28 @@ class FifoCostRepository:
                     + length(NEW.encrypted_payload) > 67108864
                BEGIN
                    SELECT RAISE(ABORT, 'quota: FIFO_TRANSITION_EVIDENCE_QUOTA_EXCEEDED');
+               END"""
+        )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_fifo_cost_batch_rule_case_quota
+               BEFORE INSERT ON fifo_cost_batch_rule_revisions
+               WHEN (SELECT COUNT(*) FROM fifo_cost_batch_rule_revisions
+                     WHERE case_id=NEW.case_id) >= 100
+               BEGIN
+                   SELECT RAISE(ABORT, 'quota: FIFO_BATCH_RULE_LIMIT_REACHED');
+               END"""
+        )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_fifo_cost_batch_observation_case_quota
+               BEFORE INSERT ON fifo_cost_batch_supply_observations
+               WHEN (SELECT COUNT(*) FROM fifo_cost_batch_supply_observations
+                     WHERE case_id=NEW.case_id) >= 20000
+                 OR COALESCE((SELECT SUM(length(encrypted_lookup_payload))
+                              FROM fifo_cost_batch_supply_observations
+                              WHERE case_id=NEW.case_id), 0)
+                    + length(NEW.encrypted_lookup_payload) > 67108864
+               BEGIN
+                   SELECT RAISE(ABORT, 'quota: FIFO_BATCH_OBSERVATION_LIMIT_REACHED');
                END"""
         )
 
@@ -11458,7 +11838,7 @@ class FifoCostRepository:
         transition_required_columns = {
             "fifo_cost_transition_cases": {
                 "case_id", "owner_fingerprint", "tenant_fingerprint", "store_id",
-                "sku", "current_revision", "current_state",
+                "sku", "current_revision", "current_state", "supply_total_mode",
             },
             "fifo_cost_transition_case_revisions": {
                 "revision_id", "case_id", "case_revision", "payload_json",
@@ -11517,6 +11897,39 @@ class FifoCostRepository:
                 "unit_cost_rub", "reconciliation_reference",
                 "reconciliation_fingerprint", "original_basis_kind",
                 "original_basis_reference", "origin_sale_event_id",
+            },
+            "fifo_cost_batch_rule_revisions": {
+                "rule_event_id", "rule_id", "rule_revision", "case_id",
+                "owner_fingerprint", "tenant_fingerprint", "store_id", "sku",
+                "scope_fingerprint", "start_local_date", "new_unit_cost_rub",
+                "old_home_confirmed_zero", "old_transit_confirmed_zero",
+                "idempotency_key", "payload_fingerprint",
+            },
+            "fifo_cost_batch_supply_observations": {
+                "observation_id", "case_id", "record_key", "observation_revision",
+                "encrypted_lookup_payload", "source_fingerprint", "normalized_status",
+                "planned_declared_quantity", "shipped_composition_quantity",
+                "accepted_quantity", "quantity_coverage", "membership",
+            },
+            "fifo_cost_batch_membership_decisions": {
+                "decision_id", "revision", "case_id", "rule_id", "rule_revision",
+                "candidate_set_fingerprint", "membership_binding_fingerprint",
+                "idempotency_key",
+            },
+            "fifo_cost_batch_membership_decision_observations": {
+                "decision_id", "case_id", "record_key", "source_fingerprint",
+            },
+            "fifo_cost_batch_supply_scans": {
+                "scan_id", "case_id", "revision", "rule_id", "rule_revision",
+                "list_pagination_complete", "details_complete",
+                "sku_composition_complete", "historical_window_proven",
+                "membership_complete", "quantity_complete",
+                "physical_receipt_timing_complete", "encrypted_resumable_token",
+            },
+            "fifo_cost_batch_total_controls": {
+                "control_id", "control_revision", "case_id", "total_units",
+                "window_from", "window_through", "control_kind", "control_status",
+                "owner_confirmation_fingerprint", "idempotency_key",
             },
         }
         actual_transition_columns = {

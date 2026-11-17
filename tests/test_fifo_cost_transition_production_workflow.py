@@ -393,6 +393,8 @@ def test_fr27_production_workflow_requires_exact_owner_cutoff_receiving_bucket(
     workflow["report_import_service"].worker = parser_worker
     workflow["physical_sales_import_service"].worker = parser_worker
     runtime = workflow["runtime_service"]
+    assert workflow["batch_rule_service"].repository is repository
+    assert workflow["batch_rule_telegram_service"] is runtime.batch_rule_telegram_service
 
     try:
         created = runtime.start_new_case(101, IDENTITY, "Synthetic", 0, "TOTAL_LANDED")

@@ -49,6 +49,7 @@ class TelegramFifoCostTransitionRuntimeService:
         source_collection_service=None, evidence_service=None,
         period_summary_collection_service=None,
         period_profit_service=None,
+        batch_rule_telegram_service=None,
         monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
@@ -63,6 +64,7 @@ class TelegramFifoCostTransitionRuntimeService:
         self.evidence_service = evidence_service
         self.period_summary_collection_service = period_summary_collection_service
         self.period_profit_service = period_profit_service
+        self.batch_rule_telegram_service = batch_rule_telegram_service
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -248,6 +250,17 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
                 keyboard=self._field_confirmation_keyboard(session["candidate_token"]),
             )
+        if session.get("step") == "batch_mode_choice":
+            return self.batch_rule_telegram_service.handle_mode_text(
+                self, owner, text,
+            )
+        if (
+            isinstance(session.get("step"), str)
+            and session["step"].startswith("batch_control_")
+        ):
+            return self.batch_rule_telegram_service.handle_text(
+                self, owner, session, text,
+            )
         if session.get("step") == "physical_sales":
             if self.physical_sales_import_service is None:
                 return self._failure(
@@ -313,6 +326,13 @@ class TelegramFifoCostTransitionRuntimeService:
             }:
                 return self._stale()
             self._refresh_session(session, case)
+        if (
+            self.batch_rule_telegram_service is not None
+            and action.startswith("batch_")
+        ):
+            return self.batch_rule_telegram_service.handle_callback(
+                self, owner, session, ticket, action,
+            )
         if action == "confirm_field":
             return self._confirm_field(owner, session, ticket)
         if action == "cancel_field":
@@ -572,6 +592,10 @@ class TelegramFifoCostTransitionRuntimeService:
     def _handle_field_text(self, owner, session, text):
         step = self._next_field(session["case"])
         if step is None:
+            if self.batch_rule_telegram_service is not None:
+                return self.batch_rule_telegram_service.show_mode_choice(self, owner)
+            if session["case"].get("declared_shipped_units") is not None:
+                return self._show_supply_stage(owner)
             return self._show_supply_stage(owner)
         try:
             if step == "old_unit_cost_rub":
@@ -1553,6 +1577,10 @@ class TelegramFifoCostTransitionRuntimeService:
             )
         step = self._next_field(session["case"])
         if step is None:
+            if self.batch_rule_telegram_service is not None:
+                return self.batch_rule_telegram_service.show_mode_choice(self, owner)
+            if session["case"].get("declared_shipped_units") is not None:
+                return self._show_supply_stage(owner)
             return self._show_supply_stage(owner)
         session["step"] = step
         prompt = {
@@ -2275,6 +2303,7 @@ class TelegramFifoCostTransitionRuntimeService:
                 "case_id": session["case_id"],
                 "identity": dict(session["identity"]),
                 "case_revision": session["case_revision"],
+                "flow_revision": session.get("flow_revision", 0),
                 "action": action,
                 "expires_at": now + self.TTL_SECONDS,
                 **extra,
@@ -2319,6 +2348,7 @@ class TelegramFifoCostTransitionRuntimeService:
             "display_name": str(display_name or "Товар"),
             "case_id": case_id,
             "case_revision": revision,
+            "flow_revision": 0,
             "expires_at": now + self.TTL_SECONDS,
         }
         case = self._read_case(case_id, identity)
@@ -2374,10 +2404,15 @@ class TelegramFifoCostTransitionRuntimeService:
         values = dict(case)
         if isinstance(overrides, dict):
             values.update(overrides)
-        for field in (
+        fields = [
             "old_unit_cost_rub", "new_unit_cost_rub", "dispatch_date",
-            "owner_old_home_units", "owner_old_transit_units", "declared_shipped_units",
-        ):
+            "owner_old_home_units", "owner_old_transit_units",
+        ]
+        if self.batch_rule_telegram_service is None:
+            # Keep the old explicit-total wizard for callers that have not yet
+            # been composed with the new batch-rule UI.
+            fields.append("declared_shipped_units")
+        for field in fields:
             if values.get(field) is None:
                 return field
         return None
@@ -2497,6 +2532,7 @@ class TelegramFifoCostTransitionRuntimeService:
             ticket.get("case_id") == session.get("case_id")
             and ticket.get("tenant") == session.get("tenant")
             and ticket.get("case_revision") == session.get("case_revision")
+            and ticket.get("flow_revision", 0) == session.get("flow_revision", 0)
             and ticket.get("identity") == session.get("identity")
         )
 

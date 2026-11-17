@@ -87,6 +87,12 @@ class CostInputMode(str, Enum):
     COMPONENTS = "COMPONENTS"
 
 
+class SupplyTotalMode(str, Enum):
+    LEGACY_OWNER_TOTAL = "LEGACY_OWNER_TOTAL"
+    AUTO_FROM_SUPPLIES = "AUTO_FROM_SUPPLIES"
+    OWNER_CONTROL = "OWNER_CONTROL"
+
+
 class EvidenceSourceKind(str, Enum):
     OWNER_INPUT = "OWNER_INPUT"
     OWNER_IMPORTED = "OWNER_IMPORTED"
@@ -573,6 +579,7 @@ class TransitionCase:
     owner_old_transit_units: int | None
     new_home_quantity: int | None
     declared_shipped_units: int | None
+    supply_total_mode: SupplyTotalMode = SupplyTotalMode.LEGACY_OWNER_TOTAL
     opening_evidence_ref: str | None = None
     source_watermark: str | None = None
     reason_codes: tuple[TransitionReasonCode, ...] = ()
@@ -597,6 +604,8 @@ class TransitionCase:
             _fail(TransitionReasonCode.STATE_INVALID)
         if not isinstance(self.cost_input_mode, CostInputMode):
             _fail(TransitionReasonCode.COST_INPUT_INVALID)
+        if not isinstance(self.supply_total_mode, SupplyTotalMode):
+            _fail(TransitionReasonCode.CONTRACT_INVALID)
         object.__setattr__(self, "created_at", normalize_utc_timestamp(self.created_at))
         object.__setattr__(self, "updated_at", normalize_utc_timestamp(self.updated_at))
         if self.updated_at < self.created_at:

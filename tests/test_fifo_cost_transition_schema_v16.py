@@ -78,13 +78,13 @@ def _insert_evidence(connection, values=None, **kwargs):
     )
 
 
-def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_version(tmp_path):
-    repository = FifoCostRepository(db_path=tmp_path / "fresh-v16.sqlite")
+def test_fresh_fifo_schema_v17_has_scoped_append_only_tables_and_leaves_user_version(tmp_path):
+    repository = FifoCostRepository(db_path=tmp_path / "fresh-v17.sqlite")
     connection = repository.get_connection()
     try:
         assert connection.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 16
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 17
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
         tables = {
             row[0] for row in connection.execute(
@@ -95,6 +95,12 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
             "fifo_cost_transition_bridge_evidence",
             "fifo_cost_transition_evidence_confirmations",
             "fifo_cost_allocation_rate_balances",
+            "fifo_cost_batch_rule_revisions",
+            "fifo_cost_batch_supply_observations",
+            "fifo_cost_batch_membership_decisions",
+            "fifo_cost_batch_membership_decision_observations",
+            "fifo_cost_batch_supply_scans",
+            "fifo_cost_batch_total_controls",
         } <= tables
         for table, expected in {
             "fifo_cost_transition_bridge_evidence": {
@@ -114,6 +120,35 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
                 "unit_cost_rub", "reconciliation_fingerprint", "original_basis_kind",
                 "original_basis_reference", "origin_sale_event_id",
             },
+            "fifo_cost_batch_rule_revisions": {
+                "rule_event_id", "rule_id", "rule_revision", "case_id",
+                "owner_fingerprint", "tenant_fingerprint", "store_id", "sku",
+                "scope_fingerprint", "policy_version", "start_local_date",
+                "start_day_policy", "new_unit_cost_rub", "old_home_confirmed_zero",
+                "old_transit_confirmed_zero", "idempotency_key", "payload_fingerprint",
+            },
+            "fifo_cost_batch_supply_observations": {
+                "observation_id", "case_id", "record_key", "observation_revision",
+                "encrypted_lookup_payload", "source_fingerprint", "normalized_status",
+                "planned_declared_quantity", "shipped_composition_quantity",
+                "accepted_quantity", "quantity_coverage", "membership",
+            },
+            "fifo_cost_batch_membership_decisions": {
+                "decision_id", "case_id", "rule_id", "rule_revision",
+                "candidate_set_fingerprint", "membership_binding_fingerprint",
+                "idempotency_key",
+            },
+            "fifo_cost_batch_supply_scans": {
+                "scan_id", "case_id", "revision", "list_pagination_complete",
+                "details_complete", "sku_composition_complete",
+                "historical_window_proven", "membership_complete", "quantity_complete",
+                "physical_receipt_timing_complete", "encrypted_resumable_token",
+            },
+            "fifo_cost_batch_total_controls": {
+                "control_id", "case_id", "total_units", "window_from",
+                "window_through", "control_kind", "control_status",
+                "owner_confirmation_fingerprint",
+            },
         }.items():
             columns = {
                 row[1] for row in connection.execute(f"PRAGMA table_info({table})")
@@ -128,6 +163,12 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
                 "fifo_cost_transition_bridge_evidence",
                 "fifo_cost_transition_evidence_confirmations",
                 "fifo_cost_allocation_rate_balances",
+                "fifo_cost_batch_rule_revisions",
+                "fifo_cost_batch_supply_observations",
+                "fifo_cost_batch_membership_decisions",
+                "fifo_cost_batch_membership_decision_observations",
+                "fifo_cost_batch_supply_scans",
+                "fifo_cost_batch_total_controls",
             )
         }
         assert any(row[0] == "fifo_cost_transition_cases" for row in foreign_keys[
@@ -139,6 +180,15 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
         assert any(row[0] == "fifo_cost_allocations" for row in foreign_keys[
             "fifo_cost_allocation_rate_balances"
         ])
+        assert any(row[0] == "fifo_cost_transition_cases" for row in foreign_keys[
+            "fifo_cost_batch_rule_revisions"
+        ])
+        assert any(row[0] == "fifo_cost_batch_rule_revisions" for row in foreign_keys[
+            "fifo_cost_batch_membership_decisions"
+        ])
+        assert any(row[0] == "fifo_cost_batch_supply_observations" for row in foreign_keys[
+            "fifo_cost_batch_membership_decision_observations"
+        ])
         triggers = {
             row[0] for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='trigger'"
@@ -148,6 +198,11 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
             "fifo_cost_transition_bridge_evidence",
             "fifo_cost_transition_evidence_confirmations",
             "fifo_cost_allocation_rate_balances",
+            "fifo_cost_batch_rule_revisions",
+            "fifo_cost_batch_supply_observations",
+            "fifo_cost_batch_membership_decisions",
+            "fifo_cost_batch_membership_decision_observations",
+            "fifo_cost_batch_total_controls",
         ):
             assert f"trg_{table}_no_update" in triggers
             assert f"trg_{table}_no_delete" in triggers
@@ -160,6 +215,22 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
         assert "idx_fifo_cost_transition_confirmations_evidence" in indexes
         assert "idx_fifo_cost_transition_cases_owner_scope" in indexes
         assert "idx_fifo_cost_allocation_rate_balances_current" in indexes
+        assert "idx_fifo_cost_transition_cases_batch_scope" in indexes
+        assert "idx_fifo_cost_batch_rules_case_date" in indexes
+        assert "idx_fifo_cost_batch_observations_record" in indexes
+        assert "idx_fifo_cost_batch_decisions_rule" in indexes
+        assert "idx_fifo_cost_batch_scans_updated" in indexes
+        assert "idx_fifo_cost_batch_controls_window" in indexes
+        assert "trg_fifo_cost_batch_rule_case_quota" in triggers
+        assert "trg_fifo_cost_batch_observation_case_quota" in triggers
+        assert "trg_fifo_cost_batch_supply_scans_no_update" not in triggers
+        assert "trg_fifo_cost_batch_supply_scans_no_delete" not in triggers
+        case_columns = {
+            row[1]: row for row in connection.execute(
+                "PRAGMA table_info(fifo_cost_transition_cases)"
+            )
+        }
+        assert case_columns["supply_total_mode"][4] == "'LEGACY_OWNER_TOTAL'"
         rate_balance_columns = {
             row[1]: row for row in connection.execute(
                 "PRAGMA table_info(fifo_cost_allocation_rate_balances)"
@@ -171,21 +242,30 @@ def test_fresh_fifo_schema_v16_has_scoped_append_only_tables_and_leaves_user_ver
         connection.close()
 
 
-@pytest.mark.parametrize("legacy_version", [12, 13, 14, 15])
-def test_v12_through_v15_upgrade_adds_v16_without_mutating_period_confirmations(
+@pytest.mark.parametrize("legacy_version", [12, 13, 14, 15, 16])
+def test_v12_through_v16_upgrade_adds_v17_without_mutating_period_confirmations(
     tmp_path, legacy_version,
 ):
-    database = tmp_path / f"v{legacy_version}-to-v16.sqlite"
+    database = tmp_path / f"v{legacy_version}-to-v17.sqlite"
     repository = FifoCostRepository(db_path=database)
     connection = repository.get_connection()
     try:
         _seed_case_and_period_confirmation(connection)
         for table in (
+            "fifo_cost_batch_membership_decision_observations",
+            "fifo_cost_batch_membership_decisions",
+            "fifo_cost_batch_supply_observations",
+            "fifo_cost_batch_supply_scans",
+            "fifo_cost_batch_total_controls",
+            "fifo_cost_batch_rule_revisions",
             "fifo_cost_allocation_rate_balances",
             "fifo_cost_transition_evidence_confirmations",
             "fifo_cost_transition_bridge_evidence",
         ):
             connection.execute(f"DROP TABLE IF EXISTS {table}")
+        connection.execute(
+            "ALTER TABLE fifo_cost_transition_cases DROP COLUMN supply_total_mode"
+        )
         connection.execute(
             "UPDATE fifo_cost_schema SET version=? WHERE singleton=1",
             (legacy_version,),
@@ -202,31 +282,43 @@ def test_v12_through_v15_upgrade_adds_v16_without_mutating_period_confirmations(
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 16
+        ).fetchone()[0] == 17
         assert tuple(migrated.execute(
             "SELECT * FROM fifo_cost_report_period_confirmations"
         ).fetchone()) == before
         assert migrated.execute("PRAGMA user_version").fetchone()[0] == user_version
+        assert migrated.execute(
+            "SELECT supply_total_mode FROM fifo_cost_transition_cases WHERE case_id='case-1'"
+        ).fetchone()[0] == "LEGACY_OWNER_TOTAL"
         assert migrated.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         migrated.close()
 
 
-def test_v15_migration_rolls_back_new_tables_and_restores_existing_confirmation(tmp_path, monkeypatch):
-    database = tmp_path / "v15-rollback.sqlite"
+def test_v16_migration_rolls_back_new_tables_and_restores_existing_confirmation(tmp_path, monkeypatch):
+    database = tmp_path / "v16-rollback.sqlite"
     repository = FifoCostRepository(db_path=database)
     connection = repository.get_connection()
     try:
         _seed_case_and_period_confirmation(connection)
         connection.row_factory = sqlite3.Row
         for table in (
+            "fifo_cost_batch_membership_decision_observations",
+            "fifo_cost_batch_membership_decisions",
+            "fifo_cost_batch_supply_observations",
+            "fifo_cost_batch_supply_scans",
+            "fifo_cost_batch_total_controls",
+            "fifo_cost_batch_rule_revisions",
             "fifo_cost_allocation_rate_balances",
             "fifo_cost_transition_evidence_confirmations",
             "fifo_cost_transition_bridge_evidence",
         ):
             connection.execute(f"DROP TABLE IF EXISTS {table}")
         connection.execute(
-            "UPDATE fifo_cost_schema SET version=15 WHERE singleton=1"
+            "ALTER TABLE fifo_cost_transition_cases DROP COLUMN supply_total_mode"
+        )
+        connection.execute(
+            "UPDATE fifo_cost_schema SET version=16 WHERE singleton=1"
         )
         connection.commit()
     finally:
@@ -243,22 +335,47 @@ def test_v15_migration_rolls_back_new_tables_and_restores_existing_confirmation(
     ).fetchone())
 
     def fail_after_new_ddl(_connection):
-        raise sqlite3.OperationalError("injected v16 index failure")
+        raise sqlite3.OperationalError("injected v17 index failure")
 
     monkeypatch.setattr(FifoCostRepository, "_create_indexes", staticmethod(fail_after_new_ddl))
     try:
-        with pytest.raises(sqlite3.OperationalError, match="injected v16 index failure"):
+        with pytest.raises(sqlite3.OperationalError, match="injected v17 index failure"):
             repository._initialize_schema(raw)
         assert raw.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert raw.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 15
+        ).fetchone()[0] == 16
         assert tuple(raw.execute(
             "SELECT * FROM fifo_cost_report_period_confirmations"
         ).fetchone()) == before_period
         assert tuple(tuple(row) for row in raw.execute(
             "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
         ).fetchall()) == before_objects
+    finally:
+        raw.close()
+
+
+def test_future_fifo_schema_version_fails_closed_without_schema_mutation(tmp_path):
+    database = tmp_path / "future-schema.sqlite"
+    repository = FifoCostRepository(db_path=database)
+    connection = repository.get_connection()
+    connection.execute("UPDATE fifo_cost_schema SET version=18 WHERE singleton=1")
+    connection.commit()
+    before = tuple(tuple(row) for row in connection.execute(
+        "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+    ).fetchall())
+    connection.close()
+
+    with pytest.raises(sqlite3.DatabaseError, match="unsupported FIFO cost schema version"):
+        repository.get_connection()
+    raw = sqlite3.connect(database)
+    try:
+        assert raw.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == 18
+        assert tuple(tuple(row) for row in raw.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()) == before
     finally:
         raw.close()
 
