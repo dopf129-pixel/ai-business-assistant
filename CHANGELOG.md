@@ -2,7 +2,9 @@
 
 - Removed `UNSPECIFIED` from the shared FIFO supply-list state filter after the owner's seller-specific HTTP 400 response showed Ozon rejects that zero/unknown value. Direct Ozon list-wrapper calls now reject single or mixed `UNSPECIFIED` input before HTTP. Other 11 filter values and their order are unchanged; their seller-specific acceptance is still unverified.
 - FIFO batch list failures with exact `OZON_HTTP_ERROR` / integer HTTP 400 retain the generic unavailable issue and add a fixed safe diagnostic rendered in current and restored Telegram cards. 429, timeouts, and non-integer status values are not labelled as request validation errors. No FIFO quantities, rules, events, layers, allocations, or profit are changed.
+- Follow-up review fix: the HTTP 400 diagnostic is prioritized before Telegram's 2/4-message display caps and before each 12-code session/restore cap. A noisy persisted issue list can no longer hide the actionable cause after restart.
 - Verification on implementation SHA `003ca113669a1e7fe50cc115e7d830bef727ce28`: full pytest passed on Windows and Linux (**5,469 passed** each); compile, production Docker build and runtime smoke passed. Exact-head Verify run [44062802652](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44062802652), successful retry; SHA-bound artifact digest `sha256:2751dd2595f65379115a6f39f1b455f628c74ec8ba3d5a65e75e176da2ef50a7`. Review packet: `project_brain/FIFO_SUPPLY_LIST_FILTER_FIX_REVIEW_2026-11-17.md`.
+- Review-fix local verification: **56** linked FIFO batch/source/checkpoint tests passed; compile, diff and unchanged `data/` checks passed. Exact-head hosted CI is pending for the follow-up commit.
 
 # 2026-11-17 — Match FIFO supplies when offer_id is optional
 

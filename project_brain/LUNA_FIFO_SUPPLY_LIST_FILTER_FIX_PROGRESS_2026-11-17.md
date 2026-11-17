@@ -2,7 +2,7 @@
 
 ## Status
 
-- Current stage: FLF05 complete for implementation SHA; a documentation-only review-packet follow-up is being published and will receive its own exact-head CI.
+- Current stage: FLF06 review finding fixed locally; linked checks pass; exact-head hosted CI for the follow-up is pending.
 - Branch: `codex/fifo-supply-list-filter-fix-20261117`.
 - Base: `main` at `23d8a212fd25692b53a082071ef01b9babedff5f`.
 - Owner data, `.env`, runtime database and Desktop working copy: untouched.
@@ -34,3 +34,11 @@ The owner already ran one read-only `/v3/supply-order/list` call on 2026-11-17. 
 ## Resume
 
 Implementation review is complete. A documentation-only follow-up adds the CI evidence and independent-review packet to PR #737; verify the final PR head's own Windows/Linux checks before handoff. Keep FIFO/R1 readiness semantics unchanged and do not use owner files as test fixtures.
+
+## FLF06 — Review fix: preserve actionable HTTP 400 diagnosis in Telegram
+
+- Review reproduced a P2 presentation bug: the safe `FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED` message could be omitted by the first-2/first-4 Telegram display caps; a durable restore could lose it even earlier when sorted codes were truncated to 12.
+- Added stable priority ordering for that actionable code before both display slicing and the 12-code capture/restore limits. Other issue codes retain their relative order. Restored-scan conflict classification still examines every saved code before display truncation, so the prioritization cannot weaken the existing fail-closed conflict guard. No collection semantics, FIFO state, source calls, or stored schema changed.
+- Added a synthetic regression for insertion-order and sorted-order rendering limits. Extended the durable HTTP 400 regression with more than 12 alphabetically earlier warning codes; actual restored card text must still show the rejected-request reason.
+- Focused HTTP 400/other error/filter tests: **11 passed**. Linked FIFO source, batch-rule and checkpoint profile: **56 passed in 6.78s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. No live API, Telegram, bot, or owner data was used.
+- Next: commit and publish this review fix to PR #737, then confirm Windows/Linux exact-head CI before handoff. Do not merge or deploy.

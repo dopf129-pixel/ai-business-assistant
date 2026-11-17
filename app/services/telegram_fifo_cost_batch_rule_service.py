@@ -454,13 +454,16 @@ class TelegramFifoCostBatchRuleService:
             issues = json.loads(scan.get("issue_codes_json") or "[]")
             if not isinstance(issues, list):
                 issues = []
-            issue_codes = tuple(
+            all_issue_codes = tuple(
                 value for value in issues
                 if isinstance(value, str) and value.startswith("FIFO_BATCH_")
-            )[:12]
+            )
+            issue_codes = self._bounded_issue_codes(
+                all_issue_codes,
+            )
             if scan.get("status") == "PUBLISHED" and any(
                 marker in issue
-                for issue in issue_codes
+                for issue in all_issue_codes
                 for marker in (
                     "CONFLICT", "MUTATED", "NOT_ADVANCING", "INVALID",
                     "PROOF_MISSING", "CHANGED", "DUPLICATE",
@@ -504,7 +507,7 @@ class TelegramFifoCostBatchRuleService:
                     else:
                         issue = resumed.get("code")
                         if isinstance(issue, str) and issue.startswith("FIFO_BATCH_"):
-                            issue_codes = tuple(dict.fromkeys((*issue_codes, issue)))[:12]
+                            issue_codes = self._bounded_issue_codes((*issue_codes, issue))
             if not continuation_available:
                 session.pop("batch_continuation_token", None)
             session["batch_last_scan"] = {
@@ -605,10 +608,12 @@ class TelegramFifoCostBatchRuleService:
             "sku_composition_complete": (
                 getattr(result, "sku_composition_complete", False) is True
             ),
-            "issue_codes": tuple(
-                value for value in getattr(result, "issue_codes", ())
-                if isinstance(value, str) and value.startswith("FIFO_BATCH_")
-            )[:12],
+            "issue_codes": self._bounded_issue_codes(
+                tuple(
+                    value for value in getattr(result, "issue_codes", ())
+                    if isinstance(value, str) and value.startswith("FIFO_BATCH_")
+                ),
+            ),
             "continuation_available": bool(getattr(result, "continuation_token", None)),
         }
         continuation = getattr(result, "continuation_token", None)
@@ -1188,6 +1193,21 @@ class TelegramFifoCostBatchRuleService:
         }]))
 
     @staticmethod
+    def _prioritize_issue_codes(issue_codes):
+        values = []
+        for code in issue_codes if isinstance(issue_codes, (tuple, list)) else ():
+            if isinstance(code, str) and code not in values:
+                values.append(code)
+        priority = ("FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED",)
+        return tuple(code for code in priority if code in values) + tuple(
+            code for code in values if code not in priority
+        )
+
+    @classmethod
+    def _bounded_issue_codes(cls, issue_codes, limit=12):
+        return cls._prioritize_issue_codes(issue_codes)[:limit]
+
+    @staticmethod
     def _issue_messages(issue_codes):
         messages = {
             "FIFO_BATCH_SUPPLY_STATE_PROFILE_UNVERIFIED": "Ozon не подтвердил полный перечень статусов; найденные строки пока нельзя считать полным набором.",
@@ -1226,7 +1246,7 @@ class TelegramFifoCostBatchRuleService:
             "FIFO_BATCH_CASE_REVISION_CONFLICT": "Дело изменилось. Откройте карточку заново и повторите обновление.",
         }
         result = []
-        for code in issue_codes if isinstance(issue_codes, (tuple, list)) else ():
+        for code in TelegramFifoCostBatchRuleService._prioritize_issue_codes(issue_codes):
             message = messages.get(code)
             if message and message not in result:
                 result.append(message)

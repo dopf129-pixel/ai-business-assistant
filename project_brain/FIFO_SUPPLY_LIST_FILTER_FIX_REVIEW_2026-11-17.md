@@ -47,3 +47,11 @@ The first Linux attempt had one unrelated nondeterministic failure in `test_comp
 ## Review classification
 
 Normal, targeted bug fix. No architecture or public service contract change beyond rejecting the already-invalid filter input with the wrapper's existing local error code.
+
+## Follow-up independent review finding — fixed
+
+The initial implementation added the HTTP 400 explanation but did not give it display priority. The Telegram result shows at most four issue messages and the summary card at most two. On durable restoration, stored issue codes are sorted and truncated to 12 before rendering; sufficiently many earlier warnings could therefore hide the only actionable cause.
+
+The follow-up prioritizes `FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED` before those display and retention caps, while preserving other warning order. The regression injects more than 12 alphabetically earlier codes into the saved scan, restores through the production adapter, and asserts the actual card contains the HTTP 400 explanation. A late conflict marker in that same full list must still force `CONFLICT`, proving truncation does not weaken the existing fail-closed guard. A second test covers fresh and sorted code orders at the 2/4 display boundaries.
+
+Local follow-up verification: **56 passed** across the FIFO source, batch-rule regression and scan-checkpoint modules; `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. Exact-head hosted CI for the follow-up commit is pending. No live Ozon/Telegram calls, bot launch, merge, or deployment.

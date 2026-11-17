@@ -361,6 +361,33 @@ def test_list_http_400_has_safe_specific_issue_and_preserves_failure_status(
                     latest["issue_codes_json"],
                 )
         if durable_source:
+            prioritized_codes = [
+                "FIFO_BATCH_BUNDLE_SCHEMA_UNVERIFIED",
+                "FIFO_BATCH_BUNDLE_UNAVAILABLE",
+                "FIFO_BATCH_BUNDLE_REFERENCE_UNAVAILABLE",
+                "FIFO_BATCH_BUNDLE_TOTAL_COUNT_CHANGED",
+                "FIFO_BATCH_BUNDLE_CURSOR_NOT_ADVANCING",
+                "FIFO_BATCH_BUNDLE_SKU_MAPPING_CONFLICT",
+                "FIFO_BATCH_BUNDLE_DUPLICATE_SKU_MAPPING",
+                "FIFO_BATCH_BUNDLE_COLLECTION_BASIS_UNAVAILABLE",
+                "FIFO_BATCH_SOURCE_BUDGET_EXHAUSTED",
+                "FIFO_BATCH_SUPPLY_CHECKPOINT_UNAVAILABLE",
+                "FIFO_BATCH_SUPPLY_CONTINUATION_STALE",
+                "FIFO_BATCH_SUPPLY_CONTINUATION_INVALID",
+                "FIFO_BATCH_SUPPLY_CONTINUATION_SCOPE_MISMATCH",
+                "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED",
+                "FIFO_BATCH_SUPPLY_MUTATED_DURING_SCAN",
+            ]
+            with repository.get_connection() as connection:
+                connection.execute(
+                    # Exercise a stale published row with enough sorted warnings
+                    # that both the request reason and the conflict marker fall
+                    # outside the old 12-code prefix.
+                    "UPDATE fifo_cost_batch_supply_scans "
+                    "SET issue_codes_json=?, status='PUBLISHED' "
+                    "WHERE scan_id=?",
+                    (json.dumps(sorted(prioritized_codes)), latest["scan_id"]),
+                )
             restored_session = {
                 "tenant": TENANT_SCOPE,
                 "identity": {
@@ -379,13 +406,68 @@ def test_list_http_400_has_safe_specific_issue_and_preserves_failure_status(
                 object(), "owner-a", restored_session,
             ) is True
             restored_codes = restored_session["batch_last_scan"]["issue_codes"]
-            assert "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED" in restored_codes
-            restored_visible = "\n".join(
-                telegram_service._issue_messages(restored_codes)[:2]
-            )
+            assert restored_codes[0] == "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED"
+            assert restored_session["batch_last_scan"]["status"] == "CONFLICT"
+            restored_visible = "\n".join(telegram_service.summary_lines(
+                object(), "owner-a", restored_session,
+            ))
             assert "Ozon отклонил параметры запроса списка поставок (HTTP 400)" in restored_visible
     finally:
         reset_current_tenant_user_id(tenant_token)
+
+
+def test_list_http_400_issue_survives_telegram_display_limits():
+    warnings = (
+        "FIFO_BATCH_SUPPLY_ORDER_STATE_UNSUPPORTED",
+        "FIFO_BATCH_SUPPLY_STATE_UNSUPPORTED",
+        "FIFO_BATCH_BUNDLE_REFERENCE_UNAVAILABLE",
+        "FIFO_BATCH_BUNDLE_SKU_MAPPING_CONFLICT",
+        "FIFO_BATCH_SUPPLY_LIST_UNAVAILABLE",
+        "FIFO_BATCH_SOURCE_BUDGET_EXHAUSTED",
+        "FIFO_BATCH_SUPPLY_PAGE_LIMIT_REACHED",
+    )
+    rejected = "FIFO_BATCH_SUPPLY_LIST_REQUEST_REJECTED"
+    expected = "Ozon отклонил параметры запроса списка поставок (HTTP 400)"
+
+    for issue_codes in (warnings + (rejected,), tuple(sorted((*warnings, rejected)))):
+        messages = TelegramFifoCostBatchRuleService._issue_messages(issue_codes)
+
+        assert messages[0].startswith(expected)
+        assert expected in "\n".join(messages[:2])
+        assert expected in "\n".join(messages[:4])
+
+    class _RenderRuntime:
+        @staticmethod
+        def _issue_ticket(*_args, **_kwargs):
+            return "synthetic-ticket"
+
+        @staticmethod
+        def _keyboard(buttons):
+            return buttons
+
+        @staticmethod
+        def _result(message, keyboard=None):
+            return {"message": message, "keyboard": keyboard}
+
+    service = TelegramFifoCostBatchRuleService.__new__(
+        TelegramFifoCostBatchRuleService,
+    )
+    fresh_response = service._collection_result(
+        _RenderRuntime(),
+        "owner-a",
+        {
+            "batch_last_scan": {
+                "status": "PARTIAL", "issue_codes": warnings + (rejected,),
+                "candidates": 0,
+            },
+        },
+    )
+    assert expected in fresh_response["message"]
+
+    over_limit = tuple(
+        f"FIFO_BATCH_A_{index:02d}" for index in range(12)
+    ) + (rejected,)
+    assert TelegramFifoCostBatchRuleService._bounded_issue_codes(over_limit)[0] == rejected
 
 
 @pytest.mark.parametrize(
