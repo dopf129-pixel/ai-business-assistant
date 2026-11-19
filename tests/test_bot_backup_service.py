@@ -10,6 +10,7 @@ import pytest
 
 from services.expense_repository import ExpenseRepository
 from services.action_storage_service import ActionStorageService
+from services.assistant_session_storage_service import AssistantSessionStorageService
 from services.conversation_history_storage_service import ConversationHistoryStorageService
 from services.store_report_storage_service import StoreReportStorageService
 from services.bot_backup_service import BotBackupService
@@ -60,10 +61,14 @@ def test_backup_accepts_list_json_written_by_supported_app_storages(tmp_path):
     project.mkdir()
     sample_values = {
         "actions.json": [{"id": "synthetic-action"}],
+        "assistant_session.json": [{"role": "assistant", "content": "synthetic"}],
         "conversation_history.json": [{"role": "user", "content": "synthetic"}],
         "store_reports.json": [{"period": "2026-10", "total": 12}],
     }
     ActionStorageService(project / "actions.json").save(sample_values["actions.json"])
+    AssistantSessionStorageService(project / "assistant_session.json").save(
+        sample_values["assistant_session.json"]
+    )
     ConversationHistoryStorageService(project / "conversation_history.json").save(
         sample_values["conversation_history.json"]
     )
@@ -136,7 +141,7 @@ def test_backup_holds_startup_guard_for_the_entire_snapshot(tmp_path, monkeypatc
     first = project / "assistant_memory.json"
     second = project / "assistant_session.json"
     _write_json(first, {"generation": 0})
-    _write_json(second, {"generation": 0})
+    _write_json(second, [{"generation": 0}])
     lifecycle_state_root = tmp_path / "lifecycle"
     service = _service(
         project, None, lifecycle_state_root=lifecycle_state_root
@@ -169,9 +174,9 @@ def test_backup_holds_startup_guard_for_the_entire_snapshot(tmp_path, monkeypatc
         assert json.loads(archive.read("files/project/assistant_memory.json")) == {
             "generation": 0
         }
-        assert json.loads(archive.read("files/project/assistant_session.json")) == {
-            "generation": 0
-        }
+        assert json.loads(archive.read("files/project/assistant_session.json")) == [
+            {"generation": 0}
+        ]
 
 
 def test_backup_reuses_update_guard_without_releasing_callers_lock(tmp_path):

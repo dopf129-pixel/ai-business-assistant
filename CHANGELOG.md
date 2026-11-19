@@ -1,3 +1,9 @@
+# 2026-11-19 — Accept assistant session list in verified bot backups
+
+- Added `assistant_session.json` to the backup service's list-shaped JSON contract. The production storage writes a history list; backups that previously failed with `BOT_BACKUP_JSON_CONTRACT_INVALID` can now be verified and restored.
+- Added a regression using `AssistantSessionStorageService` through backup, archive verification, dry-run restore, and full restore. Updated the startup-guard fixture to use the real list shape.
+- Local verification: backup plus updater runtime/preflight profiles — 57 passed. Full CI is required on the final PR SHA.
+
 # 2026-11-19 — FIFO Ozon supply-list sort direction and cursor compatibility
 
 - Changed both FIFO /v3/supply-order/list scan paths to retain ORDER_CREATION while requesting DESC; the existing 11-state filter is unchanged. This follows the owner-provided live result: ASC was rejected with HTTP 400 (Ascending sort direction is not supported for archive order states.), while DESC returned 10 requests.
