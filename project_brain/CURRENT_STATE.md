@@ -1,3 +1,9 @@
+# 2026-11-19 — FIFO supply list uses descending creation order
+
+- Both ordinary and durable FIFO reads of /v3/supply-order/list now send sort_by=ORDER_CREATION, sort_dir=DESC; the 11 retained status filters are unchanged.
+- The source request contract is versioned as OZON_SUPPLY_BUNDLE_V1_ORDER_LIST_DESC_V2. Ordinary in-memory cursor scope and durable scan continuation both bind to this version. On card restore, an older durable cursor is marked stale and removed from the active session. The saved scan row is retained; pressing Обновить поставки starts from the first page.
+- Added regressions for both scan paths, DESC pagination continuation, and stale-cursor card restoration/fresh restart. Local verification: 42 passed in the FIFO source module; the linked source/checkpoint/rule profile passed 57 tests; targeted scenarios passed 5/5. compileall, git diff --check and unchanged data/ passed. A successful first list page does not establish historical coverage, physical receipt, or FIFO readiness.
+
 # 2026-11-17 — FIFO supply-list filter validation fix
 
 - `FifoCostSourceCollectionService` now sends the 11 non-zero parent order states and excludes `UNSPECIFIED`; direct Ozon list-wrapper calls reject `UNSPECIFIED` locally. Only this one filter value is confirmed rejected by the owner's seller-specific response; remaining filter values and historical coverage are not newly verified.

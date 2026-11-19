@@ -64,6 +64,12 @@ The fixtures under `tests/fixtures/fifo_cost_batch_source/` remain synthetic and
 
 The source gap is a real implementation limitation, not a reason to invent an API contract. Independent rule, storage, and UI work may proceed behind the strict adapter boundary.
 
+## 2026-11-19 — supply-list request-order compatibility
+
+Both FIFO order-list paths use sort_by=ORDER_CREATION and sort_dir=DESC. The status filter remains the existing 11 non-zero states. The owner supplied a live comparison for the same shop/request: ASC returned HTTP 400 with “Ascending sort direction is not supported for archive order states.”; DESC returned HTTP success and 10 order IDs. This confirms that the first page is readable with DESC for that shop and request.
+
+A successful first page does not prove pagination/history completeness, physical dispatch or acceptance, or FIFO readiness. Continuation tokens are bound to source contract OZON_SUPPLY_BUNDLE_V1_ORDER_LIST_DESC_V2; a saved continuation from the former ASC contract is left in storage as historical evidence but is not resumed. Refresh begins a new scan at page one.
+
 ## FB19 — source capability matrix at PR B checkpoint
 
 | Source area | Local implementation/test status | Safe claim at this checkpoint |

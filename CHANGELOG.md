@@ -1,3 +1,10 @@
+# 2026-11-19 — FIFO Ozon supply-list sort direction and cursor compatibility
+
+- Changed both FIFO /v3/supply-order/list scan paths to retain ORDER_CREATION while requesting DESC; the existing 11-state filter is unchanged. This follows the owner-provided live result: ASC was rejected with HTTP 400 (Ascending sort direction is not supported for archive order states.), while DESC returned 10 requests.
+- Versioned the supply-list source contract and ordinary checkpoint fingerprint. A durable continuation saved under the old request contract is no longer resumed: the old scan stays stored for history, while opening its card clears the resumable token so Обновить поставки starts at page one.
+- A successful first page establishes list-read availability only. Historical completeness, physical acceptance and FIFO readiness remain separate checks.
+- Verification: targeted pagination/restore profile — 5 passed; linked FIFO source/checkpoint/rule profile — 57 passed; tests/test_fifo_cost_batch_supply_source.py — 42 passed. compileall, git diff --check and unchanged data/ passed. Full-suite CI is required on the final PR SHA.
+
 # 2026-11-17 — Exclude the zero enum from FIFO supply-list filters
 
 - Removed `UNSPECIFIED` from the shared FIFO supply-list state filter after the owner's seller-specific HTTP 400 response showed Ozon rejects that zero/unknown value. Direct Ozon list-wrapper calls now reject single or mixed `UNSPECIFIED` input before HTTP. Other 11 filter values and their order are unchanged; their seller-specific acceptance is still unverified.
