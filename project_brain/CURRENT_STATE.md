@@ -1,3 +1,8 @@
+# 2026-11-19 — assistant_session backup JSON contract
+
+- `BotBackupService` now validates `assistant_session.json` as a list, matching `AssistantSessionStorageService`. The fix removes the verified-backup failure `BOT_BACKUP_JSON_CONTRACT_INVALID` without changing the session file, stored records, restore paths, or updater flow.
+- Regression covers creation through the production storage writer, backup, archive verification, dry-run restore, and full restore. Backup plus updater runtime/preflight profiles pass: **57 passed**. Hosted Verify [44541119743](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44541119743) passed on implementation SHA `2eb47ff2ca203bd89d1723f68cfd64e5e86150dc`: Windows/Linux each **5,471 passed**, compile, production Docker build/runtime smoke, and SHA-bound report. Recheck the final PR head after this documentation update.
+
 # 2026-11-19 — FIFO supply list uses descending creation order
 
 - Both ordinary and durable FIFO reads of /v3/supply-order/list now send sort_by=ORDER_CREATION, sort_dir=DESC; the 11 retained status filters are unchanged.

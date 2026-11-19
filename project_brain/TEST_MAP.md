@@ -1,3 +1,8 @@
+# 2026-11-19 — assistant_session backup contract
+
+- `tests/test_bot_backup_service.py::test_backup_accepts_list_json_written_by_supported_app_storages` now creates `assistant_session.json` with `AssistantSessionStorageService` and verifies backup, archive validation, dry-run restore, and full restore. `::test_backup_holds_startup_guard_for_the_entire_snapshot` now uses the same list-shaped contract for its session fixture.
+- The new case reproduced `BOT_BACKUP_JSON_CONTRACT_INVALID` before the service fix. Afterward, backup plus updater runtime/preflight profiles: **57 passed** on Windows/Python 3.12. Hosted Verify [44541119743](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44541119743) passed on implementation SHA `2eb47ff2ca203bd89d1723f68cfd64e5e86150dc`: full Windows/Linux suites (**5,471 each**), compile, production Docker build/runtime smoke, and SHA-bound report. The documentation-only follow-up requires its own exact-head CI result.
+
 # 2026-11-19 — FIFO supply-list descending-order compatibility
 
 - tests/test_fifo_cost_batch_supply_source.py::test_supply_list_filter_omits_unspecified_and_reads_empty_page now asserts ORDER_CREATION/DESC for both ordinary and durable reads and continues to pin all 11 status values.

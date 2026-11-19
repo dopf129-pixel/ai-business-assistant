@@ -51,6 +51,7 @@ class BotBackupService:
     )
     LIST_JSON_FILES = {
         "actions.json",
+        "assistant_session.json",
         "conversation_history.json",
         "store_reports.json",
         "product_decision_history.json",
