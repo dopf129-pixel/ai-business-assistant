@@ -414,7 +414,10 @@ class TelegramFifoCostBatchRuleService:
         if scan.get("continuation_available"):
             lines.append("Ограниченный поиск можно продолжить кнопкой «Обновить поставки».")
         elif scan.get("continuation_expired"):
-            lines.append("Сохранённое продолжение истекло; запустите новый поиск кнопкой «Обновить поставки».")
+            lines.append(
+                "Сохранённое продолжение истекло или относится к старой версии запроса; "
+                "запустите новый поиск кнопкой «Обновить поставки»."
+            )
         lines.extend(self._issue_messages(scan.get("issue_codes", ()))[:2])
         return lines
 
@@ -483,7 +486,18 @@ class TelegramFifoCostBatchRuleService:
                 now = runtime._now_provider()
                 if now.tzinfo is None or now.utcoffset() is None:
                     raise ValueError("FIFO_BATCH_SCAN_TIMESTAMP_INVALID")
-                if expires_at.astimezone(timezone.utc) <= now.astimezone(timezone.utc):
+                current_contract_version = getattr(
+                    self.supply_source_service, "SOURCE_CONTRACT_VERSION", None,
+                )
+                if (
+                    isinstance(current_contract_version, str)
+                    and scan.get("source_contract_version") != current_contract_version
+                ):
+                    continuation_expired = True
+                    issue_codes = self._bounded_issue_codes((
+                        *issue_codes, "FIFO_BATCH_SUPPLY_CONTINUATION_STALE",
+                    ))
+                elif expires_at.astimezone(timezone.utc) <= now.astimezone(timezone.utc):
                     continuation_expired = True
                 else:
                     supported_states = json.loads(
@@ -1222,7 +1236,10 @@ class TelegramFifoCostBatchRuleService:
             "FIFO_BATCH_SUPPLY_CURSOR_INVALID": "Источник вернул неверный номер следующей страницы. Запустите поиск заново.",
             "FIFO_BATCH_SUPPLY_CURSOR_WITH_EMPTY_PAGE": "Источник вернул ссылку на продолжение без строк данных. Запустите поиск заново.",
             "FIFO_BATCH_SUPPLY_CHECKPOINT_UNAVAILABLE": "Продолжение не удалось сохранить в памяти. Запустите поиск заново.",
-            "FIFO_BATCH_SUPPLY_CONTINUATION_STALE": "Продолжение истекло или бот был перезапущен. Запустите полный поиск заново.",
+            "FIFO_BATCH_SUPPLY_CONTINUATION_STALE": (
+                "Сохранённое продолжение относится к старой версии запроса. "
+                "Нажмите «Обновить поставки», чтобы начать новый поиск."
+            ),
             "FIFO_BATCH_SUPPLY_CONTINUATION_INVALID": "Ссылка на продолжение недействительна. Запустите полный поиск заново.",
             "FIFO_BATCH_SUPPLY_CONTINUATION_SCOPE_MISMATCH": "Продолжение относится к другому SKU или магазину; оно сброшено.",
             "FIFO_BATCH_SUPPLY_ORDER_STATE_UNSUPPORTED": "Ответ содержит неизвестный статус заявки. Строки требуют проверки и не считаются полным набором.",

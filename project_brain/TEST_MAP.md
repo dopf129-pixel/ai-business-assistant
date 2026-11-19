@@ -1,3 +1,10 @@
+# 2026-11-19 — FIFO supply-list descending-order compatibility
+
+- tests/test_fifo_cost_batch_supply_source.py::test_supply_list_filter_omits_unspecified_and_reads_empty_page now asserts ORDER_CREATION/DESC for both ordinary and durable reads and continues to pin all 11 status values.
+- ::test_full_page_uses_details_batches_of_50_and_resumes_opaquely asserts a continuation uses the returned cursor with DESC.
+- ::test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart now covers both a current-contract continuation (resume its cursor) and a legacy ASC-contract scan (do not restore its token; refresh starts with last_id=None; retain the old scan row).
+- Windows/Python 3.12: targeted profile 5 passed; full tests/test_fifo_cost_batch_supply_source.py: 42 passed; linked source/checkpoint/rule profile: 57 passed; compileall, git diff --check and unchanged data/ passed.
+
 # 2026-11-17 — FIFO supply-list filter fix
 
 - `tests/test_fifo_cost_batch_supply_source.py::test_supply_list_filter_allowlist_excludes_zero_unspecified_enum` pins the 11 retained filter values; `::test_supply_list_filter_omits_unspecified_and_reads_empty_page` covers ordinary and durable scanning with a synthetic server that rejects `UNSPECIFIED`, asserting a valid empty page is read without claiming FIFO-ready completeness.

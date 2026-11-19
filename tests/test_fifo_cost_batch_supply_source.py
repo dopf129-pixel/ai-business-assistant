@@ -300,6 +300,8 @@ def test_supply_list_filter_omits_unspecified_and_reads_empty_page(
         assert result.orders_observed == 0
         assert len(ozon.calls) == 1
         assert ozon.calls[0][0] == "list"
+        assert ozon.calls[0][1]["sort_by"] == "ORDER_CREATION"
+        assert ozon.calls[0][1]["sort_dir"] == "DESC"
         states = ozon.calls[0][1]["states"]
         assert "UNSPECIFIED" not in states
         assert set(states) == {
@@ -1761,6 +1763,10 @@ def test_full_page_uses_details_batches_of_50_and_resumes_opaquely(
         assert first.pagination_complete is False
         assert first.details_complete is False
         assert first.continuation_token is not None
+        list_calls = [call for call in ozon.calls if call[0] == "list"]
+        assert len(list_calls) == 1
+        assert list_calls[0][1]["sort_by"] == "ORDER_CREATION"
+        assert list_calls[0][1]["sort_dir"] == "DESC"
         detail_calls = [call for call in ozon.calls if call[0] == "details"]
         assert [len(call[1]["order_ids"]) for call in detail_calls] == [50, 50]
         assert parent.public_summary()["http_attempts"] == 3
@@ -1775,12 +1781,21 @@ def test_full_page_uses_details_batches_of_50_and_resumes_opaquely(
         assert second.pagination_complete is True
         assert second.details_complete is True
         assert second.continuation_token is None
+        list_calls = [call for call in ozon.calls if call[0] == "list"]
+        assert len(list_calls) == 2
+        assert list_calls[1][1]["last_id"] == "cursor-1"
+        assert list_calls[1][1]["sort_by"] == "ORDER_CREATION"
+        assert list_calls[1][1]["sort_dir"] == "DESC"
     finally:
         reset_current_tenant_user_id(tenant_token)
 
 
+@pytest.mark.parametrize(
+    ("legacy_contract", "expected_cursor"),
+    [(False, "resume-cursor"), (True, None)],
+)
 def test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restart(
-    tmp_path, monkeypatch,
+    tmp_path, monkeypatch, legacy_contract, expected_cursor,
 ):
     from services.fifo_cost_history_service import FifoCostHistoryService
     from services.fifo_cost_transition_service import FifoCostTransitionService
@@ -1827,8 +1842,21 @@ def test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restar
         assert "получена только часть данных" in partial["message"]
         first_calls = tuple(ozon.calls)
         assert any(name == "details" for name, _ in first_calls)
-        assert first_calls[-1][0] == "list"
-        assert first_calls[-1][1]["last_id"] == "resume-cursor"
+        first_list_call = [call for call in first_calls if call[0] == "list"][-1]
+        assert first_list_call[1]["last_id"] == "resume-cursor"
+        assert first_list_call[1]["sort_by"] == "ORDER_CREATION"
+        assert first_list_call[1]["sort_dir"] == "DESC"
+        scan_id = runtime._sessions["101"]["batch_last_scan"]["scan_id"]
+        assert isinstance(scan_id, str)
+        legacy_contract_version = "OZON_SUPPLY_BUNDLE_V1"
+        if legacy_contract:
+            with repository.get_connection() as connection:
+                changed = connection.execute(
+                    "UPDATE fifo_cost_batch_supply_scans SET source_contract_version=? "
+                    "WHERE scan_id=?",
+                    (legacy_contract_version, scan_id),
+                )
+                assert changed.rowcount == 1
 
         restarted_source = FifoCostBatchSupplySourceService(
             rule_service=rules, ozon_client=ozon,
@@ -1845,11 +1873,18 @@ def test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restar
         )
         assert recovered["error"] is False, recovered
         recovered_card = restarted._show_summary("101")
-        assert "можно продолжить" in recovered_card["message"].lower()
-        assert "не сохранено" in recovered_card["message"].lower()
-        assert restarted._sessions["101"]["batch_last_scan"]["status"] == "PARTIAL"
-        assert restarted._sessions["101"]["batch_last_scan"]["continuation_available"] is True
+        restored_scan = restarted._sessions["101"]["batch_last_scan"]
+        assert restored_scan["status"] == "PARTIAL"
         assert tuple(ozon.calls) == first_calls  # Restoring the card is offline.
+        if legacy_contract:
+            assert "можно продолжить" not in recovered_card["message"].lower()
+            assert restored_scan["continuation_available"] is False
+            assert restored_scan["continuation_expired"] is True
+            assert "FIFO_BATCH_SUPPLY_CONTINUATION_STALE" in restored_scan["issue_codes"]
+        else:
+            assert "можно продолжить" in recovered_card["message"].lower()
+            assert "не сохранено" in recovered_card["message"].lower()
+            assert restored_scan["continuation_available"] is True
 
         ozon.list_pages.append({"order_ids": [], "last_id": None})
         continue_scan = next(
@@ -1860,7 +1895,16 @@ def test_telegram_restores_durable_partial_scan_and_resumes_after_runtime_restar
         resumed_calls = ozon.calls[len(first_calls):]
         assert len(resumed_calls) == 1
         assert resumed_calls[0][0] == "list"
-        assert resumed_calls[0][1]["last_id"] == "resume-cursor"
+        assert resumed_calls[0][1]["last_id"] == expected_cursor
+        assert resumed_calls[0][1]["sort_by"] == "ORDER_CREATION"
+        assert resumed_calls[0][1]["sort_dir"] == "DESC"
+        if legacy_contract:
+            with repository.get_connection() as connection:
+                old_scan = connection.execute(
+                    "SELECT source_contract_version FROM fifo_cost_batch_supply_scans "
+                    "WHERE scan_id=?", (scan_id,),
+                ).fetchone()
+            assert old_scan[0] == "OZON_SUPPLY_BUNDLE_V1"
         assert "полнота исторического охвата" in completed["message"].lower()
     finally:
         reset_current_tenant_user_id(tenant_token)

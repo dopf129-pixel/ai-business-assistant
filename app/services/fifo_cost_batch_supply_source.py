@@ -103,7 +103,9 @@ class FifoCostBatchSupplySourceService:
     MAX_SCAN_PAGES = 100
     CHECKPOINT_TTL_SECONDS = 30 * 60
     MAX_CHECKPOINTS = 64
-    SOURCE_CONTRACT_VERSION = "OZON_SUPPLY_BUNDLE_V1"
+    SUPPLY_LIST_SORT_BY = "ORDER_CREATION"
+    SUPPLY_LIST_SORT_DIR = "DESC"
+    SOURCE_CONTRACT_VERSION = "OZON_SUPPLY_BUNDLE_V1_ORDER_LIST_DESC_V2"
     MAX_PENDING_SUPPLIES = 64
     REQUEST_ALLOWLIST = {
         "get_supply_orders_list": "SUPPLY_ORDER_LIST_V3",
@@ -427,7 +429,7 @@ class FifoCostBatchSupplySourceService:
             "rule_id": basis["rule_id"],
             "rule_revision": basis["rule_revision"],
             "rule_fingerprint": basis["rule_fingerprint"],
-            "source_profile": "FIFO_BATCH_ORDER_LIST_V1",
+            "source_profile": self.SOURCE_CONTRACT_VERSION,
         })
         state, checkpoint_error = self._take_checkpoint(
             continuation_token, scope_fingerprint=scope_fingerprint,
@@ -470,7 +472,8 @@ class FifoCostBatchSupplySourceService:
                     trace, "get_supply_orders_list", actual_attempts,
                     list(FifoCostSourceCollectionService.ACTIVE_SUPPLY_STATES),
                     last_id=state["cursor"], limit=self.PAGE_SIZE,
-                    sort_by="ORDER_CREATION", sort_dir="ASC",
+                    sort_by=self.SUPPLY_LIST_SORT_BY,
+                    sort_dir=self.SUPPLY_LIST_SORT_DIR,
                 )
                 actual_attempts += used
                 if self._failed(page):
@@ -747,7 +750,8 @@ class FifoCostBatchSupplySourceService:
                         trace, "get_supply_orders_list", actual_attempts,
                         list(FifoCostSourceCollectionService.ACTIVE_SUPPLY_STATES),
                         last_id=state["cursor"], limit=self.SUPPLY_LIST_PAGE_SIZE,
-                        sort_by="ORDER_CREATION", sort_dir="ASC",
+                        sort_by=self.SUPPLY_LIST_SORT_BY,
+                        sort_dir=self.SUPPLY_LIST_SORT_DIR,
                     )
                     actual_attempts += used
                     if self._failed(page):
