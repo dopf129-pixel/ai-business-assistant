@@ -2,7 +2,7 @@
 
 - Added `assistant_session.json` to the backup service's list-shaped JSON contract. The production storage writes a history list; backups that previously failed with `BOT_BACKUP_JSON_CONTRACT_INVALID` can now be verified and restored.
 - Added a regression using `AssistantSessionStorageService` through backup, archive verification, dry-run restore, and full restore. Updated the startup-guard fixture to use the real list shape.
-- Local verification: backup plus updater runtime/preflight profiles — 57 passed. Full CI is required on the final PR SHA.
+- Local verification: backup plus updater runtime/preflight profiles — 57 passed. Hosted Verify [44541119743](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/44541119743) passed for implementation SHA `2eb47ff2ca203bd89d1723f68cfd64e5e86150dc`: 5,471 tests on Windows and Linux, compile, production Docker build/runtime smoke, and SHA-bound report. Recheck the final PR head after this documentation update.
 
 # 2026-11-19 — FIFO Ozon supply-list sort direction and cursor compatibility
 
