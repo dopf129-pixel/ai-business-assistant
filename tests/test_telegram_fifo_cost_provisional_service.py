@@ -130,16 +130,20 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert "3,669" in response["message"] and "3,703" in response["message"], (session["provisional_flow"]["result"], response["message"])
         assert "110,187.30" in response["message"] and "110,403.20 ₽" in response["message"]
         assert "не являются FIFO фактом" in response["message"]
+        assert "Условная прибыль до налога (не факт)" not in response["message"]
         assert not any("apply_transition" in button["callback"] for button in response["keyboard"]["buttons"])
         profit_button = _ticket_for(runtime, response, "provisional_profit_base")
         response = runtime.handle_callback("101", profit_button)
         response = runtime.handle_text("101", "130000")
         assert "до сторно возвратов" in response["message"]
         assert "110,187.30–110,403.20 ₽" in response["message"]
+        assert "Условная прибыль до налога (не факт)" not in response["message"]
         confirm_profit = _ticket_for(runtime, response, "provisional_profit_base_confirm")
         response = runtime.handle_callback("101", confirm_profit)
         assert "Условная прибыль до налога (не факт)" in response["message"]
         assert "19,596.80–19,812.70 ₽" in response["message"]
+        assert len(response["message"]) < 4000
+        assert not any("apply_transition" in button["callback"] for button in response["keyboard"]["buttons"])
         save_button = _ticket_for(runtime, response, "provisional_save")
         assert estimate_repository.calls == []
         response = runtime.handle_callback("101", save_button)
@@ -158,6 +162,7 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
             "posting_number", "raw_csv", "buyer", "address",
         ))
         assert "Оценка сохранена отдельно" in response["message"]
+        assert len(estimate_repository.calls) == 1
         # The same opaque callback is idempotent while it is current. Once the
         # selected evidence disappears, a stale callback cannot append again.
         reports.pop()
@@ -183,6 +188,10 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert "Актуальность источников не сверена" in response["message"]
         assert "110,187.30–110,403.20 ₽" in response["message"]
         assert "19,596.80–19,812.70 ₽" in response["message"]
+        assert len(response["message"]) < 4000
+        assert runtime.apply_service is None
+        assert runtime.period_profit_service is None
+        assert session["case_revision"] == 1
         assert transition.writes == 0
     finally:
         reset_current_tenant_user_id(tenant)

@@ -3,13 +3,14 @@
 Основа: `project_brain/LUNA_FIFO_PROVISIONAL_LEDGER_TASK_2026-11-22.md`, PR #740.
 Начат: 2026-11-23 (Europe/Moscow).
 
-## Resume — состояние после PF23
+## Resume — состояние после PF24
 
-- Последний завершённый этап: PF23. Следующий этап: PF24 — расширить end-to-end проверки полного пользовательского потока и доказать отсутствие фактических записей.
+- Последний завершённый этап: PF24. Следующий этап: PF25 — обновить руководство, архитектурное решение, статус проекта, карту тестов и матрицу приёмки.
 - PR A #741: branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e`, exact-head CI run `45142413339` green. PR B #742: branch `codex/fifo-provisional-timeline`, head `9f5aa5cbea5f990beb782fa45791afcc94e59af4`, exact-head CI run `45172484489` green. PR C branch `codex/fifo-provisional-saved-estimates` is based on exact PR B head.
 - PR C branch `codex/fifo-provisional-saved-estimates` is based on exact PR B #742 head `9f5aa5cbea5f990beb782fa45791afcc94e59af4`. PF20 changed FIFO-owned schema v20 and synthetic tests only; `Planning` metadata and tracked `data/` remain unchanged. Its focused profile was **54 passed**. PF21 commit `201853c4017f8dd4a09b8393e0366b29d0e18a3d` adds fresh, idempotent provisional estimate saving and strict model-specific payload validation; linked profile: **66 passed in 4.73s**.
 - PF22 adds exact-scope paginated history reads, a Telegram detail view that can reopen saved records after a new session, source freshness messaging, and conservative model comparison. Compatible ranges use `[new_low - old_high, new_high - old_low]`; different source coverage is disclosed; incompatible dimensions or missing timeline amounts withhold a combined delta. Linked history/timeline/FBO/repository/schema/backup profile: **69 passed in 4.70s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
 - PF23 adds manually owner-confirmed conditional pre-tax profit for the exact selected SKU/period/redeemed-unit scope. Formula `base − COGS` reverses interval endpoints; negative bases are accepted, automatic store-profit substitution is prohibited, and history comparison withholds deltas across different profit perimeters. Saved payload v2 preserves legacy v1 rows and validates scope plus arithmetic. Focused linked profile: **76 passed in 4.96s**; `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
+- PF24 strengthens the full synthetic Telegram journey: estimate before base remains without profit, entry shows the gross COGS interval, profit appears only after owner confirmation, saved estimate survives a new session, all screens stay under Telegram's 4,000-character budget, and only the dedicated provisional-estimate repository receives a write. The fake factual case remains revision 1; transition writes are zero and production apply/Period Profit services are absent. Linked profile: **76 passed in 5.03s**; compile, diff check and tracked `data/` equality passed.
 - No PR C hosted CI yet; it is created after PF20–PF25. No merge, deployment, live bot, Ozon or Telegram request was performed.
 
 ## PF23 — conditionally calculate profit from an owner-confirmed base
@@ -19,6 +20,13 @@
 - Persisted the confirmed value inside a v2 aggregate-only saved-preview payload. Repository validation checks exact allowlisted keys, period/scope/unit count, cents precision, supported provenance and recomputed formula. Existing schema-v1 saved rows remain readable. No factual FIFO, COGS, return-cost or Period Profit write path was added.
 - Regressions cover the accepted 130,000 ₽ base and expected 19,596.80–19,812.70 ₽ interval, visible COGS before confirmation, negative base calculation, tampered-formula rejection, and withheld comparison deltas when return reversal or tax stage differs. The synthetic Telegram path confirms, saves, reopens, and asserts zero factual transition writes. Linked profile: **76 passed in 4.96s**. Compilation, diff check and tracked `data/` equality passed.
 - `CHANGELOG.md`, `CURRENT_STATE.md` and `TEST_MAP.md` remain for the PF25 documentation pass after PF24. No architectural decision changed; no live service or bot was used.
+
+## PF24 — verify the full calculator flow without factual writes
+
+- Expanded the synthetic Telegram integration test across the existing session: load the reports and owner assumptions, calculate the provisional range, enter a manual base, explicitly confirm, save, then open the saved record in a fresh session.
+- Added explicit assertions that no conditional profit is shown before the owner confirms; the confirmation displays the COGS interval; after confirmation the exact expected profit interval is shown; no apply action is offered; each message remains below 4,000 characters; only the separate estimate append is written; case revision stays unchanged; transition writes remain zero; and production apply/Period Profit services are not connected.
+- Command: `PYTHONPATH=app python -m pytest tests/test_telegram_fifo_cost_provisional_service.py tests/test_fifo_cost_provisional_fbo_telegram_flow.py tests/test_fifo_cost_provisional_preview_repository.py tests/test_fifo_cost_repository.py tests/test_bot_backup_service.py tests/test_fifo_cost_provisional_timeline_service.py -q` using the existing project virtual environment — **76 passed in 5.03s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
+- This is synthetic test coverage only; no live bot, Telegram/Ozon calls or owner data were used. No runtime architecture changed in PF24.
 
 ## PF21 — save only a fresh provisional estimate
 
