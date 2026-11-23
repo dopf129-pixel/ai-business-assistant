@@ -1,3 +1,8 @@
+# 2026-11-23 — Provisional FIFO saved estimate history (PF22)
+
+- Added exact-case, tenant/store/SKU-scoped reads for immutable provisional estimates, bounded Telegram history pages, detail view after a fresh session, and conservative comparison of compatible scenarios. Source coverage changes are shown without revealing file contents or fingerprints; incompatible periods/methods/bases/policies receive no combined delta.
+- Saved scenarios remain historical models and never become the current factual FIFO or profit result. PF22 targeted history/repository/backup profile: pending final PR C verification.
+
 # 2026-11-23 — Provisional FIFO PR B local release verification (PF19)
 
 - Disposable Windows full-suite run on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy excluded repository `data/` and `.env`; only a synthetic `USN_INCOME` 6% tax file was added. `compileall -q app tests`, `git diff --check`, unchanged tracked `data/`, and equality of all five PF00 data blob IDs passed.

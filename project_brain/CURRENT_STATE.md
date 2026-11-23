@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PF22 history and comparison
+
+- The PR C branch can list and reopen saved provisional estimates after a new Telegram session. Reads remain bound to the exact case, tenant, store and SKU; immutable rows are returned in bounded pages.
+- Compatible scenarios compare only when currency, period, method, policy and redeemed-unit basis match. Interval delta uses `[new_low - old_high, new_high - old_low]`; differing source coverage is disclosed, and missing monetary totals do not produce a delta.
+- PF22 focused history/repository/backup profile: **69 passed in 4.70s**; compileall, `git diff --check`, and unchanged tracked `data/` passed. Full PR C verification and exact-head CI remain pending.
+
 # 2026-11-23 — Provisional FIFO PF19 full local verification
 
 - On implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`, the isolated full repository suite passed **5,565 tests in 95.75s** on Windows/Python 3.12. The copy excluded repository `data/` and `.env`, with only a synthetic tax policy. `compileall -q app tests`, `git diff --check`, and tracked `data/` blob equality to PF00 passed.

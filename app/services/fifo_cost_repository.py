@@ -375,6 +375,75 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def read_provisional_preview_history(
+        self, *, case_id, store_id, product_id=None, offer_id=None, sku,
+        limit=8, offset=0,
+    ):
+        """Read saved scenarios for one exact case and tenant identity."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if not self._valid_transition_case_id(case_id):
+            return self._error("FIFO_PROVISIONAL_CASE_ID_INVALID")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return self._error("FIFO_PROVISIONAL_HISTORY_LIMIT_INVALID")
+        if type(offset) is not int or not 0 <= offset <= 100:
+            return self._error("FIFO_PROVISIONAL_HISTORY_OFFSET_INVALID")
+        connection = None
+        try:
+            connection = self.get_connection()
+            exact_case = connection.execute(
+                """SELECT 1 FROM fifo_cost_transition_cases
+                   WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
+                     AND store_id=? AND product_id IS ? AND offer_id IS ? AND sku=?""",
+                (case_id, scope["owner_fingerprint"], scope["tenant_fingerprint"],
+                 identity["store_id"], identity.get("product_id"),
+                 identity.get("offer_id"), identity["sku"]),
+            ).fetchone()
+            if exact_case is None:
+                return self._error("FIFO_PROVISIONAL_CASE_SCOPE_MISMATCH")
+            scoped_where = (
+                "case_id=? AND owner_fingerprint=? AND tenant_fingerprint=? "
+                "AND store_id=? AND product_id IS ? AND offer_id IS ? AND sku=?"
+            )
+            scope_args = (
+                case_id, scope["owner_fingerprint"], scope["tenant_fingerprint"],
+                identity["store_id"], identity.get("product_id"),
+                identity.get("offer_id"), identity["sku"],
+            )
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM fifo_cost_provisional_previews WHERE {scoped_where}",
+                scope_args,
+            ).fetchone()[0]
+            rows = connection.execute(
+                f"""SELECT preview_id, owner_fingerprint, tenant_fingerprint,
+                           store_id, product_id, offer_id, sku, identity_fingerprint,
+                           case_revision, created_at_utc, schema_version,
+                           input_fingerprint, idempotency_key, payload_json
+                    FROM fifo_cost_provisional_previews
+                    WHERE {scoped_where}
+                    ORDER BY created_at_utc DESC, preview_id DESC
+                    LIMIT ? OFFSET ?""",
+                (*scope_args, limit, offset),
+            ).fetchall()
+            return {
+                "error": False,
+                "items": [self._provisional_preview_row(row) for row in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return self._error("FIFO_PROVISIONAL_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
     def append_provisional_preview(
         self, *, preview_id, case_id, case_revision, store_id, product_id=None,
         offer_id=None, sku, input_fingerprint, idempotency_key, payload,
@@ -502,8 +571,13 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
-    @staticmethod
-    def _provisional_preview_row(row):
+    @classmethod
+    def _provisional_preview_row(cls, row):
+        payload = json.loads(row["payload_json"])
+        if cls._validate_provisional_preview_payload(
+            payload, input_fingerprint=row["input_fingerprint"],
+        ):
+            raise ValueError("FIFO_PROVISIONAL_PREVIEW_CORRUPT")
         return {
             "preview_id": row["preview_id"],
             "store_id": row["store_id"],
@@ -515,7 +589,7 @@ class FifoCostRepository:
             "created_at_utc": row["created_at_utc"],
             "schema_version": row["schema_version"],
             "input_fingerprint": row["input_fingerprint"],
-            "payload": json.loads(row["payload_json"]),
+            "payload": payload,
         }
 
     @staticmethod

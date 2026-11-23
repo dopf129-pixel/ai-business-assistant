@@ -126,6 +126,63 @@ class TelegramFifoCostProvisionalService:
             session.pop("step", None)
             self._advance(runtime, session)
             return runtime._show_summary(owner)
+        if action == "provisional_history":
+            flow["history_screen"] = "list"
+            flow["history_page"] = 0
+            flow.pop("history_compare_first_id", None)
+            flow.pop("history_compare_second_id", None)
+            flow.pop("history_preview_id", None)
+            self._advance(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action == "provisional_history_page":
+            page = ticket.get("page")
+            if type(page) is not int or not 0 <= page <= 99:
+                return runtime._stale()
+            flow["history_screen"] = "list"
+            flow["history_page"] = page
+            self._advance(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action in {"provisional_history_view", "provisional_history_compare"}:
+            preview_id = ticket.get("preview_id")
+            if self._load_saved_preview(session, preview_id) is None:
+                return runtime._result("Сохранённая оценка больше не найдена в этом деле.")
+            if action == "provisional_history_view":
+                flow["history_screen"] = "detail"
+                flow["history_preview_id"] = preview_id
+                self._advance(runtime, session)
+                return self.show_history_detail(runtime, owner, session)
+            first_id = flow.get("history_compare_first_id")
+            if not first_id:
+                flow["history_compare_first_id"] = preview_id
+                flow["history_screen"] = "list"
+                flow["history_page"] = 0
+                self._advance(runtime, session)
+                return self.show_history(runtime, owner, session)
+            if first_id == preview_id:
+                return runtime._result("Выберите другую оценку для сравнения.")
+            flow["history_compare_second_id"] = preview_id
+            flow["history_screen"] = "compare"
+            self._advance(runtime, session)
+            return self.show_history_comparison(runtime, owner, session)
+        if action == "provisional_history_compare_cancel":
+            flow.pop("history_compare_first_id", None)
+            flow.pop("history_compare_second_id", None)
+            flow["history_screen"] = "list"
+            self._advance(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action == "provisional_history_detail_back":
+            flow.pop("history_preview_id", None)
+            flow["history_screen"] = "list"
+            self._advance(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action == "provisional_history_to_calculator":
+            for key in (
+                "history_screen", "history_preview_id", "history_compare_first_id",
+                "history_compare_second_id",
+            ):
+                flow.pop(key, None)
+            self._advance(runtime, session)
+            return self.show(runtime, owner, session)
         if action == "provisional_snapshot":
             return self._select_report(runtime, owner, session, ticket, flow, "snapshot")
         if action == "provisional_movement":
@@ -182,12 +239,19 @@ class TelegramFifoCostProvisionalService:
             return runtime._stale()
         candidates = self._reports(runtime, session)
         if candidates is None:
+            buttons = [{
+                "text": "⬅️ К карточке партии",
+                "callback": runtime._issue_ticket(owner, session, "provisional_back"),
+            }]
+            if callable(getattr(self.estimate_repository,
+                                "read_provisional_preview_history", None)):
+                buttons.insert(0, {
+                    "text": "📚 История оценок",
+                    "callback": runtime._issue_ticket(owner, session, "provisional_history"),
+                })
             return runtime._result(
                 "Не удалось безопасно прочитать сохранённые ведомости. Предварительный расчёт не выполнен.",
-                keyboard=runtime._keyboard([{
-                    "text": "⬅️ К карточке партии",
-                    "callback": runtime._issue_ticket(owner, session, "provisional_back"),
-                }]),
+                keyboard=runtime._keyboard(buttons),
             )
         snapshots = [item for item in candidates if item["period_from"] == item["period_to"]]
         snapshot = self._find(candidates, flow.get("snapshot_fingerprint"))
@@ -317,6 +381,11 @@ class TelegramFifoCostProvisionalService:
             {"text": "📄 Загрузить оборотную ведомость", "callback": runtime._issue_ticket(owner, session, "provisional_upload")},
             {"text": "⬅️ К карточке партии", "callback": runtime._issue_ticket(owner, session, "provisional_back")},
         ])
+        if callable(getattr(self.estimate_repository, "read_provisional_preview_history", None)):
+            buttons.insert(0, {
+                "text": "📚 История оценок",
+                "callback": runtime._issue_ticket(owner, session, "provisional_history"),
+            })
         if flow.get("result") is not None:
             lines.extend(["", self._format_result(flow["result"])])
         if flow.get("timeline_result") is not None:
@@ -335,6 +404,317 @@ class TelegramFifoCostProvisionalService:
                     ),
                 })
         return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def show_history(self, runtime, owner, session):
+        flow = session.get("provisional_flow")
+        page = flow.get("history_page", 0) if isinstance(flow, dict) else 0
+        if (not isinstance(flow, dict) or type(page) is not int or not 0 <= page <= 99
+                or not callable(getattr(self.estimate_repository,
+                                        "read_provisional_preview_history", None))):
+            return runtime._result("История предварительных оценок временно недоступна.")
+        result = self.estimate_repository.read_provisional_preview_history(
+            case_id=session["case_id"],
+            store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"],
+            limit=self.PAGE_SIZE,
+            offset=page * self.PAGE_SIZE,
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return runtime._result("Не удалось безопасно прочитать историю оценок.")
+        items, total = result.get("items"), result.get("total")
+        if not isinstance(items, list) or type(total) is not int or not 0 <= total <= 100:
+            return runtime._result("Ответ истории оценок неполный; откройте её ещё раз.")
+        page_count = max(1, (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        if page >= page_count:
+            flow["history_page"] = max(0, page_count - 1)
+            return self.show_history(runtime, owner, session)
+        lines = [
+            "📚 Сохранённые предварительные оценки",
+            "Это сценарии по сохранённым входам, не активный FIFO и не фактическая прибыль.",
+            "Фактический статус и расчётная история остаются в карточке дела.",
+        ]
+        first_id = flow.get("history_compare_first_id")
+        if total == 0:
+            lines.extend(["", "Сохранённых оценок пока нет."])
+        elif first_id:
+            first = self._load_saved_preview(session, first_id)
+            lines.extend([
+                "",
+                "Первая оценка выбрана. Выберите вторую для сопоставления.",
+                self._history_item_label(first) if first is not None
+                else "Первая оценка недоступна.",
+            ])
+        buttons = []
+        for index, item in enumerate(items, start=page * self.PAGE_SIZE + 1):
+            if not isinstance(item, dict) or not self._valid_preview_row(item):
+                return runtime._result("В истории встретилась неполная запись. Безопасный просмотр остановлен.")
+            lines.append(f"\n{index}. {self._history_item_label(item)}")
+            buttons.append({
+                "text": f"Открыть {index}",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_view",
+                    preview_id=item["preview_id"],
+                ),
+            })
+            if first_id != item["preview_id"]:
+                buttons.append({
+                    "text": f"Сравнить {index}",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_history_compare",
+                        preview_id=item["preview_id"],
+                    ),
+                })
+        if first_id:
+            buttons.append({
+                "text": "Отменить сравнение",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_compare_cancel",
+                ),
+            })
+        if page > 0:
+            buttons.append({
+                "text": "⬅️ Предыдущие",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_page", page=page - 1,
+                ),
+            })
+        if page + 1 < page_count:
+            buttons.append({
+                "text": "➡️ Следующие",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_page", page=page + 1,
+                ),
+            })
+        buttons.extend([
+            {"text": "🧮 К предварительной оценке", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_to_calculator",
+            )},
+            {"text": "⬅️ К карточке партии", "callback": runtime._issue_ticket(
+                owner, session, "provisional_back",
+            )},
+        ])
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def show_history_detail(self, runtime, owner, session):
+        flow = session.get("provisional_flow", {})
+        item = self._load_saved_preview(session, flow.get("history_preview_id"))
+        if item is None:
+            return runtime._result("Сохранённая оценка не найдена в текущей карточке.")
+        payload = item["payload"]
+        rates, assumptions = payload["rates"], payload["assumptions"]
+        lines = [
+            "💾 Сохранённая предварительная оценка",
+            f"Период: {payload['period_from']} — {payload['period_to']}",
+            f"Метод: {payload['method']} · версия правил: {payload['policy_version']}",
+            f"Ставки: старая {rates['old_unit_cost_rub']} ₽ / новая {rates['new_unit_cost_rub']} ₽ за упаковку.",
+            f"Выкупы по ведомости: {payload['result']['redeemed_units']:,} шт.",
+            f"Источниковых отпечатков: {len(payload['evidence_fingerprints'])}; содержимое файлов не хранится.",
+            "Предпосылки владельца: начальный остаток старой партии — "
+            f"{self._yes_no_label(assumptions['opening_all_old'])}; поступления новой партии — "
+            f"{self._yes_no_label(assumptions['all_period_supply_receipts_new'])}; "
+            f"старый конечный остаток — {self._format_saved_range(assumptions['closing_old_min'], assumptions['closing_old_max'])}.",
+            self._format_saved_result(payload),
+            self._saved_freshness(runtime, session, payload),
+            "Оценка не подменяет текущий фактический FIFO и прибыль.",
+        ]
+        buttons = [
+            {"text": "⚖️ Сравнить с другой оценкой", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_compare", preview_id=item["preview_id"],
+            )},
+            {"text": "⬅️ К истории оценок", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_detail_back",
+            )},
+            {"text": "🧮 К предварительной оценке", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_to_calculator",
+            )},
+        ]
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def show_history_comparison(self, runtime, owner, session):
+        flow = session.get("provisional_flow", {})
+        first = self._load_saved_preview(session, flow.get("history_compare_first_id"))
+        second = self._load_saved_preview(session, flow.get("history_compare_second_id"))
+        if first is None or second is None:
+            return runtime._result("Одна из выбранных оценок больше недоступна. Выберите их заново.")
+        old_payload, new_payload = first["payload"], second["payload"]
+        lines = [
+            "⚖️ Сравнение предварительных оценок",
+            "Различие показывает диапазон сценариев и не доказывает причину изменения.",
+            "",
+            "Первая оценка:", self._format_saved_result(old_payload),
+            f"Период {old_payload['period_from']} — {old_payload['period_to']}; "
+            f"S={old_payload['result']['redeemed_units']} шт.; метод {old_payload['method']}.",
+            "",
+            "Вторая оценка:", self._format_saved_result(new_payload),
+            f"Период {new_payload['period_from']} — {new_payload['period_to']}; "
+            f"S={new_payload['result']['redeemed_units']} шт.; метод {new_payload['method']}.",
+        ]
+        comparable, same_coverage = self._saved_estimates_comparable(old_payload, new_payload)
+        if comparable:
+            old_low, old_high = self._saved_cost_interval(old_payload)
+            new_low, new_high = self._saved_cost_interval(new_payload)
+            if old_low is None or new_low is None:
+                lines.extend([
+                    "",
+                    "Общая дельта не рассчитана: у одной из оценок нет полной денежной суммы.",
+                ])
+            else:
+                difference_low = (new_low - old_high).quantize(Decimal("0.01"))
+                difference_high = (new_high - old_low).quantize(Decimal("0.01"))
+                lines.extend([
+                    "",
+                    f"Возможная разница себестоимости второй минус первой: "
+                    f"{difference_low:,.2f}–{difference_high:,.2f} ₽.",
+                ])
+                if not same_coverage:
+                    lines.append(
+                        "Покрытие источников различается: "
+                        f"{len(old_payload.get('evidence_fingerprints', ()))} и "
+                        f"{len(new_payload.get('evidence_fingerprints', ()))} отпечатков; "
+                        "учитывайте это при чтении диапазона."
+                    )
+        else:
+            lines.extend([
+                "",
+                "Общая дельта не рассчитана: периоды, метод, число выкупов или версия правил не совпадают.",
+                "Оценки показаны отдельно для безопасного сравнения.",
+            ])
+        lines.append("Обе оценки остаются предварительными и не меняют фактические расчёты.")
+        buttons = [
+            {"text": "📚 К истории оценок", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_detail_back",
+            )},
+            {"text": "🧮 К предварительной оценке", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_to_calculator",
+            )},
+        ]
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def _load_saved_preview(self, session, preview_id):
+        if (not isinstance(preview_id, str)
+                or not callable(getattr(self.estimate_repository,
+                                        "read_provisional_preview_history", None))):
+            return None
+        result = self.estimate_repository.read_provisional_preview_history(
+            case_id=session["case_id"],
+            store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"],
+            limit=100,
+            offset=0,
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return None
+        return next((item for item in result.get("items", ())
+                     if isinstance(item, dict) and item.get("preview_id") == preview_id
+                     and self._valid_preview_row(item)), None)
+
+    @staticmethod
+    def _valid_preview_row(item):
+        payload = item.get("payload")
+        return (
+            isinstance(item.get("preview_id"), str)
+            and isinstance(item.get("created_at_utc"), str)
+            and isinstance(payload, dict)
+            and payload.get("schema_version") == 1
+            and payload.get("model_kind") in {"SUMMARY_RANGE", "TIMELINE_MODEL"}
+            and isinstance(payload.get("period_from"), str)
+            and isinstance(payload.get("period_to"), str)
+            and isinstance(payload.get("method"), str)
+            and isinstance(payload.get("policy_version"), str)
+            and isinstance(payload.get("result"), dict)
+            and type(payload["result"].get("redeemed_units")) is int
+            and isinstance(payload.get("rates"), dict)
+            and isinstance(payload.get("assumptions"), dict)
+            and isinstance(payload.get("evidence_fingerprints"), list)
+        )
+
+    @staticmethod
+    def _history_item_label(item, selected=False):
+        payload = item["payload"]
+        prefix = "Первая оценка" if selected else ""
+        model = "сводная" if payload.get("model_kind") == "SUMMARY_RANGE" else "хронологическая"
+        created_at = item.get("created_at_utc", "время не указано")
+        if isinstance(created_at, str) and len(created_at) >= 19:
+            created_at = created_at[:19].replace("T", " ") + " UTC"
+        return (
+            f"{prefix + ' · ' if prefix else ''}{payload.get('period_from')}–{payload.get('period_to')} · "
+            f"{model} · {created_at}"
+        )
+
+    @staticmethod
+    def _format_saved_range(low, high):
+        if low is None or high is None:
+            return "не задан"
+        if low == high:
+            return f"{low} шт. (сценарное допущение)"
+        return f"{low}–{high} шт. (сценарное допущение)"
+
+    @classmethod
+    def _format_saved_result(cls, payload):
+        result = payload["result"]
+        if payload["model_kind"] == "SUMMARY_RANGE":
+            return (
+                f"Себестоимость выкупов до сторно возвратов: "
+                f"{Decimal(result['gross_cogs_low_rub']):,.2f}–"
+                f"{Decimal(result['gross_cogs_high_rub']):,.2f} ₽; "
+                f"старых выкупов {result['old_sold_min']:,}–{result['old_sold_max']:,}, "
+                f"новых {result['new_sold_min']:,}–{result['new_sold_max']:,} шт."
+            )
+        cost = result.get("gross_cogs_rub")
+        cost_text = f"{Decimal(cost):,.2f} ₽" if cost is not None else "нет полной денежной суммы"
+        return (
+            f"Себестоимость выкупов до сторно возвратов: {cost_text}; "
+            f"старых выкупов {result.get('old_sold_units', 'не определено')}, "
+            f"новых {result.get('new_sold_units', 'не определено')} шт.; "
+            f"возвратов {result.get('returned_units', 0)} шт."
+        )
+
+    @classmethod
+    def _saved_cost_interval(cls, payload):
+        result = payload["result"]
+        if payload["model_kind"] == "SUMMARY_RANGE":
+            return Decimal(result["gross_cogs_low_rub"]), Decimal(result["gross_cogs_high_rub"])
+        value = result.get("gross_cogs_rub")
+        if value is None:
+            return None, None
+        amount = Decimal(value)
+        return amount, amount
+
+    @staticmethod
+    def _saved_estimates_comparable(first, second):
+        comparable_fields = (
+            "model_kind", "currency", "period_from", "period_to", "method", "policy_version",
+        )
+        compatible = (
+            all(first.get(key) == second.get(key) for key in comparable_fields)
+            and first.get("result", {}).get("redeemed_units")
+            == second.get("result", {}).get("redeemed_units")
+        )
+        same_coverage = set(first.get("evidence_fingerprints", ())) == set(
+            second.get("evidence_fingerprints", ()),
+        )
+        return compatible, same_coverage
+
+    def _saved_freshness(self, runtime, session, payload):
+        flow = session.get("provisional_flow", {})
+        selected = {
+            flow.get("snapshot_fingerprint"), flow.get("movement_fingerprint"),
+        }
+        selected.discard(None)
+        if len(selected) != 2:
+            return "Актуальность источников не сверена в текущем сеансе; оценка сохраняет исходные отпечатки."
+        reports = self._reports(runtime, session)
+        if reports is None or any(self._find(reports, fingerprint) is None for fingerprint in selected):
+            return "Сохранённая оценка по прежним данным: текущие выбранные ведомости изменились или недоступны."
+        if selected <= set(payload.get("evidence_fingerprints", ())):
+            if payload.get("model_kind") == "TIMELINE_MODEL":
+                return "Выбранные ведомости совпадают; дополнительные источники хронологии после перезапуска не перепроверены."
+            return "Выбранные ведомости совпадают с сохранённой оценкой; результат остаётся предварительным."
+        return "Сохранённая оценка рассчитана по прежним данным. Пересчитайте её по выбранным ведомостям."
 
     def _start_fbo_upload(self, runtime, owner, session, flow):
         reports = self._reports(runtime, session)

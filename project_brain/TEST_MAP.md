@@ -1,3 +1,9 @@
+# Provisional FIFO saved estimate history (PF22)
+
+- `tests/test_fifo_cost_provisional_preview_repository.py`: scoped list paging/order, cross-identity and cross-tenant rejection, invalid limits/offsets, immutable append and payload integrity.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: a fresh Telegram session reads a saved scenario; compatible estimates use interval subtraction; mismatched sale basis or period withholds a combined delta; source-coverage differences are explicit.
+- Linked PF21/PF22 timeline/FBO/repository/schema/backup profile: **69 passed in 4.70s**. Compileall, `git diff --check`, and tracked `data/` equality passed. Full suite and exact-head CI remain pending.
+
 # Provisional FIFO held stock and non-sale replay (PF17)
 
 - tests/test_fifo_cost_provisional_replay_service.py: opening held balances; exact release of known held layers; release quantity above bucket; release/removal from mixed-rate held stock fails closed; available non-sale removal consumes FIFO but stays outside buyout COGS; held write-off is separately valued; non-resellable customer returns can remain held and later return to availability at the original source rate; buyer-delivery is not released without posting linkage; duplicate posting lifecycle is preserved.

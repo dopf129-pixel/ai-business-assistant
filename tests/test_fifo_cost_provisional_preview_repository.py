@@ -4,6 +4,7 @@ from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from datetime import datetime, timedelta, timezone
 
 
 def _seed_case(connection, scope, *, current_revision=1, current_state="AWAITING_EVIDENCE"):
@@ -260,5 +261,78 @@ def test_closed_transition_case_cannot_accept_new_saved_estimate(tmp_path):
 
         result = _save(repo)
         assert result == {"error": True, "code": "FIFO_PROVISIONAL_CASE_NOT_EDITABLE"}
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_saved_preview_history_is_ordered_paginated_and_scope_bound(tmp_path):
+    clock = [datetime(2026, 11, 22, tzinfo=timezone.utc)]
+
+    def now():
+        value = clock[0]
+        clock[0] += timedelta(seconds=1)
+        return value
+
+    repo = FifoCostRepository(db_path=tmp_path / "history.sqlite", now_provider=now)
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        connection = repo.get_connection()
+        try:
+            _seed_case(connection, repo._tenant_scope("store-a"))
+        finally:
+            connection.close()
+
+        for index in range(10):
+            fingerprint = f"{index + 1:064x}"
+            result = _save(
+                repo,
+                input_fingerprint=fingerprint,
+                idempotency_key="prov1_" + fingerprint,
+                preview_id=f"preview-pf21-{index:02d}",
+            )
+            assert result["error"] is False, result
+
+        first = repo.read_provisional_preview_history(
+            case_id="case-pf21-01", store_id="store-a", product_id="product-a",
+            offer_id="offer-a", sku="sku-a", limit=4, offset=0,
+        )
+        second = repo.read_provisional_preview_history(
+            case_id="case-pf21-01", store_id="store-a", product_id="product-a",
+            offer_id="offer-a", sku="sku-a", limit=4, offset=4,
+        )
+        assert first["error"] is False and first["total"] == 10
+        assert [item["preview_id"] for item in first["items"]] == [
+            "preview-pf21-09", "preview-pf21-08", "preview-pf21-07", "preview-pf21-06",
+        ]
+        assert [item["preview_id"] for item in second["items"]] == [
+            "preview-pf21-05", "preview-pf21-04", "preview-pf21-03", "preview-pf21-02",
+        ]
+        assert all("owner_fingerprint" not in item and "tenant_fingerprint" not in item
+                   for item in first["items"])
+        wrong_identity = repo.read_provisional_preview_history(
+            case_id="case-pf21-01", store_id="store-a", product_id="other-product",
+            offer_id="offer-a", sku="sku-a",
+        )
+        assert wrong_identity == {
+            "error": True, "code": "FIFO_PROVISIONAL_CASE_SCOPE_MISMATCH",
+        }
+        token_other = set_current_tenant_user_id(make_store_tenant_scope("owner-other", "store-a"))
+        try:
+            wrong_owner = repo.read_provisional_preview_history(
+                case_id="case-pf21-01", store_id="store-a", product_id="product-a",
+                offer_id="offer-a", sku="sku-a",
+            )
+        finally:
+            reset_current_tenant_user_id(token_other)
+        assert wrong_owner == {
+            "error": True, "code": "FIFO_PROVISIONAL_CASE_SCOPE_MISMATCH",
+        }
+        invalid_offset = repo.read_provisional_preview_history(
+            case_id="case-pf21-01", store_id="store-a", product_id="product-a",
+            offer_id="offer-a", sku="sku-a", offset=True,
+        )
+        assert invalid_offset == {
+            "error": True, "code": "FIFO_PROVISIONAL_HISTORY_OFFSET_INVALID",
+        }
     finally:
         reset_current_tenant_user_id(token)
