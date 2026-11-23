@@ -131,9 +131,21 @@
 - Verification command: project Python with `app` on `sys.path`, pytest on `test_fifo_cost_provisional_movements_import_service.py`, `test_fifo_cost_provisional_timeline_normalizer.py`, `test_fifo_cost_provisional_evidence_reader.py`, `test_fifo_cost_provisional_fbo_csv_import_service.py`, `test_fifo_cost_provisional_fbo_telegram_flow.py`, `test_fifo_cost_transition_evidence_service.py`, and `test_fifo_cost_transition_production_workflow.py` — **36 passed in 10.36s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
 - Not verified yet: timeline replay, Telegram upload for the optional owner-movements template, full repository suite, PR B CI, and real owner documents. These remain later task stages; aggregate controls do not establish event completeness.
 
-## Resume (актуально после PF14)
+## PF15 — finite provisional FIFO replay
 
-- Последний закрытый этап: PF14. Следующий: PF15 — pure replay of supply receipts and buyer dispatches with finite layers, partial dispatch allocation, negative-stock guards, and zero COGS before buyout.
+- Added `FifoCostProvisionalReplayService` as a pure scenario-only kernel. It creates a finite opening available layer at the old rate, finite new receipt layers at the new rate, and distinct held layers for receipts not yet available. Exact pre-window `OPENING_TRANSIT_LINK` events create a separate old-rate posting reserve bounded by the corresponding hashed FBO posting capacity; they do not consume opening available stock.
+- `BUYER_DISPATCH` consumes available layers in FIFO order and can split one posting across rates. The reserve contains exact layer, quantity, and amount lines; dispatch COGS remains `0.00`. No `BUYOUT`, returns, release-hold, or non-sale-outflow is guessed in PF15; unsupported kinds fail closed pending PF16/PF17.
+- Identical normalized duplicate events are idempotent; changed payload under the same event key, duplicate posting assignment, unknown capacity, scope/SKU mismatch, outside-window events, insufficient stock, invalid money, and unresolved event ordering fail closed. Same-day DAY precision is not used to invent an order; distinct explicit instants are ordered by UTC after checking their store-local dates.
+- Normalizer now returns an immutable map of exact FBO posting capacities keyed only by existing SHA-256 posting digests. The pure service validates those capacities before applying an opening link or dispatch.
+- Added `tests/test_fifo_cost_provisional_replay_service.py` covering split allocation, zero COGS, opening reserve, duplicate behavior, negative stock, capacities, held zones, order ambiguity, exact instants, scope/window, unsupported events, and money validation. Normalizer regression asserts hash-only posting capacities.
+- Documentation updated: FBO scenario guide, CHANGELOG, CURRENT_STATE, TEST_MAP, and implementation note under Decision 068. No files under tracked `data/` changed; no production bot, live APIs, or Telegram requests were used.
+- Verification command: project Python with `app` on `sys.path`, pytest on `test_fifo_cost_provisional_replay_service.py`, `test_fifo_cost_provisional_timeline_normalizer.py`, and `test_fifo_cost_provisional_movements_import_service.py` — **30 passed in 0.90s**. `compileall` for `app` and `tests` passed; `git diff --check` passed; `git diff --exit-code -- data` passed.
+- One early targeted run exposed a test-fixture day/date mismatch; the fixture was corrected to derive store-local date from explicit instants. Final repeated profile above is green.
+- Not verified yet: return/buyout replay, holds release, non-sale movement ledger, source completeness/balance status, normal Telegram timeline display, full suite, PR B hosted CI, and owner documents. These remain PF16–PF19 or later.
+
+## Resume (актуально после PF15)
+
+- Последний закрытый этап: PF15. Следующий: PF16 — replay confirmed buyouts, cancellations/non-buyout restocks, and sale returns with original-layer restoration, last-consumed-first ordering, idempotency, and over-return guards.
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
-- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation commit `502f376a` (`Add provisional FIFO timeline source contracts`) follows prior head `5cb0be39424e329280afc1e95d31ff3f2e92c953`. Keep the branch local until PF19.
+- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 commit/checkpoint are recorded below after commit. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.

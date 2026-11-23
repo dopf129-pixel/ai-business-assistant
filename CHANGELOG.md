@@ -1,3 +1,7 @@
+# 2026-11-23 — Provisional FIFO finite-layer replay (PR B PF15)
+
+- Added a deterministic provisional FIFO replay kernel for finite opening stock, received lots, pre-window transit links, and buyer dispatch reservations. Dispatch allocations can span old/new cost layers but remain zero COGS until buyout; unavailable receipts stay held, and insufficient stock or ambiguous ordering returns a replay gap. The kernel does not write factual FIFO data.
+
 # 2026-11-23 — Provisional FIFO FBO reconciliation (PR B PF13)
 
 - The FBO scenario now reports the delivered-in-movement-window count beside turnover redeemed-unit total T and an explicit CSV-minus-T delta. It separately identifies pre-snapshot dispatches delivered after the snapshot, splits those inside/after the movement window, and shows matching in-transit units at export time.

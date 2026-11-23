@@ -1,3 +1,10 @@
+# 2026-11-23 — Provisional FIFO PF15 replay kernel complete locally
+
+- Added the pure finite-layer replay for opening available stock, accepted receipts, exact opening-transit reserves, and buyer-dispatch allocations. Dispatch may span multiple cost layers; its reserved cost is separate from COGS, which remains zero before buyout.
+- Repeated identical events are idempotent. Posting capacities are passed from normalized FBO rows using hashed keys. Insufficient available stock, unmatched/oversized opening links, scope conflicts, unsupported event kinds, and ambiguous ordering fail closed. Non-available receipts remain in held buckets.
+- The internal replay status is `REPLAY_OK`/`REPLAY_GAP`; it deliberately does not claim final `TIMELINE_MODEL` before source-coverage and movement-balance gates in PF16–PF18. Read-only; no `data/` or factual FIFO writes.
+- PF15 targeted profile: **30 passed** across replay, timeline normalizer, and owner movement parser. Full suite, exact-head CI, and timeline completeness remain pending.
+
 # 2026-11-23 — Provisional FIFO PF13 reconciliation complete locally
 
 - FBO CSV preview distinguishes deliveries in the selected movement window from older pre-snapshot dispatches delivered later. It shows T and the independent delta; it never overwrites turnover evidence. Unknown statuses and missing dates are reported while the diagnostic remains readable.

@@ -1,3 +1,9 @@
+# Provisional FIFO replay (PF15)
+
+- `tests/test_fifo_cost_provisional_replay_service.py`: finite initial and received layers; partial posting allocation across FIFO rates; zero dispatch COGS; separate opening-transit old-cost reserve bounded by exact hashed posting capacity; duplicate idempotency; negative-available guard; held receipt isolation; equal-day ambiguity; exact-instant order; unsupported buyout deferral; and invalid monetary values.
+- `tests/test_fifo_cost_provisional_timeline_normalizer.py::test_exact_opening_transit_link_matches_posting_quantity_and_avoids_second_dispatch`: normalized FBO posting capacities expose only hashed keys and exact quantities to the replay caller.
+- Targeted PF15 profile: **30 passed**. These checks validate stream replay only; they do not establish source completeness, period balance, or final `TIMELINE_MODEL` eligibility.
+
 # Provisional FIFO timeline sources (PF14)
 
 - `tests/test_fifo_cost_provisional_movements_import_service.py`: exact template/header, UTF-8 BOM, six allowed owner events, event-specific fields, exact SKU, positive bounded quantities, safe hashed references, store-timezone timestamps and DST guards.

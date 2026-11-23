@@ -1,9 +1,11 @@
 """Redacted event candidates and aggregate anchors for provisional FIFO replay."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
+from types import MappingProxyType
+from typing import Mapping
 
 from services.fifo_cost_cutoff_bridge_service import (
     FifoDocumentedPhysicalSaleDocument,
@@ -36,8 +38,14 @@ class ProvisionalTimelineNormalizationResult:
     anchors: tuple[ProvisionalTimelineAnchor, ...]
     issue_codes: tuple[Issue, ...]
     scope_fingerprint: str | None
+    posting_capacities: Mapping[str, int] = field(default_factory=dict)
     read_only: bool = True
     factual_writes: int = 0
+
+    def __post_init__(self):
+        object.__setattr__(
+            self, "posting_capacities", MappingProxyType(dict(self.posting_capacities)),
+        )
 
 class FifoCostProvisionalTimelineNormalizer:
     """Combines event-level sources without promoting aggregates to events."""
@@ -187,6 +195,7 @@ class FifoCostProvisionalTimelineNormalizer:
         return self._result(
             tuple(sorted(combined, key=self._sort_key)), anchors,
             tuple(sorted(issues, key=lambda item: item.value)), expected_scope,
+            {key: row.quantity for key, row in fbo_by_posting.items()},
         )
 
     @classmethod
@@ -396,9 +405,10 @@ class FifoCostProvisionalTimelineNormalizer:
         )
 
     @staticmethod
-    def _result(events, anchors, issues, scope_digest):
+    def _result(events, anchors, issues, scope_digest, posting_capacities=None):
         return ProvisionalTimelineNormalizationResult(
             events=tuple(events), anchors=tuple(anchors),
             issue_codes=tuple(issues), scope_fingerprint=scope_digest,
+            posting_capacities=posting_capacities or {},
             read_only=True, factual_writes=0,
         )

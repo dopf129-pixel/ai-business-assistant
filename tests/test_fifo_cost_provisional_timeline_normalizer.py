@@ -108,6 +108,7 @@ def test_exact_opening_transit_link_matches_posting_quantity_and_avoids_second_d
     assert by_kind[Kind.BUYOUT].quantity == 2
     assert by_kind[Kind.BUYOUT].time_precision == "INSTANT"
     assert result.read_only is True and result.factual_writes == 0
+    assert result.posting_capacities == {by_kind[Kind.OPENING_TRANSIT_LINK].posting_key: 2}
     assert "posting-1" not in repr(result)
 
 
