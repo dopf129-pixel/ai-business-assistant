@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+from dataclasses import replace
+
+from services.fifo_cost_provisional_fbo_csv_import_service import (
+    FifoCostProvisionalFboCsvImportService,
+)
+from services.fifo_cost_provisional_summary_service import FifoCostProvisionalSummaryService
+from services.telegram_fifo_cost_provisional_service import TelegramFifoCostProvisionalService
+from services.fifo_cost_transition_contracts import ScopeIdentity
+from services.ozon_account_repository import make_store_tenant_scope
+from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.telegram_fifo_cost_transition_runtime_service import TelegramFifoCostTransitionRuntimeService
+from telegram_app_layer.seller_cost_telegram_adapter import SellerCostTelegramAdapter
+from test_fifo_cost_provisional_summary_service import _case
+
+IDENTITY = {"store_id": "store-test", "product_id": "1", "offer_id": None, "sku": "3921245627"}
+SCOPE = ScopeIdentity(owner_id="owner-test", **IDENTITY)
+TENANT = make_store_tenant_scope("owner-test", "store-test")
+CSV = (
+    "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки;Адрес покупателя\r\n"
+    "posting-private-1;3921245627;5932;Доставлен;2026-11-06 10:00:00;2026-11-07 12:00:00;secret-address\r\n"
+    "posting-private-2;9999999999;8;Доставлен;2026-11-06;2026-11-07;another-address\r\n"
+).encode("utf-8")
+
+
+def _button(runtime, response, action):
+    return next(
+        item["callback"] for item in response["keyboard"]["buttons"]
+        if f":{action}:" in item["callback"]
+    )
+
+
+class _Transitions:
+    writes = 0
+
+    def __init__(self, request):
+        self.request = request
+
+    def get_case(self, **_kwargs):
+        return {
+            "error": False, "case_revision": 1, "state": "DRAFT",
+            "case": {
+                "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
+                "metadata": {
+                    "scope": {"owner_id": "owner-test", **IDENTITY},
+                    "store_timezone": "Europe/Moscow",
+                },
+            },
+        }
+
+
+class _Reports:
+    def __init__(self, request):
+        self.request = request
+
+    def list_turnover_reports(self, **_kwargs):
+        return {
+            "error": False, "read_only": True,
+            "reports": tuple({
+                "file_fingerprint": report.file_sha256,
+                "period_from": report.period_from, "period_to": report.period_to,
+                "report": report,
+            } for report in (self.request.snapshot, self.request.movement_report)),
+        }
+
+
+class _CsvWorker:
+    def __init__(self):
+        self.parser = FifoCostProvisionalFboCsvImportService()
+        self.calls = []
+
+    def parse_provisional_fbo_csv(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.parser.parse_csv(**kwargs)
+
+
+def _runtime():
+    base = _case()
+    snapshot = replace(
+        base.snapshot,
+        metadata=replace(base.snapshot.metadata, scope=SCOPE),
+    )
+    movement = replace(
+        base.movement_report,
+        metadata=replace(base.movement_report.metadata, scope=SCOPE),
+    )
+    request = replace(base, scope=SCOPE, snapshot=snapshot, movement_report=movement)
+    transition = _Transitions(request)
+    worker = _CsvWorker()
+    provisional = TelegramFifoCostProvisionalService(
+        evidence_reader=_Reports(request),
+        summary_service=FifoCostProvisionalSummaryService(),
+        fbo_worker=worker,
+        monotonic_clock=lambda: 100.0,
+    )
+    runtime = TelegramFifoCostTransitionRuntimeService(
+        transition, object(), provisional_service=provisional,
+        monotonic_clock=lambda: 100.0,
+    )
+    assert runtime._set_session("owner-test", TENANT, IDENTITY, "Тест", "case-1", 1)
+    return runtime, worker, transition
+
+
+def test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation():
+    tenant_token = set_current_tenant_user_id(TENANT)
+    try:
+        runtime, worker, transition = _runtime()
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, {"keyboard": {"buttons": [{
+                "callback": runtime._issue_ticket(
+                    "owner-test", runtime._sessions["owner-test"], "provisional_start",
+                )
+            }]}}, "provisional_start"),
+        )
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_snapshot"),
+        )
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_movement"),
+        )
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_fbo_upload"),
+        )
+        assert response["error"] is False
+        assert "YYYY-MM-DD" in response["message"]
+        assert runtime.has_provisional_fbo_document_selection("owner-test") is True
+        early = runtime.preflight_provisional_fbo_document("owner-test", "orders.csv", len(CSV))
+        assert early["selected"] is True and early["accepted"] is False
+        assert early["code"] == "FIFO_PROVISIONAL_FBO_PERIOD_REQUIRED"
+        assert runtime.handle_text("owner-test", "2026-11-06 - 2026-11-20")["code"] == "FIFO_PROVISIONAL_FBO_PERIOD_SET"
+        assert runtime.has_provisional_fbo_document_selection("owner-test") is True
+        preflight = runtime.preflight_provisional_fbo_document(
+            "owner-test", "orders.csv", len(CSV),
+        )
+        assert preflight["selected"] and preflight["accepted"]
+        result = runtime.handle_provisional_fbo_document("owner-test", CSV, "orders.csv")
+        assert result["code"] == "FIFO_PROVISIONAL_FBO_PREVIEW_READY", result
+        assert "5932 шт." in result["message"]
+        assert "+1 шт." in result["message"]
+        assert "posting-private-1" not in result["message"]
+        assert "secret-address" not in result["message"]
+        assert len(worker.calls) == 1
+        adapter = SellerCostTelegramAdapter(
+            None, None, None,
+            fifo_transition_runtime_service=runtime,
+        )
+        pending = adapter.handle_document(CSV, "owner-test", "orders.csv")
+        assert pending["code"] == "FIFO_PROVISIONAL_FBO_PREVIEW_PENDING"
+        assert len(worker.calls) == 1
+
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, result, "provisional_fbo_confirm"),
+        )
+        assert "\u0440\u0430\u0437\u043d\u0438\u0446\u0430 CSV \u2212 \u0432\u0435\u0434\u043e\u043c\u043e\u0441\u0442\u044c: +1 \u0448\u0442." in response["message"]
+        assert "\u0432\u044b\u043a\u0443\u043f\u044b T \u0432 \u0432\u0435\u0434\u043e\u043c\u043e\u0441\u0442\u0438: 5931 \u0448\u0442." in response["message"]
+        for action in ("provisional_opening_yes", "provisional_receipts_yes"):
+            response = runtime.handle_callback(
+                "owner-test", _button(runtime, response, action),
+            )
+        assert runtime._sessions["owner-test"]["provisional_flow"]["opening_all_old"] is True
+        assert runtime._sessions["owner-test"]["provisional_flow"]["all_period_supply_receipts_new"] is True
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_closing_exact"),
+        )
+        response = runtime.handle_text("owner-test", "21")
+        summary = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_calculate"),
+        )
+        estimate = runtime._sessions["owner-test"]["provisional_flow"]["result"]
+        assert estimate.redeemed_units == 5931
+        assert estimate.old_sold_min == 3669 and estimate.old_sold_max == 3703
+        assert "\u0434\u0438\u0430\u0433\u043d\u043e\u0441\u0442\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0440\u0430\u0437\u043d\u0438\u0446\u0430 CSV" in summary["message"]
+        assert transition.writes == 0
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_fbo_upload_expired_or_changed_case_is_rejected_before_worker():
+    tenant_token = set_current_tenant_user_id(TENANT)
+    try:
+        runtime, worker, _transition = _runtime()
+        session = runtime._sessions["owner-test"]
+        session["provisional_flow"] = {
+            "movement_fingerprint": "f" * 64,
+            "fbo_upload": {
+                "token": "token", "case_id": "case-1", "case_revision": 1,
+                "identity": dict(IDENTITY), "movement_fingerprint": "f" * 64,
+                "expires_at": 99.0,
+            },
+        }
+        session["step"] = "provisional_fbo_file"
+        preflight = runtime.preflight_provisional_fbo_document(
+            "owner-test", "orders.csv", len(CSV),
+        )
+        assert preflight["selected"] is True
+        assert preflight["accepted"] is False
+        assert preflight["code"] == "FIFO_PROVISIONAL_FBO_SELECTION_STALE"
+        result = runtime.handle_provisional_fbo_document("owner-test", CSV, "orders.csv")
+        assert result["code"] == "FIFO_PROVISIONAL_FBO_SELECTION_STALE"
+        assert worker.calls == []
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_adapter_routes_selected_fbo_file_before_physical_or_legacy_csv():
+    class Runtime:
+        def __init__(self):
+            self.calls = []
+
+        def has_provisional_fbo_document_selection(self, user_id):
+            return user_id == "owner"
+
+        def handle_provisional_fbo_document(self, user_id, content, filename):
+            self.calls.append(("fbo", user_id, content, filename))
+            return {"error": False, "handled": True, "code": "FBO_ROUTE"}
+
+        def has_physical_sales_document_selection(self, user_id):
+            return True
+
+        def handle_physical_sales_document(self, *args):
+            self.calls.append(("physical", *args))
+            return {"error": False, "handled": True, "code": "PHYSICAL_ROUTE"}
+
+        def preflight_provisional_fbo_document(self, user_id, filename, file_size):
+            self.calls.append(("fbo-preflight", user_id, filename, file_size))
+            return {
+                "error": False, "selected": True, "accepted": False,
+                "code": "FIFO_PROVISIONAL_FBO_FORMAT_UNSUPPORTED",
+            }
+
+        def preflight_physical_sales_document(self, *args):
+            self.calls.append(("physical-preflight", *args))
+            return {"error": False, "selected": True, "accepted": True}
+
+    runtime = Runtime()
+    legacy = type("Legacy", (), {
+        "import_table_for_user": lambda self, *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("selected FBO CSV must not fall through to legacy cost import")
+        ),
+    })()
+    adapter = SellerCostTelegramAdapter(
+        None, None, None, seller_cost_service=legacy,
+        fifo_transition_runtime_service=runtime,
+    )
+    preflight = adapter.preflight_document_upload("owner", "wrong.xlsx", 10)
+    result = adapter.handle_document(b"not-a-csv", "owner", "wrong.xlsx")
+    assert preflight["accepted"] is False
+    assert preflight["code"] == "FIFO_PROVISIONAL_FBO_FORMAT_UNSUPPORTED"
+    assert result["code"] == "FBO_ROUTE"
+    assert [call[0] for call in runtime.calls] == ["fbo-preflight", "fbo"]

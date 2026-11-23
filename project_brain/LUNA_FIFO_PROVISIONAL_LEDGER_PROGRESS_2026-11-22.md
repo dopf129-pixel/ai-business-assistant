@@ -86,3 +86,20 @@
 - PR A #741: branch codex/fifo-provisional-summary, base PR #740 SHA 49dbbd77ffa10ac0493b1bb4e83acf123b3005cf, exact head 15894e4528db089d0d6e7969fd03b6a88d9206e2; Windows/Linux full Verify и Linux Docker build/smoke зелёные.
 - PR B: branch codex/fifo-provisional-timeline, пока локальная, начинается от PR A head 15894e4528db089d0d6e7969fd03b6a88d9206e2; ещё не опубликована. PR C не начат.
 - Изменений в пользовательском data не было; реальный бот/API не запускался. Blocker отсутствует.
+
+
+## PF12 — bounded worker и Telegram upload
+
+- В существующий import worker добавлен отдельный `PROVISIONAL_FBO_CSV` allowlist kind. Worker/client сохраняют общую semaphore/timeout, ограничение исходного файла, environment allowlist и строгую проверку родителем точного manifest. Результат не может включать дополнительные поля или сырой номер отправления.
+- Обычный FIFO runtime проверяет owner/tenant/case/revision и выбранную ведомость до загрузки. Preflight размер/тип/активная стадия выполняется до Telegram download. Временная загрузка живёт не более 15 минут и остаётся в памяти текущей сессии. Истечение, смена магазина/дела, неправильная стадия и ожидающий предпросмотр закрывают повторную загрузку без fallback в старые CSV импорты. Переход в импорт физических продаж удаляет только временный FBO выбор.
+- Preview считает только целевой числовой SKU и строки DELIVERED с датой доставки внутри окна ведомости, сравнивая их с `redeemed_units` (T). Пример synthetic fixture дал дельту +1, при этом summary сохранил T=5931, контрольные old sold 3669–3703, и factual FIFO write count остался 0.
+- Документы обновлены: `docs/fifo-provisional-fbo-csv-guide.md`, `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`. Нового architectural decision нет; factual import contracts не изменены.
+- Проверка: linked parser/worker/adapter/provisional flow/transition runtime/physical-sales evidence profile — **56 passed in 9.77s**; before final commit repeat compileall, `git diff --check`, `git diff --exit-code -- data` and full isolated suite. Один ошибочный запуск включил несуществующее имя теста и не выполнил тесты; корректный linked profile зелёный.
+- Реальные файлы владельца, Ozon/Telegram API и рабочий бот не использовались.
+
+## Resume (актуально после PF12)
+
+- Последний завершённый этап: PF12 локально завершён; PF00–PF12 закрыты в PR B worktree. Следующий этап PF13 — диагностическая сверка FBO delivered rows с движениями ведомости без изменения агрегатного T.
+- PR A #741: branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`, exact-head Windows/Linux Verify and Linux Docker smoke passed.
+- PR B `codex/fifo-provisional-timeline`: currently local and unpushed; PF11 parser commit is `353776e379f73467b096e5988979d54a655af996`; PF12 changes remain uncommitted. Publish only after PF19 final verification/review packet.
+- PR C not started. No tracked `data/` file changed; no blocker or owner business decision.

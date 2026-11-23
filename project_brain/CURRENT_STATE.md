@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PR B PF12 complete locally
+
+- FBO CSV now flows through the shared bounded worker and a case/tenant-bound Telegram upload with preflight before download, a 15-minute in-memory lifetime, a confirmation preview, and explicit privacy filtering. It remains scenario-only and does not write factual FIFO or saved estimate data.
+- The linked worker/parser/Telegram/runtime and physical-sales regression profile passes **56 tests**. A synthetic +1 delivered-versus-turnover control confirms the displayed delta does not replace T in the summary calculation.
+- PR B remains local and unpublished. Next dependency: PF13, apply the specified CSV-to-turnover diagnostic without changing aggregate turnover evidence.
+
 # 2026-11-23 — Provisional FIFO: PR A green; PR B parser stage complete
 
 - PR B PF11 adds a separate synthetic-tested FBO CSV parser and owner guide; worker/upload integration and timeline remain pending. Parser profile: 6 passed; no real Ozon CSV was used.

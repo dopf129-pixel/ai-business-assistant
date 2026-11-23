@@ -17,6 +17,10 @@ from services.fifo_cost_physical_sales_import_service import (
     FifoCostPhysicalSalesImportService,
     FifoPhysicalSalesParseResult,
 )
+from services.fifo_cost_provisional_fbo_csv_import_service import (
+    FifoCostProvisionalFboCsvImportService,
+    ProvisionalFboParseResult,
+)
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness,
     EvidenceSourceKind,
@@ -31,6 +35,7 @@ from services.fifo_cost_transition_contracts import (
 _WORKER_SLOTS = BoundedSemaphore(3)
 _MAX_OUTPUT_BYTES = 384 * 1024
 _MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
+_MAX_PROVISIONAL_FBO_OUTPUT_BYTES = 16 * 1024 * 1024
 
 
 class FifoCostReportImportWorkerClient:
@@ -192,6 +197,86 @@ class FifoCostReportImportWorkerClient:
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return self._physical_error("FIFO_REPORT_WORKER_FAILED")
+        finally:
+            if process is not None and process.poll() is None:
+                self._stop_own_worker(process)
+            _WORKER_SLOTS.release()
+
+    def parse_provisional_fbo_csv(self, *, filename, payload, scope, timezone_name):
+        """Parse a provisional FBO export in the shared bounded worker."""
+        if not isinstance(scope, ScopeIdentity):
+            return self._provisional_fbo_error("FIFO_REPORT_SCOPE_INVALID")
+        if (
+            not isinstance(filename, str) or not filename.strip()
+            or len(filename) > 255 or not filename.lower().endswith(".csv")
+        ):
+            return self._provisional_fbo_error("FIFO_PROVISIONAL_FBO_FILENAME_INVALID")
+        if not isinstance(timezone_name, str) or not timezone_name or len(timezone_name) > 64:
+            return self._provisional_fbo_error("FIFO_PROVISIONAL_FBO_TIMEZONE_INVALID")
+        if isinstance(payload, memoryview):
+            if payload.nbytes > self.MAX_FILE_BYTES:
+                return self._provisional_fbo_error("FIFO_PROVISIONAL_FBO_FILE_SIZE_INVALID")
+            payload = payload.tobytes()
+        if not isinstance(payload, (bytes, bytearray)):
+            return self._provisional_fbo_error("FIFO_PROVISIONAL_FBO_PAYLOAD_INVALID")
+        payload = bytes(payload)
+        if not payload or len(payload) > self.MAX_FILE_BYTES:
+            return self._provisional_fbo_error("FIFO_PROVISIONAL_FBO_FILE_SIZE_INVALID")
+        if not _WORKER_SLOTS.acquire(blocking=False):
+            return self._provisional_fbo_error("FIFO_REPORT_WORKER_BUSY")
+        process = None
+        try:
+            header = {
+                "document_kind": "PROVISIONAL_FBO_CSV",
+                "filename": filename,
+                "payload_bytes": len(payload),
+                "timezone_name": timezone_name,
+                "scope": {
+                    "owner_id": scope.owner_id,
+                    "store_id": scope.store_id,
+                    "product_id": scope.product_id,
+                    "offer_id": scope.offer_id,
+                    "sku": scope.sku,
+                },
+            }
+            request = json.dumps(header, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            if len(request) > 4096:
+                return self._provisional_fbo_error("FIFO_REPORT_WORKER_HEADER_INVALID")
+            kwargs = {
+                "cwd": str(self._repo_root),
+                "env": self._worker_environment(),
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.DEVNULL,
+                "shell": False,
+            }
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            process = self._popen(
+                [self._python, "-m", "services.fifo_cost_report_import_worker"],
+                **kwargs,
+            )
+            try:
+                stdout, _stderr = process.communicate(
+                    input=request + b"\n" + payload,
+                    timeout=self.TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                self._stop_own_worker(process)
+                return self._provisional_fbo_error("FIFO_REPORT_WORKER_TIMEOUT")
+            if process.returncode != 0:
+                return self._provisional_fbo_error("FIFO_REPORT_WORKER_FAILED")
+            if (
+                not isinstance(stdout, bytes) or not stdout
+                or len(stdout) > _MAX_PROVISIONAL_FBO_OUTPUT_BYTES
+            ):
+                return self._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+            return self._decode_provisional_fbo_result(
+                stdout, filename=filename, payload=payload, scope=scope,
+                timezone_name=timezone_name,
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return self._provisional_fbo_error("FIFO_REPORT_WORKER_FAILED")
         finally:
             if process is not None and process.poll() is None:
                 self._stop_own_worker(process)
@@ -361,3 +446,52 @@ class FifoCostReportImportWorkerClient:
     @staticmethod
     def _physical_error(code):
         return FifoPhysicalSalesParseResult("ERROR", None, (code,))
+
+
+    @classmethod
+    def _decode_provisional_fbo_result(
+        cls, output, *, filename, payload, scope, timezone_name,
+    ):
+        try:
+            value = json.loads(output.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if not isinstance(value, dict) or type(value.get("error")) is not bool:
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if value["error"]:
+            code = value.get("code")
+            if not isinstance(code, str) or not code.startswith("FIFO_") or len(code) > 96:
+                return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+            return cls._provisional_fbo_error(code)
+        if set(value) != {"error", "document_kind", "document"}:
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if value.get("document_kind") != "PROVISIONAL_FBO_CSV":
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        document_value = value.get("document")
+        if not isinstance(document_value, dict):
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        parsed = FifoCostProvisionalFboCsvImportService().parse_csv(
+            filename=filename, payload=payload, scope=scope,
+            timezone_name=timezone_name,
+        )
+        if parsed.document is None:
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        try:
+            returned_manifest = json.dumps(
+                document_value, ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+            ).encode("ascii")
+            expected_manifest = json.dumps(
+                parsed.document.to_worker_summary_payload(),
+                ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+            ).encode("ascii")
+        except (TypeError, ValueError, UnicodeError):
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if returned_manifest != expected_manifest:
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        if parsed.document.file_sha256 != sha256(payload).hexdigest():
+            return cls._provisional_fbo_error("FIFO_REPORT_WORKER_RESULT_INVALID")
+        return parsed
+
+    @staticmethod
+    def _provisional_fbo_error(code):
+        return ProvisionalFboParseResult("ERROR", None, (code,))

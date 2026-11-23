@@ -1,14 +1,22 @@
 """Owner-only Telegram flow for non-authoritative FIFO summary scenarios."""
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
+import re
+from time import monotonic
+from uuid import uuid4
 
+from services.fifo_cost_provisional_fbo_csv_import_service import (
+    ProvisionalFboParseResult,
+)
 from services.fifo_cost_provisional_contracts import (
     ProvisionalRangeAssumptions,
     ProvisionalStatus,
     ProvisionalSummaryRequest,
 )
 from services.fifo_cost_transition_contracts import ScopeIdentity
+from services.fifo_cost_report_import_worker_client import FifoCostReportImportWorkerClient
 
 
 class TelegramFifoCostProvisionalService:
@@ -19,10 +27,17 @@ class TelegramFifoCostProvisionalService:
     """
 
     PAGE_SIZE = 8
+    FBO_UPLOAD_TTL_SECONDS = 15 * 60
+    FBO_MAX_FILE_BYTES = FifoCostReportImportWorkerClient.MAX_FILE_BYTES
 
-    def __init__(self, *, evidence_reader, summary_service):
+    def __init__(
+        self, *, evidence_reader, summary_service, fbo_worker=None,
+        monotonic_clock=monotonic,
+    ):
         self.evidence_reader = evidence_reader
         self.summary_service = summary_service
+        self.fbo_worker = fbo_worker or FifoCostReportImportWorkerClient()
+        self._monotonic = monotonic_clock
 
     def start(self, runtime, owner, session):
         if runtime.physical_sales_import_service is not None:
@@ -49,6 +64,8 @@ class TelegramFifoCostProvisionalService:
             return runtime._stale()
         value = str(text or "").strip()
         step = session.get("step")
+        if step == "provisional_fbo_period":
+            return self._set_fbo_period(runtime, owner, session, value)
         if step == "provisional_close_exact":
             parsed = self._parse_units(value)
             if parsed is None:
@@ -75,6 +92,12 @@ class TelegramFifoCostProvisionalService:
         flow = session.get("provisional_flow")
         if not isinstance(flow, dict):
             return runtime._stale()
+        if action == "provisional_fbo_upload":
+            return self._start_fbo_upload(runtime, owner, session, flow)
+        if action in {"provisional_fbo_confirm", "provisional_fbo_cancel"}:
+            return self._resolve_fbo_preview(
+                runtime, owner, session, ticket, flow, action,
+            )
         if action == "provisional_back":
             session.pop("provisional_flow", None)
             session.pop("step", None)
@@ -228,6 +251,12 @@ class TelegramFifoCostProvisionalService:
         )
         if snapshot and movement and costs_ready:
             buttons.append({"text": "Рассчитать диапазон", "callback": runtime._issue_ticket(owner, session, "provisional_calculate")})
+        self._append_fbo_status(runtime, owner, session, flow, lines, buttons)
+        if snapshot and movement:
+            buttons.append({
+                "text": "🧾 Добавить CSV отправлений FBO",
+                "callback": runtime._issue_ticket(owner, session, "provisional_fbo_upload"),
+            })
         buttons.extend([
             {"text": "📄 Загрузить оборотную ведомость", "callback": runtime._issue_ticket(owner, session, "provisional_upload")},
             {"text": "⬅️ К карточке партии", "callback": runtime._issue_ticket(owner, session, "provisional_back")},
@@ -235,6 +264,406 @@ class TelegramFifoCostProvisionalService:
         if flow.get("result") is not None:
             lines.extend(["", self._format_result(flow["result"])])
         return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def _start_fbo_upload(self, runtime, owner, session, flow):
+        reports = self._reports(runtime, session)
+        movement = self._find(reports or (), flow.get("movement_fingerprint"))
+        snapshot = self._find(reports or (), flow.get("snapshot_fingerprint"))
+        if reports is None or movement is None or snapshot is None:
+            return runtime._result(
+                "Сначала выберите подтверждённый снимок и соседнюю ведомость движений. FBO CSV не выбран.",
+                code="FIFO_PROVISIONAL_FBO_REPORTS_REQUIRED",
+            )
+        current = runtime._read_case(session["case_id"], session["identity"])
+        if not runtime._case_matches(current, session["identity"], session["case_revision"]):
+            return runtime._result(
+                "FIFO-дело изменилось. Откройте его заново перед добавлением CSV.",
+                code="FIFO_PROVISIONAL_CASE_STALE",
+            )
+        case = session.get("case")
+        try:
+            timezone_name = case["metadata"]["store_timezone"]
+            scope_data = case["metadata"]["scope"]
+            scope = ScopeIdentity(
+                owner_id=scope_data["owner_id"],
+                store_id=session["identity"]["store_id"],
+                product_id=session["identity"].get("product_id"),
+                offer_id=session["identity"].get("offer_id"),
+                sku=session["identity"]["sku"],
+            )
+        except (KeyError, TypeError, ValueError):
+            return runtime._result(
+                "Не удалось проверить магазин и SKU. CSV не выбран.",
+                code="FIFO_PROVISIONAL_SCOPE_INVALID",
+            )
+        if runtime.physical_sales_import_service is not None:
+            runtime.physical_sales_import_service.clear_selection(user_id=owner)
+        upload = {
+            "token": uuid4().hex,
+            "case_id": session["case_id"],
+            "case_revision": session["case_revision"],
+            "identity": dict(session["identity"]),
+            "scope": scope,
+            "timezone_name": timezone_name,
+            "movement_fingerprint": movement["file_fingerprint"],
+            "movement_from": movement["period_from"],
+            "movement_to": movement["period_to"],
+            "period_from": None,
+            "period_to": None,
+            "preview": None,
+            "accepted": None,
+            "expires_at": self._monotonic() + self.FBO_UPLOAD_TTL_SECONDS,
+        }
+        flow["fbo_upload"] = upload
+        session["step"] = "provisional_fbo_period"
+        self._advance(runtime, session)
+        return runtime._result(
+            "Укажите период, который полностью покрывает CSV отправлений, включая дни без строк. "
+            f"Он должен включать период ведомости движений {movement['period_from']} — {movement['period_to']}. "
+            "Формат: YYYY-MM-DD — YYYY-MM-DD. После подтверждения пришлите CSV в течение 15 минут. "
+            "Номер отправления и дополнительные колонки не будут показаны или сохранены.",
+            keyboard=runtime._keyboard([{
+                "text": "Отмена",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_fbo_cancel",
+                    fbo_token=upload["token"],
+                ),
+            }]),
+        )
+
+    def _set_fbo_period(self, runtime, owner, session, text):
+        flow = session.get("provisional_flow")
+        upload = flow.get("fbo_upload") if isinstance(flow, dict) else None
+        if not self._upload_matches_session(runtime, session, upload):
+            session.pop("step", None)
+            if isinstance(flow, dict):
+                flow.pop("fbo_upload", None)
+            self._advance(runtime, session)
+            return runtime._result(
+                "Выбор FBO CSV истёк или относится к другому делу. Выберите его заново.",
+                code="FIFO_PROVISIONAL_FBO_SELECTION_STALE",
+            )
+        match = re.fullmatch(
+            r"\s*(\d{4}-\d{2}-\d{2})\s*(?:—|–|\s+-\s+)\s*(\d{4}-\d{2}-\d{2})\s*",
+            str(text or ""),
+        )
+        if match is None:
+            return runtime._result(
+                "Введите обе границы полного периода CSV: YYYY-MM-DD — YYYY-MM-DD.",
+                code="FIFO_PROVISIONAL_FBO_PERIOD_INVALID",
+            )
+        start_text, end_text = match.groups()
+        try:
+            start = date.fromisoformat(start_text)
+            end = date.fromisoformat(end_text)
+        except ValueError:
+            return runtime._result(
+                "Даты периода CSV неверны. Период не сохранён.",
+                code="FIFO_PROVISIONAL_FBO_PERIOD_INVALID",
+            )
+        if (
+            start.isoformat() != start_text or end.isoformat() != end_text
+            or end < start
+            or start_text > upload["movement_from"]
+            or end_text < upload["movement_to"]
+        ):
+            return runtime._result(
+                "Подтверждённый период должен быть непрерывным и покрывать весь период ведомости движений. "
+                "Период не сохранён.",
+                code="FIFO_PROVISIONAL_FBO_PERIOD_INVALID",
+            )
+        upload["period_from"], upload["period_to"] = start_text, end_text
+        upload["expires_at"] = self._monotonic() + self.FBO_UPLOAD_TTL_SECONDS
+        session["step"] = "provisional_fbo_file"
+        self._advance(runtime, session)
+        return runtime._result(
+            f"Период полного покрытия CSV подтверждён: {start_text} — {end_text}. "
+            "Теперь отправьте CSV. Строки вне выбранного SKU будут отброшены.",
+            code="FIFO_PROVISIONAL_FBO_PERIOD_SET",
+        )
+
+    def has_fbo_document_selection(self, runtime, owner, session):
+        flow = session.get("provisional_flow") if isinstance(session, dict) else None
+        upload = flow.get("fbo_upload") if isinstance(flow, dict) else None
+        return (
+            isinstance(upload, dict)
+            and session.get("step") in {
+                "provisional_fbo_period", "provisional_fbo_file", "provisional_fbo_preview",
+            }
+        )
+
+    def clear_fbo_upload(self, session):
+        if not isinstance(session, dict):
+            return
+        flow = session.get("provisional_flow")
+        if isinstance(flow, dict):
+            flow.pop("fbo_upload", None)
+        if session.get("step") in {
+            "provisional_fbo_period", "provisional_fbo_file", "provisional_fbo_preview",
+        }:
+            session.pop("step", None)
+
+    def preflight_fbo_document(self, runtime, owner, session, filename, file_size):
+        if not self.has_fbo_document_selection(runtime, owner, session):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        flow = session["provisional_flow"]
+        upload = flow["fbo_upload"]
+        if not self._upload_matches_session(runtime, session, upload):
+            return self._preflight_error(
+                "FIFO_PROVISIONAL_FBO_SELECTION_STALE",
+                "Выбор FBO CSV истёк или изменился. Файл не загружен; выберите его заново.",
+            )
+        if session.get("step") != "provisional_fbo_file":
+            code = (
+                "FIFO_PROVISIONAL_FBO_PREVIEW_PENDING"
+                if session.get("step") == "provisional_fbo_preview"
+                else "FIFO_PROVISIONAL_FBO_PERIOD_REQUIRED"
+            )
+            return self._preflight_error(
+                code,
+                "Сначала завершите ввод полного периода или подтвердите/отмените предпросмотр. Файл не загружен.",
+            )
+        if not isinstance(filename, str) or not filename.lower().endswith(".csv"):
+            return self._preflight_error(
+                "FIFO_PROVISIONAL_FBO_FORMAT_UNSUPPORTED",
+                "Выбрано действие для FBO CSV. Пришлите CSV; выбранное дело не изменено.",
+            )
+        if type(file_size) is not int or file_size <= 0 or file_size > self.FBO_MAX_FILE_BYTES:
+            return self._preflight_error(
+                "FIFO_PROVISIONAL_FBO_FILE_SIZE_INVALID",
+                "CSV должен быть непустым и не превышать 10 МиБ. Файл не загружен.",
+            )
+        if upload.get("preview") is not None or upload.get("accepted") is not None:
+            return self._preflight_error(
+                "FIFO_PROVISIONAL_FBO_PREVIEW_PENDING",
+                "Сначала подтвердите или отмените предыдущий предпросмотр.",
+            )
+        return {
+            "error": False, "selected": True, "accepted": True,
+            "read_only_ozon": True,
+        }
+
+    def handle_fbo_document(self, runtime, owner, session, content, filename):
+        file_size = (
+            content.nbytes if isinstance(content, memoryview)
+            else len(content) if isinstance(content, (bytes, bytearray)) else None
+        )
+        preflight = self.preflight_fbo_document(
+            runtime, owner, session, filename, file_size,
+        )
+        if preflight.get("selected") is not True:
+            if preflight.get("selected") is False:
+                return {"error": False, "handled": False, "read_only_ozon": True}
+            return preflight
+        if preflight.get("accepted") is not True:
+            return preflight
+        raw = content.tobytes() if isinstance(content, memoryview) else bytes(content)
+        flow = session.get("provisional_flow")
+        upload = flow.get("fbo_upload") if isinstance(flow, dict) else None
+        if not self._upload_matches_session(runtime, session, upload):
+            return self._upload_error(
+                "FIFO_PROVISIONAL_FBO_SELECTION_STALE",
+                "Выбор FBO CSV истёк или изменился. Дело не изменено; повторите выбор.",
+            )
+        parsed = self.fbo_worker.parse_provisional_fbo_csv(
+            filename=filename, payload=raw, scope=upload["scope"],
+            timezone_name=upload["timezone_name"],
+        )
+        if not isinstance(parsed, ProvisionalFboParseResult):
+            return self._upload_error(
+                "FIFO_PROVISIONAL_FBO_WORKER_RESULT_INVALID",
+                "Не удалось проверить CSV. Дело не изменено; исправьте файл и повторите.",
+            )
+        if parsed.status != "COMPLETE" or parsed.document is None:
+            code = parsed.issue_codes[0] if parsed.issue_codes else "FIFO_PROVISIONAL_FBO_PARSE_FAILED"
+            return self._upload_error(
+                code,
+                "Не удалось проверить FBO CSV по безопасному формату. "
+                "Дело не изменено; дополнительные поля и сырые строки не показываются.",
+            )
+        reports = self._reports(runtime, session)
+        movement = self._find(reports or (), upload["movement_fingerprint"])
+        current = runtime._read_case(upload["case_id"], upload["identity"])
+        if (
+            reports is None or movement is None
+            or not runtime._case_matches(current, upload["identity"], upload["case_revision"])
+            or movement["period_from"] != upload["movement_from"]
+            or movement["period_to"] != upload["movement_to"]
+        ):
+            return self._upload_error(
+                "FIFO_PROVISIONAL_FBO_SELECTION_STALE",
+                "Отчёт или FIFO-дело изменились во время чтения CSV. Предпросмотр не сохранён.",
+            )
+        fields = movement["report"].normalized_fields
+        redeemed = fields.get("redeemed_units") if hasattr(fields, "get") else None
+        if type(redeemed) is not int or redeemed < 0:
+            return self._upload_error(
+                "FIFO_PROVISIONAL_FBO_STATEMENT_UNAVAILABLE",
+                "Не удалось получить количество выкупов из выбранной ведомости. Предпросмотр не создан.",
+            )
+        document = parsed.document
+        delivered_units = sum(
+            row.quantity for row in document.rows
+            if row.status_kind == "DELIVERED" and row.delivered is not None
+            and upload["movement_from"] <= row.delivered.local_date.isoformat() <= upload["movement_to"]
+        )
+        missing_delivery_date_rows = sum(
+            1 for row in document.rows
+            if row.status_kind == "DELIVERED" and row.delivered is None
+        )
+        preview = {
+            "document": document,
+            "delivered_units_in_window": delivered_units,
+            "statement_redeemed_units": redeemed,
+            "delta_units": delivered_units - redeemed,
+            "missing_delivery_date_rows": missing_delivery_date_rows,
+            "movement_fingerprint": upload["movement_fingerprint"],
+            "token": uuid4().hex,
+        }
+        upload["preview"] = preview
+        session["step"] = "provisional_fbo_preview"
+        self._advance(runtime, session)
+        return runtime._result(
+            self._fbo_preview_text(upload),
+            keyboard=runtime._keyboard([
+                {
+                    "text": "Использовать в предварительной оценке",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_fbo_confirm",
+                        fbo_token=preview["token"],
+                    ),
+                },
+                {
+                    "text": "Отменить CSV",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_fbo_cancel",
+                        fbo_token=preview["token"],
+                    ),
+                },
+            ]),
+            code="FIFO_PROVISIONAL_FBO_PREVIEW_READY",
+        )
+
+    def _resolve_fbo_preview(self, runtime, owner, session, ticket, flow, action):
+        upload = flow.get("fbo_upload")
+        token = ticket.get("fbo_token")
+        if (
+            not isinstance(upload, dict) or not isinstance(token, str)
+            or token != (upload.get("preview") or {}).get("token", upload.get("token"))
+            or not self._upload_matches_session(runtime, session, upload)
+        ):
+            return runtime._stale()
+        if action == "provisional_fbo_confirm":
+            preview = upload.get("preview")
+            if not isinstance(preview, dict):
+                return runtime._stale()
+            upload["accepted"] = preview
+            upload["preview"] = None
+            session.pop("step", None)
+            self._advance(runtime, session)
+            return self.show(runtime, owner, session)
+        flow.pop("fbo_upload", None)
+        session.pop("step", None)
+        self._advance(runtime, session)
+        return self.show(runtime, owner, session)
+
+    def _append_fbo_status(self, runtime, owner, session, flow, lines, buttons):
+        upload = flow.get("fbo_upload")
+        if not isinstance(upload, dict):
+            return
+        preview = upload.get("preview") or upload.get("accepted")
+        if not isinstance(preview, dict):
+            return
+        document = preview.get("document")
+        if document is None:
+            return
+        delta = preview["delta_units"]
+        sign = "+" if delta > 0 else ""
+        lines.extend([
+            "",
+            "Дополнительная сверка FBO CSV (только сценарий):",
+            f"Покрытие владельца: {upload['period_from']} — {upload['period_to']}; "
+            f"строк выбранного SKU: {document.row_count}; единиц: {document.selected_units}.",
+            f"Статус Доставлен в окне ведомости: {preview['delivered_units_in_window']} шт.; "
+            f"выкупы T в ведомости: {preview['statement_redeemed_units']} шт.; "
+            f"диагностическая разница CSV − ведомость: {sign}{delta} шт.",
+            "Разницу не подставляем вместо T в сводной формуле; CSV не доказывает полноту отмен/возвратов.",
+        ])
+        if document.unknown_status_rows or preview["missing_delivery_date_rows"]:
+            lines.append(
+                f"Строк с нераспознанным статусом: {document.unknown_status_rows}; "
+                f"доставленных без даты доставки: {preview['missing_delivery_date_rows']}."
+            )
+        if upload.get("preview") is not None:
+            buttons.extend([
+                {
+                    "text": "Использовать FBO CSV",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_fbo_confirm",
+                        fbo_token=preview["token"],
+                    ),
+                },
+                {
+                    "text": "Отменить FBO CSV",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_fbo_cancel",
+                        fbo_token=preview["token"],
+                    ),
+                },
+            ])
+
+    def _fbo_preview_text(self, upload):
+        document = upload["preview"]["document"]
+        preview = upload["preview"]
+        delta = preview["delta_units"]
+        sign = "+" if delta > 0 else ""
+        return (
+            "Предпросмотр FBO CSV — только диагностический сценарий.\n"
+            f"Период полного покрытия: {upload['period_from']} — {upload['period_to']}.\n"
+            f"Точный SKU: {document.row_count} строк, {document.selected_units} единиц; "
+            f"строки других SKU отброшены: {document.excluded_other_sku_rows}.\n"
+            f"Доставлено по CSV в окне ведомости: {preview['delivered_units_in_window']} шт.; "
+            f"выкупы T в ведомости: {preview['statement_redeemed_units']} шт.; "
+            f"разница: {sign}{delta} шт.\n"
+            f"Распознанные группы статусов (строки): {dict(document.status_counts)}. "
+            f"Нераспознанных строк: {document.unknown_status_rows}.\n"
+            "Разница не исправляет и не заменяет T; номер отправления, названия и дополнительные "
+            "колонки скрыты. CSV сам по себе не доказывает полноту событий."
+        )
+
+    def _upload_matches_session(self, runtime, session, upload):
+        if not isinstance(upload, dict):
+            return False
+        flow = session.get("provisional_flow")
+        if (
+            not isinstance(flow, dict)
+            or type(upload.get("expires_at")) not in (int, float)
+            or self._monotonic() >= upload["expires_at"]
+            or upload.get("case_id") != session.get("case_id")
+            or upload.get("case_revision") != session.get("case_revision")
+            or upload.get("identity") != session.get("identity")
+            or upload.get("movement_fingerprint") != flow.get("movement_fingerprint")
+        ):
+            return False
+        current = runtime._read_case(upload["case_id"], upload["identity"])
+        return runtime._case_matches(
+            current, upload["identity"], upload["case_revision"],
+        )
+
+    @staticmethod
+    def _upload_error(code, message):
+        return {
+            "error": False, "handled": True, "code": code,
+            "message": message, "read_only_ozon": True,
+        }
+
+    @classmethod
+    def _preflight_error(cls, code, message):
+        return {
+            **cls._upload_error(code, message),
+            "selected": True,
+            "accepted": False,
+        }
 
     def _calculate(self, runtime, owner, session, flow):
         reports = self._reports(runtime, session)
@@ -290,6 +719,7 @@ class TelegramFifoCostProvisionalService:
         else:
             flow["snapshot_fingerprint"] = fingerprint
             flow["movement_fingerprint"] = None
+        flow.pop("fbo_upload", None)
         flow["result"] = None
         self._advance(runtime, session)
         return self.show(runtime, owner, session)

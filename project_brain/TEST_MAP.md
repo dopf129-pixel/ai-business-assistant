@@ -7181,3 +7181,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Linked source, normalizer, acceptance, checkpoint, deduplication, manifest, v13/v16 migration, and existing cross-docking/planning cross-docking regressions: **233 passed in 9.62s**. `compileall` on changed batch modules/repository and linked tests, `git diff --check`, and `git diff --exit-code -- data` passed.
 - Disposable Windows/Python 3.12 full suite in a clean copy without `.git`, `.venv`, real `data/`, or secret `.env`: **5,405 passed in 99.02s**; `compileall app` passed. The copy used a synthetic USN_INCOME 6% policy and safe `.env.example`; all test writes stayed inside that temporary copy.
 - Source matrix and remaining source gaps are documented in `FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md` and the PR B handoff. Hosted current-SHA CI is pending publication.
+# 2026-11-23 — Provisional FBO CSV upload tests (PF12)
+
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: bounded scenario upload end-to-end through normal FIFO callbacks, exact numeric SKU filtering, preview/accept, diagnostic +1 comparison, unchanged statement T and zero factual FIFO writes; stale/expired and wrong-phase file guards; no fall-through to physical-sales or legacy cost import.
+- `tests/test_fifo_cost_report_import_worker_client.py`: isolated FBO parsing in the shared bounded worker, worker-result manifest revalidation, timeout and output-size rejection.
+- Linked profile including parser, worker, adapter, provisional runtime, transition runtime, and physical-sales evidence/import suites: **56 passed**.

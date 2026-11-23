@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FBO CSV upload path (PR B PF12)
+
+- Added FBO CSV routing through the existing bounded import worker and owner/case-scoped Telegram scenario. Upload preflight runs before Telegram downloads the file; the import is kept in a 15-minute in-memory session only.
+- Repeated files cannot fall through to the legacy cost-table or physical-sales CSV handlers while FBO period/file/preview selection is active. Switching to the physical-sales import clears only the transient FBO selection. The accepted FBO comparison remains diagnostic and never substitutes its delivered count for turnover statement T.
+- Added end-to-end synthetic tests for upload, redaction, the +1 control delta, unchanged T/FIFO writes, stale/expired selection, wrong-phase upload, and coexistence with the existing import routes. Linked verification: **56 passed**.
+
 # 2026-11-23 — Provisional FBO CSV contract (PR B PF11)
 
 - Added a separate bounded parser for owner-imported FBO posting CSV, with exact-SKU filtering, UTF-8/BOM, explicit date precision and store-timezone handling. Non-target columns and raw posting IDs are not retained.
