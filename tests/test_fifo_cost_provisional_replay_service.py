@@ -51,7 +51,8 @@ def _event(kind, reference, *, qty=1, day=None, at=None,
     )
 
 
-def _replay(events, *, opening=0, caps=None, old="21.00", new="14.65"):
+def _replay(events, *, opening=0, opening_held=None, caps=None,
+            old="21.00", new="14.65"):
     return SERVICE.replay(
         events=events,
         scope_fingerprint=SCOPE,
@@ -63,6 +64,7 @@ def _replay(events, *, opening=0, caps=None, old="21.00", new="14.65"):
         old_unit_cost_rub=old,
         new_unit_cost_rub=new,
         posting_capacities=caps or {},
+        opening_held_units_by_zone=opening_held,
     )
 
 
@@ -175,7 +177,10 @@ def test_distinct_dispatch_events_cannot_claim_the_same_posting_twice():
     result = _replay((first, second), opening=3, caps={first.posting_key: 2})
 
     assert result.issue_codes == (Issue.TIMELINE_DUPLICATE_POSTING,)
-    assert result.events_processed == 0
+    assert result.events_processed == 1
+    assert result.supplied_event_count == 2
+    assert result.unprocessed_event_count == 1
+    assert result.available_units == 2
 
 
 def test_dispatch_cannot_drive_available_stock_below_zero():
@@ -183,14 +188,22 @@ def test_dispatch_cannot_drive_available_stock_below_zero():
         Kind.BUYER_DISPATCH, "dispatch", qty=2, at="2026-11-08T10:00:00+03:00",
         posting="p-1",
     )
+    tail_receipt = _event(
+        Kind.SUPPLY_RECEIVED, "after-negative-gap", qty=5,
+        at="2026-11-09T10:00:00+03:00", zone=Zone.AVAILABLE,
+    )
 
-    result = _replay((dispatch,), opening=1, caps={dispatch.posting_key: 2})
+    result = _replay((dispatch, tail_receipt), opening=1,
+                     caps={dispatch.posting_key: 2})
 
     assert result.status == "REPLAY_GAP"
     assert result.issue_codes == (Issue.TIMELINE_NEGATIVE_AVAILABLE_STOCK,)
     assert result.available_units == 1
     assert result.buyer_dispatch_units_total == 0
     assert result.dispatch_cogs_rub == Decimal("0.00")
+    assert result.events_processed == 0
+    assert result.supplied_event_count == 2
+    assert result.unprocessed_event_count == 2
 
 
 def test_opening_link_requires_a_known_posting_capacity_and_cannot_exceed_it():
@@ -524,3 +537,266 @@ def test_cost_inputs_reject_booleans_floats_nonfinite_negative_and_out_of_range(
     assert result.status == "REPLAY_GAP"
     assert result.issue_codes == (Issue.TIMELINE_COST_INVALID,)
     assert result.available_layers == ()
+
+
+def test_release_one_opening_return_unit_moves_it_without_increasing_total_stock():
+    release = _event(
+        Kind.RELEASE_HOLD, "opening-return-release", qty=1,
+        at="2026-11-06T10:00:00+03:00", zone=Zone.BUYER_RETURN_TRANSIT,
+    )
+
+    result = _replay(
+        (release,),
+        opening_held={Zone.BUYER_RETURN_TRANSIT: 70},
+    )
+
+    assert result.complete is True
+    assert result.available_units == 1
+    assert result.held_units_by_zone == {"buyer_return_transit": 69}
+    assert result.released_hold_units == 1
+    assert result.available_layers[0].unit_cost_rub == Decimal("21.00")
+    assert result.available_units + sum(result.held_units_by_zone.values()) == 70
+
+
+def test_new_receipt_can_be_released_from_checking_with_its_original_layer():
+    receipt = _event(
+        Kind.SUPPLY_RECEIVED, "checking-receipt", qty=4,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.CHECKING,
+    )
+    release = _event(
+        Kind.RELEASE_HOLD, "checking-release", qty=3,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.CHECKING,
+    )
+
+    result = _replay((receipt, release))
+
+    assert result.complete is True
+    assert result.available_units == 3
+    assert result.held_units_by_zone == {"checking": 1}
+    assert result.released_hold_units == 3
+    assert result.available_layers[0].unit_cost_rub == Decimal("14.65")
+    assert result.available_layers[0].effective_date == receipt.local_date
+
+
+def test_release_above_held_quantity_stops_without_making_stock_available():
+    receipt = _event(
+        Kind.SUPPLY_RECEIVED, "small-checking-receipt", qty=2,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.CHECKING,
+    )
+    release = _event(
+        Kind.RELEASE_HOLD, "excess-release", qty=3,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.CHECKING,
+    )
+
+    result = _replay((receipt, release))
+
+    assert result.issue_codes == (Issue.TIMELINE_HELD_STOCK_INSUFFICIENT,)
+    assert result.available_units == 0
+    assert result.held_units_by_zone == {"checking": 2}
+    assert result.events_processed == 1
+    assert result.unprocessed_event_count == 1
+
+
+def test_partial_release_from_mixed_cost_held_zone_fails_closed():
+    new_receipt = _event(
+        Kind.SUPPLY_RECEIVED, "new-checking-receipt", qty=1,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.CHECKING,
+    )
+    release = _event(
+        Kind.RELEASE_HOLD, "mixed-release", qty=1,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.CHECKING,
+    )
+
+    result = _replay(
+        (new_receipt, release),
+        opening_held={Zone.CHECKING: 1},
+    )
+
+    assert result.issue_codes == (Issue.TIMELINE_HELD_RELEASE_AMBIGUOUS,)
+    assert result.available_units == 0
+    assert result.held_units_by_zone == {"checking": 2}
+    assert result.events_processed == 1
+
+
+def test_non_sale_remove_from_available_uses_fifo_and_does_not_enter_buyout_cogs():
+    receipt = _event(
+        Kind.SUPPLY_RECEIVED, "available-new-receipt", qty=3,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+    removal = _event(
+        Kind.NON_SALE_REMOVE, "available-writeoff", qty=4,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+
+    result = _replay((receipt, removal), opening=2)
+
+    assert result.complete is True
+    assert result.available_units == 1
+    assert [(layer.quantity, layer.unit_cost_rub) for layer in result.available_layers] == [
+        (1, Decimal("14.65")),
+    ]
+    assert result.non_sale_removed_units == 4
+    assert result.non_sale_removed_cost_rub == Decimal("71.30")
+    assert result.non_sale_removal_allocations[removal.event_key][0].unit_cost_rub == Decimal("21.00")
+    assert result.non_sale_removal_allocations[removal.event_key][1].unit_cost_rub == Decimal("14.65")
+    assert result.gross_buyout_cogs_rub == Decimal("0.00")
+
+
+def test_non_sale_remove_from_held_stock_is_separate_and_costed_from_known_layer():
+    receipt = _event(
+        Kind.SUPPLY_RECEIVED, "held-writeoff-receipt", qty=4,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.DEFECTIVE,
+    )
+    removal = _event(
+        Kind.NON_SALE_REMOVE, "held-writeoff", qty=2,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.DEFECTIVE,
+    )
+
+    result = _replay((receipt, removal))
+
+    assert result.complete is True
+    assert result.available_units == 0
+    assert result.held_units_by_zone == {"defective": 2}
+    assert result.non_sale_removed_units == 2
+    assert result.non_sale_removed_cost_rub == Decimal("29.30")
+    assert result.gross_buyout_cogs_rub == Decimal("0.00")
+
+
+def test_partial_non_sale_remove_from_mixed_cost_held_zone_is_ambiguous():
+    new_receipt = _event(
+        Kind.SUPPLY_RECEIVED, "mixed-defective-receipt", qty=1,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.DEFECTIVE,
+    )
+    removal = _event(
+        Kind.NON_SALE_REMOVE, "mixed-defective-remove", qty=1,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.DEFECTIVE,
+    )
+
+    result = _replay(
+        (new_receipt, removal),
+        opening_held={Zone.DEFECTIVE: 1},
+    )
+
+    assert result.issue_codes == (Issue.TIMELINE_NON_SALE_REMOVE_AMBIGUOUS,)
+    assert result.non_sale_removed_units == 0
+    assert result.non_sale_removed_cost_rub == Decimal("0.00")
+    assert result.held_units_by_zone == {"defective": 2}
+
+
+def test_buyer_delivery_cannot_be_released_without_exact_posting_transition():
+    release = _event(
+        Kind.RELEASE_HOLD, "unlinked-delivery-release", qty=1,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.BUYER_DELIVERY,
+    )
+
+    result = _replay((release,))
+
+    assert result.issue_codes == (Issue.TIMELINE_UNSUPPORTED_EVENT,)
+    assert result.available_units == 0
+    assert result.events_processed == 0
+
+
+def test_ambiguous_later_event_group_preserves_only_confirmed_prefix():
+    first_receipt = _event(
+        Kind.SUPPLY_RECEIVED, "prefix-receipt", qty=2,
+        at="2026-11-06T10:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+    ambiguous_receipt = _event(
+        Kind.SUPPLY_RECEIVED, "ambiguous-receipt-a", qty=3,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+    ambiguous_remove = _event(
+        Kind.NON_SALE_REMOVE, "ambiguous-remove", qty=1,
+        at="2026-11-07T10:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+    tail_receipt = _event(
+        Kind.SUPPLY_RECEIVED, "after-ambiguity", qty=7,
+        at="2026-11-08T10:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+
+    result = _replay((tail_receipt, ambiguous_remove, first_receipt, ambiguous_receipt))
+
+    assert result.issue_codes == (Issue.TIMELINE_EVENT_ORDER_AMBIGUOUS,)
+    assert result.available_units == 2
+    assert result.events_processed == 1
+    assert result.supplied_event_count == 4
+    assert result.unprocessed_event_count == 3
+
+
+def test_opening_held_input_rejects_available_buyer_delivery_and_boolean_counts():
+    for value in (
+        {Zone.AVAILABLE: 1},
+        {Zone.BUYER_DELIVERY: 1},
+        {Zone.CHECKING: True},
+    ):
+        result = _replay((), opening_held=value)
+        assert result.issue_codes == (Issue.TIMELINE_OPENING_HELD_INVALID,)
+        assert result.available_units == 0
+        assert result.held_units_by_zone == {}
+
+
+def test_non_resellable_sale_return_can_be_released_with_original_cost_layer():
+    receipt = _event(
+        Kind.SUPPLY_RECEIVED, "return-release-receipt", qty=2,
+        at="2026-11-07T09:00:00+03:00", zone=Zone.AVAILABLE,
+    )
+    dispatch = _event(
+        Kind.BUYER_DISPATCH, "return-release-dispatch", qty=3,
+        at="2026-11-07T10:00:00+03:00", posting="return-release-posting",
+    )
+    buyout = _event(
+        Kind.BUYOUT, "return-release-buyout", qty=3,
+        at="2026-11-08T10:00:00+03:00", posting="return-release-posting",
+    )
+    customer_return = _event(
+        Kind.SALE_RETURN_RESTOCK, "held-sale-return", qty=1,
+        at="2026-11-09T10:00:00+03:00", posting="return-release-posting",
+        resellable=False,
+    )
+    release = _event(
+        Kind.RELEASE_HOLD, "sale-return-release", qty=1,
+        at="2026-11-10T10:00:00+03:00", zone=Zone.BUYER_RETURN_TRANSIT,
+    )
+
+    result = _replay(
+        (receipt, dispatch, buyout, customer_return, release),
+        opening=1,
+        caps={dispatch.posting_key: 3},
+    )
+
+    assert result.complete is True
+    assert result.available_units == 1
+    assert result.held_units_by_zone == {}
+    assert result.non_resellable_return_holds == {}
+    assert result.returned_cost_basis_rub == Decimal("14.65")
+    assert result.gross_buyout_cogs_rub == Decimal("50.30")
+    assert result.released_hold_units == 1
+    assert result.available_layers[0].unit_cost_rub == Decimal("14.65")
+
+
+def test_non_buyout_restock_and_buyout_cannot_both_consume_one_posting():
+    dispatch = _event(
+        Kind.BUYER_DISPATCH, "mixed-posting-dispatch", qty=2,
+        at="2026-11-07T10:00:00+03:00", posting="mixed-posting",
+    )
+    restock = _event(
+        Kind.NON_BUYOUT_RESTOCK, "mixed-posting-restock", qty=1,
+        at="2026-11-08T10:00:00+03:00", posting="mixed-posting",
+        resellable=True,
+    )
+    buyout = _event(
+        Kind.BUYOUT, "mixed-posting-buyout", qty=1,
+        at="2026-11-09T10:00:00+03:00", posting="mixed-posting",
+    )
+
+    result = _replay(
+        (dispatch, restock, buyout),
+        opening=2,
+        caps={dispatch.posting_key: 2},
+    )
+
+    assert result.issue_codes == (Issue.TIMELINE_RESTOCK_AFTER_BUYOUT,)
+    assert result.events_processed == 2
+    assert result.available_units == 1
+    assert result.gross_buyout_cogs_rub == Decimal("0.00")
+    assert result.unprocessed_event_count == 1

@@ -1,3 +1,9 @@
+# Provisional FIFO held stock and non-sale replay (PF17)
+
+- tests/test_fifo_cost_provisional_replay_service.py: opening held balances; exact release of known held layers; release quantity above bucket; release/removal from mixed-rate held stock fails closed; available non-sale removal consumes FIFO but stays outside buyout COGS; held write-off is separately valued; non-resellable customer returns can remain held and later return to availability at the original source rate; buyer-delivery is not released without posting linkage; duplicate posting lifecycle is preserved.
+- Prefix behavior: later negative stock, same-time ambiguity, or lifecycle conflict stops the replay; only prior confirmed events remain in the result and unprocessed_event_count exposes the untouched suffix.
+- Replay module: 39 passed; linked PF17 profile across replay, normalizer, movement/FBO importers, evidence reader and existing workflow: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. These tests establish only deterministic replay of supplied synthetic inputs, not source coverage, closing-balance reconciliation or final TIMELINE_MODEL readiness.
+
 # Provisional FIFO buyout and return replay (PF16)
 
 - `tests/test_fifo_cost_provisional_replay_service.py`: buyout consumes the exact reserve once and creates gross COGS; dispatch remains zero COGS; returns before buyout or above confirmed quantity fail; duplicate event IDs are idempotent; partial sale returns restore the last consumed layer first and retain gross COGS; non-buyout cancellation restores its original source layer; non-resellable units remain held; mixed-layer partial cancellation is not guessed; and old opening transit buyout does not reduce opening available stock a second time.

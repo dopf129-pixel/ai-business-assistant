@@ -157,9 +157,20 @@
 - An early test run identified three fixture/expectation issues (duplicate returns at an identical instant correctly trigger ordering ambiguity, one held-zone quantity expectation, and a 10-column CSV fixture); the fixtures/expectations were corrected and the final linked profile is green. No implementation defect remained.
 - Not verified yet: RELEASE_HOLD and NON_SALE_REMOVE replay, mixed-event balance checks, source coverage/final timeline status, normal Telegram timeline rendering, full suite, PR B hosted CI, and owner reports; these remain PF17–PF19 or later.
 
-## Resume (актуально после PF16)
+## PF17 — held zones, non-sale movements, and gap-safe prefix
 
-- Последний закрытый этап: PF16. Следующий: PF17 — удержанные зоны, освобождение в доступность, несбытовые выбытия отдельно от COGS, равновременные события и корректное ограничение хвоста после пробела.
+- Replay accepts owner-confirmed opening held balances by exact stock zone (excluding available and buyer_delivery); these finite opening layers keep the old cost. New held receipts and non-resellable physical returns retain their original layer and effective-date priority.
+- RELEASE_HOLD transfers only a quantity present in its exact held zone. It restores the source cost/FIFO layer and does not create units. Buyer-delivery releases/removals without a posting transition are rejected. Partial movement from mixed-cost held layers is blocked when the input cannot identify which cost slice moved.
+- NON_SALE_REMOVE uses FIFO for available stock and a separate known-cost ledger for held stock; it records quantity/value apart from gross buyout COGS. Negative available, unavailable held quantity, lifecycle conflicts, and unresolved cost slices fail closed.
+- The replay now returns only events before the first invalid or ambiguous event and exposes supplied/unprocessed event counts. Equal exact instants and mixed DAY/INSTANT groups stop before the disputed group; tail events cannot patch the result. Static lifecycle validations were moved into chronological replay so an earlier safe prefix can be retained.
+- Added B08/B12-oriented cases: a 70-unit opening return hold releases one unit while 69 remain held and total units stay 70; held new-cost receipts and non-resellable sale returns release to availability with their original layers. Added FIFO non-sale write-off, mixed-cost ambiguity, over-release, buyer-delivery linkage, same-time ordering, negative-stock tail, and posting lifecycle regressions.
+- Files changed: replay service/contracts, replay tests, owner guide, CHANGELOG, CURRENT_STATE, TEST_MAP, this journal, and Decision 068 implementation note. No tracked runtime data or factual FIFO/finance/Period Profit records changed.
+- Verification: tests/test_fifo_cost_provisional_replay_service.py — **39 passed**; linked replay/normalizer/movement/FBO/evidence/workflow profile — **76 passed in 10.62s**; compileall -q app tests, git diff --check, and git diff --exit-code -- data — PASS. All replay fixtures are synthetic.
+- Not verified: source coverage, eight-bucket closing reconciliation, owner evidence, normal Telegram TIMELINE_MODEL/TIMELINE_GAP presenter (PF18), full test suite and hosted PR B CI (PF19). No Ozon/Telegram calls or production bot use.
+
+## Resume (актуально после PF17)
+
+- Последний закрытый этап: PF17. Следующий: PF18 — подключить безопасный presenter TIMELINE_MODEL/TIMELINE_GAP в обычный FIFO Telegram-путь; сводный диапазон остаётся отдельной моделью при пробеле.
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
 - PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`; PF16 implementation `59c5f674317fd4d940e87989515fa0535a95cd46`. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.

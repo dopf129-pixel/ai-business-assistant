@@ -1,3 +1,10 @@
+# 2026-11-23 — Provisional FIFO held stock and non-sale movements (PR B PF17)
+
+- The read-only timeline replay now carries finite source-cost layers through held zones, releases only confirmed quantities back to availability, and records non-sale withdrawal/write-off cost separately from buyout COGS.
+- Partial release or removal from a mixed-cost held zone fails closed when the source does not identify which cost layer moved. Buyer-delivery stock still requires its exact posting transition.
+- A timeline gap stops replay at the first invalid or ambiguous event. The result exposes only the successfully replayed prefix and counts the unprocessed suffix; later events cannot repair or inflate the prefix.
+- Replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full-suite/hosted PR B CI and PF18 presenter integration remain pending.
+
 # 2026-11-23 — Provisional FIFO buyout and return replay (PR B PF16)
 
 - Extended the scenario-only replay to recognize a buyout only against its exact open posting reserve, book gross COGS once, and keep dispatch COGS at zero. Non-buyout restocks and sale returns restore source layers; partial sale returns restore the latest FIFO allocations first. Non-resellable returns remain held, excess/duplicate or unlinked events fail closed, and financial COGS reversal remains zero without a financial confirmation.

@@ -15,7 +15,7 @@ from typing import Iterable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.fifo_cost_provisional_timeline_contracts import (
-    ProvisionalStockZone,
+    ProvisionalStockZone as Zone,
     ProvisionalTimelineEvent,
     ProvisionalTimelineEventKind as Kind,
     ProvisionalTimelineIssue as Issue,
@@ -56,7 +56,8 @@ class ProvisionalFifoLayer:
 
 @dataclass(frozen=True, slots=True)
 class ProvisionalHeldFifoLayer(ProvisionalFifoLayer):
-    stock_zone: ProvisionalStockZone
+    stock_zone: Zone
+    non_resellable_return: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +65,7 @@ class ProvisionalFifoReplayResult:
     """Replay outcome; ``complete`` only means the supplied stream was replayable.
 
     It does not attest source coverage, inventory reconciliation, factual FIFO
-    readiness, or the final timeline status. Those gates belong to PF17/PF18.
+    readiness, or the final timeline status. Those gates belong to PF18.
     """
     status: str
     complete: bool
@@ -87,6 +88,12 @@ class ProvisionalFifoReplayResult:
     returned_cost_basis_rub: Decimal
     financial_cogs_reversal_rub: Decimal
     dispatch_cogs_rub: Decimal
+    released_hold_units: int
+    non_sale_removed_units: int
+    non_sale_removed_cost_rub: Decimal
+    non_sale_removal_allocations: Mapping[str, tuple[ProvisionalFifoAllocation, ...]]
+    supplied_event_count: int
+    unprocessed_event_count: int
     read_only: bool = True
     factual_writes: int = 0
 
@@ -105,6 +112,9 @@ class ProvisionalFifoReplayResult:
         ))
         object.__setattr__(self, "held_units_by_zone", MappingProxyType(
             dict(self.held_units_by_zone)
+        ))
+        object.__setattr__(self, "non_sale_removal_allocations", MappingProxyType(
+            {key: tuple(value) for key, value in dict(self.non_sale_removal_allocations).items()}
         ))
 
 
@@ -127,6 +137,7 @@ class FifoCostProvisionalReplayService:
         old_unit_cost_rub: Decimal | str | int,
         new_unit_cost_rub: Decimal | str | int,
         posting_capacities: Mapping[str, int] | None = None,
+        opening_held_units_by_zone: Mapping[str, int] | None = None,
     ) -> ProvisionalFifoReplayResult:
         issues: set[Issue] = set()
         try:
@@ -155,6 +166,10 @@ class FifoCostProvisionalReplayService:
         capacities = self._normalize_capacities(posting_capacities)
         if capacities is None:
             issues.add(Issue.TIMELINE_OPENING_LINK_INVALID)
+            return self._empty_result(issues)
+        opening_held = self._normalize_opening_held_units(opening_held_units_by_zone)
+        if opening_held is None:
+            issues.add(Issue.TIMELINE_OPENING_HELD_INVALID)
             return self._empty_result(issues)
 
         rows = self._bounded_events(events)
@@ -198,20 +213,28 @@ class FifoCostProvisionalReplayService:
             if event.event_kind not in {
                 Kind.SUPPLY_RECEIVED, Kind.BUYER_DISPATCH, Kind.BUYOUT,
                 Kind.NON_BUYOUT_RESTOCK, Kind.SALE_RETURN_RESTOCK,
+                Kind.RELEASE_HOLD, Kind.NON_SALE_REMOVE,
             }:
                 issues.add(Issue.TIMELINE_UNSUPPORTED_EVENT)
                 continue
             if event.local_date < model_start or event.local_date > model_end:
                 issues.add(Issue.TIMELINE_EVENT_OUTSIDE_WINDOW)
                 continue
+            if (event.event_kind in {Kind.RELEASE_HOLD, Kind.NON_SALE_REMOVE}
+                    and event.stock_zone is Zone.BUYER_DELIVERY):
+                # Buyer-delivery stock must be moved through its exact posting lifecycle.
+                issues.add(Issue.TIMELINE_UNSUPPORTED_EVENT)
+                continue
+            if event.event_kind is Kind.RELEASE_HOLD and event.stock_zone is Zone.AVAILABLE:
+                issues.add(Issue.TIMELINE_UNSUPPORTED_EVENT)
+                continue
             timeline_events.append(event)
 
         if issues:
             return self._empty_result(issues)
 
-        if self._has_ambiguous_order(timeline_events):
-            issues.add(Issue.TIMELINE_EVENT_ORDER_AMBIGUOUS)
-            return self._empty_result(issues)
+        ordered_events = sorted(timeline_events, key=self._event_sort_key)
+        first_ambiguous_index = self._first_ambiguous_order_index(ordered_events)
 
         opening_by_posting = {}
         opening_quantities = {}
@@ -232,39 +255,9 @@ class FifoCostProvisionalReplayService:
             return self._empty_result(issues)
 
         opening_postings = set(opening_by_posting)
-        dispatch_by_posting = {}
-        buyouts_by_posting = {}
-        restock_kinds_by_posting = {}
-        for event in timeline_events:
-            if event.event_kind is Kind.BUYER_DISPATCH:
-                capacity = capacities.get(event.posting_key)
-                if (capacity is None or event.quantity > capacity
-                        or event.posting_key in opening_postings
-                        or event.posting_key in dispatch_by_posting):
-                    issues.add(Issue.TIMELINE_DUPLICATE_POSTING)
-                    continue
-                dispatch_by_posting[event.posting_key] = event
-            elif event.event_kind is Kind.BUYOUT:
-                if event.posting_key in buyouts_by_posting:
-                    issues.add(Issue.TIMELINE_BUYOUT_DUPLICATE)
-                    continue
-                buyouts_by_posting[event.posting_key] = event
-            elif event.event_kind in {Kind.NON_BUYOUT_RESTOCK, Kind.SALE_RETURN_RESTOCK}:
-                restock_kinds_by_posting.setdefault(event.posting_key, set()).add(
-                    event.event_kind,
-                )
-        for posting_key, event_kinds in restock_kinds_by_posting.items():
-            if len(event_kinds) > 1:
-                issues.add(Issue.TIMELINE_RESTOCK_AFTER_BUYOUT)
-        for posting_key in buyouts_by_posting:
-            if posting_key in opening_postings and posting_key in dispatch_by_posting:
-                issues.add(Issue.TIMELINE_DUPLICATE_POSTING)
-            if (Kind.NON_BUYOUT_RESTOCK in restock_kinds_by_posting.get(posting_key, set())):
-                issues.add(Issue.TIMELINE_RESTOCK_AFTER_BUYOUT)
-        if issues:
-            return self._empty_result(issues)
+        dispatch_postings_seen = set(opening_postings)
 
-        total_stream_units = opening_units + sum(
+        total_stream_units = opening_units + sum(opening_held.values()) + sum(
             event.quantity for event in timeline_events
             if event.event_kind is Kind.SUPPLY_RECEIVED
         )
@@ -289,6 +282,32 @@ class FifoCostProvisionalReplayService:
             )
             available.append(initial_layer)
         layer_origins = {layer.layer_id: layer for layer in available}
+        held = []
+        for zone, quantity in opening_held.items():
+            if quantity <= 0:
+                continue
+            layer_id = self._layer_id(
+                "opening-held",
+                sha256(f"{scope_digest}:{model_start.isoformat()}:{zone.value}".encode()).hexdigest(),
+            )
+            origin = ProvisionalFifoLayer(
+                layer_id=layer_id,
+                quantity=quantity,
+                unit_cost_rub=old_cost,
+                effective_date=date.min,
+                effective_at_utc=None,
+                source_event_key=layer_id,
+            )
+            layer_origins[layer_id] = origin
+            held.append(ProvisionalHeldFifoLayer(
+                layer_id=origin.layer_id,
+                quantity=origin.quantity,
+                unit_cost_rub=origin.unit_cost_rub,
+                effective_date=origin.effective_date,
+                effective_at_utc=origin.effective_at_utc,
+                source_event_key=origin.source_event_key,
+                stock_zone=zone,
+            ))
         for event in opening_links:
             allocation = next(
                 item for item in opening_by_posting[event.posting_key]
@@ -302,22 +321,29 @@ class FifoCostProvisionalReplayService:
                 effective_at_utc=event.effective_at_utc,
                 source_event_key=event.event_key,
             )
-        held = []
         dispatch_reserves = {}
         active_reserves = {key: list(value) for key, value in opening_by_posting.items()}
         bought_out = {}
-        non_resellable_holds = {}
+        non_buyout_restock_postings = set()
         sale_returned_by_line = {}
         dispatch_units = 0
         gross_buyout_cogs = ZERO
         sale_returned_units = 0
         non_buyout_restocked_units = 0
         returned_cost_basis = ZERO
+        non_sale_removed_units = 0
+        non_sale_removed_cost = ZERO
+        non_sale_allocations = {}
         processed = 0
 
-        for event in sorted(timeline_events, key=self._event_sort_key):
+        released_hold_units = 0
+        for event_index, event in enumerate(ordered_events):
+            if first_ambiguous_index is not None and event_index == first_ambiguous_index:
+                issues.add(Issue.TIMELINE_EVENT_ORDER_AMBIGUOUS)
+                break
+
             if event.event_kind is Kind.SUPPLY_RECEIVED:
-                if event.stock_zone is ProvisionalStockZone.AVAILABLE:
+                if event.stock_zone is Zone.AVAILABLE:
                     layer = ProvisionalFifoLayer(
                         layer_id=self._layer_id("receipt", event.event_key),
                         quantity=event.quantity,
@@ -332,19 +358,40 @@ class FifoCostProvisionalReplayService:
                     layer_origins[layer.layer_id] = layer
                     available.append(layer)
                 else:
-                    held.append(ProvisionalHeldFifoLayer(
-                        layer_id=self._layer_id("held-receipt", event.event_key),
+                    layer = ProvisionalFifoLayer(
+                        layer_id=self._layer_id("receipt", event.event_key),
                         quantity=event.quantity,
                         unit_cost_rub=new_cost,
                         effective_date=event.local_date,
                         effective_at_utc=event.effective_at_utc,
                         source_event_key=event.event_key,
+                    )
+                    if layer.layer_id in layer_origins:
+                        issues.add(Issue.EVENT_DUPLICATE_CONFLICT)
+                        break
+                    layer_origins[layer.layer_id] = layer
+                    held.append(ProvisionalHeldFifoLayer(
+                        layer_id=layer.layer_id,
+                        quantity=layer.quantity,
+                        unit_cost_rub=layer.unit_cost_rub,
+                        effective_date=layer.effective_date,
+                        effective_at_utc=layer.effective_at_utc,
+                        source_event_key=layer.source_event_key,
                         stock_zone=event.stock_zone,
                     ))
                 processed += 1
                 continue
 
             if event.event_kind is Kind.BUYER_DISPATCH:
+                if (event.posting_key in dispatch_postings_seen
+                        or event.posting_key in bought_out):
+                    issues.add(Issue.TIMELINE_DUPLICATE_POSTING)
+                    break
+                capacity = capacities.get(event.posting_key)
+                if capacity is None or event.quantity > capacity:
+                    issues.add(Issue.TIMELINE_DUPLICATE_POSTING)
+                    break
+                dispatch_postings_seen.add(event.posting_key)
                 remaining = event.quantity
                 allocations = []
                 next_available = []
@@ -377,6 +424,12 @@ class FifoCostProvisionalReplayService:
                 active_reserves[event.posting_key] = list(allocations)
                 dispatch_units += event.quantity
             elif event.event_kind is Kind.BUYOUT:
+                if event.posting_key in bought_out:
+                    issues.add(Issue.TIMELINE_BUYOUT_DUPLICATE)
+                    break
+                if event.posting_key in non_buyout_restock_postings:
+                    issues.add(Issue.TIMELINE_RESTOCK_AFTER_BUYOUT)
+                    break
                 reserve = active_reserves.get(event.posting_key)
                 if reserve is None:
                     issues.add(Issue.TIMELINE_BUYOUT_UNMATCHED)
@@ -392,6 +445,9 @@ class FifoCostProvisionalReplayService:
                 dispatch_reserves.pop(event.posting_key, None)
             elif event.event_kind in {Kind.NON_BUYOUT_RESTOCK, Kind.SALE_RETURN_RESTOCK}:
                 if event.event_kind is Kind.NON_BUYOUT_RESTOCK:
+                    if event.posting_key in bought_out:
+                        issues.add(Issue.TIMELINE_RESTOCK_AFTER_BUYOUT)
+                        break
                     reserve = active_reserves.get(event.posting_key)
                     if reserve is None:
                         issues.add(
@@ -415,7 +471,11 @@ class FifoCostProvisionalReplayService:
                         active_reserves[event.posting_key] = reserve
                         dispatch_reserves[event.posting_key] = list(reserve)
                     non_buyout_restocked_units += event.quantity
+                    non_buyout_restock_postings.add(event.posting_key)
                 else:
+                    if event.posting_key in non_buyout_restock_postings:
+                        issues.add(Issue.TIMELINE_RESTOCK_AFTER_BUYOUT)
+                        break
                     sale = bought_out.get(event.posting_key)
                     if sale is None:
                         issues.add(Issue.TIMELINE_SALE_RETURN_UNMATCHED)
@@ -435,18 +495,74 @@ class FifoCostProvisionalReplayService:
 
                 for allocation in restored:
                     returned_cost_basis += allocation.total_cost_rub
+                    origin = layer_origins.get(allocation.layer_id)
+                    if origin is None:
+                        issues.add(Issue.TIMELINE_ORIGIN_LAYER_MISSING)
+                        break
                     if event.resellable:
-                        origin = layer_origins.get(allocation.layer_id)
-                        if origin is None:
-                            issues.add(Issue.TIMELINE_ORIGIN_LAYER_MISSING)
-                            break
                         available = self._restore_layer(
                             available, origin, allocation.quantity,
                         )
                     else:
-                        non_resellable_holds.setdefault(event.event_key, []).append(allocation)
+                        held.append(ProvisionalHeldFifoLayer(
+                            layer_id=allocation.layer_id,
+                            quantity=allocation.quantity,
+                            unit_cost_rub=allocation.unit_cost_rub,
+                            effective_date=origin.effective_date,
+                            effective_at_utc=origin.effective_at_utc,
+                            source_event_key=event.event_key,
+                            stock_zone=Zone.BUYER_RETURN_TRANSIT,
+                            non_resellable_return=True,
+                        ))
                 if issues:
                     break
+            elif event.event_kind is Kind.RELEASE_HOLD:
+                held_zone = [layer for layer in held if layer.stock_zone is event.stock_zone]
+                allocations, remaining_held, issue = self._take_held_layers(
+                    held_zone, event.quantity, release=True,
+                )
+                if issue is not None:
+                    issues.add(issue)
+                    break
+                held_ids = {id(layer) for layer in held_zone}
+                held = [layer for layer in held if id(layer) not in held_ids]
+                held.extend(remaining_held)
+                for allocation in allocations:
+                    origin = layer_origins.get(allocation.layer_id)
+                    if origin is None:
+                        issues.add(Issue.TIMELINE_ORIGIN_LAYER_MISSING)
+                        break
+                    available = self._restore_layer(
+                        available, origin, allocation.quantity,
+                    )
+                if issues:
+                    break
+                released_hold_units += event.quantity
+            elif event.event_kind is Kind.NON_SALE_REMOVE:
+                if event.stock_zone is Zone.AVAILABLE:
+                    allocations, remaining_available = self._take_available_layers(
+                        available, event.quantity,
+                    )
+                    if allocations is None:
+                        issues.add(Issue.TIMELINE_NEGATIVE_AVAILABLE_STOCK)
+                        break
+                    available = remaining_available
+                else:
+                    held_zone = [layer for layer in held if layer.stock_zone is event.stock_zone]
+                    allocations, remaining_held, issue = self._take_held_layers(
+                        held_zone, event.quantity, release=False,
+                    )
+                    if issue is not None:
+                        issues.add(issue)
+                        break
+                    held_ids = {id(layer) for layer in held_zone}
+                    held = [layer for layer in held if id(layer) not in held_ids]
+                    held.extend(remaining_held)
+                non_sale_allocations[event.event_key] = tuple(allocations)
+                non_sale_removed_units += event.quantity
+                non_sale_removed_cost += sum(
+                    (item.total_cost_rub for item in allocations), ZERO,
+                )
             processed += 1
 
         return self._result(
@@ -458,13 +574,18 @@ class FifoCostProvisionalReplayService:
             dispatch_reserves=dispatch_reserves,
             dispatch_units=dispatch_units,
             bought_out_allocations=bought_out,
-            non_resellable_return_holds=non_resellable_holds,
             gross_buyout_cogs=gross_buyout_cogs,
             sale_returned_units=sale_returned_units,
             non_buyout_restocked_units=non_buyout_restocked_units,
             returned_cost_basis=returned_cost_basis,
             active_reserves=active_reserves,
             opening_postings=opening_postings,
+            released_hold_units=released_hold_units,
+            non_sale_removed_units=non_sale_removed_units,
+            non_sale_removed_cost=non_sale_removed_cost,
+            non_sale_removal_allocations=non_sale_allocations,
+            supplied_event_count=len(ordered_events),
+            unprocessed_event_count=max(0, len(ordered_events) - processed),
         )
 
     @staticmethod
@@ -549,6 +670,94 @@ class FifoCostProvisionalReplayService:
         )
         return layer.effective_date, instant, layer.source_event_key
 
+    @classmethod
+    def _take_available_layers(cls, available, quantity):
+        remaining = quantity
+        allocations = []
+        next_available = []
+        for layer in available:
+            taken = min(layer.quantity, remaining)
+            if taken:
+                allocations.append(cls._allocation(
+                    layer_id=layer.layer_id,
+                    quantity=taken,
+                    unit_cost=layer.unit_cost_rub,
+                ))
+                remaining -= taken
+            if layer.quantity > taken:
+                next_available.append(ProvisionalFifoLayer(
+                    layer_id=layer.layer_id,
+                    quantity=layer.quantity - taken,
+                    unit_cost_rub=layer.unit_cost_rub,
+                    effective_date=layer.effective_date,
+                    effective_at_utc=layer.effective_at_utc,
+                    source_event_key=layer.source_event_key,
+                ))
+        if remaining:
+            return None, available
+        return tuple(allocations), next_available
+
+    @classmethod
+    def _take_held_layers(cls, held, quantity, *, release):
+        total = sum(layer.quantity for layer in held)
+        if quantity > total:
+            return (), held, Issue.TIMELINE_HELD_STOCK_INSUFFICIENT
+        costs = {layer.unit_cost_rub for layer in held if layer.quantity}
+        if quantity < total and len(costs) > 1:
+            issue = (
+                Issue.TIMELINE_HELD_RELEASE_AMBIGUOUS
+                if release else Issue.TIMELINE_NON_SALE_REMOVE_AMBIGUOUS
+            )
+            return (), held, issue
+
+        remaining = quantity
+        allocations = []
+        next_held = []
+        for layer in sorted(held, key=cls._layer_sort_key):
+            taken = min(layer.quantity, remaining)
+            if taken:
+                allocations.append(cls._allocation(
+                    layer_id=layer.layer_id,
+                    quantity=taken,
+                    unit_cost=layer.unit_cost_rub,
+                ))
+                remaining -= taken
+            if layer.quantity > taken:
+                next_held.append(ProvisionalHeldFifoLayer(
+                    layer_id=layer.layer_id,
+                    quantity=layer.quantity - taken,
+                    unit_cost_rub=layer.unit_cost_rub,
+                    effective_date=layer.effective_date,
+                    effective_at_utc=layer.effective_at_utc,
+                    source_event_key=layer.source_event_key,
+                    stock_zone=layer.stock_zone,
+                    non_resellable_return=layer.non_resellable_return,
+                ))
+        return tuple(allocations), next_held, None
+
+    @staticmethod
+    def _normalize_opening_held_units(value):
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping) and not hasattr(value, "items"):
+            return None
+        normalized = {}
+        try:
+            for key, quantity in value.items():
+                zone = key if isinstance(key, Zone) else Zone(key)
+                if zone in {Zone.AVAILABLE, Zone.BUYER_DELIVERY} or zone in normalized:
+                    return None
+                amount = normalize_quantity(quantity)
+                if amount < 0 or amount > MAX_UNITS:
+                    return None
+                if amount:
+                    normalized[zone] = amount
+        except (TypeError, ValueError, TransitionContractError):
+            return None
+        if sum(normalized.values()) > MAX_UNITS:
+            return None
+        return normalized
+
     @staticmethod
     def _normalize_capacities(value):
         if value is None:
@@ -580,23 +789,23 @@ class FifoCostProvisionalReplayService:
         return rows
 
     @staticmethod
-    def _has_ambiguous_order(events):
-        by_day_precision = {}
-        by_instant = {}
-        for event in events:
-            if event.time_precision == "DAY":
-                by_day_precision.setdefault(event.local_date, []).append(event)
-            else:
-                by_instant.setdefault(event.effective_at_utc, []).append(event)
-        for rows in by_day_precision.values():
-            if len(rows) > 1:
-                return True
-        for instant, rows in by_instant.items():
-            if len(rows) > 1:
-                return True
-            if rows[0].local_date in by_day_precision:
-                return True
-        return False
+    def _first_ambiguous_order_index(events):
+        positions_by_day = {}
+        positions_by_instant = {}
+        for index, event in enumerate(events):
+            positions_by_day.setdefault(event.local_date, []).append((index, event))
+            if event.time_precision == "INSTANT":
+                positions_by_instant.setdefault(event.effective_at_utc, []).append(index)
+
+        ambiguous_positions = []
+        for rows in positions_by_day.values():
+            day_only = [index for index, event in rows if event.time_precision == "DAY"]
+            if day_only and len(rows) > 1:
+                ambiguous_positions.append(min(index for index, _event in rows))
+        for positions in positions_by_instant.values():
+            if len(positions) > 1:
+                ambiguous_positions.append(min(positions))
+        return min(ambiguous_positions) if ambiguous_positions else None
 
     @staticmethod
     def _event_sort_key(event):
@@ -621,20 +830,30 @@ class FifoCostProvisionalReplayService:
     def _result(*, issues, events_processed=0, available=(), held=(),
                 opening_reserves=None, dispatch_reserves=None, dispatch_units=0,
                 bought_out_allocations=None,
-                non_resellable_return_holds=None, gross_buyout_cogs=ZERO,
+                gross_buyout_cogs=ZERO,
                 sale_returned_units=0, non_buyout_restocked_units=0,
-                returned_cost_basis=ZERO, active_reserves=None, opening_postings=None):
+                returned_cost_basis=ZERO, active_reserves=None, opening_postings=None,
+                released_hold_units=0, non_sale_removed_units=0,
+                non_sale_removed_cost=ZERO, non_sale_removal_allocations=None,
+                supplied_event_count=0, unprocessed_event_count=0):
         issue_codes = tuple(sorted(issues, key=lambda item: item.value))
         held_units = {}
+        return_holds = {}
         for layer in held:
-            held_units[layer.stock_zone.value] = (
-                held_units.get(layer.stock_zone.value, 0) + layer.quantity
+            zone_key = (
+                "non_resellable_customer_return"
+                if layer.non_resellable_return
+                else layer.stock_zone.value
             )
-        for values in (non_resellable_return_holds or {}).values():
-            held_units["non_resellable_customer_return"] = (
-                held_units.get("non_resellable_customer_return", 0)
-                + sum(item.quantity for item in values)
-            )
+            held_units[zone_key] = held_units.get(zone_key, 0) + layer.quantity
+            if layer.non_resellable_return:
+                return_holds.setdefault(layer.source_event_key, []).append(
+                    FifoCostProvisionalReplayService._allocation(
+                        layer_id=layer.layer_id,
+                        quantity=layer.quantity,
+                        unit_cost=layer.unit_cost_rub,
+                    )
+                )
         active_reserves_supplied = active_reserves is not None
         active_reserves = active_reserves or {}
         opening_postings = opening_postings or set()
@@ -671,13 +890,19 @@ class FifoCostProvisionalReplayService:
             pending_reserve_units=pending_units,
             pending_reserve_cost_rub=pending_cost,
             bought_out_allocations=bought_out_allocations or {},
-            non_resellable_return_holds=non_resellable_return_holds or {},
+            non_resellable_return_holds=return_holds,
             gross_buyout_cogs_rub=gross_buyout_cogs.quantize(CENT),
             sale_returned_units=sale_returned_units,
             non_buyout_restocked_units=non_buyout_restocked_units,
             returned_cost_basis_rub=returned_cost_basis.quantize(CENT),
             financial_cogs_reversal_rub=ZERO,
             dispatch_cogs_rub=ZERO,
+            released_hold_units=released_hold_units,
+            non_sale_removed_units=non_sale_removed_units,
+            non_sale_removed_cost_rub=non_sale_removed_cost.quantize(CENT),
+            non_sale_removal_allocations=non_sale_removal_allocations or {},
+            supplied_event_count=supplied_event_count,
+            unprocessed_event_count=unprocessed_event_count,
             read_only=True,
             factual_writes=0,
         )

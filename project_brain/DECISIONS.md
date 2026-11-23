@@ -8,6 +8,8 @@ Implementation note (2026-11-23, PF15): the event replay is a separate pure serv
 
 Implementation note (2026-11-23, PF16): only a buyout tied to an exact open posting reserve adds gross scenario COGS; dispatch remains a zero-COGS reservation. Physical return/restock accounting restores the original source layers and remains separate from financial COGS reversal. Non-resellable returns are held; no factual stock, cost, or finance record is written.
 
+Implementation note (2026-11-23, PF17): held zones keep finite source layers and release only confirmed units with their original cost/FIFO priority. Known non-sale removals have a separate cost ledger and never increase buyout COGS. Mixed-cost held movements fail closed when the moved layer cannot be identified. Replay stops at the first gap/ambiguous event and returns only the safe prefix plus the untouched suffix count; this still does not attest source coverage or final TIMELINE_MODEL readiness.
+
 ## Decision 067 — FIFO scan continuation side storage
 
 Keep the existing v18 scan checkpoint table and its encrypted-token column intact. Raise the bounded continuation contract to 1 MiB through an additive FIFO schema v19 child table with a composite foreign key to the scan. Small tokens continue using the legacy column; large tokens use the encrypted side table. Enforce a per-case byte quota, include the child rows in backup/restore and source fingerprints, and read checkpoint state as one logical value. Details and migration tests: `DECISIONS_067.md`.

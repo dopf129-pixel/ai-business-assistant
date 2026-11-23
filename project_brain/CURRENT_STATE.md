@@ -6000,3 +6000,11 @@ Completed:
 - PR B now has a redacted normalized event contract, a bounded optional owner-movements CSV parser/template, exact scope and exact posting/quantity checks, and an adapter for saved owner-confirmed physical sales. Complete owner-confirmed turnover and stock reports are exposed as aggregate anchors only; import/capture/act dates are not promoted to movement times.
 - Synthetic PF14 and linked FBO/evidence regressions: **36 passed** on the latest local implementation. `compileall`, `git diff --check` and unchanged tracked `data/` passed. PR B remains local and unpublished; full-suite and exact-head hosted CI remain for PF19. No `data/` changes, live calls or factual FIFO writes.
 - Next: PF15 pure receipt/dispatch replay.
+
+
+# 2026-11-23 — Provisional FIFO PF17 held stock and non-sale movements
+
+- The scenario-only replay now accepts separately confirmed opening held balances by zone, preserves their old-cost layer, and releases units into availability only from a known held layer. New held receipts and non-resellable customer returns retain their source layer and can be released later.
+- Confirmed removal/write-off from available stock consumes FIFO layers; removal from a held zone is costed only when the source-layer value is knowable. Non-sale removal value is separate from gross buyout COGS. Buyer-delivery changes still require an exact posting lifecycle.
+- Timeline errors now stop at the first failing/ambiguous event. The result contains only the safe replay prefix and reports the unprocessed suffix; tail events do not affect the prefix. This does not establish source completeness or TIMELINE_MODEL readiness.
+- PF17 replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full suite and PR B exact-head CI remain for PF19; the ordinary Telegram timeline presenter remains PF18. No tracked runtime data, factual FIFO, or production bot was changed.
