@@ -1,3 +1,8 @@
+# 2026-11-23 — Provisional FBO CSV contract (PR B PF11)
+
+- Added a separate bounded parser for owner-imported FBO posting CSV, with exact-SKU filtering, UTF-8/BOM, explicit date precision and store-timezone handling. Non-target columns and raw posting IDs are not retained.
+- Added synthetic coverage for privacy, duplicates/conflicts, DST ambiguity/nonexistence, malformed input and resource limits. Telegram upload, worker execution and timeline integration are still pending PF12+.
+
 # 2026-11-23 — Add read-only provisional FIFO summary scenarios
 
 - Added an owner-only scenario screen to the existing FIFO transition card. It selects complete, owner-confirmed, exact-scope turnover reports for adjacent snapshot/movement periods, asks the two documented batch-composition assumptions, and calculates linked old/new sold-unit and gross-COGS ranges.

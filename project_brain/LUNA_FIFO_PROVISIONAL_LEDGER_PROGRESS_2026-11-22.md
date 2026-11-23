@@ -60,11 +60,29 @@
 - Synthetic ordinary-callback regression проверяет контроль `[21,21]`, границы и отсутствие FIFO writes. Расширенный связанный профиль (provisional summary/evidence/Telegram, production workflow, transition runtime/contracts и оба импортера) — **113 passed in 16.53s**. Предыдущий полный изолированный suite на `f967f7aa` прошёл **5,489 passed in 111.85s**; добавлены две регрессии после него, поэтому повторный full run обязателен. `compileall -q app tests`, `git diff --check` и `git diff --exit-code -- data` успешно проходили до добавленных тестов; после обновления будут повторены.
 - Что не проверялось: реальные Telegram callbacks/сообщения и документы владельца (запрещены задачей).
 
-## Resume (обновлено)
+## Resume (состояние после PF10)
 
 - Последний завершённый этап: PF10; PF00–PF10 закрыты.
 - PF10 локальная часть завершена на implementation commit `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`: полный suite в disposable worktree без проектного `data/`, только synthetic tax config — **5,491 passed in 110.55s**; `compileall -q app tests` — успешно; `git diff --exit-code -- data` — без изменений; disposable worktree удалён после проверки его точного расположения.
-- Linked profile на implementation SHA — **113 passed**. Exact-head CI на PR A SHA `6d54bf876c1f80977f32ecdbeb98a26faad787dd` зелёный: Windows/Linux Verify и Docker smoke. Документация включает Decision 068, owner guide, CHANGELOG/CURRENT_STATE/TEST_MAP и этот журнал.
-- PR A опубликован как [#741](https://github.com/dopf129-pixel/ai-business-assistant/pull/741), база — PR #740 SHA `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; head SHA `6d54bf876c1f80977f32ecdbeb98a26faad787dd`. Exact-head CI зелёный: Windows full verification, Linux full verification, Docker build/smoke.
+- Linked profile на implementation SHA — **113 passed**. Exact-head CI на PR A SHA `15894e4528db089d0d6e7969fd03b6a88d9206e2` зелёный: Windows/Linux Verify и Docker smoke. Документация включает Decision 068, owner guide, CHANGELOG/CURRENT_STATE/TEST_MAP и этот журнал.
+- PR A опубликован как [#741](https://github.com/dopf129-pixel/ai-business-assistant/pull/741), база — PR #740 SHA `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; head SHA `15894e4528db089d0d6e7969fd03b6a88d9206e2`. Exact-head CI зелёный: Windows full verification, Linux full verification, Docker build/smoke.
 - PF10 завершён. Следующий этап: PF11 — отдельный bounded parser контракта Ozon FBO CSV в зависимой ветке `codex/fifo-provisional-timeline`, созданной от PR A.
 - PR B/C до сих пор не опубликованы; blocker отсутствует.
+
+
+## PF11 — контракт Ozon FBO CSV
+
+- Добавлен отдельный FifoCostProvisionalFboCsvImportService; строгий CSV физических продаж и legacy CSV стоимости не менялись.
+- Синтетические входы фиксируют UTF-8/BOM, разделитель ;, точный SKU фильтр, игнорирование дополнительных полей, квоты 10 MiB / 50 000 строк / 1 000 000 единиц, безопасный digest отправления, дедупликацию идентичной строки и блокировку противоречий.
+- Даты-время нормализуются к часовому поясу магазина; точность DAY остаётся отличной от INSTANT; неоднозначное и несуществующее DST время и физически невозможный порядок дат отклоняются. Неизвестный статус сводится к UNKNOWN без echo исходной строки.
+- Документация: docs/fifo-provisional-fbo-csv-guide.md; в тексте указаны принятые заголовки, временная семантика, приватность и ограничения полноты.
+- Проверка: установленный Python проекта, запуск pytest с app в sys.path, tests/test_fifo_cost_provisional_fbo_csv_import_service.py — 6 passed in 0.82s; compileall новых parser/tests — успешно. Сначала один DST regression выявил различие между неоднозначным и несуществующим локальным временем; parser скорректирован, повтор прошёл.
+- Не проверялись: worker, Telegram upload/preflight, реальные Ozon CSV и хронологическое использование — это PF12+; рабочих файлов владельца не использовали.
+
+## Resume (актуально после PF11)
+
+- Последний завершённый этап: PF11; PF00–PF11 закрыты в рабочей ветке PR B.
+- Следующий этап: PF12 — allowlist нового формата в bounded worker, подтверждение worker output, tenant/case-bound загрузка, preflight до скачивания, TTL/один pending upload и регрессии совместимости с legacy CSV.
+- PR A #741: branch codex/fifo-provisional-summary, base PR #740 SHA 49dbbd77ffa10ac0493b1bb4e83acf123b3005cf, exact head 15894e4528db089d0d6e7969fd03b6a88d9206e2; Windows/Linux full Verify и Linux Docker build/smoke зелёные.
+- PR B: branch codex/fifo-provisional-timeline, пока локальная, начинается от PR A head 15894e4528db089d0d6e7969fd03b6a88d9206e2; ещё не опубликована. PR C не начат.
+- Изменений в пользовательском data не было; реальный бот/API не запускался. Blocker отсутствует.

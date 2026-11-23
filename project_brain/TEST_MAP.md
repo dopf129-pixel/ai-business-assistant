@@ -1,3 +1,7 @@
+# Provisional FBO CSV
+
+- tests/test_fifo_cost_provisional_fbo_csv_import_service.py: exact selected SKU, BOM, ignored additional fields, no raw posting/status echo, duplicate idempotency/conflict, strict finite-unit/row/file limits, timezone normalization, day vs instant precision, DST ambiguous/nonexistent rejection, and impossible timestamp ordering.
+
 # Provisional FIFO report-based summary
 
 - `tests/test_fifo_cost_provisional_summary_service.py`: synthetic §4.3 calculations, unknown closing stock, higher/equal costs, explicit unsupported movements, report scope/completeness/period, all eight bucket continuity, balance failure, and exhaustive small integer boundary matrix.
