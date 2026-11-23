@@ -135,5 +135,5 @@
 
 - Последний закрытый этап: PF14. Следующий: PF15 — pure replay of supply receipts and buyer dispatches with finite layers, partial dispatch allocation, negative-stock guards, and zero COGS before buyout.
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
-- PR B: `codex/fifo-provisional-timeline`, based on PR A head; local changes through PF14 are ready for a stage commit. Last committed base before PF14: `5cb0be39424e329280afc1e95d31ff3f2e92c953`. Keep it unpublished until PF19.
+- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation commit `502f376a` (`Add provisional FIFO timeline source contracts`) follows prior head `5cb0be39424e329280afc1e95d31ff3f2e92c953`. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.
