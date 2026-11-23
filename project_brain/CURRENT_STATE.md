@@ -1,3 +1,8 @@
+# 2026-11-23 — Provisional FIFO PF19 full local verification
+
+- On implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`, the isolated full repository suite passed **5,565 tests in 95.75s** on Windows/Python 3.12. The copy excluded repository `data/` and `.env`, with only a synthetic tax policy. `compileall -q app tests`, `git diff --check`, and tracked `data/` blob equality to PF00 passed.
+- PR A #741 predecessor SHA `15894e4528db089d0d6e7969fd03b6a88d9206e2` currently has exact-head GitHub Actions run [45142413339](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45142413339) green on Windows/Linux and Docker smoke. PR B review packet is prepared; publication and its exact-head CI remain pending.
+
 # 2026-11-23 — Provisional FIFO PF18 timeline presenter
 
 - PF18 is implemented locally on PR B branch `codex/fifo-provisional-timeline`: the ordinary scenario card can upload owner movements through the shared bounded worker, request explicit source-completeness confirmation, and render `TIMELINE_MODEL` only after full event replay, exact independent report totals, and all eight closing stock buckets reconcile.

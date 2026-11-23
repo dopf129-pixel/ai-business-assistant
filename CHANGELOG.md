@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PR B local release verification (PF19)
+
+- Disposable Windows full-suite run on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy excluded repository `data/` and `.env`; only a synthetic `USN_INCOME` 6% tax file was added. `compileall -q app tests`, `git diff --check`, unchanged tracked `data/`, and equality of all five PF00 data blob IDs passed.
+- PR A predecessor SHA `15894e4528db089d0d6e7969fd03b6a88d9206e2` was rechecked through GitHub Actions run [45142413339](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45142413339): Windows verification and Linux full verification/Docker build/runtime smoke succeeded.
+- PR B review packet is prepared. Hosted PR B CI is pending publication; no production bot, live Ozon/Telegram requests, or owner documents were used.
+
 # 2026-11-23 — Provisional FIFO PF18 timeline presenter
 
 - Connected the read-only timeline readiness gate and `TIMELINE_MODEL` / `TIMELINE_GAP` presenters to the ordinary FIFO Telegram screen. A successful model requires owner source-coverage confirmation, exact FBO coverage, complete replay, independent event/report totals, and all eight closing stock buckets to reconcile.

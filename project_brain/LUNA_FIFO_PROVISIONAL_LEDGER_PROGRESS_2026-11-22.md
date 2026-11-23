@@ -185,6 +185,20 @@
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; exact-head Windows/Linux Verify and Linux Docker smoke passed. PR B is still local and is based on PR A. Latest PR B code commit is `f247ff04`; this checkpoint will follow it.
 - PR C has not started. Tracked `data/` remains unchanged. No production bot or live Ozon/Telegram requests were used. No unresolved blocker.
 
+## PF19 — PR B local full-suite and review preparation
+
+- Full isolated suite ran from a disposable copy of implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s** on Windows/Python 3.12. The copy was created from the tracked git tree, excluding `.env` and project `data/`; only a synthetic `data/tax_configuration.json` (USN_INCOME, 6%, minimum 1%) was added inside the copy. No owner data was read or changed.
+- Initial harness attempts were invalid, not product failures: one did not populate tracked files due to using the wrong Git listing command; a second exposed `app/` imports correctly but set tax environment variables globally inside pytest, conflicting with tests for a missing policy. The corrected run used `git ls-tree` and a synthetic policy file; all 5,565 tests passed.
+- Separate worktree checks: `compileall -q app tests`, `git diff --check`, `git diff --exit-code -- data` passed. All five `data/` Git blob IDs match the PF00 baseline exactly. PR B merge-base is PR A #741 head `15894e4528db089d0d6e7969fd03b6a88d9206e2`.
+- Rechecked PR A exact-head GitHub run `45142413339`: Windows verification and Linux full verification/Docker build/runtime smoke all succeeded. Prepared `FIFO_PROVISIONAL_LEDGER_PR_B_REVIEW_PACKET_2026-11-23.md` with architecture boundary, file ownership, checks, limitations, and review classification.
+- PR B is not yet published at this checkpoint; hosted CI on its final public SHA remains pending. No production bot/live API/Telegram operation occurred.
+
+## Resume (актуально после PF19 local verification)
+
+- PF00–PF19 local implementation/review preparation are complete; next action is to publish `codex/fifo-provisional-timeline` as PR B targeting PR A branch `codex/fifo-provisional-summary`, then wait for and inspect exact-head CI before closing PF19.
+- PR A #741 head `15894e4528db089d0d6e7969fd03b6a88d9206e2`, exact-head run `45142413339` green. PR B current pre-packet SHA was `520eed936328793bd62fda3df621ad06b965cea4`; the packet/journal commit will advance the final head and CI must run on that SHA.
+- PR C has not started. Tracked data matches PF00 exactly; no owner documents, real Ozon/Telegram request, bot start, merge, or deployment. No unresolved blocker.
+
 ## Resume (актуально после PF17)
 
 - Последний закрытый этап: PF17. Следующий: PF18 — подключить безопасный presenter TIMELINE_MODEL/TIMELINE_GAP в обычный FIFO Telegram-путь; сводный диапазон остаётся отдельной моделью при пробеле.
