@@ -7223,3 +7223,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_fifo_cost_provisional_fbo_telegram_flow.py::test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation` pins delivered-in-window `5932`, turnover `T=5931`, delta `+1`, `1319` pre-snapshot dispatches delivered in-window, `2` later deliveries, `19` in transit at export, one missing dispatch timestamp, one unknown-status row, and the unchanged summary T/FIFO write count.
 - The regression verifies partial status/time evidence is still shown as a diagnostic and does not turn the CSV comparison into a complete timeline.
 - Linked PF13 profile: **72 passed in 9.90s** across FBO parser/worker/adapter/Telegram, summary model, transition runtime, and physical-sales import/evidence suites.
+
+# 2026-11-23 — Provisional timeline presenter and final balance gate (PF18)
+
+- `tests/test_fifo_cost_provisional_timeline_service.py`: owner completeness is mandatory; exact FBO/selected report window, report boundaries, event totals, full replay, opening transit links, and eight ending stock buckets gate `TIMELINE_MODEL`; conflicting closing buckets or missing controls withhold money.
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: owner-movements CSV is processed through the ordinary Telegram adapter/worker; a synthetic incomplete event set renders `TIMELINE_GAP` and a separate summary range without raw identifiers, internal status codes, partial money, or factual writes. Replacing/reconfirming FBO or movements CSV resets old completeness confirmation and timeline result.
+- `tests/test_fifo_cost_report_import_worker_client.py`: movements CSV worker success, manifest tamper detection, and size limits.
+- Linked PF18 profile: **97 passed** across timeline service, replay, normalizer, movements/FBO parser, evidence reader, ordinary Telegram flows, worker client, and existing transition evidence/workflow. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Full suite and hosted exact-head PR B CI are pending PF19.

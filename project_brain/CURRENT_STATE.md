@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PF18 timeline presenter
+
+- PF18 is implemented locally on PR B branch `codex/fifo-provisional-timeline`: the ordinary scenario card can upload owner movements through the shared bounded worker, request explicit source-completeness confirmation, and render `TIMELINE_MODEL` only after full event replay, exact independent report totals, and all eight closing stock buckets reconcile.
+- `TIMELINE_GAP` hides partial money and sold-unit totals; an available `SUMMARY_RANGE` is rendered as a separate estimate. Replacing/reconfirming either CSV clears the previous timeline result and coverage confirmation. The flow remains in-memory and read-only with respect to factual FIFO/COGS/Period Profit and tracked `data/`.
+- PF18 linked profile: **97 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed. Full suite and hosted exact-head CI are pending PF19. PR B is not yet published; no production bot or live Ozon/Telegram request was used.
+
 # 2026-11-23 — Provisional FIFO PF16 buyout and returns
 
 - Extended the pure replay with exact reserve-to-buyout transition, gross COGS once per posting, non-buyout cancellation restock, and partial sale-return restoration from the last consumed layer first. Gross COGS remains before any financial reversal; financial reversal stays `0` absent an exact financial event.

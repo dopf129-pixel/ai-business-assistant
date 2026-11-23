@@ -10,6 +10,8 @@ Implementation note (2026-11-23, PF16): only a buyout tied to an exact open post
 
 Implementation note (2026-11-23, PF17): held zones keep finite source layers and release only confirmed units with their original cost/FIFO priority. Known non-sale removals have a separate cost ledger and never increase buyout COGS. Mixed-cost held movements fail closed when the moved layer cannot be identified. Replay stops at the first gap/ambiguous event and returns only the safe prefix plus the untouched suffix count; this still does not attest source coverage or final TIMELINE_MODEL readiness.
 
+Implementation note (2026-11-23, PF18): the ordinary Telegram scenario exposes a final `TIMELINE_MODEL` only after explicit owner coverage confirmation, exact FBO window, complete replay, independent event totals and all eight closing stock buckets reconcile. On a gap, partial timeline money is withheld and the aggregate estimate remains separately labelled. Replacing or confirming a new source upload invalidates prior coverage/result state. This is an in-memory read-only scenario boundary, not factual FIFO, COGS, finance, or Period Profit.
+
 ## Decision 067 — FIFO scan continuation side storage
 
 Keep the existing v18 scan checkpoint table and its encrypted-token column intact. Raise the bounded continuation contract to 1 MiB through an additive FIFO schema v19 child table with a composite foreign key to the scan. Small tokens continue using the legacy column; large tokens use the encrypted side table. Enforce a per-case byte quota, include the child rows in backup/restore and source fingerprints, and read checkpoint state as one logical value. Details and migration tests: `DECISIONS_067.md`.

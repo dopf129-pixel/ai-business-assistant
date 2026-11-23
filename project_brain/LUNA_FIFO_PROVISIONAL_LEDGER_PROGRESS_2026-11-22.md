@@ -169,6 +169,22 @@
 - Verification: tests/test_fifo_cost_provisional_replay_service.py — **39 passed**; linked replay/normalizer/movement/FBO/evidence/workflow profile — **76 passed in 10.62s**; compileall -q app tests, git diff --check, and git diff --exit-code -- data — PASS. All replay fixtures are synthetic.
 - Not verified: source coverage, eight-bucket closing reconciliation, owner evidence, normal Telegram TIMELINE_MODEL/TIMELINE_GAP presenter (PF18), full test suite and hosted PR B CI (PF19). No Ozon/Telegram calls or production bot use.
 
+## PF18 — gated timeline presenter on the ordinary Telegram path
+
+- Added `FifoCostProvisionalTimelineService`, a read-only final gate over the exact selected snapshot/movement reports, accepted FBO CSV, optional owner movement CSV and exact-case confirmed physical-sales evidence. `TIMELINE_MODEL` is returned only after owner coverage confirmation, exact selected-window FBO coverage, valid report boundaries, complete event replay, opening buyer-delivery links, event totals matching independent turnover controls, and all eight ending stock buckets reconciling.
+- The normal scenario card now offers a bounded owner-movements CSV upload and a separate completeness confirmation. The parser runs through the existing limited worker with parent-side manifest revalidation, file/timeout bounds and scoped 15-minute previews; raw references/IDs are not rendered or saved.
+- `TIMELINE_GAP` presents only safe progress counts. It withholds partial timeline COGS/sold units; an available `SUMMARY_RANGE` is shown below as an independent model. Replacing or reconfirming either CSV clears the previous completeness confirmation and timeline result. No factual FIFO, COGS, finance or Period Profit write is added.
+- Code commit: `f247ff04` (`Present gated provisional FIFO timeline in Telegram`) on `codex/fifo-provisional-timeline`.
+- Updated the provisional FIFO owner guide, CHANGELOG, CURRENT_STATE, TEST_MAP and Decision 068 implementation note. Tracked `data/` is unchanged; no owner documents, live Ozon/Telegram requests or production bot were used.
+- Verification command (project Python with `PYTHONPATH=app`): pytest over `test_fifo_cost_provisional_timeline_service.py`, `test_fifo_cost_provisional_replay_service.py`, `test_fifo_cost_provisional_timeline_normalizer.py`, `test_fifo_cost_provisional_movements_import_service.py`, `test_fifo_cost_provisional_evidence_reader.py`, `test_fifo_cost_provisional_fbo_csv_import_service.py`, `test_fifo_cost_provisional_fbo_telegram_flow.py`, `test_telegram_fifo_cost_provisional_service.py`, `test_fifo_cost_report_import_worker_client.py`, `test_fifo_cost_transition_evidence_service.py`, and `test_fifo_cost_transition_production_workflow.py` — **97 passed in 12.81s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
+- The synthetic incomplete-history Telegram case stays `TIMELINE_GAP` and retains the separate aggregate summary. No full repository suite or hosted CI was run yet; these are PF19.
+
+## Resume (актуально после PF18)
+
+- PF00–PF18 are complete on PR B branch `codex/fifo-provisional-timeline`; next is PF19: run the isolated full suite, recheck exact PR A/PR B bases, prepare the architecture/review packet, publish PR B and obtain green CI on its exact head.
+- PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; exact-head Windows/Linux Verify and Linux Docker smoke passed. PR B is still local and is based on PR A. Latest PR B code commit is `f247ff04`; this checkpoint will follow it.
+- PR C has not started. Tracked `data/` remains unchanged. No production bot or live Ozon/Telegram requests were used. No unresolved blocker.
+
 ## Resume (актуально после PF17)
 
 - Последний закрытый этап: PF17. Следующий: PF18 — подключить безопасный presenter TIMELINE_MODEL/TIMELINE_GAP в обычный FIFO Telegram-путь; сводный диапазон остаётся отдельной моделью при пробеле.

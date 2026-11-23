@@ -1,9 +1,15 @@
+# 2026-11-23 — Provisional FIFO PF18 timeline presenter
+
+- Connected the read-only timeline readiness gate and `TIMELINE_MODEL` / `TIMELINE_GAP` presenters to the ordinary FIFO Telegram screen. A successful model requires owner source-coverage confirmation, exact FBO coverage, complete replay, independent event/report totals, and all eight closing stock buckets to reconcile.
+- Timeline gaps expose only safe progress counts and show an available turnover-summary range as a separate model; no partial timeline COGS or factual FIFO/finance writes are exposed. Replacing or reconfirming either CSV invalidates old timeline confirmation/results.
+- Added a bounded owner-movements CSV worker route and ordinary adapter regression. PF18 linked profile: **97 passed** across timeline, replay, normalizer, movement/FBO parsing, evidence, Telegram, and transition workflow suites. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. Full suite and exact-head hosted CI remain pending.
+
 # 2026-11-23 — Provisional FIFO held stock and non-sale movements (PR B PF17)
 
 - The read-only timeline replay now carries finite source-cost layers through held zones, releases only confirmed quantities back to availability, and records non-sale withdrawal/write-off cost separately from buyout COGS.
 - Partial release or removal from a mixed-cost held zone fails closed when the source does not identify which cost layer moved. Buyer-delivery stock still requires its exact posting transition.
 - A timeline gap stops replay at the first invalid or ambiguous event. The result exposes only the successfully replayed prefix and counts the unprocessed suffix; later events cannot repair or inflate the prefix.
-- Replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full-suite/hosted PR B CI and PF18 presenter integration remain pending.
+- Replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full-suite/hosted PR B CI remain pending.
 
 # 2026-11-23 — Provisional FIFO buyout and return replay (PR B PF16)
 
