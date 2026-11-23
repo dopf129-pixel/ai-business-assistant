@@ -62,9 +62,9 @@
 
 ## Resume (обновлено)
 
-- Последний завершённый этап: PF09; PF00–PF09 закрыты локально.
+- Последний завершённый этап: PF10; PF00–PF10 закрыты.
 - PF10 локальная часть завершена на implementation commit `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`: полный suite в disposable worktree без проектного `data/`, только synthetic tax config — **5,491 passed in 110.55s**; `compileall -q app tests` — успешно; `git diff --exit-code -- data` — без изменений; disposable worktree удалён после проверки его точного расположения.
-- Linked profile на этом implementation SHA — **113 passed**. На нём же полная компиляция прошла; сообщён только стандартный compile результат без новых предупреждений. Полная документация теперь включает Decision 068, owner guide, CHANGELOG/CURRENT_STATE/TEST_MAP и этот журнал.
-- Следующий шаг: review packet, чистый diff/status, commit/push PR A и exact-head CI; перед стартом PR B требуются все успешные PR A checks.
-- PR A `codex/fifo-provisional-summary` на базе опубликованного PR #740 SHA `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; рабочая ветка пока локальная.
-- PR B/C начнутся только после exact-head зелёного CI PR A. Блокеров нет.
+- Linked profile на implementation SHA — **113 passed**. Exact-head CI на PR A SHA `6d54bf876c1f80977f32ecdbeb98a26faad787dd` зелёный: Windows/Linux Verify и Docker smoke. Документация включает Decision 068, owner guide, CHANGELOG/CURRENT_STATE/TEST_MAP и этот журнал.
+- PR A опубликован как [#741](https://github.com/dopf129-pixel/ai-business-assistant/pull/741), база — PR #740 SHA `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; head SHA `6d54bf876c1f80977f32ecdbeb98a26faad787dd`. Exact-head CI зелёный: Windows full verification, Linux full verification, Docker build/smoke.
+- PF10 завершён. Следующий этап: PF11 — отдельный bounded parser контракта Ozon FBO CSV в зависимой ветке `codex/fifo-provisional-timeline`, созданной от PR A.
+- PR B/C до сих пор не опубликованы; blocker отсутствует.

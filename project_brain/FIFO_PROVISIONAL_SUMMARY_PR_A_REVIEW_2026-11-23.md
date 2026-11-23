@@ -48,7 +48,7 @@ The test presses the normal `fifo_transition:*` buttons, supplies both owner ass
 - Full configured suite, disposable detached worktree at implementation SHA `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`, repository `data/` removed and replaced only with synthetic `USN_INCOME 6%` tax policy: **5,491 passed in 110.55s**, no skips/deselections.
 - `python -m compileall -q app tests` — passed.
 - `git diff --check` — passed. `git diff --exit-code -- data` — passed; tracked user/runtime data unchanged.
-- Exact-head hosted CI: pending publication of this PR. Use the current PR checks page for the exact final head; do not rely on earlier PR #740 baseline checks.
+- Exact-head hosted CI on `6d54bf876c1f80977f32ecdbeb98a26faad787dd`: **green** — Windows full verification, Linux full verification, production Docker build and smoke.
 
 ## Files changed
 
