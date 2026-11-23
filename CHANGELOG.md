@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO FBO reconciliation (PR B PF13)
+
+- The FBO scenario now reports the delivered-in-movement-window count beside turnover redeemed-unit total T and an explicit CSV-minus-T delta. It separately identifies pre-snapshot dispatches delivered after the snapshot, splits those inside/after the movement window, and shows matching in-transit units at export time.
+- Incomplete rows remain visible with bounded counts for unknown statuses and missing dates; they do not change the aggregate summary or make the timeline complete. The synthetic control remains 5,932 versus T=5,931 (+1), including 1,319 pre-snapshot dispatches delivered in-window, 2 later deliveries, and 19 still in transit at export.
+- Verification uses synthetic FBO CSV only; it proves statement T and factual FIFO writes remain unchanged.
+
 # 2026-11-23 — Provisional FBO CSV upload path (PR B PF12)
 
 - Added FBO CSV routing through the existing bounded import worker and owner/case-scoped Telegram scenario. Upload preflight runs before Telegram downloads the file; the import is kept in a 15-minute in-memory session only.

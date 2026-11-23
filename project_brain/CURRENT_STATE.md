@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PF13 reconciliation complete locally
+
+- FBO CSV preview distinguishes deliveries in the selected movement window from older pre-snapshot dispatches delivered later. It shows T and the independent delta; it never overwrites turnover evidence. Unknown statuses and missing dates are reported while the diagnostic remains readable.
+- Synthetic control: 5,932 delivered in-window vs T=5,931 (+1); 1,319 of those came from pre-snapshot dispatches, plus 2 older dispatches delivered after the movement window and 19 still in transit at export. Summary control and zero factual FIFO writes remain intact.
+- PR B remains local. Next dependency: PF14 event normalization and optional owner movement-template contract.
+
 # 2026-11-23 — Provisional FIFO PR B PF12 complete locally
 
 - FBO CSV now flows through the shared bounded worker and a case/tenant-bound Telegram upload with preflight before download, a 15-minute in-memory lifetime, a confirmation preview, and explicit privacy filtering. It remains scenario-only and does not write factual FIFO or saved estimate data.

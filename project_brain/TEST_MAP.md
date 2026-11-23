@@ -7186,3 +7186,16 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: bounded scenario upload end-to-end through normal FIFO callbacks, exact numeric SKU filtering, preview/accept, diagnostic +1 comparison, unchanged statement T and zero factual FIFO writes; stale/expired and wrong-phase file guards; no fall-through to physical-sales or legacy cost import.
 - `tests/test_fifo_cost_report_import_worker_client.py`: isolated FBO parsing in the shared bounded worker, worker-result manifest revalidation, timeout and output-size rejection.
 - Linked profile including parser, worker, adapter, provisional runtime, transition runtime, and physical-sales evidence/import suites: **56 passed**.
+
+
+# 2026-11-23 — Provisional FBO CSV upload tests (PF12)
+
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: bounded scenario upload end-to-end through normal FIFO callbacks, exact numeric SKU filtering, preview/accept, diagnostic +1 comparison, unchanged statement T and zero factual FIFO writes; stale/expired and wrong-phase file guards; no fall-through to physical-sales or legacy cost import.
+- `tests/test_fifo_cost_report_import_worker_client.py`: isolated FBO parsing in the shared bounded worker, worker-result manifest revalidation, timeout and output-size rejection.
+- Linked profile including parser, worker, adapter, provisional runtime, transition runtime, and physical-sales evidence/import suites: **56 passed**.
+
+# 2026-11-23 — Provisional FBO/turnover reconciliation tests (PF13)
+
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py::test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation` pins delivered-in-window `5932`, turnover `T=5931`, delta `+1`, `1319` pre-snapshot dispatches delivered in-window, `2` later deliveries, `19` in transit at export, one missing dispatch timestamp, one unknown-status row, and the unchanged summary T/FIFO write count.
+- The regression verifies partial status/time evidence is still shown as a diagnostic and does not turn the CSV comparison into a complete timeline.
+- Linked PF13 profile: **72 passed in 9.90s** across FBO parser/worker/adapter/Telegram, summary model, transition runtime, and physical-sales import/evidence suites.

@@ -19,8 +19,13 @@ SCOPE = ScopeIdentity(owner_id="owner-test", **IDENTITY)
 TENANT = make_store_tenant_scope("owner-test", "store-test")
 CSV = (
     "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки;Адрес покупателя\r\n"
-    "posting-private-1;3921245627;5932;Доставлен;2026-11-06 10:00:00;2026-11-07 12:00:00;secret-address\r\n"
-    "posting-private-2;9999999999;8;Доставлен;2026-11-06;2026-11-07;another-address\r\n"
+    "posting-old-window;3921245627;1319;Доставлен;2026-11-05;2026-11-07;secret-address\r\n"
+    "posting-new-window;3921245627;4610;Доставлен;2026-11-06 10:00:00;2026-11-07 12:00:00;private-address\r\n"
+    "posting-missing-dispatch;3921245627;3;Доставлен;;2026-11-08;missing-address\r\n"
+    "posting-unknown-status;3921245627;5;Unknown seller state;2026-11-08;2026-11-09;unknown-address\r\n"
+    "posting-old-late;3921245627;2;Доставлен;2026-11-05;2026-11-21;later-address\r\n"
+    "posting-old-transit;3921245627;19;В пути;2026-11-05;;transit-address\r\n"
+    "posting-private-other-sku;9999999999;8;Доставлен;2026-11-06;2026-11-07;another-address\r\n"
 ).encode("utf-8")
 
 
@@ -136,10 +141,27 @@ def test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation(
         assert preflight["selected"] and preflight["accepted"]
         result = runtime.handle_provisional_fbo_document("owner-test", CSV, "orders.csv")
         assert result["code"] == "FIFO_PROVISIONAL_FBO_PREVIEW_READY", result
+        assert len(result["message"]) < 4000
         assert "5932 шт." in result["message"]
+        assert "1319 шт." in result["message"]
+        assert "позже окна 2" in result["message"]
+        assert "19 шт." in result["message"]
         assert "+1 шт." in result["message"]
         assert "posting-private-1" not in result["message"]
         assert "secret-address" not in result["message"]
+        assert "private-address" not in result["message"]
+        assert "later-address" not in result["message"]
+        assert "transit-address" not in result["message"]
+        assert "unknown-address" not in result["message"]
+        assert "Нераспознанных строк: 1" in result["message"]
+        upload_preview = runtime._sessions["owner-test"]["provisional_flow"]["fbo_upload"]["preview"]
+        assert upload_preview["delivered_units_in_window"] == 5932
+        assert upload_preview["statement_redeemed_units"] == 5931
+        assert upload_preview["old_dispatch_delivered_after_snapshot"] == 1321
+        assert upload_preview["old_dispatch_delivered_in_window"] == 1319
+        assert upload_preview["old_dispatch_delivered_after_window"] == 2
+        assert upload_preview["old_dispatch_in_transit_at_export"] == 19
+        assert upload_preview["missing_dispatch_date_rows"] == 1
         assert len(worker.calls) == 1
         adapter = SellerCostTelegramAdapter(
             None, None, None,
@@ -154,6 +176,7 @@ def test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation(
         )
         assert "\u0440\u0430\u0437\u043d\u0438\u0446\u0430 CSV \u2212 \u0432\u0435\u0434\u043e\u043c\u043e\u0441\u0442\u044c: +1 \u0448\u0442." in response["message"]
         assert "\u0432\u044b\u043a\u0443\u043f\u044b T \u0432 \u0432\u0435\u0434\u043e\u043c\u043e\u0441\u0442\u0438: 5931 \u0448\u0442." in response["message"]
+        assert "1319" in response["message"] and "2" in response["message"] and "19" in response["message"]
         for action in ("provisional_opening_yes", "provisional_receipts_yes"):
             response = runtime.handle_callback(
                 "owner-test", _button(runtime, response, action),
@@ -167,6 +190,7 @@ def test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation(
         summary = runtime.handle_callback(
             "owner-test", _button(runtime, response, "provisional_calculate"),
         )
+        assert len(summary["message"]) < 4000
         estimate = runtime._sessions["owner-test"]["provisional_flow"]["result"]
         assert estimate.redeemed_units == 5931
         assert estimate.old_sold_min == 3669 and estimate.old_sold_max == 3703

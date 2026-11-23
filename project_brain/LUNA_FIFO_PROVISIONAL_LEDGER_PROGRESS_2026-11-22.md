@@ -103,3 +103,21 @@
 - PR A #741: branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`, exact-head Windows/Linux Verify and Linux Docker smoke passed.
 - PR B `codex/fifo-provisional-timeline`: currently local and unpushed; PF11 parser commit is `353776e379f73467b096e5988979d54a655af996`; PF12 changes remain uncommitted. Publish only after PF19 final verification/review packet.
 - PR C not started. No tracked `data/` file changed; no blocker or owner business decision.
+
+
+## PF13 — FBO / turnover reconciliation
+
+- Расширен временный preview: отдельно считает `DELIVERED` units по дате доставки в окне movement statement, сопоставляет с typed `redeemed_units` T, выводит delta CSV − T и отдельный count по pre-snapshot dispatches, доставленным после snapshot. Этот count разбит на deliveries внутри и после окна; отдельно показываются pre-snapshot shipments, остающиеся со статусом IN_TRANSIT при выгрузке. Delivery date без dispatch date и неизвестный status отражаются как неполнота, без отказа от полезной суммы сравнения.
+- Контракт границы: `dispatch.local_date <= snapshot.period_to` классифицируется как отправление до/на снимок; доставка после `snapshot.period_to` попадает в старую группу. Точная линия движения пока не подтверждена одним агрегатным отчётом; никакие данные не доказывают полноту CSV. Показ старой категории не влияет на новую ставку или `T`.
+- Synthetic fixture воспроизводит: 5 932 доставок внутри окна, T=5 931, delta +1; 1 319 старых dispatches доставлены в окне; 2 старых dispatches доставлены после окна; 19 old dispatches in transit at export; дополнительно по одной строке с missing dispatch date и unknown status. Preview проходит, T=5931 остается у summary model, factual writes=0.
+- Проверка до documentation-only updates: `tests/test_fifo_cost_provisional_fbo_telegram_flow.py tests/test_fifo_cost_provisional_fbo_csv_import_service.py tests/test_fifo_cost_provisional_summary_service.py` — **25 passed in 1.57s**; расширенная FBO Telegram flow file после усиления fixture — **3 passed**. Повторить весь связанный профиль и compile/data checks перед фиксацией.
+- Обновлены `docs/fifo-provisional-fbo-csv-guide.md`, `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`. Изменений в factual/import services и `data/` нет. Реальные отчёты и API не использовались.
+
+## Resume (актуально после PF13)
+
+- PF00–PF13 завершены локально в зависимом PR B worktree; следующая стадия PF14 — нормализованные события и отдельный optional movements CSV contract, строго read-only.
+- PR A #741 exact head `15894e4528db089d0d6e7969fd03b6a88d9206e2` имеет зелёные Windows/Linux Verify и Linux Docker smoke.
+- PR B branch `codex/fifo-provisional-timeline`, current head после PF12 commit `2463cfcaadd2f7d65dd2571d1d5403cbaa04ffbec`; PF13 локально изменён и не закоммичен/не опубликован. PR C не начат.
+- No `data/` modifications; no live bot/API. Неразрешённых блокеров нет.
+
+- Final PF13 linked verification: **72 passed in 9.90s** across FBO parser/worker/adapter/Telegram, summary model, transition runtime, and physical-sales import/evidence suites. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed after docs were updated.

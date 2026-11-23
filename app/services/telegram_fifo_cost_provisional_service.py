@@ -308,6 +308,7 @@ class TelegramFifoCostProvisionalService:
             "movement_fingerprint": movement["file_fingerprint"],
             "movement_from": movement["period_from"],
             "movement_to": movement["period_to"],
+            "snapshot_to": snapshot["period_to"],
             "period_from": None,
             "period_to": None,
             "preview": None,
@@ -502,21 +503,47 @@ class TelegramFifoCostProvisionalService:
                 "Не удалось получить количество выкупов из выбранной ведомости. Предпросмотр не создан.",
             )
         document = parsed.document
-        delivered_units = sum(
-            row.quantity for row in document.rows
-            if row.status_kind == "DELIVERED" and row.delivered is not None
-            and upload["movement_from"] <= row.delivered.local_date.isoformat() <= upload["movement_to"]
-        )
-        missing_delivery_date_rows = sum(
-            1 for row in document.rows
-            if row.status_kind == "DELIVERED" and row.delivered is None
-        )
+        delivered_units = 0
+        old_dispatch_delivered_after_snapshot = 0
+        old_dispatch_delivered_in_window = 0
+        old_dispatch_delivered_after_window = 0
+        old_dispatch_in_transit_at_export = 0
+        missing_delivery_date_rows = 0
+        missing_dispatch_date_rows = 0
+        for row in document.rows:
+            dispatch_date = row.dispatch.local_date.isoformat() if row.dispatch else None
+            delivered_date = row.delivered.local_date.isoformat() if row.delivered else None
+            dispatched_by_snapshot = (
+                dispatch_date is not None and dispatch_date <= upload["snapshot_to"]
+            )
+            if row.status_kind == "DELIVERED":
+                if delivered_date is None:
+                    missing_delivery_date_rows += 1
+                    continue
+                if dispatch_date is None:
+                    if upload["movement_from"] <= delivered_date <= upload["movement_to"]:
+                        missing_dispatch_date_rows += 1
+                if upload["movement_from"] <= delivered_date <= upload["movement_to"]:
+                    delivered_units += row.quantity
+                    if dispatched_by_snapshot:
+                        old_dispatch_delivered_in_window += row.quantity
+                if delivered_date > upload["snapshot_to"] and dispatched_by_snapshot:
+                    old_dispatch_delivered_after_snapshot += row.quantity
+                    if delivered_date > upload["movement_to"]:
+                        old_dispatch_delivered_after_window += row.quantity
+            elif row.status_kind == "IN_TRANSIT" and dispatched_by_snapshot:
+                old_dispatch_in_transit_at_export += row.quantity
         preview = {
             "document": document,
             "delivered_units_in_window": delivered_units,
+            "old_dispatch_delivered_after_snapshot": old_dispatch_delivered_after_snapshot,
+            "old_dispatch_delivered_in_window": old_dispatch_delivered_in_window,
+            "old_dispatch_delivered_after_window": old_dispatch_delivered_after_window,
+            "old_dispatch_in_transit_at_export": old_dispatch_in_transit_at_export,
             "statement_redeemed_units": redeemed,
             "delta_units": delivered_units - redeemed,
             "missing_delivery_date_rows": missing_delivery_date_rows,
+            "missing_dispatch_date_rows": missing_dispatch_date_rows,
             "movement_fingerprint": upload["movement_fingerprint"],
             "token": uuid4().hex,
         }
@@ -587,12 +614,22 @@ class TelegramFifoCostProvisionalService:
             f"Статус Доставлен в окне ведомости: {preview['delivered_units_in_window']} шт.; "
             f"выкупы T в ведомости: {preview['statement_redeemed_units']} шт.; "
             f"диагностическая разница CSV − ведомость: {sign}{delta} шт.",
-            "Разницу не подставляем вместо T в сводной формуле; CSV не доказывает полноту отмен/возвратов.",
+            f"Доставлено после снимка из отправлений до снимка: "
+            f"{preview['old_dispatch_delivered_after_snapshot']} шт. "
+            f"(в окне ведомости {preview['old_dispatch_delivered_in_window']}, "
+            f"позже окна {preview['old_dispatch_delivered_after_window']}); "
+            f"таких единиц со статусом «В пути» при выгрузке: "
+            f"{preview['old_dispatch_in_transit_at_export']}.",
+            "Поздняя доставка не переводит старое отправление на новую ставку. Разницу CSV не подставляем вместо T; полнота отмен и возвратов не подтверждается этой выгрузкой.",
         ])
-        if document.unknown_status_rows or preview["missing_delivery_date_rows"]:
+        if (
+            document.unknown_status_rows or preview["missing_delivery_date_rows"]
+            or preview["missing_dispatch_date_rows"]
+        ):
             lines.append(
                 f"Строк с нераспознанным статусом: {document.unknown_status_rows}; "
-                f"доставленных без даты доставки: {preview['missing_delivery_date_rows']}."
+                f"доставленных без даты доставки: {preview['missing_delivery_date_rows']}; "
+                f"доставленных в окне без даты передачи: {preview['missing_dispatch_date_rows']}."
             )
         if upload.get("preview") is not None:
             buttons.extend([
@@ -625,6 +662,13 @@ class TelegramFifoCostProvisionalService:
             f"Доставлено по CSV в окне ведомости: {preview['delivered_units_in_window']} шт.; "
             f"выкупы T в ведомости: {preview['statement_redeemed_units']} шт.; "
             f"разница: {sign}{delta} шт.\n"
+            f"Из них передано до снимка и доставлено после него: "
+            f"{preview['old_dispatch_delivered_in_window']} шт.; "
+            f"всего таких доставок после снимка в CSV: "
+            f"{preview['old_dispatch_delivered_after_snapshot']} шт. "
+            f"(позже окна {preview['old_dispatch_delivered_after_window']}); "
+            f"до снимка передано и всё ещё «В пути» при выгрузке: "
+            f"{preview['old_dispatch_in_transit_at_export']} шт.\n"
             f"Распознанные группы статусов (строки): {dict(document.status_counts)}. "
             f"Нераспознанных строк: {document.unknown_status_rows}.\n"
             "Разница не исправляет и не заменяет T; номер отправления, названия и дополнительные "
