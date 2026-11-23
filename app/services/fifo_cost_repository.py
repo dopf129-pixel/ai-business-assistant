@@ -606,14 +606,19 @@ class FifoCostRepository:
 
     @classmethod
     def _validate_provisional_preview_payload(cls, payload, *, input_fingerprint):
-        if not isinstance(payload, dict) or set(payload) != {
+        legacy_payload_keys = {
             "schema_version", "model_kind", "currency", "method", "policy_version",
             "period_from", "period_to", "input_fingerprint", "evidence_fingerprints",
             "assumptions", "rates", "result",
-        }:
+        }
+        payload_v2_keys = legacy_payload_keys | {"conditional_profit"}
+        if not isinstance(payload, dict) or (
+            (payload.get("schema_version") == 1 and set(payload) != legacy_payload_keys)
+            or (payload.get("schema_version") == 2 and set(payload) != payload_v2_keys)
+            or payload.get("schema_version") not in {1, 2}
+        ):
             return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
-        if (payload.get("schema_version") != 1
-                or payload.get("model_kind") not in {"SUMMARY_RANGE", "TIMELINE_MODEL"}
+        if (payload.get("model_kind") not in {"SUMMARY_RANGE", "TIMELINE_MODEL"}
                 or payload.get("currency") != "RUB"
                 or payload.get("method") not in {"AGGREGATE_SUMMARY_V1", "EVENT_TIMELINE_V1"}
                 or payload.get("input_fingerprint") != input_fingerprint
@@ -707,6 +712,57 @@ class FifoCostRepository:
             if "rub" in key and value is not None:
                 try:
                     if not isinstance(value, str) or not Decimal(value).is_finite():
+                        return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+                except (InvalidOperation, ValueError):
+                    return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        if payload.get("schema_version") == 2:
+            profit = payload.get("conditional_profit")
+            if profit is not None:
+                profit_keys = {
+                    "status", "source", "perimeter", "profit_stage", "return_reversal",
+                    "currency", "period_from", "period_to", "redeemed_units",
+                    "base_rub", "profit_low_rub", "profit_high_rub",
+                }
+                if (not isinstance(profit, dict) or set(profit) != profit_keys
+                        or profit.get("status") != "CONDITIONAL_BEFORE_TAX"
+                        or profit.get("source") != "OWNER_CONFIRMED_MANUAL"
+                        or profit.get("perimeter") != "SKU_PERIOD_REDEEMED_UNITS"
+                        or profit.get("profit_stage") != "BEFORE_PRODUCT_COGS_AND_TAX"
+                        or profit.get("return_reversal") != "EXCLUDED"
+                        or profit.get("currency") != payload["currency"]
+                        or profit.get("period_from") != payload["period_from"]
+                        or profit.get("period_to") != payload["period_to"]
+                        or type(profit.get("redeemed_units")) is not int
+                        or profit["redeemed_units"] != result["redeemed_units"]):
+                    return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+                try:
+                    amounts = {}
+                    for key in ("base_rub", "profit_low_rub", "profit_high_rub"):
+                        value = profit.get(key)
+                        if not isinstance(value, str) or len(value) > 32:
+                            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+                        amount = Decimal(value)
+                        if (not amount.is_finite()
+                                or abs(amount) > Decimal("999999999999.99")
+                                or amount != amount.quantize(Decimal("0.01"))):
+                            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+                        amounts[key] = amount
+                    if payload["model_kind"] == "SUMMARY_RANGE":
+                        cogs_low = Decimal(result["gross_cogs_low_rub"])
+                        cogs_high = Decimal(result["gross_cogs_high_rub"])
+                    else:
+                        timeline_cogs = result.get("gross_cogs_rub")
+                        if timeline_cogs is None:
+                            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+                        cogs_low = cogs_high = Decimal(timeline_cogs)
+                    expected_low = (
+                        amounts["base_rub"] - cogs_high
+                    ).quantize(Decimal("0.01"))
+                    expected_high = (
+                        amounts["base_rub"] - cogs_low
+                    ).quantize(Decimal("0.01"))
+                    if (amounts["profit_low_rub"] != expected_low
+                            or amounts["profit_high_rub"] != expected_high):
                         return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
                 except (InvalidOperation, ValueError):
                     return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"

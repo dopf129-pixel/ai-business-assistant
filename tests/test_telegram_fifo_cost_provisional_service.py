@@ -131,6 +131,15 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert "110,187.30" in response["message"] and "110,403.20 ₽" in response["message"]
         assert "не являются FIFO фактом" in response["message"]
         assert not any("apply_transition" in button["callback"] for button in response["keyboard"]["buttons"])
+        profit_button = _ticket_for(runtime, response, "provisional_profit_base")
+        response = runtime.handle_callback("101", profit_button)
+        response = runtime.handle_text("101", "130000")
+        assert "до сторно возвратов" in response["message"]
+        assert "110,187.30–110,403.20 ₽" in response["message"]
+        confirm_profit = _ticket_for(runtime, response, "provisional_profit_base_confirm")
+        response = runtime.handle_callback("101", confirm_profit)
+        assert "Условная прибыль до налога (не факт)" in response["message"]
+        assert "19,596.80–19,812.70 ₽" in response["message"]
         save_button = _ticket_for(runtime, response, "provisional_save")
         assert estimate_repository.calls == []
         response = runtime.handle_callback("101", save_button)
@@ -138,6 +147,10 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert len(estimate_repository.rows) == 1
         saved_payload = next(iter(estimate_repository.rows.values()))["payload"]
         assert saved_payload["model_kind"] == "SUMMARY_RANGE"
+        assert saved_payload["schema_version"] == 2
+        assert saved_payload["conditional_profit"]["source"] == "OWNER_CONFIRMED_MANUAL"
+        assert saved_payload["conditional_profit"]["profit_low_rub"] == "19596.80"
+        assert saved_payload["conditional_profit"]["profit_high_rub"] == "19812.70"
         assert saved_payload["evidence_fingerprints"] == sorted({
             request.snapshot.file_sha256, request.movement_report.file_sha256,
         })
@@ -169,6 +182,7 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert "Сохранённая предварительная оценка" in response["message"]
         assert "Актуальность источников не сверена" in response["message"]
         assert "110,187.30–110,403.20 ₽" in response["message"]
+        assert "19,596.80–19,812.70 ₽" in response["message"]
         assert transition.writes == 0
     finally:
         reset_current_tenant_user_id(tenant)
@@ -213,6 +227,64 @@ def test_saved_estimate_comparison_requires_same_basis_and_uses_interval_differe
     different_basis["result"]["redeemed_units"] = 5930
     compatible, _ = service._saved_estimates_comparable(first, different_basis)
     assert not compatible
+
+
+def test_conditional_profit_allows_negative_owner_confirmed_base():
+    payload = {
+        "model_kind": "SUMMARY_RANGE", "currency": "RUB",
+        "period_from": "2026-11-01", "period_to": "2026-11-30",
+        "result": {
+            "redeemed_units": 5, "gross_cogs_low_rub": "100.00",
+            "gross_cogs_high_rub": "120.00",
+        },
+    }
+
+    profit = TelegramFifoCostProvisionalService._make_conditional_profit("-100", payload)
+
+    assert profit["source"] == "OWNER_CONFIRMED_MANUAL"
+    assert profit["base_rub"] == "-100.00"
+    assert profit["profit_low_rub"] == "-220.00"
+    assert profit["profit_high_rub"] == "-200.00"
+    assert TelegramFifoCostProvisionalService._parse_money("-1250,50") == Decimal("-1250.50")
+
+
+def test_conditional_profit_comparison_withholds_different_financial_perimeter():
+    first = {
+        "model_kind": "SUMMARY_RANGE", "currency": "RUB",
+        "period_from": "2026-11-01", "period_to": "2026-11-30",
+        "method": "AGGREGATE_SUMMARY_V1", "policy_version": "fifo-provisional-summary-v1",
+        "evidence_fingerprints": ["1" * 64],
+        "result": {
+            "redeemed_units": 5, "gross_cogs_low_rub": "100.00",
+            "gross_cogs_high_rub": "120.00",
+        },
+        "conditional_profit": {
+            "currency": "RUB", "period_from": "2026-11-01", "period_to": "2026-11-30",
+            "redeemed_units": 5, "perimeter": "SKU_PERIOD_REDEEMED_UNITS",
+            "profit_stage": "BEFORE_PRODUCT_COGS_AND_TAX", "return_reversal": "EXCLUDED",
+            "base_rub": "1000.00", "profit_low_rub": "880.00", "profit_high_rub": "900.00",
+        },
+    }
+    second = deepcopy(first)
+    second["conditional_profit"]["profit_low_rub"] = "980.00"
+    second["conditional_profit"]["profit_high_rub"] = "1000.00"
+    service = TelegramFifoCostProvisionalService(
+        evidence_reader=object(), summary_service=FifoCostProvisionalSummaryService(),
+    )
+
+    comparable, _ = service._saved_profit_comparable(first, second)
+    assert comparable
+
+    second["conditional_profit"]["return_reversal"] = "INCLUDED"
+    comparable, reason = service._saved_profit_comparable(first, second)
+    assert not comparable
+    assert "сторно" in reason
+
+    second["conditional_profit"]["return_reversal"] = "EXCLUDED"
+    second["conditional_profit"]["profit_stage"] = "AFTER_TAX"
+    comparable, reason = service._saved_profit_comparable(first, second)
+    assert not comparable
+    assert "стадия налога" in reason
 
 
 def test_history_comparison_screen_only_shows_delta_for_matching_dimensions():

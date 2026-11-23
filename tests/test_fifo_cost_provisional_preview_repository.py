@@ -198,6 +198,83 @@ def test_saved_preview_payload_is_allowlisted_and_rejects_untrusted_fields(tmp_p
         reset_current_tenant_user_id(token)
 
 
+def test_saved_preview_validates_manual_conditional_profit_formula(tmp_path):
+    repo = FifoCostRepository(db_path=tmp_path / "conditional-profit.sqlite")
+    token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        connection = repo.get_connection()
+        try:
+            _seed_case(connection, repo._tenant_scope("store-a"))
+        finally:
+            connection.close()
+
+        payload = _payload()
+        payload["schema_version"] = 2
+        payload["conditional_profit"] = {
+            "status": "CONDITIONAL_BEFORE_TAX",
+            "source": "OWNER_CONFIRMED_MANUAL",
+            "perimeter": "SKU_PERIOD_REDEEMED_UNITS",
+            "profit_stage": "BEFORE_PRODUCT_COGS_AND_TAX",
+            "return_reversal": "EXCLUDED",
+            "currency": "RUB",
+            "period_from": payload["period_from"],
+            "period_to": payload["period_to"],
+            "redeemed_units": payload["result"]["redeemed_units"],
+            "base_rub": "130000.00",
+            "profit_low_rub": "19596.80",
+            "profit_high_rub": "19812.70",
+        }
+        accepted = repo.append_provisional_preview(
+            preview_id="preview-pf23-valid",
+            case_id="case-pf21-01",
+            case_revision=1,
+            store_id="store-a",
+            product_id="product-a",
+            offer_id="offer-a",
+            sku="sku-a",
+            input_fingerprint="f" * 64,
+            idempotency_key="prov1-profit-valid",
+            payload=payload,
+        )
+        assert accepted["error"] is False, accepted
+        assert accepted["item"]["payload"]["conditional_profit"] == payload["conditional_profit"]
+
+        invalid_payload = _payload("e" * 64)
+        invalid_payload["schema_version"] = 2
+        invalid_payload["conditional_profit"] = dict(payload["conditional_profit"])
+        invalid_payload["conditional_profit"]["base_rub"] = "-100.00"
+        invalid_payload["conditional_profit"]["profit_low_rub"] = "-110503.20"
+        invalid_payload["conditional_profit"]["profit_high_rub"] = "-110287.30"
+        invalid_payload["conditional_profit"]["period_from"] = invalid_payload["period_from"]
+        invalid_payload["conditional_profit"]["period_to"] = invalid_payload["period_to"]
+        invalid_payload["conditional_profit"]["redeemed_units"] = invalid_payload["result"]["redeemed_units"]
+        invalid_payload["conditional_profit"]["profit_high_rub"] = "-110287.31"
+        rejected = repo.append_provisional_preview(
+            preview_id="preview-pf23-invalid",
+            case_id="case-pf21-01",
+            case_revision=1,
+            store_id="store-a",
+            product_id="product-a",
+            offer_id="offer-a",
+            sku="sku-a",
+            input_fingerprint="e" * 64,
+            idempotency_key="prov1-profit-invalid",
+            payload=invalid_payload,
+        )
+        assert rejected == {
+            "error": True, "code": "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID",
+        }
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM fifo_cost_provisional_previews"
+            ).fetchone()[0] == 1
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_saved_preview_requires_complete_model_contract_and_iso_dates(tmp_path):
     repo = FifoCostRepository(db_path=tmp_path / "contract.sqlite")
     token = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
