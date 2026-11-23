@@ -1,5 +1,9 @@
 # Architecture Decisions
 
+## Decision 068 — Keep provisional FIFO estimates separate from factual FIFO
+
+Add a non-authoritative scenario layer that reads exact-case confirmed evidence and may persist its own estimate records, but can never write FIFO layers, allocations/events, cost history, Return COGS, or canonical Period Profit. Keep its statuses distinct from factual `READY`/`APPLIED`; source gaps or conflicts withhold money or mark a timeline gap while an independent summary remains labelled as a model. Details: `DECISIONS_068.md` and `LUNA_FIFO_PROVISIONAL_LEDGER_TASK_2026-11-22.md`.
+
 ## Decision 067 — FIFO scan continuation side storage
 
 Keep the existing v18 scan checkpoint table and its encrypted-token column intact. Raise the bounded continuation contract to 1 MiB through an additive FIFO schema v19 child table with a composite foreign key to the scan. Small tokens continue using the legacy column; large tokens use the encrypted side table. Enforce a per-case byte quota, include the child rows in backup/restore and source fingerprints, and read checkpoint state as one logical value. Details and migration tests: `DECISIONS_067.md`.

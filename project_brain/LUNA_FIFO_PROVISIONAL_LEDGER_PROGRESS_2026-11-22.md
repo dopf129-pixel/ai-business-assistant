@@ -63,7 +63,8 @@
 ## Resume (обновлено)
 
 - Последний завершённый этап: PF09; PF00–PF09 закрыты локально.
-- PF10 в работе: code commit `f967f7aa` прошёл полный изолированный suite и compileall; после добавления двух test-only regressions нужно повторить полный прогон на следующем commit.
-- Следующий шаг: повторный full isolated pytest, compileall/diff/data checks, review packet, push PR A и exact-head CI.
-- PR A `codex/fifo-provisional-summary` на базе опубликованного PR #740 SHA `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; текущая ветка пока локальная.
+- PF10 локальная часть завершена на implementation commit `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`: полный suite в disposable worktree без проектного `data/`, только synthetic tax config — **5,491 passed in 110.55s**; `compileall -q app tests` — успешно; `git diff --exit-code -- data` — без изменений; disposable worktree удалён после проверки его точного расположения.
+- Linked profile на этом implementation SHA — **113 passed**. На нём же полная компиляция прошла; сообщён только стандартный compile результат без новых предупреждений. Полная документация теперь включает Decision 068, owner guide, CHANGELOG/CURRENT_STATE/TEST_MAP и этот журнал.
+- Следующий шаг: review packet, чистый diff/status, commit/push PR A и exact-head CI; перед стартом PR B требуются все успешные PR A checks.
+- PR A `codex/fifo-provisional-summary` на базе опубликованного PR #740 SHA `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; рабочая ветка пока локальная.
 - PR B/C начнутся только после exact-head зелёного CI PR A. Блокеров нет.
