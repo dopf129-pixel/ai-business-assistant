@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PF26 local release checkpoint
+
+- PR C code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` passed the isolated full Windows/Python 3.12 repository suite: **5,579 passed in 97.95s**. The disposable copy omitted `.env` and owner `data/`, using only a synthetic tax policy. `compileall -q app tests`, test database initialization, `git diff --check`, and tracked-data equality passed.
+- PR C review packet is prepared. PR A #741 and PR B #742 are exact-head green and remain open/unmerged; PR C still needs publication and hosted CI on its final SHA. The full suite was local; it is not a substitute for the final hosted checks.
+- No live service request, production bot launch, owner file use, merge or deployment occurred.
+
 # 2026-11-23 — Provisional FIFO PF24 full-flow verification
 
 - The PR C provisional calculator can show an owner-confirmed conditional profit-before-tax interval for one exact SKU, period and redeemed-unit scope. The manual base is never substituted from store-wide profit; the owner sees gross COGS and confirms the financial perimeter before any value appears.

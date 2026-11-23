@@ -7247,3 +7247,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary transition-card save button, exact model/evidence fingerprints, no raw identifiers, successful isolated append, and stale selected report blocking a stale callback.
 - `tests/test_fifo_cost_provisional_preview_repository.py`: scoped current-case writes, idempotent retry, conflicting idempotency payload rejection, stale revision, closed case, and disallowed raw/unrecognized payload fields.
 - Linked PF21 profile: **65 passed** across ordinary save, timeline/FBO flow, repository, FIFO schema and backup/restore tests. Save writes only `fifo_cost_provisional_previews`; full-suite and hosted exact-head CI remain pending.
+
+# Provisional FIFO PF26 release verification
+
+- `tests/test_fifo_cost_batch_scan_checkpoint_service.py`, `tests/test_fifo_cost_transition_schema_v13.py`, and `tests/test_fifo_cost_transition_schema_v16.py` cover schema-v20 compatibility after the new estimate table: **29 passed in 2.48s**. The v12 migration fixture drops the additive v20 table and triggers before removing their parent transition tables.
+- The isolated full repository suite at code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` passed **5,579 tests in 97.95s** on Windows/Python 3.12. Disposable copy had no `.env` or owner `data/`; only synthetic tax configuration was present. `compileall -q app tests`, test DB initialization, `git diff --check`, and tracked-data equality passed.
+- Full validation includes provisional aggregate summary and timeline tests plus saved-preview scope, payload v1/v2 compatibility, idempotency/quota/immutability, history pagination, conditional-profit perimeter/formula and synthetic Telegram save/reopen flow. Hosted CI remains required for the final PR C SHA.

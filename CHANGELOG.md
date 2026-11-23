@@ -1,3 +1,9 @@
+# 2026-11-23 — Provisional FIFO PR C isolated release verification (PF26)
+
+- Fixed stale synthetic migration assertions for the additive FIFO schema v20 estimate table and teardown order. Focused checkpoint/schema profile: **29 passed**.
+- Re-ran the complete repository suite on code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` in a disposable Windows/Python 3.12 copy: **5,579 passed in 97.95s**. Compile, test DB initialization, diff checks and tracked data equality passed.
+- Prepared the independent PR C review packet. Hosted exact-head CI is pending PR publication; PR A/B remain unmerged.
+
 # 2026-11-23 — Provisional FIFO confirmed conditional profit and full-flow guard (PF23–PF24)
 
 - Added owner-entered and explicitly confirmed financial base for a conditional per-SKU, per-period profit-before-tax range. The screen shows the estimated gross COGS range; the calculation is `base − COGS`, supports a negative base, and does not auto-fill store-wide profit or recalculate tax/return reversals.

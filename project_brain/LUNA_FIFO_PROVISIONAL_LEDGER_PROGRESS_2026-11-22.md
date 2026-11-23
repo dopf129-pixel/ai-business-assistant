@@ -3,17 +3,18 @@
 Основа: `project_brain/LUNA_FIFO_PROVISIONAL_LEDGER_TASK_2026-11-22.md`, PR #740.
 Начат: 2026-11-23 (Europe/Moscow).
 
-## Resume — состояние после PF25
+## Resume — состояние после PF26 (локальная проверка завершена; публикация PR C впереди)
 
-- Последний завершённый этап: PF25. Следующий этап: PF26 — изолированный полный прогон, независимый пакет review, публикация PR C и exact-head CI всех зависимых PR.
+- Последний завершённый этап: PF26 локально. Следующее действие: опубликовать PR C от ветки `codex/fifo-provisional-saved-estimates` в PR B #742, дождаться точного GitHub CI и при необходимости исправить регрессии.
 - PR A #741: branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e`, exact-head CI run `45142413339` green. PR B #742: branch `codex/fifo-provisional-timeline`, head `9f5aa5cbea5f990beb782fa45791afcc94e59af4`, exact-head CI run `45172484489` green. PR C branch `codex/fifo-provisional-saved-estimates` is based on exact PR B head.
+- PR C current code/test SHA: `61480ae48e75e3ffedce87c62d23bb0363b3ad5b`; isolated full suite: **5,579 passed in 97.95s**. CI for the eventual published PR C head is pending. PR A/B remain open and unmerged.
 - PR C branch `codex/fifo-provisional-saved-estimates` is based on exact PR B #742 head `9f5aa5cbea5f990beb782fa45791afcc94e59af4`. PF20 changed FIFO-owned schema v20 and synthetic tests only; `Planning` metadata and tracked `data/` remain unchanged. Its focused profile was **54 passed**. PF21 commit `201853c4017f8dd4a09b8393e0366b29d0e18a3d` adds fresh, idempotent provisional estimate saving and strict model-specific payload validation; linked profile: **66 passed in 4.73s**.
 - PF22 adds exact-scope paginated history reads, a Telegram detail view that can reopen saved records after a new session, source freshness messaging, and conservative model comparison. Compatible ranges use `[new_low - old_high, new_high - old_low]`; different source coverage is disclosed; incompatible dimensions or missing timeline amounts withhold a combined delta. Linked history/timeline/FBO/repository/schema/backup profile: **69 passed in 4.70s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
 - PF23 adds manually owner-confirmed conditional pre-tax profit for the exact selected SKU/period/redeemed-unit scope. Formula `base − COGS` reverses interval endpoints; negative bases are accepted, automatic store-profit substitution is prohibited, and history comparison withholds deltas across different profit perimeters. Saved payload v2 preserves legacy v1 rows and validates scope plus arithmetic. Final linked profile after provenance guard: **76 passed in 5.02s**; `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
 - PF24 strengthens the full synthetic Telegram journey: estimate before base remains without profit, entry shows gross COGS and manual-source warning, profit appears only after owner confirmation, saved estimate survives a new session, all screens stay below Telegram's 4,000-character limit, and only the dedicated estimate repository receives a write. The factual case remains revision 1; transition writes are zero and production apply/Period Profit services are absent. Final linked profile: **76 passed in 5.02s**; compile, diff check and tracked `data/` equality passed.
 - PF25 updates the owner guide, Decision 068, CHANGELOG, CURRENT_STATE and TEST_MAP. Acceptance mapping: A01–A13 in PR A packet; B01–B16 in PR B packet; C01–C08 in PR C regressions and PF20–PF24 tests; C09's no-apply/gap behavior covered synthetically across the independent summary/FBO/timeline paths. The real owner case remains deliberately unvalidated because real Ozon/Telegram requests and owner files are excluded.
 - Known limit: manually entered finance base cannot be independently validated for gross/net semantics or source dates; bot now states this before owner confirmation. If the external base does not match SKU/period/redeemed-unit perimeter, owner must not confirm it. No tax recalculation is implemented.
-- No PR C hosted CI yet; it is created after PF20–PF25. No merge, deployment, live bot, Ozon or Telegram request was performed.
+- No PR C hosted CI yet; the local independent review packet is now prepared. No merge, deployment, live bot, Ozon or Telegram request was performed.
 
 ## PF25 — document owner flow, boundaries, acceptance map and limits
 
@@ -23,12 +24,13 @@
 - Residual product-data limitation: owner-entered base comparability is an explicit owner assertion; no external finance report is independently cross-matched, and this feature does not recalculate tax or financial return reversal. The bot discloses these limits before confirmation.
 - Linked local suite after the final PF25 guard: **76 passed in 5.02s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. No factual data, live service or running bot was used.
 
-## PF26 — full-suite verification in progress
+## PF26 — isolated full-suite verification and review handoff
 
-- First full-suite attempt used a disposable worktree at SHA `49a29d390ba72f0f454f3b6b06cf4b798391b6b7`, with the repository `data/` removed and `.env` absent. Result: **5,561 passed, 18 failed in 106.53s**. Fourteen failures were stale assertions that expected the FIFO repository schema to stop at v19 after PR C had already added v20; the other four came from setting `TAX_RATE`/`TAX_MODE` environment variables instead of using the synthetic policy file expected by CI-style production tests.
-- Updated only synthetic migration tests to expect current schema v20 and added v20 preview-table presence to the fresh-schema check. The v12 migration fixture now removes the additive v20 preview table and its two triggers before it tears down parent transition tables.
-- Focused migration/checkpoint profile after the correction: `tests/test_fifo_cost_batch_scan_checkpoint_service.py tests/test_fifo_cost_transition_schema_v13.py tests/test_fifo_cost_transition_schema_v16.py -q` — **29 passed in 2.48s**.
-- Next: commit the test/journal correction, reset the disposable worktree to that exact SHA, add only a synthetic `data/tax_configuration.json` with USN income 6%, clear tax environment variables, and rerun compile, full pytest, diff checks and tracked-data verification. No project owner data or live integrations were used.
+- The first disposable full-suite attempt at `49a29d390ba72f0f454f3b6b06cf4b798391b6b7` reported **5,561 passed, 18 failed in 106.53s**. Fourteen failures were stale test expectations for schema v19 after the additive v20 table; four were caused by test-runner tax environment variables that differ from the CI contract. The implementation tests were not changed to hide product failures.
+- Updated synthetic migration tests to assert schema v20 and its preview table, and adjusted the v12 teardown fixture to remove the two v20 triggers/table before dropping their parent tables. The focused migration/checkpoint profile then passed **29 tests in 2.48s**.
+- On exact code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b`, reran the complete repository suite in a disposable clean copy without `.env` or owner `data/`; only a synthetic USN income tax policy was present: **5,579 passed in 97.95s**, exit 0. `compileall -q app tests`, test DB initialization, `git diff --check`, and tracked `data/` equality passed. The disposable copy was not copied back into the project.
+- Added `FIFO_PROVISIONAL_LEDGER_PR_C_REVIEW_PACKET_2026-11-23.md` with PR dependency, exact tested code SHA, C01–C09 evidence mapping, synthetic transcript summary, architecture boundary, data preservation and residual owner-data limitations. PR C publication and exact-head CI are the remaining PF26 packaging actions.
+- No owner files, API credentials, live Ozon/Telegram calls, production bot, merge or deployment were used.
 
 ## PF23 — conditionally calculate profit from an owner-confirmed base
 
