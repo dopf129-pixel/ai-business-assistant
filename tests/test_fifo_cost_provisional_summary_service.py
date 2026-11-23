@@ -107,6 +107,28 @@ def test_manual_residual_31_changes_both_costs_by_63_50():
     assert base.gross_cogs_low_rub - other.gross_cogs_low_rub == Decimal("63.50")
     assert base.gross_cogs_high_rub - other.gross_cogs_high_rub == Decimal("63.50")
 
+def test_nonzero_compensation_columns_are_reported_without_changing_inventory_math():
+    request = _case(movement=_report(
+        start="2026-11-06", end="2026-11-20", opening=SNAPSHOT_BUCKETS,
+        closing=MOVEMENT_CLOSING,
+        receipts={"L": 12959, "M": 12, "N": 0, "O": 0, "P": 0, "Q": 0, "R": 0},
+        redeemed=5931, other_expenses={"U": 0, "V": 14, "W": 5, "X": 3, "Y": 0, "Z": 0},
+        excluded_receipt=700, excluded_expense=400, digest="e" * 64,
+    ))
+    result = FifoCostProvisionalSummaryService().calculate(request)
+    assert (result.old_sold_min, result.old_sold_max) == (3669, 3703)
+    assert (result.excluded_compensation_receipt, result.excluded_compensation_expense) == (700, 400)
+
+def test_invalid_store_timezone_cannot_create_a_scenario_request():
+    request = _case()
+    with pytest.raises(ValueError):
+        ProvisionalSummaryRequest(
+            scope=request.scope, store_timezone="Not/A_Timezone",
+            snapshot=request.snapshot, movement_report=request.movement_report,
+            old_unit_cost_rub=Decimal("21"), new_unit_cost_rub=Decimal("14.65"),
+            assumptions=request.assumptions,
+        )
+
 def test_snapshot_boundary_requires_all_eight_buckets_to_match():
     moved = dict(SNAPSHOT_BUCKETS); moved["available"] -= 1; moved["buyer_delivery"] += 1
     movement = _report(start="2026-11-06", end="2026-11-20", opening=moved,

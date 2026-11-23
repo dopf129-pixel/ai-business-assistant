@@ -3,7 +3,7 @@
 - Added an owner-only scenario screen to the existing FIFO transition card. It selects complete, owner-confirmed, exact-scope turnover reports for adjacent snapshot/movement periods, asks the two documented batch-composition assumptions, and calculates linked old/new sold-unit and gross-COGS ranges.
 - The default closing old-stock assumption is explicitly unknown and produces the documented wide range. An exact value/range is labelled as a scenario hypothesis. Source conflicts and unsupported movement columns withhold money.
 - This PR A path is in-memory and read-only with respect to factual FIFO, case costs, Period Profit and Return COGS. It does not call readiness/prepare/apply or save a scenario. See `docs/fifo-provisional-summary-owner-guide.md`.
-- Local linked verification: **111 passed** across provisional summary/evidence/Telegram, production transition workflow, parent Telegram runtime/contracts and both existing report importers. Full isolated pytest and exact-head CI are pending before PR publication.
+- Local linked verification: **113 passed** across provisional summary/evidence/Telegram, production transition workflow, parent Telegram runtime/contracts and both existing report importers. The prior full isolated suite on implementation commit `f967f7aa` passed 5,489 tests; two later test-only additions require rerunning the full suite before PR publication.
 
 # 2026-11-19 — Accept assistant session list in verified bot backups
 

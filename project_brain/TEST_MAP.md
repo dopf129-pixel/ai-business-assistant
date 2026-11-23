@@ -4,7 +4,7 @@
 - `tests/test_fifo_cost_provisional_evidence_reader.py`: only complete owner-confirmed TURNOVER reports in the exact case scope are returned; stale case and >100 saved reports fail closed.
 - `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary `fifo_transition` callback route, report selection, owner hypotheses, closing residual input and preview rendering; replays a prior callback as stale and proves no FIFO write. It also pins the optional-service compatibility route.
 - `tests/test_fifo_cost_transition_production_workflow.py`: shared production workflow wires a separate provisional service without replacing the factual evidence/review/apply path.
-- Linked profile at current local changes: **111 passed** across provisional summary/evidence/Telegram, production transition workflow, parent runtime/contracts, and both existing report importers. Exact-head hosted Windows/Linux full Verify remains required before publishing PR A.
+- Linked profile at current local changes: **113 passed** across provisional summary/evidence/Telegram, production transition workflow, parent runtime/contracts, and both existing report importers. The prior isolated full suite passed **5,489** on `f967f7aa`; two later test-only regressions require a fresh full run. Exact-head hosted Windows/Linux full Verify remains required before publishing PR A.
 
 # 2026-11-19 — assistant_session backup contract
 
