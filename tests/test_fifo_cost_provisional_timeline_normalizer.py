@@ -9,7 +9,10 @@ from services.fifo_cost_cutoff_bridge_service import (
 )
 from services.fifo_cost_provisional_fbo_csv_import_service import FifoCostProvisionalFboCsvImportService
 from services.fifo_cost_provisional_movements_import_service import FifoCostProvisionalMovementsImportService
-from services.fifo_cost_provisional_timeline_contracts import ProvisionalTimelineEventKind as Kind
+from services.fifo_cost_provisional_timeline_contracts import (
+    ProvisionalTimelineEventKind as Kind,
+    ProvisionalTimelineIssue as Issue,
+)
 from services.fifo_cost_provisional_timeline_normalizer import FifoCostProvisionalTimelineNormalizer
 from services.fifo_cost_transition_contracts import (
     EvidenceCompleteness, EvidenceSourceKind, PeriodProvenance, ReportEvidence,
@@ -133,6 +136,7 @@ def test_opening_link_wrong_quantity_status_or_date_never_becomes_a_valid_link()
     assert "EVENT_QUANTITY_EXCEEDS_POSTING" in {issue.value for issue in result.issue_codes}
     assert "FBO_OPENING_LINK_REQUIRED" in {issue.value for issue in result.issue_codes}
 
+
     in_window_link = _movement(
         "OPENING_TRANSIT_LINK", effective="2026-11-06T10:00:00+03:00",
     )
@@ -157,8 +161,43 @@ def test_opening_link_wrong_quantity_status_or_date_never_becomes_a_valid_link()
         scope=SCOPE, timezone_name="Europe/Moscow", model_start=date(2026, 11, 6),
         fbo_document=cancelled, movement_document=cancelled_restocked,
     )
-    assert not result.issue_codes, result.issue_codes
-    assert [event.event_kind for event in result.events] == [Kind.NON_BUYOUT_RESTOCK]
+    assert Issue.FBO_OPENING_LINK_REQUIRED in result.issue_codes
+
+
+def test_pre_window_cancelled_posting_returning_during_window_still_requires_opening_link():
+    fbo = _fbo((
+        "posting-1", SCOPE.sku, "2", "\u041e\u0442\u043c\u0435\u043d\u0451\u043d",
+        "2026-11-05 10:00:00", "",
+    ))
+    header = ";".join(MOVEMENTS.HEADER)
+    rows = "\n".join((
+        "OPENING_TRANSIT_LINK;opening-link;2026-11-05T10:00:00+03:00;"
+        f"{SCOPE.sku};2;posting-1;;;source-row-1",
+        "NON_BUYOUT_RESTOCK;restock;2026-11-08T10:00:00+03:00;"
+        f"{SCOPE.sku};2;posting-1;;true;source-row-2",
+    ))
+    movements = MOVEMENTS.parse_csv(
+        filename="movements.csv", payload=(header + "\n" + rows + "\n").encode(),
+        scope=SCOPE, timezone_name="Europe/Moscow",
+    ).document
+    without_link = NORMALIZER.normalize(
+        scope=SCOPE, timezone_name="Europe/Moscow", model_start=date(2026, 11, 6),
+        fbo_document=fbo,
+        movement_document=_movement(
+            "NON_BUYOUT_RESTOCK", qty="2", effective="2026-11-08T10:00:00+03:00",
+            resellable="true",
+        ),
+    )
+    with_link = NORMALIZER.normalize(
+        scope=SCOPE, timezone_name="Europe/Moscow", model_start=date(2026, 11, 6),
+        fbo_document=fbo, movement_document=movements,
+    )
+
+    assert Issue.FBO_OPENING_LINK_REQUIRED in without_link.issue_codes
+    assert not with_link.issue_codes
+    assert {event.event_kind for event in with_link.events} == {
+        Kind.OPENING_TRANSIT_LINK, Kind.NON_BUYOUT_RESTOCK,
+    }
 
 
 def test_owner_restock_is_joined_by_exact_posting_and_checked_against_quantity_and_status():

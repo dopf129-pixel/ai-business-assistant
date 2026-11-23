@@ -1,3 +1,9 @@
+# Provisional FIFO buyout and return replay (PF16)
+
+- `tests/test_fifo_cost_provisional_replay_service.py`: buyout consumes the exact reserve once and creates gross COGS; dispatch remains zero COGS; returns before buyout or above confirmed quantity fail; duplicate event IDs are idempotent; partial sale returns restore the last consumed layer first and retain gross COGS; non-buyout cancellation restores its original source layer; non-resellable units remain held; mixed-layer partial cancellation is not guessed; and old opening transit buyout does not reduce opening available stock a second time.
+- `tests/test_fifo_cost_provisional_timeline_normalizer.py`: pre-window cancelled posting with a later owner restock requires the exact opening link; a linked posting produces both the reserve and restock events.
+- Linked PF16 profile: **40 passed** across replay, normalizer, and movement parser. Source completeness and final timeline readiness are not asserted by these tests.
+
 # Provisional FIFO replay (PF15)
 
 - `tests/test_fifo_cost_provisional_replay_service.py`: finite initial and received layers; partial posting allocation across FIFO rates; zero dispatch COGS; separate opening-transit old-cost reserve bounded by exact hashed posting capacity; duplicate idempotency; negative-available guard; held receipt isolation; equal-day ambiguity; exact-instant order; unsupported buyout deferral; and invalid monetary values.

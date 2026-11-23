@@ -152,10 +152,16 @@ class FifoCostProvisionalTimelineNormalizer:
             if row.dispatch is None:
                 issues.add(Issue.FBO_DISPATCH_TIME_MISSING)
             elif row.dispatch.local_date < model_start:
+                cancelled_after_start = any(
+                    event.event_kind is Kind.NON_BUYOUT_RESTOCK
+                    and event.posting_key == posting_key
+                    and event.local_date >= model_start
+                    for event in accepted_owner_events
+                )
                 still_open_at_start = (
                     row.status_kind != "CANCELLED"
                     and (row.delivered is None or row.delivered.local_date >= model_start)
-                )
+                ) or cancelled_after_start
                 linked_units = opening_links.get(posting_key, 0)
                 if still_open_at_start and linked_units != row.quantity:
                     issues.add(Issue.FBO_OPENING_LINK_REQUIRED)

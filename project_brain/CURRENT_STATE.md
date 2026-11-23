@@ -1,3 +1,10 @@
+# 2026-11-23 — Provisional FIFO PF16 buyout and returns
+
+- Extended the pure replay with exact reserve-to-buyout transition, gross COGS once per posting, non-buyout cancellation restock, and partial sale-return restoration from the last consumed layer first. Gross COGS remains before any financial reversal; financial reversal stays `0` absent an exact financial event.
+- Returned but non-resellable units remain in a separate held category. Partial non-buyout restock from a mixed-layer reserve fails closed because the owner input cannot identify which units came from which layer; full restock and partial single-layer restock are supported.
+- Fixed the normalized opening requirement for a pre-window posting whose final status is cancelled but whose owner-confirmed return happens during the model window. The exact starting transit link remains required.
+- PF16 linked profile: **40 passed** across replay, timeline normalizer, and owner movement parser; compileall, diff check, and unchanged `data/` passed. Full suite and exact-head CI remain pending.
+
 # 2026-11-23 — Provisional FIFO PF15 replay kernel complete locally
 
 - Added the pure finite-layer replay for opening available stock, accepted receipts, exact opening-transit reserves, and buyer-dispatch allocations. Dispatch may span multiple cost layers; its reserved cost is separate from COGS, which remains zero before buyout.

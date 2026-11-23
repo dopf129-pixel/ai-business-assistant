@@ -144,9 +144,21 @@
 - One early targeted run exposed a test-fixture day/date mismatch; the fixture was corrected to derive store-local date from explicit instants. Final repeated profile above is green.
 - Not verified yet: return/buyout replay, holds release, non-sale movement ledger, source completeness/balance status, normal Telegram timeline display, full suite, PR B hosted CI, and owner documents. These remain PF16–PF19 or later.
 
-## Resume (актуально после PF15)
+## PF16 — buyout, cancellation, and sale-return replay
 
-- Последний закрытый этап: PF15. Следующий: PF16 — replay confirmed buyouts, cancellations/non-buyout restocks, and sale returns with original-layer restoration, last-consumed-first ordering, idempotency, and over-return guards.
+- Extended the pure replay with exact posting-reserve-to-buyout transition. A buyout must match the full remaining reserve quantity and can be recorded once; its line allocations move to a separate bought-out journal and add gross COGS. Dispatch still contributes zero COGS; gross buyout COGS remains gross after returns, while `financial_cogs_reversal_rub` remains zero absent a separately confirmed financial event.
+- `NON_BUYOUT_RESTOCK` consumes only the open reservation. Full restock restores each exact source layer; partial restock is allowed only when all remaining reserved units belong to one layer. Partial cancellation from a mixed-rate reservation returns `TIMELINE_RETURN_ALLOCATION_AMBIGUOUS` instead of guessing which units came back. A non-resellable physical return stays in a separate held-return bucket.
+- `SALE_RETURN_RESTOCK` requires a prior exact posting buyout. Partial return allocation walks the saved buyout lines in reverse order (last consumed first), enforces cumulative returned quantity, and restores each resellable slice to its original source layer and FIFO priority. Non-resellable slices stay held. Identical event replay is idempotent; duplicate buyouts, unlinked/over-quantity returns, mismatched buyout quantity, and invalid cancellation lifecycle fail closed.
+- Fixed the opening-link completeness condition: a posting dispatched before model start but cancelled with an owner-confirmed return in the window must still be linked to the opening `buyer_delivery` reserve. Without it, the timeline is incomplete; with an exact link/quantity/date, normalized opening and restock events are available to the replay.
+- Added synthetic B04–B07 regressions: old transit posting bought out after new receipts without double-consuming opening available stock; mixed old/new dispatch COGS only at buyout; partial returned new-cost units first; repeated and excessive returns; cancellation/resellable vs held; and ambiguous partial multi-layer cancellation.
+- Documentation updated: FBO scenario guide, CHANGELOG, CURRENT_STATE, TEST_MAP, and Decision 068 implementation note. No tracked `data/` files changed; no bot, API, Telegram, or owner records were used.
+- Verification command: project Python with `app` on `sys.path`, pytest on `test_fifo_cost_provisional_replay_service.py`, `test_fifo_cost_provisional_timeline_normalizer.py`, and `test_fifo_cost_provisional_movements_import_service.py` — **40 passed in 0.86s**. `compileall` for `app` and `tests` passed; `git diff --check` passed; `git diff --exit-code -- data` passed.
+- An early test run identified three fixture/expectation issues (duplicate returns at an identical instant correctly trigger ordering ambiguity, one held-zone quantity expectation, and a 10-column CSV fixture); the fixtures/expectations were corrected and the final linked profile is green. No implementation defect remained.
+- Not verified yet: RELEASE_HOLD and NON_SALE_REMOVE replay, mixed-event balance checks, source coverage/final timeline status, normal Telegram timeline rendering, full suite, PR B hosted CI, and owner reports; these remain PF17–PF19 or later.
+
+## Resume (актуально после PF16)
+
+- Последний закрытый этап: PF16. Следующий: PF17 — удержанные зоны, освобождение в доступность, несбытовые выбытия отдельно от COGS, равновременные события и корректное ограничение хвоста после пробела.
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
-- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`. Keep the branch local until PF19.
+- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`; PF16 implementation/checkpoint recorded after commit. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.

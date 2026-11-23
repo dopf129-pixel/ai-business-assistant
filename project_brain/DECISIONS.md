@@ -6,6 +6,8 @@ Add a non-authoritative scenario layer that reads exact-case confirmed evidence 
 
 Implementation note (2026-11-23, PF15): the event replay is a separate pure service over normalized, hashed events and finite cost layers. Its `REPLAY_OK` means only that the supplied event stream could be replayed; it never asserts source completeness or final `TIMELINE_MODEL`. Buyer dispatch carries a reserved cost basis but contributes zero COGS until a later confirmed buyout event. This keeps the estimate kernel independent from factual FIFO writes and from source-coverage decisions.
 
+Implementation note (2026-11-23, PF16): only a buyout tied to an exact open posting reserve adds gross scenario COGS; dispatch remains a zero-COGS reservation. Physical return/restock accounting restores the original source layers and remains separate from financial COGS reversal. Non-resellable returns are held; no factual stock, cost, or finance record is written.
+
 ## Decision 067 — FIFO scan continuation side storage
 
 Keep the existing v18 scan checkpoint table and its encrypted-token column intact. Raise the bounded continuation contract to 1 MiB through an additive FIFO schema v19 child table with a composite foreign key to the scan. Small tokens continue using the legacy column; large tokens use the encrypted side table. Enforce a per-case byte quota, include the child rows in backup/restore and source fingerprints, and read checkpoint state as one logical value. Details and migration tests: `DECISIONS_067.md`.

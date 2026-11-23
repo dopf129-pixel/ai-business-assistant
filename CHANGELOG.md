@@ -1,3 +1,8 @@
+# 2026-11-23 — Provisional FIFO buyout and return replay (PR B PF16)
+
+- Extended the scenario-only replay to recognize a buyout only against its exact open posting reserve, book gross COGS once, and keep dispatch COGS at zero. Non-buyout restocks and sale returns restore source layers; partial sale returns restore the latest FIFO allocations first. Non-resellable returns remain held, excess/duplicate or unlinked events fail closed, and financial COGS reversal remains zero without a financial confirmation.
+- A pre-window cancelled posting with a post-window return now still requires an exact opening transit link, preventing the return from creating stock without its opening reserve.
+
 # 2026-11-23 — Provisional FIFO finite-layer replay (PR B PF15)
 
 - Added a deterministic provisional FIFO replay kernel for finite opening stock, received lots, pre-window transit links, and buyer dispatch reservations. Dispatch allocations can span old/new cost layers but remain zero COGS until buyout; unavailable receipts stay held, and insufficient stock or ambiguous ordering returns a replay gap. The kernel does not write factual FIFO data.
