@@ -3,6 +3,21 @@
 Основа: `project_brain/LUNA_FIFO_PROVISIONAL_LEDGER_TASK_2026-11-22.md`, PR #740.
 Начат: 2026-11-23 (Europe/Moscow).
 
+## Resume — состояние после PF20
+
+- Последний завершённый этап: PF20. Следующий этап: PF21 — сохранение оценки только после повторной проверки актуальности, ограниченного TTL и строгого case/owner/store/SKU/fingerprint/version binding; без prepare/apply.
+- PR A #741: branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e`, exact-head CI run `45142413339` green. PR B #742: branch `codex/fifo-provisional-timeline`, head `9f5aa5cbea5f990beb782fa45791afcc94e59af4`, exact-head CI run `45172484489` green. PR C branch `codex/fifo-provisional-saved-estimates` is based on exact PR B head.
+- PF20 changed FIFO-owned schema v20 and synthetic tests only; `Planning` metadata and tracked `data/` remain unchanged. Focused verification: **54 passed** (`tests/test_fifo_cost_repository.py`, `tests/test_bot_backup_service.py`); compileall, diff check and data-diff checks passed after checkpoint cleanup.
+- No PR C hosted CI yet; it is created after PF20–PF25. No merge, deployment, live bot, Ozon or Telegram request was performed.
+
+## PF20 — append-only provisional estimate storage
+
+- Added FIFO schema v20 table `fifo_cost_provisional_previews`. Each row binds owner/tenant/store/product/offer/SKU to an exact transition case revision, stores a bounded payload plus fingerprints and an idempotency key, and rejects duplicate keys, scope/revision mismatch, UPDATE/DELETE, payloads above 64 KiB, or more than 100 rows per case. Overflow never evicts prior rows.
+- Added the v19→v20 migration regression with existing case/revision rows and `Planning` sentinels. The upgrade creates only the additive FIFO table and preserves `planning_schema.version=12` and `PRAGMA user_version=41`.
+- Added backup/archive verification/dry-run/full-restore coverage proving a synthetic saved estimate survives restore with FIFO v20, Planning v12 and user_version 41. The production backup service requires no code change because its SQLite snapshot includes the new table automatically.
+- PF20 profile: `PYTHONPATH=app python -m pytest tests/test_fifo_cost_repository.py tests/test_bot_backup_service.py -q` — **54 passed in 3.54s**. `python -m compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Development-only fixture assertions were corrected before the final run; no product defect remained.
+- Updated Decision 068 implementation note, owner guide boundary, CHANGELOG, CURRENT_STATE and TEST_MAP. No real owner data or live integrations were used.
+
 ## PF00 — база и сохранность
 
 - PR #740: открыт; source branch `codex/fifo-provisional-ledger-spec-20261122`; head `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`; base `main` `b14658c80c9feef4f8595547eb489dde984cb59c`.

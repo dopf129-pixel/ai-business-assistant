@@ -3276,3 +3276,7 @@ Summary Report теперь включает:
 - Added redacted typed event contracts and a strict owner-movement CSV parser/template for the six documented movement kinds. The parser bounds file, row and selected-unit counts, requires an exact numeric SKU and an unambiguous timestamp, validates per-kind fields, and hashes event/source/posting references before returning rows.
 - Added a read-only exact-case adapter for complete owner-confirmed TURNOVER/STOCK_MANAGEMENT reports and owner-confirmed physical-sales evidence. Aggregate reports remain anchors only; confirmed physical sale rows retain day precision. FBO joins use a scoped posting digest and exact quantity, and duplicate sale evidence does not double-count.
 - Added synthetic regressions for source scope, posting/quantity/status conflicts, event deduplication, privacy and DST. No real owner files or Ozon/Telegram requests were used; no factual FIFO records are written.
+# 2026-11-23 — Provisional FIFO PF20 saved-estimate storage
+
+- Added FIFO schema v20 append-only storage for provisional estimates, exactly scoped by owner/tenant/store/product/offer/SKU and saved case revision, with idempotency, 100-record and 64 KiB payload limits.
+- Added v19-to-v20 upgrade and backup/restore regressions. Planning schema version and SQLite `PRAGMA user_version` remain unchanged; Telegram save/history/comparison flows are not enabled until PF21–PF23.

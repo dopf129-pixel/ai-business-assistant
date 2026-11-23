@@ -6019,3 +6019,8 @@ Completed:
 - Confirmed removal/write-off from available stock consumes FIFO layers; removal from a held zone is costed only when the source-layer value is knowable. Non-sale removal value is separate from gross buyout COGS. Buyer-delivery changes still require an exact posting lifecycle.
 - Timeline errors now stop at the first failing/ambiguous event. The result contains only the safe replay prefix and reports the unprocessed suffix; tail events do not affect the prefix. This does not establish source completeness or TIMELINE_MODEL readiness.
 - PF17 replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full suite and PR B exact-head CI remain for PF19; the ordinary Telegram timeline presenter remains PF18. No tracked runtime data, factual FIFO, or production bot was changed.
+# 2026-11-23 — Provisional FIFO PF20 persistence foundation
+
+- FIFO-owned schema v20 now has append-only `fifo_cost_provisional_previews`, scoped to owner/tenant/store/product/offer/SKU and an exact saved case revision. It stores bounded JSON and opaque fingerprints; per-case count and payload byte limits fail closed.
+- Added v19 upgrade, constraints, immutability, and backup/restore tests. Planning schema version remains 12 and `PRAGMA user_version` remains unchanged. Durable saves are not exposed in Telegram until PF21–PF23.
+- PF20 profile: `tests/test_fifo_cost_repository.py` + `tests/test_bot_backup_service.py` — 54 passed. Exact full suite and hosted PR C CI remain pending.

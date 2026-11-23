@@ -49,7 +49,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class FifoCostRepository:
-    SCHEMA_VERSION = 19
+    SCHEMA_VERSION = 20
     MAX_RATE_CHAIN = 100_000
     MAX_COMMAND_EVENTS = 100
     MAX_REFERENCES_PER_SOURCE = 100
@@ -62,6 +62,8 @@ class FifoCostRepository:
     MAX_TRANSITION_EVIDENCE_CONFIRMATION_BYTES = 64 * 1024
     MAX_TRANSITION_EVIDENCE_CIPHER_BYTES_PER_CASE = 64 * 1024 * 1024
     MAX_PHYSICAL_DOCUMENT_CIPHER_BYTES = 16 * 1024 * 1024
+    MAX_PROVISIONAL_PREVIEWS_PER_CASE = 100
+    MAX_PROVISIONAL_PREVIEW_BYTES = 64 * 1024
     _TRANSITION_CONFIRMATIONS_BY_EVIDENCE = {
         "PHYSICAL_SALES_DOCUMENT": frozenset({"PHYSICAL_SALES", "PERIOD"}),
         "FINANCE_IDENTITY_SNAPSHOT": frozenset({"SOURCE_SELECTION", "EVIDENCE_REVIEW"}),
@@ -140,6 +142,7 @@ class FifoCostRepository:
         "fifo_cost_report_period_confirmations",
         "fifo_cost_transition_previews",
         "fifo_cost_transition_commits",
+        "fifo_cost_provisional_previews",
         "fifo_cost_cutoff_sale_mapping_sets",
         "fifo_cost_cutoff_sale_mappings",
         "fifo_cost_transition_bridge_evidence",
@@ -182,6 +185,7 @@ class FifoCostRepository:
         "fifo_cost_report_period_confirmations",
         "fifo_cost_transition_previews",
         "fifo_cost_transition_commits",
+        "fifo_cost_provisional_previews",
         "fifo_cost_cutoff_sale_mapping_sets",
         "fifo_cost_cutoff_sale_mappings",
         "fifo_cost_transition_bridge_evidence",
@@ -8923,7 +8927,7 @@ class FifoCostRepository:
 
     @classmethod
     def _migrate_schema(cls, connection, version):
-        """Add allocation source revision metadata without rewriting evidence."""
+        """Apply additive FIFO migrations without changing Planning metadata."""
         if version < 6:
             columns = {
                 str(row[1]) for row in
@@ -11369,6 +11373,34 @@ class FifoCostRepository:
                 UNIQUE(case_id, idempotency_key)
             );
 
+            CREATE TABLE IF NOT EXISTS fifo_cost_provisional_previews (
+                preview_id TEXT PRIMARY KEY CHECK(length(preview_id) BETWEEN 8 AND 96),
+                owner_fingerprint TEXT NOT NULL CHECK(length(owner_fingerprint) = 64),
+                tenant_fingerprint TEXT NOT NULL CHECK(length(tenant_fingerprint) = 64),
+                store_id TEXT NOT NULL,
+                product_id TEXT,
+                offer_id TEXT,
+                sku TEXT NOT NULL,
+                identity_fingerprint TEXT NOT NULL CHECK(length(identity_fingerprint) = 64),
+                case_id TEXT NOT NULL,
+                case_revision INTEGER NOT NULL CHECK(case_revision >= 1),
+                created_at_utc TEXT NOT NULL,
+                schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+                input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint) = 64),
+                idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 8 AND 80),
+                payload_json TEXT NOT NULL CHECK(
+                    length(CAST(payload_json AS BLOB)) <= 65536
+                ),
+                UNIQUE(case_id, idempotency_key),
+                FOREIGN KEY(owner_fingerprint, tenant_fingerprint, store_id, sku, case_id)
+                    REFERENCES fifo_cost_transition_cases(
+                        owner_fingerprint, tenant_fingerprint, store_id, sku, case_id
+                    ),
+                FOREIGN KEY(case_id, case_revision)
+                    REFERENCES fifo_cost_transition_case_revisions(case_id, case_revision),
+                CHECK(product_id IS NOT NULL OR offer_id IS NOT NULL)
+            );
+
             CREATE TABLE IF NOT EXISTS fifo_cost_cutoff_sale_mapping_sets (
                 mapping_set_id TEXT PRIMARY KEY,
                 stream_id TEXT NOT NULL REFERENCES fifo_cost_streams(stream_id),
@@ -11874,6 +11906,8 @@ class FifoCostRepository:
                 ON fifo_cost_transition_cases(
                     tenant_fingerprint, store_id, sku, updated_at, case_id
                 );
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_provisional_previews_history
+                ON fifo_cost_provisional_previews(case_id, created_at_utc DESC, preview_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_fifo_cost_transition_cases_owner_scope
                 ON fifo_cost_transition_cases(
                     owner_fingerprint, tenant_fingerprint, store_id, case_id
@@ -11995,6 +12029,32 @@ class FifoCostRepository:
                    SELECT RAISE(ABORT, 'quota: FIFO_BATCH_OBSERVATION_LIMIT_REACHED');
                END"""
         )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_fifo_cost_provisional_preview_scope
+               BEFORE INSERT ON fifo_cost_provisional_previews
+               WHEN NOT EXISTS (
+                   SELECT 1 FROM fifo_cost_transition_cases AS cases
+                   WHERE cases.case_id=NEW.case_id
+                     AND cases.owner_fingerprint=NEW.owner_fingerprint
+                     AND cases.tenant_fingerprint=NEW.tenant_fingerprint
+                     AND cases.store_id=NEW.store_id
+                     AND cases.product_id IS NEW.product_id
+                     AND cases.offer_id IS NEW.offer_id
+                     AND cases.sku=NEW.sku
+               )
+               BEGIN
+                   SELECT RAISE(ABORT, 'FIFO_PROVISIONAL_PREVIEW_SCOPE_MISMATCH');
+               END"""
+        )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_fifo_cost_provisional_preview_case_quota
+               BEFORE INSERT ON fifo_cost_provisional_previews
+               WHEN (SELECT COUNT(*) FROM fifo_cost_provisional_previews
+                     WHERE case_id=NEW.case_id) >= 100
+               BEGIN
+                   SELECT RAISE(ABORT, 'quota: FIFO_PROVISIONAL_PREVIEW_LIMIT_REACHED');
+               END"""
+        )
 
     def _validate_schema_metadata(self, connection):
         row = connection.execute(
@@ -12067,6 +12127,12 @@ class FifoCostRepository:
             "fifo_cost_transition_commits": {
                 "commit_id", "case_id", "case_revision", "preview_id",
                 "idempotency_key", "payload_fingerprint", "committed_at",
+            },
+            "fifo_cost_provisional_previews": {
+                "preview_id", "owner_fingerprint", "tenant_fingerprint", "store_id",
+                "product_id", "offer_id", "sku", "identity_fingerprint", "case_id",
+                "case_revision", "created_at_utc", "schema_version", "input_fingerprint",
+                "idempotency_key", "payload_json",
             },
             "fifo_cost_cutoff_sale_mapping_sets": {
                 "mapping_set_id", "stream_id", "mapping_revision", "cutoff_date",

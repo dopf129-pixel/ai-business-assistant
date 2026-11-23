@@ -7231,3 +7231,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_fifo_cost_report_import_worker_client.py`: movements CSV worker success, manifest tamper detection, and size limits.
 - Linked PF18 profile: **97 passed** across timeline service, replay, normalizer, movements/FBO parser, evidence reader, ordinary Telegram flows, worker client, and existing transition evidence/workflow. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Full suite and hosted exact-head PR B CI are pending PF19.
 - PF19 isolated full-suite verification on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy omitted repository `data/` and `.env`; a synthetic tax policy was added only inside that copy. The later PR B packaging checkpoint still requires hosted exact-head CI.
+# Provisional FIFO saved estimate persistence (PF20)
+
+- `tests/test_fifo_cost_repository.py`: v19→v20 additive migration preserves transition cases/revisions and Planning metadata; preview rows exactly bind owner/tenant/store/product/offer/SKU and case revision, are idempotent and append-only, and enforce 100 per case / 64 KiB per payload.
+- `tests/test_bot_backup_service.py`: backup verification, dry-run and restore preserve a synthetic estimate, FIFO schema v20, Planning schema version 12, and SQLite `user_version=41`.
+- PF20 focused profile: **54 passed**. Telegram save/history/comparison behavior remains disabled until PF21–PF23.
