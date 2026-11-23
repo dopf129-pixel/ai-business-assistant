@@ -1,0 +1,66 @@
+from datetime import datetime, timezone
+from services.fifo_cost_provisional_evidence_reader import FifoCostProvisionalEvidenceReader
+from services.fifo_cost_transition_contracts import (
+    EvidenceCompleteness, EvidenceSourceKind, PeriodProvenance, ReportEvidence, ReportType,
+    ScopeIdentity, TransitionMetadata,
+)
+
+SCOPE = ScopeIdentity(owner_id="owner-test", store_id="store-test", product_id="1", offer_id=None, sku="SKU-TEST")
+IDENTITY = {"store_id": "store-test", "product_id": "1", "offer_id": None, "sku": "SKU-TEST"}
+
+def _report(digest, *, period_from="2026-11-05", period_to="2026-11-05", scope=SCOPE,
+            kind=ReportType.TURNOVER, provenance=PeriodProvenance.OWNER_CONFIRMED,
+            completeness=EvidenceCompleteness.COMPLETE):
+    return ReportEvidence(
+        metadata=TransitionMetadata(scope=scope, source_kind=EvidenceSourceKind.OWNER_IMPORTED,
+            completeness=completeness, source_fingerprint=digest, store_timezone="Europe/Moscow"),
+        report_type=kind, period_from=period_from, period_to=period_to,
+        period_provenance=provenance, captured_at=datetime(2026, 11, 22, tzinfo=timezone.utc),
+        file_sha256=digest, parser_version="fifo-turnover-v1", cell_references=(), normalized_fields={},
+    )
+
+class _Repository:
+    def __init__(self, rows): self.rows = rows
+    def read_transition_evidence(self, **kwargs):
+        assert kwargs["kind"] == "REPORT_EVIDENCE"
+        return {"error": False, "items": self.rows[:kwargs["limit"]]}
+
+class _Transition:
+    def __init__(self, rows, reports=None, *, revision=4, state="DRAFT"):
+        self.repository = _Repository(rows); self.reports = reports or {}
+        self.revision = revision; self.state = state; self.reads = 0
+    def get_case(self, **kwargs):
+        return {"error": False, "case_revision": self.revision, "state": self.state,
+                "case": {"metadata": {"scope": {"owner_id": "owner-test", **IDENTITY},
+                                           "store_timezone": "Europe/Moscow"}}}
+    @staticmethod
+    def _case_from_payload(payload):
+        from types import SimpleNamespace
+        data=payload["metadata"]; scope=data["scope"]
+        return SimpleNamespace(metadata=SimpleNamespace(
+            scope=SCOPE, store_timezone=data["store_timezone"]))
+    def _read_saved_transition_report(self, **kwargs):
+        self.reads += 1
+        return self.reports.get(kwargs["file_sha256"])
+
+def test_reader_returns_only_exact_case_confirmed_complete_turnover_documents():
+    valid = _report("a" * 64)
+    candidate = _report("b" * 64, provenance=PeriodProvenance.FILENAME_CANDIDATE)
+    partial = _report("c" * 64, completeness=EvidenceCompleteness.PARTIAL)
+    other = _report("d" * 64, kind=ReportType.STOCK_MANAGEMENT)
+    rows = [{"file_sha256": x} for x in (valid.file_sha256, candidate.file_sha256, partial.file_sha256, other.file_sha256)]
+    service = FifoCostProvisionalEvidenceReader(transition_service=_Transition(rows, {x.file_sha256:x for x in (valid,candidate,partial,other)}))
+    result = service.list_turnover_reports(case_id="case_opaque", identity=IDENTITY, expected_case_revision=4)
+    assert result["error"] is False
+    assert [x["file_fingerprint"] for x in result["reports"]] == [valid.file_sha256]
+    assert result["read_only"] is True
+
+def test_reader_fails_closed_on_stale_case_or_report_quota():
+    transition = _Transition([{"file_sha256": "a" * 64}], revision=5)
+    result = FifoCostProvisionalEvidenceReader(transition_service=transition).list_turnover_reports(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4)
+    assert result["code"] == "FIFO_PROVISIONAL_STALE"
+    transition = _Transition([{"file_sha256": str(i) * 64} for i in range(1, 102)])
+    result = FifoCostProvisionalEvidenceReader(transition_service=transition).list_turnover_reports(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4)
+    assert result["code"] == "FIFO_PROVISIONAL_REPORT_LIMIT"

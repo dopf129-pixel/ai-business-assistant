@@ -72,6 +72,9 @@ from services.period_profit_effective_cost_service import (
 )
 from services.fifo_cost_repository import FifoCostRepository
 from services.fifo_cost_transition_service import FifoCostTransitionService
+from services.fifo_cost_provisional_summary_service import FifoCostProvisionalSummaryService
+from services.fifo_cost_provisional_evidence_reader import FifoCostProvisionalEvidenceReader
+from services.telegram_fifo_cost_provisional_service import TelegramFifoCostProvisionalService
 from services.fifo_cost_batch_rule_service import FifoCostBatchRuleService
 from services.fifo_cost_batch_supply_source import FifoCostBatchSupplySourceService
 from services.fifo_cost_batch_scan_checkpoint_service import FifoCostBatchScanCheckpointService
@@ -307,6 +310,13 @@ def create_fifo_cost_transition_workflow(
         supply_deduplicator=batch_supply_deduplicator,
         manifest_builder=batch_manifest_builder,
     )
+    provisional_evidence_reader = FifoCostProvisionalEvidenceReader(
+        transition_service=transition_service,
+    )
+    provisional_service = TelegramFifoCostProvisionalService(
+        evidence_reader=provisional_evidence_reader,
+        summary_service=FifoCostProvisionalSummaryService(),
+    )
     runtime_service = TelegramFifoCostTransitionRuntimeService(
         transition_service=transition_service,
         history_service=history_service,
@@ -322,6 +332,7 @@ def create_fifo_cost_transition_workflow(
         period_summary_collection_service=period_summary_collection_service,
         period_profit_service=period_profit_service,
         batch_rule_telegram_service=batch_rule_telegram_service,
+        provisional_service=provisional_service,
         now_provider=now_provider,
     )
     return {
@@ -345,6 +356,8 @@ def create_fifo_cost_transition_workflow(
         "batch_manifest_builder": batch_manifest_builder,
         "batch_manifest_read_service": batch_manifest_read_service,
         "batch_rule_telegram_service": batch_rule_telegram_service,
+        "provisional_evidence_reader": provisional_evidence_reader,
+        "provisional_service": provisional_service,
         "report_import_service": report_import_service,
         "physical_sales_import_service": physical_sales_import_service,
         "supply_refresh_service": supply_refresh_service,

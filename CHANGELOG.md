@@ -1,3 +1,10 @@
+# 2026-11-23 — Add read-only provisional FIFO summary scenarios
+
+- Added an owner-only scenario screen to the existing FIFO transition card. It selects complete, owner-confirmed, exact-scope turnover reports for adjacent snapshot/movement periods, asks the two documented batch-composition assumptions, and calculates linked old/new sold-unit and gross-COGS ranges.
+- The default closing old-stock assumption is explicitly unknown and produces the documented wide range. An exact value/range is labelled as a scenario hypothesis. Source conflicts and unsupported movement columns withhold money.
+- This PR A path is in-memory and read-only with respect to factual FIFO, case costs, Period Profit and Return COGS. It does not call readiness/prepare/apply or save a scenario. See `docs/fifo-provisional-summary-owner-guide.md`.
+- Local linked verification: **111 passed** across provisional summary/evidence/Telegram, production transition workflow, parent Telegram runtime/contracts and both existing report importers. Full isolated pytest and exact-head CI are pending before PR publication.
+
 # 2026-11-19 — Accept assistant session list in verified bot backups
 
 - Added `assistant_session.json` to the backup service's list-shaped JSON contract. The production storage writes a history list; backups that previously failed with `BOT_BACKUP_JSON_CONTRACT_INVALID` can now be verified and restored.
