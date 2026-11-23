@@ -114,15 +114,15 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             except Exception:
                 return {
                     "error": True,
-                    "message": "Не удалось проверить FBO CSV. Предварительная оценка не изменена.",
-                    "code": "FIFO_PROVISIONAL_FBO_IMPORT_FAILED",
+                    "message": "Не удалось проверить CSV предварительного FIFO. Оценка не изменена.",
+                    "code": "FIFO_PROVISIONAL_CSV_IMPORT_FAILED",
                     "read_only_ozon": True,
                 }
             if not isinstance(result, dict) or type(result.get("error")) is not bool:
                 return {
                     "error": True,
-                    "message": "Не удалось проверить FBO CSV. Предварительная оценка не изменена.",
-                    "code": "INVALID_FIFO_PROVISIONAL_FBO_RESULT",
+                    "message": "Не удалось проверить CSV предварительного FIFO. Оценка не изменена.",
+                    "code": "INVALID_FIFO_PROVISIONAL_CSV_RESULT",
                     "read_only_ozon": True,
                 }
             return result
@@ -207,14 +207,14 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             except Exception:
                 return {
                     "error": True, "selected": True, "accepted": False,
-                    "code": "FIFO_PROVISIONAL_FBO_PREFLIGHT_FAILED",
+                    "code": "FIFO_PROVISIONAL_CSV_PREFLIGHT_FAILED",
                     "message": "Не удалось проверить файл до загрузки. Предварительная оценка не изменена.",
                     "read_only_ozon": True,
                 }
             if not isinstance(result, dict) or type(result.get("error")) is not bool:
                 return {
                     "error": True, "selected": True, "accepted": False,
-                    "code": "INVALID_FIFO_PROVISIONAL_FBO_PREFLIGHT",
+                    "code": "INVALID_FIFO_PROVISIONAL_CSV_PREFLIGHT",
                     "message": "Не удалось проверить файл до загрузки. Предварительная оценка не изменена.",
                     "read_only_ozon": True,
                 }

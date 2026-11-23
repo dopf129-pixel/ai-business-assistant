@@ -36,6 +36,20 @@ class ProvisionalMovementsDocument:
     event_counts: object
     events: tuple[ProvisionalTimelineEvent, ...] = field(repr=False)
 
+    def to_worker_summary_payload(self):
+        """Return bounded normalized rows only; raw owner references are absent."""
+        return {
+            "file_sha256": self.file_sha256,
+            "document_fingerprint": self.document_fingerprint,
+            "normalized_fingerprint": self.normalized_fingerprint,
+            "scope_fingerprint": self.scope_fingerprint,
+            "timezone_name": self.timezone_name,
+            "row_count": self.row_count,
+            "total_units": self.total_units,
+            "event_counts": dict(self.event_counts),
+            "events": [event.safe_payload() for event in self.events],
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ProvisionalMovementsParseResult:
@@ -204,7 +218,9 @@ class FifoCostProvisionalMovementsImportService:
             total_units=total_units,
             event_counts=MappingProxyType(dict(sorted(event_counts.items()))),
             events=tuple(sorted(events, key=lambda item: (
-                item.effective_at_utc, item.event_key,
+                item.local_date,
+                item.effective_at_utc.isoformat() if item.effective_at_utc else "",
+                item.event_key,
             ))),
         )
         return ProvisionalMovementsParseResult("COMPLETE", document, ())

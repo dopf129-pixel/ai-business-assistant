@@ -13,6 +13,9 @@ from services.fifo_cost_physical_sales_import_service import FifoCostPhysicalSal
 from services.fifo_cost_provisional_fbo_csv_import_service import (
     FifoCostProvisionalFboCsvImportService,
 )
+from services.fifo_cost_provisional_movements_import_service import (
+    FifoCostProvisionalMovementsImportService,
+)
 from services.fifo_cost_report_import_worker_client import (
     FifoCostReportImportWorkerClient,
 )
@@ -96,6 +99,12 @@ def _provisional_fbo_payload():
         "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки;Адрес\r\n"
         "posting-1;3921245627;2;Доставлен;2026-11-06 10:00:00;2026-11-07 12:00:00;private\r\n"
     ).encode("utf-8-sig")
+
+
+def _provisional_movements_payload():
+    parser = FifoCostProvisionalMovementsImportService()
+    row = f"SUPPLY_RECEIVED;event-1;2026-11-06T09:00:00+03:00;{SCOPE.sku};1;;available;;source-1"
+    return (";".join(parser.HEADER) + "\r\n" + row + "\r\n").encode("utf-8-sig")
 
 def test_worker_subprocess_parses_allowlisted_report_and_returns_normalized_evidence():
     result = FifoCostReportImportWorkerClient(
@@ -272,6 +281,54 @@ def test_provisional_fbo_csv_subprocess_returns_revalidated_redacted_manifest():
     assert result.document.rows[0].posting_key != "posting-1"
     assert result.document.period_from == "2026-11-06"
     assert result.document.period_to == "2026-11-07"
+
+
+def test_provisional_movements_csv_subprocess_returns_redacted_events():
+    result = FifoCostReportImportWorkerClient(
+        extra_python_paths=(".fl12-deps",),
+    ).parse_provisional_movements_csv(
+        filename="movements.csv", payload=_provisional_movements_payload(), scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == 1
+    assert result.document.total_units == 1
+    assert result.document.events[0].event_kind.value == "SUPPLY_RECEIVED"
+    assert "event-1" not in repr(result.document)
+    assert "source-1" not in repr(result.document)
+
+
+def test_provisional_movements_worker_rejects_tampered_manifest_and_oversize():
+    parser = FifoCostProvisionalMovementsImportService()
+    payload = _provisional_movements_payload()
+    document = parser.parse_csv(
+        payload=payload, filename="movements.csv", scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    ).document
+    value = {
+        "error": False, "document_kind": "PROVISIONAL_MOVEMENTS_CSV",
+        "document": document.to_worker_summary_payload(),
+    }
+    value["document"]["total_units"] = 999
+    process = _MalformedProcess(json.dumps(value).encode())
+    result = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: process,
+    ).parse_provisional_movements_csv(
+        filename="movements.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert result.issue_codes == ("FIFO_REPORT_WORKER_RESULT_INVALID",)
+
+    spawned = []
+    client = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: spawned.append(True),
+    )
+    oversize = client.parse_provisional_movements_csv(
+        filename="movements.csv", payload=b"x" * (client.MAX_FILE_BYTES + 1),
+        scope=SCOPE, timezone_name="Europe/Moscow",
+    )
+    assert oversize.issue_codes == ("FIFO_PROVISIONAL_MOVEMENTS_FILE_SIZE_INVALID",)
+    assert spawned == []
 
 
 def test_provisional_fbo_worker_rejects_tampered_manifest_and_times_out():

@@ -582,10 +582,16 @@ class TelegramFifoCostTransitionRuntimeService:
         session = self._sessions.get(owner) if owner else None
         flow = session.get("provisional_flow") if isinstance(session, dict) else None
         upload = flow.get("fbo_upload") if isinstance(flow, dict) else None
+        movements_upload = flow.get("movements_upload") if isinstance(flow, dict) else None
         return (
             isinstance(upload, dict)
             and session.get("step") in {
                 "provisional_fbo_period", "provisional_fbo_file", "provisional_fbo_preview",
+            }
+        ) or (
+            isinstance(movements_upload, dict)
+            and session.get("step") in {
+                "provisional_movements_file", "provisional_movements_preview",
             }
         )
 
@@ -601,9 +607,11 @@ class TelegramFifoCostTransitionRuntimeService:
                 "message": "Выбор FBO CSV устарел или относится к другому магазину. Файл не загружен.",
                 "read_only_ozon": True,
             }
-        return self.provisional_service.preflight_fbo_document(
-            self, owner, session, filename, file_size,
-        )
+        if session.get("step") in {"provisional_movements_file", "provisional_movements_preview"}:
+            return self.provisional_service.preflight_movements_document(
+                self, owner, session, filename, file_size,
+            )
+        return self.provisional_service.preflight_fbo_document(self, owner, session, filename, file_size)
 
     def handle_provisional_fbo_document(self, user_id, content, filename=None):
         owner, tenant = self._identity(user_id)
@@ -617,9 +625,11 @@ class TelegramFifoCostTransitionRuntimeService:
                 "message": "Выбор FBO CSV устарел или относится к другому магазину. Файл не обработан.",
                 "read_only_ozon": True,
             }
-        return self.provisional_service.handle_fbo_document(
-            self, owner, session, content, filename,
-        )
+        if session.get("step") in {"provisional_movements_file", "provisional_movements_preview"}:
+            return self.provisional_service.handle_movements_document(
+                self, owner, session, content, filename,
+            )
+        return self.provisional_service.handle_fbo_document(self, owner, session, content, filename)
 
     def handle_physical_sales_callback(self, user_id, callback):
         service = self.physical_sales_import_service

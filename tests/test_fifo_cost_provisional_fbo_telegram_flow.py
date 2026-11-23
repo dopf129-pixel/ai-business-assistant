@@ -5,6 +5,9 @@ from dataclasses import replace
 from services.fifo_cost_provisional_fbo_csv_import_service import (
     FifoCostProvisionalFboCsvImportService,
 )
+from services.fifo_cost_provisional_movements_import_service import (
+    FifoCostProvisionalMovementsImportService,
+)
 from services.fifo_cost_provisional_summary_service import FifoCostProvisionalSummaryService
 from services.telegram_fifo_cost_provisional_service import TelegramFifoCostProvisionalService
 from services.fifo_cost_transition_contracts import ScopeIdentity
@@ -73,11 +76,16 @@ class _Reports:
 class _CsvWorker:
     def __init__(self):
         self.parser = FifoCostProvisionalFboCsvImportService()
+        self.movements_parser = FifoCostProvisionalMovementsImportService()
         self.calls = []
 
     def parse_provisional_fbo_csv(self, **kwargs):
         self.calls.append(kwargs)
         return self.parser.parse_csv(**kwargs)
+
+    def parse_provisional_movements_csv(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.movements_parser.parse_csv(**kwargs)
 
 
 def _runtime():
@@ -105,6 +113,33 @@ def _runtime():
     )
     assert runtime._set_session("owner-test", TENANT, IDENTITY, "Тест", "case-1", 1)
     return runtime, worker, transition
+
+
+def test_starting_either_csv_replacement_invalidates_timeline_confirmation_and_result():
+    tenant_token = set_current_tenant_user_id(TENANT)
+    try:
+        for action in ("provisional_fbo_upload", "provisional_movements_upload"):
+            runtime, _worker, _transition = _runtime()
+            session = runtime._sessions["owner-test"]
+            response = runtime.handle_callback(
+                "owner-test", runtime._issue_ticket("owner-test", session, "provisional_start"),
+            )
+            response = runtime.handle_callback(
+                "owner-test", _button(runtime, response, "provisional_snapshot"),
+            )
+            response = runtime.handle_callback(
+                "owner-test", _button(runtime, response, "provisional_movement"),
+            )
+            flow = session["provisional_flow"]
+            flow["timeline_coverage_confirmed"] = True
+            flow["timeline_result"] = object()
+
+            runtime.handle_callback("owner-test", _button(runtime, response, action))
+
+            assert flow["timeline_coverage_confirmed"] is None
+            assert flow["timeline_result"] is None
+    finally:
+        reset_current_tenant_user_id(tenant_token)
 
 
 def test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation():
@@ -273,3 +308,80 @@ def test_adapter_routes_selected_fbo_file_before_physical_or_legacy_csv():
     assert preflight["code"] == "FIFO_PROVISIONAL_FBO_FORMAT_UNSUPPORTED"
     assert result["code"] == "FBO_ROUTE"
     assert [call[0] for call in runtime.calls] == ["fbo-preflight", "fbo"]
+
+
+def test_owner_movements_csv_and_timeline_gap_are_presented_without_promoting_summary():
+    tenant_token = set_current_tenant_user_id(TENANT)
+    try:
+        runtime, worker, transition = _runtime()
+        adapter = SellerCostTelegramAdapter(
+            None, None, None,
+            fifo_transition_runtime_service=runtime,
+        )
+        response = runtime.handle_callback(
+            "owner-test", runtime._issue_ticket(
+                "owner-test", runtime._sessions["owner-test"], "provisional_start",
+            ),
+        )
+        response = runtime.handle_callback("owner-test", _button(runtime, response, "provisional_snapshot"))
+        response = runtime.handle_callback("owner-test", _button(runtime, response, "provisional_movement"))
+        response = runtime.handle_callback("owner-test", _button(runtime, response, "provisional_fbo_upload"))
+        runtime.handle_text("owner-test", "2026-11-06 - 2026-11-20")
+        fbo_preview = adapter.handle_document(CSV, "owner-test", "orders.csv")
+        assert fbo_preview["code"] == "FIFO_PROVISIONAL_FBO_PREVIEW_READY"
+        flow = runtime._sessions["owner-test"]["provisional_flow"]
+        flow["timeline_coverage_confirmed"] = True
+        flow["timeline_result"] = object()
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, fbo_preview, "provisional_fbo_confirm"),
+        )
+        assert flow["timeline_coverage_confirmed"] is None
+        assert flow["timeline_result"] is None
+
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_movements_upload"),
+        )
+        movement_csv = (
+            ";".join(FifoCostProvisionalMovementsImportService.HEADER) + "\n"
+            "SUPPLY_RECEIVED;receipt-1;2026-11-07T10:00:00+03:00;3921245627;1;;available;;source-1\n"
+        ).encode()
+        preflight = adapter.preflight_document_upload(
+            "owner-test", "movements.csv", len(movement_csv),
+        )
+        assert preflight["selected"] is True and preflight["accepted"] is True
+        movements_preview = adapter.handle_document(movement_csv, "owner-test", "movements.csv")
+        assert movements_preview["code"] == "FIFO_PROVISIONAL_MOVEMENTS_PREVIEW_READY"
+        assert "receipt-1" not in movements_preview["message"]
+        assert "source-1" not in movements_preview["message"]
+        flow["timeline_coverage_confirmed"] = True
+        flow["timeline_result"] = object()
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, movements_preview, "provisional_movements_confirm"),
+        )
+        assert flow["timeline_coverage_confirmed"] is None
+        assert flow["timeline_result"] is None
+        assert "строк 1" in response["message"]
+        for action in (
+            "provisional_opening_yes", "provisional_receipts_yes",
+            "provisional_timeline_coverage_yes",
+        ):
+            response = runtime.handle_callback("owner-test", _button(runtime, response, action))
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_closing_exact"),
+        )
+        response = runtime.handle_text("owner-test", "21")
+        response = runtime.handle_callback(
+            "owner-test", _button(runtime, response, "provisional_timeline_calculate"),
+        )
+        flow = runtime._sessions["owner-test"]["provisional_flow"]
+        assert flow["timeline_result"].status.value == "TIMELINE_GAP"
+        assert flow["result"].status.value == "SUMMARY_RANGE"
+        assert "Хронологическая модель не построена" in response["message"]
+        assert "сводный диапазон" in response["message"]
+        assert "TIMELINE_GAP" not in response["message"]
+        assert "READY" not in response["message"]
+        assert len(response["message"]) < 4000
+        assert transition.writes == 0
+        assert len(worker.calls) == 2
+    finally:
+        reset_current_tenant_user_id(tenant_token)
