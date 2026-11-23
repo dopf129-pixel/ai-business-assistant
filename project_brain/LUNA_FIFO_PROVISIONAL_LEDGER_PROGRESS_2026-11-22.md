@@ -165,6 +165,7 @@
 - The replay now returns only events before the first invalid or ambiguous event and exposes supplied/unprocessed event counts. Equal exact instants and mixed DAY/INSTANT groups stop before the disputed group; tail events cannot patch the result. Static lifecycle validations were moved into chronological replay so an earlier safe prefix can be retained.
 - Added B08/B12-oriented cases: a 70-unit opening return hold releases one unit while 69 remain held and total units stay 70; held new-cost receipts and non-resellable sale returns release to availability with their original layers. Added FIFO non-sale write-off, mixed-cost ambiguity, over-release, buyer-delivery linkage, same-time ordering, negative-stock tail, and posting lifecycle regressions.
 - Files changed: replay service/contracts, replay tests, owner guide, CHANGELOG, CURRENT_STATE, TEST_MAP, this journal, and Decision 068 implementation note. No tracked runtime data or factual FIFO/finance/Period Profit records changed.
+- Implementation commit: 4e9236be (Add provisional held-stock replay) on codex/fifo-provisional-timeline. The implementation commit is clean; this journal checkpoint records its verified state.
 - Verification: tests/test_fifo_cost_provisional_replay_service.py — **39 passed**; linked replay/normalizer/movement/FBO/evidence/workflow profile — **76 passed in 10.62s**; compileall -q app tests, git diff --check, and git diff --exit-code -- data — PASS. All replay fixtures are synthetic.
 - Not verified: source coverage, eight-bucket closing reconciliation, owner evidence, normal Telegram TIMELINE_MODEL/TIMELINE_GAP presenter (PF18), full test suite and hosted PR B CI (PF19). No Ozon/Telegram calls or production bot use.
 
@@ -172,5 +173,5 @@
 
 - Последний закрытый этап: PF17. Следующий: PF18 — подключить безопасный presenter TIMELINE_MODEL/TIMELINE_GAP в обычный FIFO Telegram-путь; сводный диапазон остаётся отдельной моделью при пробеле.
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
-- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`; PF16 implementation `59c5f674317fd4d940e87989515fa0535a95cd46`. Keep the branch local until PF19.
+- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`; PF16 implementation `59c5f674317fd4d940e87989515fa0535a95cd46`. Keep the branch local until PF19; PF17 implementation `4e9236be`. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.
