@@ -1,7 +1,13 @@
+# 2026-11-23 — Provisional FIFO confirmed conditional profit and full-flow guard (PF23–PF24)
+
+- Added owner-entered and explicitly confirmed financial base for a conditional per-SKU, per-period profit-before-tax range. The screen shows the estimated gross COGS range; the calculation is `base − COGS`, supports a negative base, and does not auto-fill store-wide profit or recalculate tax/return reversals.
+- Confirmed conditional profit is stored only inside the immutable provisional estimate payload; compatible comparisons require matching period, redeemed-unit count and financial perimeter. Legacy saved estimate payloads remain readable.
+- Strengthened the synthetic Telegram path through estimate, assumption, confirmation, save, and reopen. It proves profit is withheld before confirmation, no factual transition writes occur, no apply/Period Profit services are connected, and messages remain within Telegram's limit. Linked PF23/PF24 profile: **76 passed in 5.03s**; compile, diff check, and tracked data equality passed. Hosted exact-head PR C CI remains pending.
+
 # 2026-11-23 — Provisional FIFO saved estimate history (PF22)
 
 - Added exact-case, tenant/store/SKU-scoped reads for immutable provisional estimates, bounded Telegram history pages, detail view after a fresh session, and conservative comparison of compatible scenarios. Source coverage changes are shown without revealing file contents or fingerprints; incompatible periods/methods/bases/policies receive no combined delta.
-- Saved scenarios remain historical models and never become the current factual FIFO or profit result. PF22 targeted history/repository/backup profile: pending final PR C verification.
+- Saved scenarios remain historical models and never become the current factual FIFO or profit result. PF22 linked history/repository/backup profile: **69 passed in 4.70s**; hosted exact-head PR C CI remains pending.
 
 # 2026-11-23 — Provisional FIFO PR B local release verification (PF19)
 

@@ -131,12 +131,15 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert "110,187.30" in response["message"] and "110,403.20 ₽" in response["message"]
         assert "не являются FIFO фактом" in response["message"]
         assert "Условная прибыль до налога (не факт)" not in response["message"]
+        assert "нет подтверждённой базы владельца" in response["message"]
         assert not any("apply_transition" in button["callback"] for button in response["keyboard"]["buttons"])
         profit_button = _ticket_for(runtime, response, "provisional_profit_base")
         response = runtime.handle_callback("101", profit_button)
+        assert "по несовпадающим датам начисления" in response["message"]
         response = runtime.handle_text("101", "130000")
         assert "до сторно возвратов" in response["message"]
         assert "110,187.30–110,403.20 ₽" in response["message"]
+        assert "не сверяет сумму с отдельным финансовым отчётом" in response["message"]
         assert "Условная прибыль до налога (не факт)" not in response["message"]
         confirm_profit = _ticket_for(runtime, response, "provisional_profit_base_confirm")
         response = runtime.handle_callback("101", confirm_profit)
@@ -268,6 +271,7 @@ def test_conditional_profit_comparison_withholds_different_financial_perimeter()
             "gross_cogs_high_rub": "120.00",
         },
         "conditional_profit": {
+            "status": "CONDITIONAL_BEFORE_TAX", "source": "OWNER_CONFIRMED_MANUAL",
             "currency": "RUB", "period_from": "2026-11-01", "period_to": "2026-11-30",
             "redeemed_units": 5, "perimeter": "SKU_PERIOD_REDEEMED_UNITS",
             "profit_stage": "BEFORE_PRODUCT_COGS_AND_TAX", "return_reversal": "EXCLUDED",
@@ -294,6 +298,12 @@ def test_conditional_profit_comparison_withholds_different_financial_perimeter()
     comparable, reason = service._saved_profit_comparable(first, second)
     assert not comparable
     assert "стадия налога" in reason
+
+    second["conditional_profit"]["profit_stage"] = "BEFORE_PRODUCT_COGS_AND_TAX"
+    second["conditional_profit"]["source"] = "UNVERIFIED"
+    comparable, reason = service._saved_profit_comparable(first, second)
+    assert not comparable
+    assert "не подтверждены" in reason
 
 
 def test_history_comparison_screen_only_shows_delta_for_matching_dimensions():

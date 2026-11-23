@@ -167,7 +167,8 @@ class TelegramFifoCostProvisionalService:
                 f"{candidate['payload']['period_from']} — {candidate['payload']['period_to']} ₽.\n"
                 "Нужна сумма до вычета себестоимости этого товара и до налога, "
                 "за тот же набор выкупов, до сторно возвратов. Допускается отрицательное значение. "
-                "Общую прибыль магазина или сумму после себестоимости вводить нельзя."
+                "Не вводите общую прибыль магазина, сумму после себестоимости, налога, "
+                "за другой период или по несовпадающим датам начисления."
             )
         if action == "provisional_profit_base_confirm":
             kind = ticket.get("model_kind")
@@ -478,6 +479,18 @@ class TelegramFifoCostProvisionalService:
                 )
             if profit is not None:
                 lines.extend(["", self._format_conditional_profit(profit)])
+            elif flow.get("profit_base_confirmed") is True:
+                lines.extend([
+                    "",
+                    "Условная прибыль недоступна: ранее подтверждённая база не совпадает "
+                    "с текущими входами; введите и подтвердите её заново.",
+                ])
+            else:
+                lines.extend([
+                    "",
+                    "Условная прибыль недоступна: нет подтверждённой базы владельца "
+                    "для этого SKU, периода и числа выкупов.",
+                ])
             buttons.append({
                 "text": (
                     "💰 Изменить базу условной прибыли"
@@ -740,7 +753,8 @@ class TelegramFifoCostProvisionalService:
             f"{self._format_saved_result(payload)}\n"
             "Подтвердите, что сумма относится к этому SKU и периоду, рассчитана до себестоимости "
             "выкупленных единиц и до налога, включает тот же набор выкупов, и не включает сторно возвратов. "
-            "Это ручное подтверждение владельца, не данные Ozon.",
+            "Это ручное подтверждение владельца, не данные Ozon; бот не сверяет сумму "
+            "с отдельным финансовым отчётом.",
             keyboard=runtime._keyboard([
                 {"text": "✅ Подтверждаю базу", "callback": runtime._issue_ticket(
                     owner, session, "provisional_profit_base_confirm",
@@ -928,9 +942,20 @@ class TelegramFifoCostProvisionalService:
         second_profit = second.get("conditional_profit")
         if not isinstance(first_profit, dict) or not isinstance(second_profit, dict):
             return False, "одна из оценок не содержит подтверждённую базу владельца"
+        supported_provenance = {
+            "status": "CONDITIONAL_BEFORE_TAX",
+            "source": "OWNER_CONFIRMED_MANUAL",
+        }
+        if any(
+            profit.get(key) != expected
+            for profit in (first_profit, second_profit)
+            for key, expected in supported_provenance.items()
+        ):
+            return False, "подтверждённая база или статус прибыли не подтверждены"
         same_basis = all(
             first_profit.get(key) == second_profit.get(key)
             for key in (
+                "status", "source",
                 "currency", "period_from", "period_to", "redeemed_units",
                 "perimeter", "profit_stage", "return_reversal",
             )

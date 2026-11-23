@@ -1,8 +1,8 @@
-# Provisional FIFO saved estimate history (PF22)
+# Provisional FIFO saved estimate history and conditional profit (PF22–PF24)
 
-- `tests/test_fifo_cost_provisional_preview_repository.py`: scoped list paging/order, cross-identity and cross-tenant rejection, invalid limits/offsets, immutable append and payload integrity.
-- `tests/test_telegram_fifo_cost_provisional_service.py`: a fresh Telegram session reads a saved scenario; compatible estimates use interval subtraction; mismatched sale basis or period withholds a combined delta; source-coverage differences are explicit.
-- Linked PF21/PF22 timeline/FBO/repository/schema/backup profile: **69 passed in 4.70s**. Compileall, `git diff --check`, and tracked `data/` equality passed. Full suite and exact-head CI remain pending.
+- `tests/test_fifo_cost_provisional_preview_repository.py`: scoped list paging/order, cross-identity/tenant rejection, immutable append, legacy v1 payload compatibility, and v2 owner-confirmed profit scope/cents/formula validation with invalid-payload rejection and prior-row retention.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: reopening saved scenarios; explicit reason when no base is confirmed; withholding profit before confirmation; exact C04 interval and COGS shown before confirmation; disclosure that a manual base is not independently verified against a finance report; negative base; comparison blocked across source/provenance, return-reversal or tax-stage mismatch; message size and no-factual-write guards.
+- Linked PF22–PF24 profile (`test_telegram_fifo_cost_provisional_service.py`, `test_fifo_cost_provisional_fbo_telegram_flow.py`, `test_fifo_cost_provisional_preview_repository.py`, `test_fifo_cost_repository.py`, `test_bot_backup_service.py`, `test_fifo_cost_provisional_timeline_service.py`): **76 passed in 5.03s**. `compileall -q app tests`, `git diff --check`, and tracked `data/` equality passed. Full isolated PR C suite and exact-head hosted CI remain pending.
 
 # Provisional FIFO held stock and non-sale replay (PF17)
 

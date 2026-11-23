@@ -1,8 +1,8 @@
-# 2026-11-23 — Provisional FIFO PF22 history and comparison
+# 2026-11-23 — Provisional FIFO PF24 full-flow verification
 
-- The PR C branch can list and reopen saved provisional estimates after a new Telegram session. Reads remain bound to the exact case, tenant, store and SKU; immutable rows are returned in bounded pages.
-- Compatible scenarios compare only when currency, period, method, policy and redeemed-unit basis match. Interval delta uses `[new_low - old_high, new_high - old_low]`; differing source coverage is disclosed, and missing monetary totals do not produce a delta.
-- PF22 focused history/repository/backup profile: **69 passed in 4.70s**; compileall, `git diff --check`, and unchanged tracked `data/` passed. Full PR C verification and exact-head CI remain pending.
+- The PR C provisional calculator can show an owner-confirmed conditional profit-before-tax interval for one exact SKU, period and redeemed-unit scope. The manual base is never substituted from store-wide profit; the owner sees gross COGS and confirms the financial perimeter before any value appears.
+- The linked synthetic Telegram journey covers estimate, owner assumption, explicit profit confirmation, save, and reopen in a new session. It asserts the estimate is retained separately, the factual case revision is unchanged, and there are no FIFO/Period Profit write paths. PF23/PF24 profile: **76 passed in 5.03s**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- Full isolated PR C verification, review packet and exact-head hosted CI remain pending; PRs A/B are dependencies and remain unmerged. No bot launch, deployment, or live service request was made.
 
 # 2026-11-23 — Provisional FIFO PF19 full local verification
 
