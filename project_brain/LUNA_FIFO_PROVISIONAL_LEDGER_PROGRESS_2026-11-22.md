@@ -140,6 +140,7 @@
 - Added `tests/test_fifo_cost_provisional_replay_service.py` covering split allocation, zero COGS, opening reserve, duplicate behavior, negative stock, capacities, held zones, order ambiguity, exact instants, scope/window, unsupported events, and money validation. Normalizer regression asserts hash-only posting capacities.
 - Documentation updated: FBO scenario guide, CHANGELOG, CURRENT_STATE, TEST_MAP, and implementation note under Decision 068. No files under tracked `data/` changed; no production bot, live APIs, or Telegram requests were used.
 - Verification command: project Python with `app` on `sys.path`, pytest on `test_fifo_cost_provisional_replay_service.py`, `test_fifo_cost_provisional_timeline_normalizer.py`, and `test_fifo_cost_provisional_movements_import_service.py` — **30 passed in 0.90s**. `compileall` for `app` and `tests` passed; `git diff --check` passed; `git diff --exit-code -- data` passed.
+- Implementation commit: `a94f818eb2290400ccec48212b5bdc30a90ac937` (`Add provisional finite-layer FIFO replay`) on `codex/fifo-provisional-timeline`; working tree clean after the code commit. This is not a hosted PR head and does not yet have hosted CI.
 - One early targeted run exposed a test-fixture day/date mismatch; the fixture was corrected to derive store-local date from explicit instants. Final repeated profile above is green.
 - Not verified yet: return/buyout replay, holds release, non-sale movement ledger, source completeness/balance status, normal Telegram timeline display, full suite, PR B hosted CI, and owner documents. These remain PF16–PF19 or later.
 
@@ -147,5 +148,5 @@
 
 - Последний закрытый этап: PF15. Следующий: PF16 — replay confirmed buyouts, cancellations/non-buyout restocks, and sale returns with original-layer restoration, last-consumed-first ordering, idempotency, and over-return guards.
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
-- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 commit/checkpoint are recorded below after commit. Keep the branch local until PF19.
+- PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.
