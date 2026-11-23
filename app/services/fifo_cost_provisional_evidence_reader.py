@@ -6,10 +6,63 @@ class FifoCostProvisionalEvidenceReader:
     MAX_REPORTS_PER_CASE = 100
     _EDITABLE_STATES = frozenset({"DRAFT", "AWAITING_EVIDENCE"})
 
-    def __init__(self, *, transition_service):
+    def __init__(self, *, transition_service, transition_evidence_service=None):
         self.transition_service = transition_service
+        self.transition_evidence_service = transition_evidence_service
+
+    def read_timeline_sources(self, *, case_id, identity, expected_case_revision):
+        """Read aggregate report anchors and an optional confirmed sale document."""
+        reports = self.list_confirmed_reports(
+            case_id=case_id, identity=identity,
+            expected_case_revision=expected_case_revision,
+        )
+        if reports.get("error"):
+            return reports
+        physical_sales = None
+        physical_status = "NOT_CONFIGURED"
+        if self.transition_evidence_service is not None:
+            result = self.transition_evidence_service.read_confirmed_physical_sales(
+                case_id=case_id, identity=identity,
+                expected_case_revision=expected_case_revision,
+            )
+            if result.get("error"):
+                code = result.get("code")
+                if code == "FIFO_PHYSICAL_SALES_DOCUMENT_MISSING":
+                    physical_status = "MISSING"
+                elif code in {
+                    "FIFO_PHYSICAL_SALES_DOCUMENT_CONFLICT",
+                    "FIFO_PHYSICAL_SALES_CONFIRMATION_CORRUPT",
+                }:
+                    physical_status = "CONFLICT"
+                else:
+                    physical_status = "UNAVAILABLE"
+            else:
+                physical_sales = (result["document"], result["confirmation"])
+                physical_status = "CONFIRMED"
+        return {
+            **reports,
+            "physical_sales": physical_sales,
+            "physical_sales_status": physical_status,
+            "read_only": True,
+        }
 
     def list_turnover_reports(self, *, case_id, identity, expected_case_revision):
+        result = self.list_confirmed_reports(
+            case_id=case_id, identity=identity,
+            expected_case_revision=expected_case_revision,
+        )
+        if result.get("error"):
+            return result
+        reports = tuple(item for item in result["reports"]
+                        if item["report"].report_type is ReportType.TURNOVER)
+        return {**result, "reports": reports}
+
+    def list_confirmed_reports(self, *, case_id, identity, expected_case_revision):
+        """Return complete, owner-dated reports from this exact editable case.
+
+        This is a read-only adapter. Reports are still aggregate anchors; this
+        method does not infer event timestamps or create timeline movements.
+        """
         if (not isinstance(identity, dict) or type(expected_case_revision) is not int
                 or expected_case_revision < 1):
             return self._error("FIFO_PROVISIONAL_INPUT_INVALID")
@@ -47,7 +100,9 @@ class FifoCostProvisionalEvidenceReader:
                     case_id=case_id, identity=identity, scope=scope,
                     store_timezone=case.metadata.store_timezone, file_sha256=digest,
                 )
-                if (report is None or report.report_type is not ReportType.TURNOVER
+                if (report is None or report.report_type not in {
+                        ReportType.TURNOVER, ReportType.STOCK_MANAGEMENT,
+                    }
                         or report.metadata.scope != scope
                         or report.metadata.store_timezone != case.metadata.store_timezone
                         or report.metadata.completeness is not EvidenceCompleteness.COMPLETE
@@ -64,7 +119,8 @@ class FifoCostProvisionalEvidenceReader:
                 })
             reports.sort(key=lambda item: (
                 item["period_from"] or "", item["period_to"] or "",
-                item["captured_at"], item["file_fingerprint"],
+                item["report"].report_type.value, item["captured_at"],
+                item["file_fingerprint"],
             ))
             return {"error": False, "case_revision": expected_case_revision,
                     "store_timezone": case.metadata.store_timezone, "reports": tuple(reports),

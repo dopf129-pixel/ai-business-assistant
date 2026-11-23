@@ -121,3 +121,19 @@
 - No `data/` modifications; no live bot/API. Неразрешённых блокеров нет.
 
 - Final PF13 linked verification: **72 passed in 9.90s** across FBO parser/worker/adapter/Telegram, summary model, transition runtime, and physical-sales import/evidence suites. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed after docs were updated.
+
+## PF14 — normalized event sources and owner movement template
+
+- Added `fifo_cost_provisional_timeline_contracts.py`, `fifo_cost_provisional_movements_import_service.py`, and `fifo_cost_provisional_timeline_normalizer.py`. Event inputs carry exact case/SKU scope digests, store-local date and `DAY`/`INSTANT` precision, positive bounded quantity, safe event/source keys and hashed posting keys; raw IDs and free-text references do not survive parsing.
+- Added header-only `docs/templates/fifo_provisional_movements_template.csv` for the six owner event kinds. The parser enforces UTF-8/BOM, exact header, numeric target SKU, 10 MiB / 50,000-row / 1,000,000-unit limits, timestamp/DST validity, unique event references, numeric source-row locators, and per-event allowed/required fields. A physical event before model start is not replayed twice; an opening transit link must exactly match the FBO posting and dispatch timestamp/date and cannot exceed its quantity.
+- Added a scoped read-only method for the existing confirmed physical-sales evidence and injected it into the provisional reader. Only exact-case, complete owner-confirmed turnover/stock documents are exposed; duplicate report versions over the same window create a conflict. Report totals remain anchors, never time-stamped events. Physical sale rows remain day-precision and deduplicate against identical FBO posting/quantity/day; mismatches remain a gap.
+- Updated FBO CSV guide, `CHANGELOG.md`, `CURRENT_STATE.md`, and `TEST_MAP.md`. `data/` was not changed; no factual FIFO write, bot launch, or live request occurred.
+- Verification command: project Python with `app` on `sys.path`, pytest on `test_fifo_cost_provisional_movements_import_service.py`, `test_fifo_cost_provisional_timeline_normalizer.py`, `test_fifo_cost_provisional_evidence_reader.py`, `test_fifo_cost_provisional_fbo_csv_import_service.py`, `test_fifo_cost_provisional_fbo_telegram_flow.py`, `test_fifo_cost_transition_evidence_service.py`, and `test_fifo_cost_transition_production_workflow.py` — **36 passed in 10.36s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
+- Not verified yet: timeline replay, Telegram upload for the optional owner-movements template, full repository suite, PR B CI, and real owner documents. These remain later task stages; aggregate controls do not establish event completeness.
+
+## Resume (актуально после PF14)
+
+- Последний закрытый этап: PF14. Следующий: PF15 — pure replay of supply receipts and buyer dispatches with finite layers, partial dispatch allocation, negative-stock guards, and zero COGS before buyout.
+- PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
+- PR B: `codex/fifo-provisional-timeline`, based on PR A head; local changes through PF14 are ready for a stage commit. Last committed base before PF14: `5cb0be39424e329280afc1e95d31ff3f2e92c953`. Keep it unpublished until PF19.
+- PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.

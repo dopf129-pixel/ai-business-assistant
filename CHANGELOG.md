@@ -3243,3 +3243,8 @@ Summary Report теперь включает:
 - PR B publication and exact-head hosted CI are pending; no live Ozon/Telegram call, FIFO apply, bot launch, merge, or deployment occurred.
 
 # 2026-11-15 — FIFO auto-batch PR C review follow-up
+# 2026-11-23 — Provisional FIFO timeline source contracts (PR B PF14)
+
+- Added redacted typed event contracts and a strict owner-movement CSV parser/template for the six documented movement kinds. The parser bounds file, row and selected-unit counts, requires an exact numeric SKU and an unambiguous timestamp, validates per-kind fields, and hashes event/source/posting references before returning rows.
+- Added a read-only exact-case adapter for complete owner-confirmed TURNOVER/STOCK_MANAGEMENT reports and owner-confirmed physical-sales evidence. Aggregate reports remain anchors only; confirmed physical sale rows retain day precision. FBO joins use a scoped posting digest and exact quantity, and duplicate sale evidence does not double-count.
+- Added synthetic regressions for source scope, posting/quantity/status conflicts, event deduplication, privacy and DST. No real owner files or Ozon/Telegram requests were used; no factual FIFO records are written.

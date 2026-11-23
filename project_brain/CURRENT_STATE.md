@@ -5981,3 +5981,8 @@ Completed:
 - Added `FIFO_AUTO_BATCH_PR_B_REVIEW_HANDOFF_2026-11-14.md` with the source capability matrix, B-matrix coverage, privacy/migration notes, local verification, and limitations. The source matrix distinguishes tested local wrappers from the unverified raw bundle/state/cursor contract.
 - FB19 local profile: **233 passed** across batch source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning tests. Isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
 - This remains an incomplete, non-deployable source feature. PR B publication and exact-SHA hosted CI are pending; raw Ozon schema/coverage and R1 remain open. No live call, bot launch, apply, merge, or deployment occurred.
+# 2026-11-23 — Provisional FIFO PF14 contracts complete locally
+
+- PR B now has a redacted normalized event contract, a bounded optional owner-movements CSV parser/template, exact scope and exact posting/quantity checks, and an adapter for saved owner-confirmed physical sales. Complete owner-confirmed turnover and stock reports are exposed as aggregate anchors only; import/capture/act dates are not promoted to movement times.
+- Synthetic PF14 and linked FBO/evidence regressions: **36 passed** on the latest local implementation. `compileall`, `git diff --check` and unchanged tracked `data/` passed. PR B remains local and unpublished; full-suite and exact-head hosted CI remain for PF19. No `data/` changes, live calls or factual FIFO writes.
+- Next: PF15 pure receipt/dispatch replay.

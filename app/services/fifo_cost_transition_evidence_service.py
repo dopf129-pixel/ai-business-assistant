@@ -430,6 +430,35 @@ class FifoCostTransitionEvidenceService:
             idempotency_key=idempotency_key,
         )
 
+    def read_confirmed_physical_sales(
+        self, *, case_id, identity, expected_case_revision,
+    ):
+        """Read the owner-confirmed exact physical-sales document only.
+
+        This bounded path does not collect from Ozon, evaluate factual FIFO
+        readiness, write evidence, or alter the case revision.
+        """
+        loaded = self._case_context(
+            case_id=case_id, identity=identity,
+            expected_case_revision=expected_case_revision,
+        )
+        if loaded.get("error"):
+            return {**loaded, "read_only": True}
+        result = self._read_physical_document(
+            case_id=case_id, identity=identity,
+            scope=loaded["case"].metadata.scope, case=loaded["case"],
+        )
+        if result.get("error"):
+            return {**result, "read_only": True}
+        return {
+            "error": False,
+            "document": result["document"],
+            "confirmation": result["confirmation"],
+            "fingerprint": result["fingerprint"],
+            "case_revision": expected_case_revision,
+            "read_only": True,
+        }
+
     def load(
         self, *, case_id, identity, expected_case_revision,
         require_opening_composition=True, sealed_preview_id=None,

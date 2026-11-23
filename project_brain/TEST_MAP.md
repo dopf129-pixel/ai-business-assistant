@@ -1,3 +1,9 @@
+# Provisional FIFO timeline sources (PF14)
+
+- `tests/test_fifo_cost_provisional_movements_import_service.py`: exact template/header, UTF-8 BOM, six allowed owner events, event-specific fields, exact SKU, positive bounded quantities, safe hashed references, store-timezone timestamps and DST guards.
+- `tests/test_fifo_cost_provisional_timeline_normalizer.py`: FBO and confirmed owner evidence scoped to exact store/SKU/case, opening links checked against exact posting and quantity, no repeated opening dispatch, return status/quantity conflicts, day precision, duplicate sale collapse and aggregate reports kept as anchors.
+- `tests/test_fifo_cost_provisional_evidence_reader.py`: complete owner-confirmed TURNOVER/STOCK_MANAGEMENT evidence is read at one exact case revision; compatibility TURNOVER selection remains narrow; physical-sales source status is redacted and read-only.
+
 # Provisional FBO CSV
 
 - tests/test_fifo_cost_provisional_fbo_csv_import_service.py: exact selected SKU, BOM, ignored additional fields, no raw posting/status echo, duplicate idempotency/conflict, strict finite-unit/row/file limits, timezone normalization, day vs instant precision, DST ambiguous/nonexistent rejection, and impossible timestamp ordering.

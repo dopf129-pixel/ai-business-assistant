@@ -16,6 +16,7 @@ from types import MappingProxyType
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.fifo_cost_transition_contracts import ScopeIdentity
+from services.fifo_cost_provisional_timeline_contracts import scope_fingerprint
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,7 @@ class ProvisionalFboDocument:
     file_sha256: str
     normalized_fingerprint: str
     document_fingerprint: str
+    scope_fingerprint: str
     row_count: int
     selected_units: int
     excluded_other_sku_rows: int
@@ -70,6 +72,7 @@ class ProvisionalFboDocument:
             "file_sha256": self.file_sha256,
             "normalized_fingerprint": self.normalized_fingerprint,
             "document_fingerprint": self.document_fingerprint,
+            "scope_fingerprint": self.scope_fingerprint,
             "row_count": self.row_count,
             "selected_units": self.selected_units,
             "excluded_other_sku_rows": self.excluded_other_sku_rows,
@@ -258,13 +261,15 @@ class FifoCostProvisionalFboCsvImportService:
         ).encode("ascii")
         normalized_fingerprint = sha256(normalized_bytes).hexdigest()
         raw_sha = sha256(raw).hexdigest()
+        scope_digest = scope_fingerprint(scope, str(zone))
         document_fingerprint = sha256(
-            f"provisional-fbo-csv-v1:{raw_sha}:{scope.sku}:{timezone_name}".encode(),
+            f"provisional-fbo-csv-v2:{raw_sha}:{scope_digest}".encode(),
         ).hexdigest()
         document = ProvisionalFboDocument(
             file_sha256=raw_sha,
             normalized_fingerprint=normalized_fingerprint,
             document_fingerprint=document_fingerprint,
+            scope_fingerprint=scope_digest,
             row_count=len(rows),
             selected_units=selected_units,
             excluded_other_sku_rows=excluded,

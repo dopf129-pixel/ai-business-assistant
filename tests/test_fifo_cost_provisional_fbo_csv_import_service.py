@@ -64,6 +64,16 @@ def test_utf8_bom_exact_sku_and_extra_columns_are_safe_and_scoped():
     assert "posting-1" not in repr(worker_payload)
     assert "private-address" not in repr(worker_payload)
     assert worker_payload["rows"][0]["dispatch"]["utc_timestamp"].endswith("+00:00")
+    assert worker_payload["scope_fingerprint"] == document.scope_fingerprint
+    other_scope = ScopeIdentity(
+        owner_id="other-owner", store_id="store-test", product_id="product-test",
+        offer_id="hook-2", sku="3921245627",
+    )
+    other = SERVICE.parse_csv(
+        filename="orders.csv", payload=_csv(_row()), scope=other_scope,
+        timezone_name="Europe/Moscow",
+    ).document
+    assert other.scope_fingerprint != document.scope_fingerprint
 
 
 def test_identical_duplicate_is_idempotent_and_conflicting_same_identity_blocks():
