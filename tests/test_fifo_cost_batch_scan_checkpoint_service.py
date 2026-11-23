@@ -302,7 +302,7 @@ def test_schema_upgrade_preserves_legacy_checkpoint_token_in_original_column(
     try:
         assert connection.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1",
-        ).fetchone()[0] == 19
+        ).fetchone()[0] == 20
         assert connection.execute(
             "SELECT encrypted_resumable_token FROM fifo_cost_batch_supply_scans "
             "WHERE case_id=? AND scan_id=?",

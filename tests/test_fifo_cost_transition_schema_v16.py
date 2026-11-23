@@ -78,13 +78,13 @@ def _insert_evidence(connection, values=None, **kwargs):
     )
 
 
-def test_fresh_fifo_schema_v19_has_scoped_tables_and_leaves_user_version(tmp_path):
-    repository = FifoCostRepository(db_path=tmp_path / "fresh-v19.sqlite")
+def test_fresh_fifo_schema_v20_has_scoped_tables_and_leaves_user_version(tmp_path):
+    repository = FifoCostRepository(db_path=tmp_path / "fresh-v20.sqlite")
     connection = repository.get_connection()
     try:
         assert connection.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 19
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 20
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
         tables = {
             row[0] for row in connection.execute(
@@ -103,6 +103,7 @@ def test_fresh_fifo_schema_v19_has_scoped_tables_and_leaves_user_version(tmp_pat
             "fifo_cost_batch_scan_observations",
             "fifo_cost_batch_scan_continuations",
             "fifo_cost_batch_total_controls",
+            "fifo_cost_provisional_previews",
         } <= tables
         for table, expected in {
             "fifo_cost_transition_bridge_evidence": {
@@ -266,10 +267,10 @@ def test_fresh_fifo_schema_v19_has_scoped_tables_and_leaves_user_version(tmp_pat
 
 
 @pytest.mark.parametrize("legacy_version", [12, 13, 14, 15, 16])
-def test_v12_through_v16_upgrade_adds_v19_without_mutating_period_confirmations(
+def test_v12_through_v16_upgrade_adds_v20_without_mutating_period_confirmations(
     tmp_path, legacy_version,
 ):
-    database = tmp_path / f"v{legacy_version}-to-v18.sqlite"
+    database = tmp_path / f"v{legacy_version}-to-v20.sqlite"
     repository = FifoCostRepository(db_path=database)
     connection = repository.get_connection()
     try:
@@ -306,7 +307,7 @@ def test_v12_through_v16_upgrade_adds_v19_without_mutating_period_confirmations(
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 19
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 20
         assert tuple(migrated.execute(
             "SELECT * FROM fifo_cost_report_period_confirmations"
         ).fetchone()) == before
@@ -320,7 +321,7 @@ def test_v12_through_v16_upgrade_adds_v19_without_mutating_period_confirmations(
 
 
 def test_v17_upgrade_adds_scan_links_and_continuations_preserving_prior_evidence(tmp_path):
-    repository = FifoCostRepository(db_path=tmp_path / "v17-to-v19.sqlite")
+    repository = FifoCostRepository(db_path=tmp_path / "v17-to-v20.sqlite")
     connection = repository.get_connection()
     try:
         _seed_case_and_period_confirmation(connection)
@@ -343,7 +344,7 @@ def test_v17_upgrade_adds_scan_links_and_continuations_preserving_prior_evidence
     try:
         assert migrated.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 19
+        ).fetchone()[0] == FifoCostRepository.SCHEMA_VERSION == 20
         assert tuple(migrated.execute(
             "SELECT * FROM fifo_cost_report_period_confirmations"
         ).fetchone()) == before
@@ -422,7 +423,11 @@ def test_future_fifo_schema_version_fails_closed_without_schema_mutation(tmp_pat
     database = tmp_path / "future-schema.sqlite"
     repository = FifoCostRepository(db_path=database)
     connection = repository.get_connection()
-    connection.execute("UPDATE fifo_cost_schema SET version=20 WHERE singleton=1")
+    future_version = FifoCostRepository.SCHEMA_VERSION + 1
+    connection.execute(
+        "UPDATE fifo_cost_schema SET version=? WHERE singleton=1",
+        (future_version,),
+    )
     connection.commit()
     before = tuple(tuple(row) for row in connection.execute(
         "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
@@ -435,7 +440,7 @@ def test_future_fifo_schema_version_fails_closed_without_schema_mutation(tmp_pat
     try:
         assert raw.execute(
             "SELECT version FROM fifo_cost_schema WHERE singleton=1"
-        ).fetchone()[0] == 20
+        ).fetchone()[0] == future_version
         assert tuple(tuple(row) for row in raw.execute(
             "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
         ).fetchall()) == before

@@ -23,6 +23,13 @@
 - Residual product-data limitation: owner-entered base comparability is an explicit owner assertion; no external finance report is independently cross-matched, and this feature does not recalculate tax or financial return reversal. The bot discloses these limits before confirmation.
 - Linked local suite after the final PF25 guard: **76 passed in 5.02s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. No factual data, live service or running bot was used.
 
+## PF26 — full-suite verification in progress
+
+- First full-suite attempt used a disposable worktree at SHA `49a29d390ba72f0f454f3b6b06cf4b798391b6b7`, with the repository `data/` removed and `.env` absent. Result: **5,561 passed, 18 failed in 106.53s**. Fourteen failures were stale assertions that expected the FIFO repository schema to stop at v19 after PR C had already added v20; the other four came from setting `TAX_RATE`/`TAX_MODE` environment variables instead of using the synthetic policy file expected by CI-style production tests.
+- Updated only synthetic migration tests to expect current schema v20 and added v20 preview-table presence to the fresh-schema check. The v12 migration fixture now removes the additive v20 preview table and its two triggers before it tears down parent transition tables.
+- Focused migration/checkpoint profile after the correction: `tests/test_fifo_cost_batch_scan_checkpoint_service.py tests/test_fifo_cost_transition_schema_v13.py tests/test_fifo_cost_transition_schema_v16.py -q` — **29 passed in 2.48s**.
+- Next: commit the test/journal correction, reset the disposable worktree to that exact SHA, add only a synthetic `data/tax_configuration.json` with USN income 6%, clear tax environment variables, and rerun compile, full pytest, diff checks and tracked-data verification. No project owner data or live integrations were used.
+
 ## PF23 — conditionally calculate profit from an owner-confirmed base
 
 - Added a bounded money-input step and a separate confirmation screen tied by an opaque ticket to owner/store/SKU/case revision, selected model, period, redeemed units, evidence and the exact estimate fingerprint. The screen states the financial perimeter and shows the gross COGS range before confirmation. A negative base remains a valid numeric value.
