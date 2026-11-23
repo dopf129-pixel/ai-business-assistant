@@ -375,6 +375,269 @@ class FifoCostRepository:
             if connection is not None:
                 connection.close()
 
+    def append_provisional_preview(
+        self, *, preview_id, case_id, case_revision, store_id, product_id=None,
+        offer_id=None, sku, input_fingerprint, idempotency_key, payload,
+    ):
+        """Append one exact-revision, non-authoritative scenario estimate."""
+        identity = self._normalize_transition_read_identity(
+            store_id, product_id=product_id, offer_id=offer_id, sku=sku,
+        )
+        if identity.get("error"):
+            return identity
+        scope = self._tenant_scope(store_id)
+        if scope.get("error"):
+            return scope
+        if (not self._valid_transition_case_id(case_id)
+                or type(case_revision) is not int or case_revision < 1):
+            return self._error("FIFO_PROVISIONAL_CASE_REVISION_INVALID")
+        if (not self._valid_provisional_preview_id(preview_id)
+                or not self._valid_provisional_preview_idempotency_key(idempotency_key)):
+            return self._error("FIFO_PROVISIONAL_IDEMPOTENCY_INVALID")
+        if not self._valid_sha256(input_fingerprint):
+            return self._error("FIFO_PROVISIONAL_INPUT_FINGERPRINT_INVALID")
+        payload_error = self._validate_provisional_preview_payload(
+            payload, input_fingerprint=input_fingerprint,
+        )
+        if payload_error:
+            return self._error(payload_error)
+        payload_json = self._canonical_json(payload)
+        if len(payload_json.encode("utf-8")) > self.MAX_PROVISIONAL_PREVIEW_BYTES:
+            return self._error("FIFO_PROVISIONAL_PREVIEW_PAYLOAD_TOO_LARGE")
+
+        identity_fingerprint = self._sha256({
+            "owner_fingerprint": scope["owner_fingerprint"],
+            "tenant_fingerprint": scope["tenant_fingerprint"],
+            "store_id": identity["store_id"],
+            "product_id": identity.get("product_id"),
+            "offer_id": identity.get("offer_id"),
+            "sku": identity["sku"],
+        })
+        connection = None
+        try:
+            connection = self.get_connection()
+            connection.execute("BEGIN IMMEDIATE")
+            case = connection.execute(
+                """SELECT current_revision, current_state FROM fifo_cost_transition_cases
+                   WHERE case_id=? AND owner_fingerprint=? AND tenant_fingerprint=?
+                     AND store_id=? AND product_id IS ? AND offer_id IS ? AND sku=?""",
+                (case_id, scope["owner_fingerprint"], scope["tenant_fingerprint"],
+                 identity["store_id"], identity.get("product_id"),
+                 identity.get("offer_id"), identity["sku"]),
+            ).fetchone()
+            if case is None:
+                connection.rollback()
+                return self._error("FIFO_PROVISIONAL_CASE_SCOPE_MISMATCH")
+            if case["current_revision"] != case_revision:
+                connection.rollback()
+                return self._error("FIFO_PROVISIONAL_CASE_STALE")
+            if case["current_state"] not in {"DRAFT", "AWAITING_EVIDENCE"}:
+                connection.rollback()
+                return self._error("FIFO_PROVISIONAL_CASE_NOT_EDITABLE")
+
+            existing = connection.execute(
+                """SELECT preview_id, owner_fingerprint, tenant_fingerprint,
+                          store_id, product_id, offer_id, sku, identity_fingerprint,
+                          case_revision, created_at_utc, schema_version,
+                          input_fingerprint, idempotency_key, payload_json
+                   FROM fifo_cost_provisional_previews
+                   WHERE case_id=? AND idempotency_key=?""",
+                (case_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if (existing["input_fingerprint"] != input_fingerprint
+                        or existing["payload_json"] != payload_json
+                        or existing["identity_fingerprint"] != identity_fingerprint
+                        or existing["case_revision"] != case_revision):
+                    connection.rollback()
+                    return self._error("FIFO_PROVISIONAL_IDEMPOTENCY_CONFLICT")
+                connection.commit()
+                return {
+                    "error": False,
+                    "created": False,
+                    "item": self._provisional_preview_row(existing),
+                }
+
+            created_at = self._iso(self._now())
+            connection.execute(
+                """INSERT INTO fifo_cost_provisional_previews (
+                    preview_id, owner_fingerprint, tenant_fingerprint, store_id,
+                    product_id, offer_id, sku, identity_fingerprint, case_id,
+                    case_revision, created_at_utc, schema_version, input_fingerprint,
+                    idempotency_key, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                (preview_id, scope["owner_fingerprint"], scope["tenant_fingerprint"],
+                 identity["store_id"], identity.get("product_id"),
+                 identity.get("offer_id"), identity["sku"], identity_fingerprint,
+                 case_id, case_revision, created_at, input_fingerprint,
+                 idempotency_key, payload_json),
+            )
+            row = connection.execute(
+                """SELECT preview_id, owner_fingerprint, tenant_fingerprint,
+                          store_id, product_id, offer_id, sku, identity_fingerprint,
+                          case_revision, created_at_utc, schema_version,
+                          input_fingerprint, idempotency_key, payload_json
+                   FROM fifo_cost_provisional_previews WHERE preview_id=?""",
+                (preview_id,),
+            ).fetchone()
+            connection.commit()
+            return {
+                "error": False, "created": True,
+                "item": self._provisional_preview_row(row),
+            }
+        except sqlite3.IntegrityError as exc:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            message = str(exc)
+            if "FIFO_PROVISIONAL_PREVIEW_LIMIT_REACHED" in message:
+                return self._error("FIFO_PROVISIONAL_PREVIEW_LIMIT_REACHED")
+            if "SCOPE_MISMATCH" in message:
+                return self._error("FIFO_PROVISIONAL_CASE_SCOPE_MISMATCH")
+            return self._error("FIFO_PROVISIONAL_PREVIEW_CONFLICT")
+        except (sqlite3.Error, OSError, TypeError, ValueError):
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            return self._error("FIFO_PROVISIONAL_STORAGE_UNAVAILABLE")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    @staticmethod
+    def _provisional_preview_row(row):
+        return {
+            "preview_id": row["preview_id"],
+            "store_id": row["store_id"],
+            "product_id": row["product_id"],
+            "offer_id": row["offer_id"],
+            "sku": row["sku"],
+            "identity_fingerprint": row["identity_fingerprint"],
+            "case_revision": row["case_revision"],
+            "created_at_utc": row["created_at_utc"],
+            "schema_version": row["schema_version"],
+            "input_fingerprint": row["input_fingerprint"],
+            "payload": json.loads(row["payload_json"]),
+        }
+
+    @staticmethod
+    def _valid_provisional_preview_id(value):
+        return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{8,96}", value) is not None
+
+    @staticmethod
+    def _valid_provisional_preview_idempotency_key(value):
+        return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{8,80}", value) is not None
+
+    @staticmethod
+    def _valid_sha256(value):
+        return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
+
+    @classmethod
+    def _validate_provisional_preview_payload(cls, payload, *, input_fingerprint):
+        if not isinstance(payload, dict) or set(payload) != {
+            "schema_version", "model_kind", "currency", "method", "policy_version",
+            "period_from", "period_to", "input_fingerprint", "evidence_fingerprints",
+            "assumptions", "rates", "result",
+        }:
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        if (payload.get("schema_version") != 1
+                or payload.get("model_kind") not in {"SUMMARY_RANGE", "TIMELINE_MODEL"}
+                or payload.get("currency") != "RUB"
+                or payload.get("method") not in {"AGGREGATE_SUMMARY_V1", "EVENT_TIMELINE_V1"}
+                or payload.get("input_fingerprint") != input_fingerprint
+                or not isinstance(payload.get("policy_version"), str)
+                or not 1 <= len(payload["policy_version"]) <= 64):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        if any(
+            not isinstance(payload.get(key), str)
+            or re.fullmatch(r"\d{4}-\d{2}-\d{2}", payload[key]) is None
+            for key in ("period_from", "period_to")
+        ):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        try:
+            period_from = date.fromisoformat(payload["period_from"])
+            period_to = date.fromisoformat(payload["period_to"])
+        except (TypeError, ValueError):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        if period_to < period_from:
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        evidence = payload.get("evidence_fingerprints")
+        if (not isinstance(evidence, list) or not 1 <= len(evidence) <= 20
+                or any(not cls._valid_sha256(item) for item in evidence)):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        assumptions = payload.get("assumptions")
+        if not isinstance(assumptions, dict) or set(assumptions) != {
+            "opening_all_old", "all_period_supply_receipts_new", "closing_old_min",
+            "closing_old_max", "timeline_coverage_confirmed",
+        }:
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        for key in ("opening_all_old", "all_period_supply_receipts_new",
+                    "timeline_coverage_confirmed"):
+            value = assumptions[key]
+            if value is not None and type(value) is not bool:
+                return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        for key in ("closing_old_min", "closing_old_max"):
+            value = assumptions[key]
+            if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
+                return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        if ((assumptions["closing_old_min"] is None)
+                != (assumptions["closing_old_max"] is None)
+                or (assumptions["closing_old_min"] is not None
+                    and assumptions["closing_old_min"] > assumptions["closing_old_max"])):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        rates = payload.get("rates")
+        if not isinstance(rates, dict) or set(rates) != {
+            "old_unit_cost_rub", "new_unit_cost_rub",
+        }:
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        try:
+            if any(
+                not isinstance(rates[key], str)
+                or len(rates[key]) > 40
+                or not Decimal(rates[key]).is_finite()
+                or Decimal(rates[key]) < 0
+                for key in rates
+            ):
+                return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        except (InvalidOperation, TypeError, ValueError):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        result = payload.get("result")
+        result_keys_by_model = {
+            "SUMMARY_RANGE": {
+                "redeemed_units", "old_sold_min", "old_sold_max", "new_sold_min",
+                "new_sold_max", "gross_cogs_low_rub", "gross_cogs_high_rub",
+            },
+            "TIMELINE_MODEL": {
+                "redeemed_units", "old_sold_units", "new_sold_units", "gross_cogs_rub",
+                "returned_units", "non_sale_removed_units", "non_sale_removed_cost_rub",
+                "ending_available_units", "ending_held_units", "ending_buyer_delivery_units",
+            },
+        }
+        model_contracts = {
+            "SUMMARY_RANGE": ("AGGREGATE_SUMMARY_V1", "fifo-provisional-summary-v1"),
+            "TIMELINE_MODEL": ("EVENT_TIMELINE_V1", "fifo-provisional-timeline-v1"),
+        }
+        expected_method, expected_policy = model_contracts[payload["model_kind"]]
+        if (payload["method"] != expected_method
+                or payload["policy_version"] != expected_policy
+                or not isinstance(result, dict)
+                or set(result) != result_keys_by_model[payload["model_kind"]]):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        nullable_unit_keys = {"old_sold_units", "new_sold_units"}
+        if any(
+            (type(value) is not int or not 0 <= value <= 1_000_000)
+            and not (key in nullable_unit_keys and value is None)
+            for key, value in result.items()
+            if key.endswith("units") or key.endswith("min") or key.endswith("max")
+        ):
+            return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        for key, value in result.items():
+            if "rub" in key and value is not None:
+                try:
+                    if not isinstance(value, str) or not Decimal(value).is_finite():
+                        return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+                except (InvalidOperation, ValueError):
+                    return "FIFO_PROVISIONAL_PREVIEW_PAYLOAD_INVALID"
+        return None
+
     def append_supply_declaration(
         self, *, declaration, expected_case_revision, idempotency_key,
     ):

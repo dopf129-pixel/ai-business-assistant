@@ -6024,3 +6024,8 @@ Completed:
 - FIFO-owned schema v20 now has append-only `fifo_cost_provisional_previews`, scoped to owner/tenant/store/product/offer/SKU and an exact saved case revision. It stores bounded JSON and opaque fingerprints; per-case count and payload byte limits fail closed.
 - Added v19 upgrade, constraints, immutability, and backup/restore tests. Planning schema version remains 12 and `PRAGMA user_version` remains unchanged. Durable saves are not exposed in Telegram until PF21–PF23.
 - PF20 profile: `tests/test_fifo_cost_repository.py` + `tests/test_bot_backup_service.py` — 54 passed. Exact full suite and hosted PR C CI remain pending.
+# 2026-11-23 — Provisional FIFO PF21 save action
+
+- The regular provisional FIFO Telegram result now offers **«Сохранить оценку»** for `SUMMARY_RANGE` or a fully gated `TIMELINE_MODEL`. Save re-reads the current case and selected evidence, recalculates against the ticket's exact fingerprint, and atomically appends to FIFO v20; retries use the same idempotency key.
+- Changed case/reports/assumptions, an expired or replaced timeline upload, invalid/over-quota payloads, or closed cases fail without saving. The flow never calls factual FIFO prepare/apply, Period Profit or Return COGS.
+- PF21 focused regression profile: **65 passed** across Telegram scenario/timeline, preview repository, FIFO schema and backup/restore. PF22 history/restart and PF23 comparable-profit extension remain pending.

@@ -17,9 +17,9 @@ def _ticket_for(runtime, response, action):
                 if f":{action}:" in button["callback"])
 
 
-def test_regular_transition_callback_runs_summary_preview_without_persisting_fifo(tmp_path):
+def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
     request = _case()
-    reports = (request.snapshot, request.movement_report)
+    reports = [request.snapshot, request.movement_report]
 
     class ReadOnlyTransition:
         writes = 0
@@ -47,9 +47,27 @@ def test_regular_transition_callback_runs_summary_preview_without_persisting_fif
                 } for report in reports),
             }
 
+    class SavedEstimates:
+        def __init__(self):
+            self.rows = {}
+            self.calls = []
+
+        def append_provisional_preview(self, **kwargs):
+            self.calls.append(kwargs)
+            key = kwargs["idempotency_key"]
+            if key not in self.rows:
+                self.rows[key] = {
+                    "preview_id": kwargs["preview_id"],
+                    "payload": kwargs["payload"],
+                }
+                return {"error": False, "created": True, "item": self.rows[key]}
+            return {"error": False, "created": False, "item": self.rows[key]}
+
     transition = ReadOnlyTransition()
+    estimate_repository = SavedEstimates()
     provisional = TelegramFifoCostProvisionalService(
         evidence_reader=SavedReports(), summary_service=FifoCostProvisionalSummaryService(),
+        estimate_repository=estimate_repository,
     )
     runtime = TelegramFifoCostTransitionRuntimeService(
         transition, object(), provisional_service=provisional,
@@ -89,6 +107,26 @@ def test_regular_transition_callback_runs_summary_preview_without_persisting_fif
         assert "110,187.30" in response["message"] and "110,403.20 ₽" in response["message"]
         assert "не являются FIFO фактом" in response["message"]
         assert not any("apply_transition" in button["callback"] for button in response["keyboard"]["buttons"])
+        save_button = _ticket_for(runtime, response, "provisional_save")
+        assert estimate_repository.calls == []
+        response = runtime.handle_callback("101", save_button)
+        assert response["error"] is False, response
+        assert len(estimate_repository.rows) == 1
+        saved_payload = next(iter(estimate_repository.rows.values()))["payload"]
+        assert saved_payload["model_kind"] == "SUMMARY_RANGE"
+        assert saved_payload["evidence_fingerprints"] == sorted({
+            request.snapshot.file_sha256, request.movement_report.file_sha256,
+        })
+        assert not any(key in str(saved_payload).lower() for key in (
+            "posting_number", "raw_csv", "buyer", "address",
+        ))
+        assert "Оценка сохранена отдельно" in response["message"]
+        # The same opaque callback is idempotent while it is current. Once the
+        # selected evidence disappears, a stale callback cannot append again.
+        reports.pop()
+        response = runtime.handle_callback("101", save_button)
+        assert response["code"] == "FIFO_PROVISIONAL_INPUT_STALE"
+        assert len(estimate_repository.rows) == 1
         assert transition.writes == 0
         assert "provisional_flow" in runtime._sessions["101"]
     finally:

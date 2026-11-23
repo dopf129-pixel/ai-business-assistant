@@ -3280,3 +3280,7 @@ Summary Report теперь включает:
 
 - Added FIFO schema v20 append-only storage for provisional estimates, exactly scoped by owner/tenant/store/product/offer/SKU and saved case revision, with idempotency, 100-record and 64 KiB payload limits.
 - Added v19-to-v20 upgrade and backup/restore regressions. Planning schema version and SQLite `PRAGMA user_version` remain unchanged; Telegram save/history/comparison flows are not enabled until PF21–PF23.
+# 2026-11-23 — Provisional FIFO PF21 saved estimate action
+
+- Added the ordinary Telegram «Сохранить оценку» action for valid aggregate ranges and fully gated timeline models. The callback re-reads the selected evidence and recalculates before writing, then appends only the scoped provisional estimate with a deterministic idempotency key.
+- Stale case/evidence/fingerprint, expired timeline uploads, invalid payloads and quota limits fail closed. No transition prepare/apply, factual FIFO, COGS, or Period Profit write is used.

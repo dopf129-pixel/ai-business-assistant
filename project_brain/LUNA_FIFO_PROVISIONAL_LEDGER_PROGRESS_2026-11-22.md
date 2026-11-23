@@ -3,12 +3,20 @@
 Основа: `project_brain/LUNA_FIFO_PROVISIONAL_LEDGER_TASK_2026-11-22.md`, PR #740.
 Начат: 2026-11-23 (Europe/Moscow).
 
-## Resume — состояние после PF20
+## Resume — состояние после PF21
 
-- Последний завершённый этап: PF20. Следующий этап: PF21 — сохранение оценки только после повторной проверки актуальности, ограниченного TTL и строгого case/owner/store/SKU/fingerprint/version binding; без prepare/apply.
+- Последний завершённый этап: PF21. Следующий этап: PF22 — история/сравнение сохранённых оценок, восстановление после перезапуска и запрет переноса между контекстами.
 - PR A #741: branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e`, exact-head CI run `45142413339` green. PR B #742: branch `codex/fifo-provisional-timeline`, head `9f5aa5cbea5f990beb782fa45791afcc94e59af4`, exact-head CI run `45172484489` green. PR C branch `codex/fifo-provisional-saved-estimates` is based on exact PR B head.
-- PF20 changed FIFO-owned schema v20 and synthetic tests only; `Planning` metadata and tracked `data/` remain unchanged. Focused verification: **54 passed** (`tests/test_fifo_cost_repository.py`, `tests/test_bot_backup_service.py`); compileall, diff check and data-diff checks passed after checkpoint cleanup.
+- PF20 changed FIFO-owned schema v20 and synthetic tests only; `Planning` metadata and tracked `data/` remain unchanged. Its focused profile was **54 passed**. PF21 adds the standard Telegram save action and strict model-specific payload validation; linked scenario/timeline/repository/schema/backup profile: **66 passed in 4.73s**. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed.
 - No PR C hosted CI yet; it is created after PF20–PF25. No merge, deployment, live bot, Ozon or Telegram request was performed.
+
+## PF21 — save only a fresh provisional estimate
+
+- Production composition injects the existing FIFO repository into the provisional scenario service. A save button is shown only for `SUMMARY_RANGE` or a final `TIMELINE_MODEL`; timeline gaps can save only the separate aggregate summary.
+- Save callback re-reads the exact case and selected complete reports, recomputes the summary, and for a timeline result re-reads confirmed physical-sales evidence and verifies the still-current, non-expired FBO/owner-movements inputs. The canonical input fingerprint includes case/identity/revision, model policy, rates, period, assumptions, selected evidence digests and timeline source-presence/coverage state. The button ticket is owner/store/SKU/case/revision/flow scoped by the existing runtime and carries that fingerprint.
+- Repository append runs `BEGIN IMMEDIATE`, rechecks exact owner/tenant/store/product/offer/SKU and current editable case revision, validates the allowlisted aggregate-only payload, and appends to the v20 table. A key `prov1_<input fingerprint>` makes a same-input retry return the existing row. Changed input, stale case/source, invalid scope, closed case, payload or 100-row limit fails without evicting records. No factual FIFO prepare/apply or COGS/Period Profit write is called.
+- Added repository API and regressions for idempotent append, conflicting reuse, wrong identity, stale revision, closed case, unapproved payload, incomplete model result, mismatched method and non-ISO date. Ordinary Telegram regression saves a synthetic estimate, confirms only digest references are stored, and rejects an old save callback after the selected report disappears. Linked timeline/FBO/repository/schema/backup profile: **66 passed in 4.73s**; `compileall`, diff check and tracked data diff passed.
+- Updated Decision 068, owner guide, CHANGELOG, CURRENT_STATE and TEST_MAP. No production data, real Ozon/Telegram calls or working bot were used. PF22 history/restart and PF23 conditional profit are still pending.
 
 ## PF20 — append-only provisional estimate storage
 

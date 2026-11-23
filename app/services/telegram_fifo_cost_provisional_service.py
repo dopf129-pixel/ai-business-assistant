@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import hashlib
+import json
 import re
 from time import monotonic
 from uuid import uuid4
@@ -29,7 +31,8 @@ class TelegramFifoCostProvisionalService:
     """Keep provisional inputs in the existing short-lived Telegram session.
 
     This service never writes transition cases, FIFO layers, Period Profit data,
-    or the saved-estimate ledger. Durable estimates are introduced separately.
+    or factual cost/profit ledgers. Saved scenarios go only to the isolated
+    append-only provisional-estimate ledger.
     """
 
     PAGE_SIZE = 8
@@ -39,12 +42,14 @@ class TelegramFifoCostProvisionalService:
 
     def __init__(
         self, *, evidence_reader, summary_service, fbo_worker=None,
-        timeline_service=None, monotonic_clock=monotonic,
+        timeline_service=None, estimate_repository=None,
+        monotonic_clock=monotonic,
     ):
         self.evidence_reader = evidence_reader
         self.summary_service = summary_service
         self.fbo_worker = fbo_worker or FifoCostReportImportWorkerClient()
         self.timeline_service = timeline_service or FifoCostProvisionalTimelineService()
+        self.estimate_repository = estimate_repository
         self._monotonic = monotonic_clock
 
     def start(self, runtime, owner, session):
@@ -147,6 +152,8 @@ class TelegramFifoCostProvisionalService:
             return self._calculate(runtime, owner, session, flow)
         elif action == "provisional_timeline_calculate":
             return self._calculate_timeline(runtime, owner, session, flow)
+        elif action == "provisional_save":
+            return self._save_estimate(runtime, owner, session, ticket, flow)
         elif action == "provisional_timeline_coverage_yes":
             flow["timeline_coverage_confirmed"] = True
         elif action == "provisional_timeline_coverage_no":
@@ -314,6 +321,19 @@ class TelegramFifoCostProvisionalService:
             lines.extend(["", self._format_result(flow["result"])])
         if flow.get("timeline_result") is not None:
             lines.extend(["", self._format_timeline_result(flow["timeline_result"], flow.get("result"))])
+        candidate = self._saved_candidate(session, flow)
+        if candidate is not None and self.estimate_repository is not None:
+            if flow.get("saved_input_fingerprint") == candidate["input_fingerprint"]:
+                lines.extend(["", "Оценка сохранена отдельно как предварительная; фактический FIFO и прибыль не менялись."])
+            else:
+                buttons.append({
+                    "text": "💾 Сохранить оценку",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_save",
+                        input_fingerprint=candidate["input_fingerprint"],
+                        model_kind=candidate["payload"]["model_kind"],
+                    ),
+                })
         return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
 
     def _start_fbo_upload(self, runtime, owner, session, flow):
@@ -1096,7 +1116,293 @@ class TelegramFifoCostProvisionalService:
             physical_sales_status=physical_status,
             owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
         )
+        flow["timeline_evidence_fingerprints"] = self._timeline_evidence_fingerprints(
+            snapshot, movement,
+            accepted_fbo.get("document") if isinstance(accepted_fbo, dict) else None,
+            flow.get("movement_document"),
+            source_bundle.get("fingerprint") if isinstance(source_bundle, dict)
+            and source_bundle.get("physical_sales_status") == "CONFIRMED" else None,
+            physical_sales_status=physical_status,
+            owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+        )
         return self.show(runtime, owner, session)
+
+    def _save_estimate(self, runtime, owner, session, ticket, flow):
+        expected_fingerprint = ticket.get("input_fingerprint")
+        requested_kind = ticket.get("model_kind")
+        if (self.estimate_repository is None
+                or not self._is_sha256(expected_fingerprint)
+                or requested_kind not in {"SUMMARY_RANGE", "TIMELINE_MODEL"}):
+            return runtime._stale()
+        current = runtime._read_case(session["case_id"], session["identity"])
+        if not runtime._case_matches(current, session["identity"], session["case_revision"]):
+            return runtime._result(
+                "Дело изменилось после расчёта. Оценка не сохранена; пересчитайте её.",
+                code="FIFO_PROVISIONAL_CASE_STALE",
+            )
+        reports = self._reports(runtime, session)
+        if reports is None:
+            return runtime._result(
+                "Не удалось повторно проверить ведомости. Оценка не сохранена.",
+                code="FIFO_PROVISIONAL_EVIDENCE_UNAVAILABLE",
+            )
+        try:
+            request = self._build_summary_request(runtime, session, flow, reports)
+        except (KeyError, TypeError, ValueError, InvalidOperation):
+            request = None
+        if request is None:
+            return runtime._result(
+                "Исходные отчёты или допущения изменились. Оценка не сохранена; выполните расчёт заново.",
+                code="FIFO_PROVISIONAL_INPUT_STALE",
+            )
+        summary_result = self.summary_service.calculate(request)
+        if summary_result.status is not ProvisionalStatus.SUMMARY_RANGE:
+            return runtime._result(
+                "Повторная проверка источников не дала сопоставимую оценку. Сохранение отменено.",
+                code="FIFO_PROVISIONAL_INPUT_STALE",
+            )
+        timeline_result = None
+        timeline_fingerprints = ()
+        if requested_kind == "TIMELINE_MODEL":
+            timeline_result, timeline_fingerprints = self._fresh_timeline_result(
+                runtime, session, flow, reports, request, summary_result,
+            )
+            if (timeline_result is None
+                    or timeline_result.status is not ProvisionalStatus.TIMELINE_MODEL):
+                return runtime._result(
+                    "Хронологические источники устарели или неполны. Оценка не сохранена; проверьте модель заново.",
+                    code="FIFO_PROVISIONAL_TIMELINE_STALE",
+                )
+        candidate = self._candidate_from_results(
+            session, flow, summary_result, timeline_result,
+            timeline_fingerprints=timeline_fingerprints,
+            requested_kind=requested_kind,
+        )
+        if (candidate is None
+                or candidate["input_fingerprint"] != expected_fingerprint):
+            return runtime._result(
+                "Входные данные оценки изменились после показа. Ничего не сохранено; пересчитайте диапазон.",
+                code="FIFO_PROVISIONAL_INPUT_STALE",
+            )
+        result = self.estimate_repository.append_provisional_preview(
+            preview_id="prov_" + uuid4().hex,
+            case_id=session["case_id"],
+            case_revision=session["case_revision"],
+            store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"],
+            input_fingerprint=candidate["input_fingerprint"],
+            idempotency_key="prov1_" + candidate["input_fingerprint"],
+            payload=candidate["payload"],
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            code = result.get("code") if isinstance(result, dict) else None
+            message = (
+                "Для этого дела достигнут предел сохранённых оценок. Старые оценки не удалены."
+                if code == "FIFO_PROVISIONAL_PREVIEW_LIMIT_REACHED"
+                else "Не удалось безопасно сохранить оценку. Предыдущие оценки и фактический FIFO не изменены."
+            )
+            return runtime._result(message, code=code or "FIFO_PROVISIONAL_SAVE_UNAVAILABLE")
+        flow["saved_input_fingerprint"] = candidate["input_fingerprint"]
+        flow["saved_preview_id"] = result.get("item", {}).get("preview_id")
+        return self.show(runtime, owner, session)
+
+    def _fresh_timeline_result(self, runtime, session, flow, reports, request, summary_result):
+        snapshot = self._find(reports, flow.get("snapshot_fingerprint"))
+        movement = self._find(reports, flow.get("movement_fingerprint"))
+        source_reader = self.evidence_reader
+        source_bundle = (
+            source_reader.read_timeline_sources(
+                case_id=session["case_id"], identity=session["identity"],
+                expected_case_revision=session["case_revision"],
+            )
+            if callable(getattr(source_reader, "read_timeline_sources", None))
+            else {"error": False, "physical_sales": None, "physical_sales_status": "NOT_CONFIGURED"}
+        )
+        if snapshot is None or movement is None:
+            return None, ()
+        if not isinstance(source_bundle, dict) or source_bundle.get("error") is not False:
+            physical_sales, physical_status, physical_fingerprint = None, "UNAVAILABLE", None
+        else:
+            physical_sales = source_bundle.get("physical_sales")
+            physical_status = source_bundle.get("physical_sales_status")
+            physical_fingerprint = (
+                source_bundle.get("fingerprint") if physical_status == "CONFIRMED" else None
+            )
+        fbo_upload = flow.get("fbo_upload")
+        accepted_fbo = (
+            fbo_upload.get("accepted") if isinstance(fbo_upload, dict)
+            and self._upload_matches_session(runtime, session, fbo_upload) else None
+        )
+        timeline = self.timeline_service.calculate(
+            scope=request.scope,
+            timezone_name=request.store_timezone,
+            case_id=session["case_id"],
+            snapshot_report=snapshot["report"],
+            movement_report=movement["report"],
+            summary_result=summary_result,
+            fbo_document=accepted_fbo.get("document") if isinstance(accepted_fbo, dict) else None,
+            fbo_coverage_from=fbo_upload.get("period_from") if isinstance(accepted_fbo, dict) else None,
+            fbo_coverage_to=fbo_upload.get("period_to") if isinstance(accepted_fbo, dict) else None,
+            movement_document=flow.get("movement_document"),
+            confirmed_reports=(snapshot["report"], movement["report"]),
+            confirmed_physical_sales=physical_sales,
+            physical_sales_status=physical_status,
+            owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+        )
+        fingerprints = self._timeline_evidence_fingerprints(
+            snapshot, movement,
+            accepted_fbo.get("document") if isinstance(accepted_fbo, dict) else None,
+            flow.get("movement_document"), physical_fingerprint,
+            physical_sales_status=physical_status,
+            owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+        )
+        return timeline, fingerprints
+
+    def _saved_candidate(self, session, flow):
+        summary = flow.get("result")
+        timeline = flow.get("timeline_result")
+        if timeline is not None and timeline.status is ProvisionalStatus.TIMELINE_MODEL:
+            requested_kind = "TIMELINE_MODEL"
+        else:
+            requested_kind = "SUMMARY_RANGE"
+        return self._candidate_from_results(
+            session, flow, summary, timeline,
+            timeline_fingerprints=flow.get("timeline_evidence_fingerprints", ()),
+            requested_kind=requested_kind,
+        )
+
+    def _candidate_from_results(
+        self, session, flow, summary_result, timeline_result, *,
+        timeline_fingerprints=(), requested_kind,
+    ):
+        if (summary_result is None
+                or summary_result.status is not ProvisionalStatus.SUMMARY_RANGE):
+            return None
+        case = session.get("case")
+        identity = session.get("identity")
+        if not isinstance(case, dict) or not isinstance(identity, dict):
+            return None
+        if requested_kind == "SUMMARY_RANGE":
+            model_kind = "SUMMARY_RANGE"
+            method = "AGGREGATE_SUMMARY_V1"
+            policy_version = self.summary_service.POLICY_VERSION
+            evidence_fingerprints = [
+                summary_result.snapshot_fingerprint,
+                summary_result.movement_fingerprint,
+            ]
+            selected_result = {
+                "redeemed_units": summary_result.redeemed_units,
+                "old_sold_min": summary_result.old_sold_min,
+                "old_sold_max": summary_result.old_sold_max,
+                "new_sold_min": summary_result.new_sold_min,
+                "new_sold_max": summary_result.new_sold_max,
+                "gross_cogs_low_rub": str(summary_result.gross_cogs_low_rub),
+                "gross_cogs_high_rub": str(summary_result.gross_cogs_high_rub),
+            }
+        elif (requested_kind == "TIMELINE_MODEL" and timeline_result is not None
+              and timeline_result.status is ProvisionalStatus.TIMELINE_MODEL):
+            model_kind = "TIMELINE_MODEL"
+            method = "EVENT_TIMELINE_V1"
+            policy_version = getattr(
+                self.timeline_service, "POLICY_VERSION", "fifo-provisional-timeline-v1",
+            )
+            evidence_fingerprints = list(timeline_fingerprints)
+            selected_result = {
+                "redeemed_units": timeline_result.redeemed_units,
+                "old_sold_units": timeline_result.old_sold_units,
+                "new_sold_units": timeline_result.new_sold_units,
+                "gross_cogs_rub": str(timeline_result.gross_cogs_rub),
+                "returned_units": timeline_result.returned_units,
+                "non_sale_removed_units": timeline_result.non_sale_removed_units,
+                "non_sale_removed_cost_rub": str(timeline_result.non_sale_removed_cost_rub),
+                "ending_available_units": timeline_result.ending_available_units,
+                "ending_held_units": timeline_result.ending_held_units,
+                "ending_buyer_delivery_units": timeline_result.ending_buyer_delivery_units,
+            }
+        else:
+            return None
+        evidence_fingerprints = sorted({
+            value for value in evidence_fingerprints if self._is_sha256(value)
+        })
+        if not evidence_fingerprints:
+            return None
+        flow_assumptions = {
+            "opening_all_old": flow.get("opening_all_old"),
+            "all_period_supply_receipts_new": flow.get("all_period_supply_receipts_new"),
+            "closing_old_min": flow.get("closing_old_min"),
+            "closing_old_max": flow.get("closing_old_max"),
+            "timeline_coverage_confirmed": (
+                flow.get("timeline_coverage_confirmed")
+                if model_kind == "TIMELINE_MODEL" else None
+            ),
+        }
+        payload = {
+            "schema_version": 1,
+            "model_kind": model_kind,
+            "currency": "RUB",
+            "method": method,
+            "policy_version": policy_version,
+            "period_from": summary_result.period_from,
+            "period_to": summary_result.period_to,
+            "input_fingerprint": None,
+            "evidence_fingerprints": evidence_fingerprints,
+            "assumptions": flow_assumptions,
+            "rates": {
+                "old_unit_cost_rub": str(summary_result.old_cost_rub),
+                "new_unit_cost_rub": str(summary_result.new_cost_rub),
+            },
+            "result": selected_result,
+        }
+        fingerprint_basis = {
+            **payload,
+            "input_fingerprint": None,
+            "case_id": session.get("case_id"),
+            "case_revision": session.get("case_revision"),
+            "identity": {
+                "store_id": identity.get("store_id"),
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity.get("sku"),
+            },
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                fingerprint_basis, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        payload["input_fingerprint"] = fingerprint
+        return {"input_fingerprint": fingerprint, "payload": payload}
+
+    @classmethod
+    def _timeline_evidence_fingerprints(
+        cls, snapshot, movement, fbo_document, movement_document,
+        physical_sales_fingerprint=None, *, physical_sales_status=None,
+        owner_confirmed_coverage=False,
+    ):
+        values = [
+            snapshot.get("file_fingerprint") if isinstance(snapshot, dict) else None,
+            movement.get("file_fingerprint") if isinstance(movement, dict) else None,
+            getattr(fbo_document, "file_sha256", None),
+            getattr(fbo_document, "document_fingerprint", None),
+            getattr(movement_document, "file_sha256", None),
+            getattr(movement_document, "document_fingerprint", None),
+            physical_sales_fingerprint,
+        ]
+        state_fingerprint = hashlib.sha256(json.dumps({
+            "fbo_present": fbo_document is not None,
+            "owner_movements_present": movement_document is not None,
+            "physical_sales_status": physical_sales_status,
+            "owner_confirmed_coverage": owner_confirmed_coverage,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        values.append(state_fingerprint)
+        return tuple(sorted({value for value in values if cls._is_sha256(value)}))
+
+    @staticmethod
+    def _is_sha256(value):
+        return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
 
     @staticmethod
     def _build_summary_request(runtime, session, flow, reports):
@@ -1297,3 +1603,8 @@ class TelegramFifoCostProvisionalService:
     @staticmethod
     def _advance(runtime, session):
         session["flow_revision"] = session.get("flow_revision", 0) + 1
+        flow = session.get("provisional_flow")
+        if isinstance(flow, dict):
+            flow.pop("saved_input_fingerprint", None)
+            flow.pop("saved_preview_id", None)
+            flow.pop("timeline_evidence_fingerprints", None)

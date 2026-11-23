@@ -7236,3 +7236,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_fifo_cost_repository.py`: v19→v20 additive migration preserves transition cases/revisions and Planning metadata; preview rows exactly bind owner/tenant/store/product/offer/SKU and case revision, are idempotent and append-only, and enforce 100 per case / 64 KiB per payload.
 - `tests/test_bot_backup_service.py`: backup verification, dry-run and restore preserve a synthetic estimate, FIFO schema v20, Planning schema version 12, and SQLite `user_version=41`.
 - PF20 focused profile: **54 passed**. Telegram save/history/comparison behavior remains disabled until PF21–PF23.
+# Provisional FIFO estimate save action (PF21)
+
+- `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary transition-card save button, exact model/evidence fingerprints, no raw identifiers, successful isolated append, and stale selected report blocking a stale callback.
+- `tests/test_fifo_cost_provisional_preview_repository.py`: scoped current-case writes, idempotent retry, conflicting idempotency payload rejection, stale revision, closed case, and disallowed raw/unrecognized payload fields.
+- Linked PF21 profile: **65 passed** across ordinary save, timeline/FBO flow, repository, FIFO schema and backup/restore tests. Save writes only `fifo_cost_provisional_previews`; full-suite and hosted exact-head CI remain pending.
