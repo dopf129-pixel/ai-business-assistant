@@ -1,7 +1,20 @@
+# Provisional FIFO report-selection review correction (PR A)
+
+- `tests/test_telegram_fifo_cost_provisional_service.py::test_report_switch_clears_only_dependent_assumptions_and_labels_fit_telegram`: duplicate-period report choices remain distinct and within Telegram's 64-character limit; movement changes clear receipt/closing assumptions but preserve opening stock; snapshot changes clear all dependent assumptions; no factual FIFO write occurs.
+- PR A linked profile: **59 passed**; integrated A+B profile: **140 passed**.
+
+# Provisional FIFO timeline review corrections (PR B)
+
+- `tests/test_fifo_cost_provisional_movements_import_service.py`: CSV and typed construction reject `SUPPLY_RECEIVED` in `buyer_delivery`.
+- `tests/test_fifo_cost_provisional_timeline_service.py`: reconciled unlinked opening delivery is carried untouched; post-cutoff delivery remains pending for an in-window dispatch.
+- `tests/test_fifo_cost_report_import_worker_client.py`: 50,000 owner movement rows pass the bounded 32 MiB subprocess output contract.
+- PR B linked profile: **111 passed**; integrated A+B profile: **140 passed**.
+- Final A+B+C linked profile: **152 passed** after including provisional estimate history/repository tests; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+
 # Provisional FIFO saved estimate history and conditional profit (PF22–PF24)
 
 - `tests/test_fifo_cost_provisional_preview_repository.py`: scoped list paging/order, cross-identity/tenant rejection, immutable append, legacy v1 payload compatibility, and v2 owner-confirmed profit scope/cents/formula validation with invalid-payload rejection and prior-row retention.
-- `tests/test_telegram_fifo_cost_provisional_service.py`: reopening saved scenarios; explicit reason when no base is confirmed; withholding profit before confirmation; exact C04 interval and COGS shown before confirmation; disclosure that a manual base is not independently verified against a finance report; negative base; comparison blocked across source/provenance, return-reversal or tax-stage mismatch; message size and no-factual-write guards. History-only navigation through list, page, detail, compare, cancel/back and return to calculator preserves the active model evidence, confirmed profit base and saved markers; subsequent loss of source evidence still rejects an attempted save.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: reopening saved scenarios; explicit reason when no base is confirmed; withholding profit before confirmation; exact C04 interval and COGS shown before confirmation; disclosure that a manual base is not independently verified against a finance report; negative base; comparison blocked across source/provenance, return-reversal or tax-stage mismatch; message size and no-factual-write guards. History-only navigation through list, page, detail, compare, cancel/back and return to calculator preserves the active model evidence, confirmed profit base and saved markers; subsequent loss of source evidence still rejects an attempted save. The same test module verifies report switching and compact duplicate-period labels.
 - Review regression: linked provisional/transition/repository profile — **72 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
 - Linked PF22–PF24 profile (`test_telegram_fifo_cost_provisional_service.py`, `test_fifo_cost_provisional_fbo_telegram_flow.py`, `test_fifo_cost_provisional_preview_repository.py`, `test_fifo_cost_repository.py`, `test_bot_backup_service.py`, `test_fifo_cost_provisional_timeline_service.py`): **76 passed in 5.03s**. `compileall -q app tests`, `git diff --check`, and tracked `data/` equality passed. Full isolated PR C suite and exact-head hosted CI remain pending.
 

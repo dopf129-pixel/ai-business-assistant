@@ -1,3 +1,10 @@
+# 2026-11-24 — Provisional FIFO PR A/B review corrections in the PR C stack
+
+- PR A report selection now clears only dependent assumptions, identifies duplicate-period reports with compact UTC/fingerprint button labels, and keeps button text within Telegram's limit. PR B rejects invalid buyer-delivery receipts, constrains model events to the selected report cutoff, preserves an in-window post-cutoff delivery as pending, retains reconciled unlinked opening reserve without funding buyout, and supports the bounded maximum movement output.
+- PR A-only linked profile: **59 passed**; PR B-only: **111 passed**; combined A+B profile: **140 passed**. Compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- The final linked A+B+C profile passed **152 tests** after integrating all three review fixes. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed; hosted exact-head verification remains pending.
+- PR C history-navigation correction is recorded below; exact hosted CI is pending publication of the integrated stack.
+
 # 2026-11-24 — Provisional FIFO PR C review correction
 
 - Fixed the history-navigation finding: every history-only transition preserves timeline evidence, the confirmed conditional-profit basis and immutable saved-preview markers. Real calculation inputs retain the existing invalidation behavior.

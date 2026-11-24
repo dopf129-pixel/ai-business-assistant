@@ -3,7 +3,7 @@
 ## Scope and dependency
 
 - PR: provisional FIFO event timeline (PF11–PF19), branch `codex/fifo-provisional-timeline`.
-- Target base: PR A #741 branch `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; PR A itself is based on specification PR #740 at `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`.
+- Target base: PR A #741 branch `codex/fifo-provisional-summary`, updated head `30e6d735a666d97fd670fae0b1b011a4f9c5950b`; PR A itself is based on specification PR #740 at `49dbbd77ffa10ac0493b1bb4e83acf123b3005cf`.
 - Local code/documentation verification SHA: `520eed936328793bd62fda3df621ad06b965cea4`. PR packaging adds this packet and the PF19 verification checkpoint; use the published final PR head for final review and CI.
 - Change class: **Architecture Review Required**. Adds the independent timeline gate, event replay integration, owner CSV worker route, and normal Telegram presenter. It does not replace factual FIFO or finance services.
 
@@ -39,3 +39,11 @@
 - No factual FIFO/COGS/finance/Period Profit mutation, real Telegram/Ozon request, production bot launch, merge, or deployment was performed.
 - The owner’s current incomplete historical event set must remain `TIMELINE_GAP`; an owner completeness confirmation cannot manufacture missing timestamps, receipts, return links or source evidence. Real-world model readiness still requires complete source history and exact report reconciliation.
 - Saved estimate history, persistence/migration/backup, comparison and conditional profit belong to dependent PR C and are not implemented by PR B.
+
+## Follow-up review fixes — 2026-11-24
+
+- `SUPPLY_RECEIVED` can no longer inject quantity into `buyer_delivery`, through either the CSV parser or direct typed event construction.
+- The timeline now uses the selected movement report's inclusive `period_to` as its model cutoff. Later owner events and physical-sale rows cannot enter the replay; post-cutoff delivery leaves an in-window FBO dispatch reserved. Opening delivery units lacking an exact posting key are kept as an untouched closing reserve, never as available stock or buyout supply, and still must reconcile with all closing buckets.
+- The shared worker accepts up to 32 MiB for the already bounded 50,000-row owner-movement result; parser and parent validate the same limit.
+- Updated linked profile: **111 passed** across timeline, normalizer, replay, movement/FBO import, evidence reader, Telegram and worker. Compileall, diff check and unchanged tracked data passed. Hosted CI must be checked on the published current head.
+- With PR A's updated report-selection changes integrated, the combined A+B linked profile passed **140 tests**. `compileall`, `git diff --check`, and unchanged tracked `data/` passed on that integrated working tree. Exact-head hosted CI remains pending publication.

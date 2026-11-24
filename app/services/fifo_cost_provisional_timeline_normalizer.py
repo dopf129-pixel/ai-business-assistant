@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from hashlib import sha256
 from types import MappingProxyType
 from typing import Mapping
@@ -50,7 +50,7 @@ class ProvisionalTimelineNormalizationResult:
 class FifoCostProvisionalTimelineNormalizer:
     """Combines event-level sources without promoting aggregates to events."""
 
-    def normalize(self, *, scope, timezone_name, model_start, fbo_document=None,
+    def normalize(self, *, scope, timezone_name, model_start, model_end=None, fbo_document=None,
                   movement_document=None, confirmed_reports=(),
                   confirmed_physical_sales=None, physical_sales_status=None,
                   case_id=None):
@@ -58,7 +58,11 @@ class FifoCostProvisionalTimelineNormalizer:
             return self._result((), (), (Issue.FBO_SCOPE_MISMATCH,), None)
         try:
             timezone_name = normalize_store_timezone(timezone_name)
-            if not isinstance(model_start, date):
+            if (not isinstance(model_start, date) or isinstance(model_start, datetime)
+                    or (model_end is not None and (
+                        not isinstance(model_end, date) or isinstance(model_end, datetime)
+                        or model_end < model_start
+                    ))):
                 raise ValueError
             expected_scope = scope_fingerprint(scope, timezone_name)
         except (TypeError, ValueError):
@@ -97,6 +101,7 @@ class FifoCostProvisionalTimelineNormalizer:
             timezone_name=timezone_name,
             expected_scope=expected_scope,
             model_start=model_start,
+            model_end=model_end,
             case_id=case_id,
             fbo_by_posting=fbo_by_posting,
             issues=issues,
@@ -104,6 +109,7 @@ class FifoCostProvisionalTimelineNormalizer:
 
         opening_links = {}
         return_units = {}
+        cancelled_after_start = set()
         accepted_owner_events = []
         for event in owner_events:
             if (event.scope_fingerprint != expected_scope or event.finance_sku != scope.sku):
@@ -139,6 +145,13 @@ class FifoCostProvisionalTimelineNormalizer:
                 if return_units[event.posting_key] > row.quantity:
                     issues.add(Issue.EVENT_QUANTITY_EXCEEDS_POSTING)
                     continue
+                if (event.event_kind is Kind.NON_BUYOUT_RESTOCK
+                        and event.local_date >= model_start):
+                    cancelled_after_start.add(event.posting_key)
+            if model_end is not None and event.local_date > model_end:
+                # Later owner evidence may explain the source's current status,
+                # but it is not a movement inside the selected closing window.
+                continue
             if (event.event_kind is not Kind.OPENING_TRANSIT_LINK
                     and event.local_date < model_start):
                 # The opening snapshot already includes events before this
@@ -151,17 +164,16 @@ class FifoCostProvisionalTimelineNormalizer:
         for posting_key, row in fbo_by_posting.items():
             if row.dispatch is None:
                 issues.add(Issue.FBO_DISPATCH_TIME_MISSING)
+            elif model_end is not None and row.dispatch.local_date > model_end:
+                if (row.status_kind == "DELIVERED" and row.delivered is not None
+                        and row.delivered.local_date <= model_end):
+                    issues.add(Issue.EVENT_ORDER_CONFLICT)
+                continue
             elif row.dispatch.local_date < model_start:
-                cancelled_after_start = any(
-                    event.event_kind is Kind.NON_BUYOUT_RESTOCK
-                    and event.posting_key == posting_key
-                    and event.local_date >= model_start
-                    for event in accepted_owner_events
-                )
                 still_open_at_start = (
                     row.status_kind != "CANCELLED"
                     and (row.delivered is None or row.delivered.local_date >= model_start)
-                ) or cancelled_after_start
+                ) or posting_key in cancelled_after_start
                 linked_units = opening_links.get(posting_key, 0)
                 if still_open_at_start and linked_units != row.quantity:
                     issues.add(Issue.FBO_OPENING_LINK_REQUIRED)
@@ -173,7 +185,15 @@ class FifoCostProvisionalTimelineNormalizer:
             if row.status_kind == "DELIVERED":
                 if row.delivered is None:
                     issues.add(Issue.FBO_DELIVERY_TIME_MISSING)
+                elif model_end is not None and row.delivered.local_date > model_end:
+                    # An in-window dispatch remains in the buyer-delivery
+                    # reserve until its delivery date enters the selected window.
+                    pass
                 elif row.delivered.local_date >= model_start:
+                    if (row.dispatch is None or (model_end is not None
+                            and row.dispatch.local_date > model_end)):
+                        issues.add(Issue.EVENT_ORDER_CONFLICT)
+                        continue
                     buyout_quantity = (
                         opening_links.get(posting_key, 0)
                         if row.dispatch is not None and row.dispatch.local_date < model_start
@@ -282,7 +302,7 @@ class FifoCostProvisionalTimelineNormalizer:
     @staticmethod
     def _physical_sale_events(
         evidence, *, scope, timezone_name, expected_scope, model_start,
-        case_id, fbo_by_posting, issues,
+        case_id, fbo_by_posting, issues, model_end=None,
     ):
         if evidence is None:
             return ()
@@ -318,6 +338,8 @@ class FifoCostProvisionalTimelineNormalizer:
                     raise ValueError("sku")
                 effective_date = date.fromisoformat(row.physical_effective_date)
                 if effective_date < model_start:
+                    continue
+                if model_end is not None and effective_date > model_end:
                     continue
                 posting_key = sha256(row.posting_number.encode("utf-8")).hexdigest()
                 fbo_row = fbo_by_posting.get(posting_key)

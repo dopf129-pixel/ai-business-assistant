@@ -1,3 +1,13 @@
+# 2026-11-24 — Provisional FIFO report-selection review fixes
+
+- Changing a report now invalidates only assumptions dependent on that report; selecting the same report is a no-op. Identical-period choices show kind, period, UTC capture time and short fingerprint within Telegram's 64-character button limit.
+- The merged A+B linked profile passed **140 tests**; compileall, diff check and unchanged tracked data passed.
+
+# 2026-11-24 — Provisional FIFO timeline review fixes
+
+- Rejected `SUPPLY_RECEIVED` events in `buyer_delivery`; preserved unlinked opening delivery only as an untouched reserve; bounded timeline events to report end; kept in-window deliveries pending at cutoff; raised the validated 50,000-row movement worker cap to 32 MiB.
+- Linked timeline/replay/import/Telegram profile: **111 passed**. The full merged A+B profile passed **140 tests**, and the final A+B+C linked profile passed **152 tests**; compileall, diff check and unchanged tracked data passed.
+
 # 2026-11-24 — Provisional FIFO history navigation review fix
 
 - History listing, pagination, detail, comparison, cancel/back, and return-to-calculator now preserve the current timeline evidence fingerprint, owner-confirmed profit basis and saved-preview markers. Scenario-changing inputs still invalidate them.
