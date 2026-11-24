@@ -166,12 +166,85 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         ))
         assert "Оценка сохранена отдельно" in response["message"]
         assert len(estimate_repository.calls) == 1
-        # The same opaque callback is idempotent while it is current. Once the
-        # selected evidence disappears, a stale callback cannot append again.
+
+        flow = session["provisional_flow"]
+        candidate = provisional._profit_scenario_candidate(session, flow)
+        assert candidate is not None
+        flow["timeline_evidence_fingerprints"] = ["e" * 64]
+        flow["profit_base_rub"] = "130000.00"
+        flow["profit_base_confirmed"] = True
+        flow["profit_model_kind"] = "SUMMARY_RANGE"
+        flow["profit_scenario_fingerprint"] = candidate["input_fingerprint"]
+        saved_preview_id = flow["saved_preview_id"]
+        saved_row = next(iter(estimate_repository.rows.values()))
+        for index in range(1, provisional.PAGE_SIZE + 1):
+            history_row = deepcopy(saved_row)
+            history_row["preview_id"] = f"preview-nav-{index}"
+            history_row["created_at_utc"] = f"2026-11-22T00:00:{index:02d}Z"
+            estimate_repository.rows[f"history-nav-{index}"] = history_row
+
+        def assert_scenario_preserved():
+            assert flow["timeline_evidence_fingerprints"] == ["e" * 64]
+            assert flow["profit_base_rub"] == "130000.00"
+            assert flow["profit_base_confirmed"] is True
+            assert flow["profit_scenario_fingerprint"] == candidate["input_fingerprint"]
+            assert flow["saved_preview_id"] == saved_preview_id
+
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history"),
+        )
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_page"),
+        )
+        assert flow["history_page"] == 1
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_view"),
+        )
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_detail_back"),
+        )
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_compare"),
+        )
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_compare"),
+        )
+        assert "Сравнение предварительных оценок" in response["message"]
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_detail_back"),
+        )
+        assert_scenario_preserved()
+        response = runtime.handle_callback(
+            "101", _ticket_for(runtime, response, "provisional_history_to_calculator"),
+        )
+        assert_scenario_preserved()
+        assert "Условная прибыль до налога (не факт)" in response["message"]
+        assert "19,596.80–19,812.70 ₽" in response["message"]
+
+        # Current navigation tickets still cannot save after selected evidence disappears.
+        # The already-saved fingerprint correctly hides a duplicate-save button.
+        # Recreate the callback against the current candidate to verify that it
+        # still fails safely if evidence disappears after the calculator is shown.
+        current_candidate = provisional._saved_candidate(session, flow)
+        assert current_candidate is not None
+        save_button = runtime._issue_ticket(
+            "101", session, "provisional_save",
+            input_fingerprint=current_candidate["input_fingerprint"],
+            model_kind=current_candidate["payload"]["model_kind"],
+        )
         reports.pop()
         response = runtime.handle_callback("101", save_button)
         assert response["code"] == "FIFO_PROVISIONAL_INPUT_STALE"
-        assert len(estimate_repository.rows) == 1
+        assert len(estimate_repository.calls) == 1
+        assert saved_preview_id in {
+            item["preview_id"] for item in estimate_repository.rows.values()
+        }
         assert transition.writes == 0
         assert "provisional_flow" in runtime._sessions["101"]
 

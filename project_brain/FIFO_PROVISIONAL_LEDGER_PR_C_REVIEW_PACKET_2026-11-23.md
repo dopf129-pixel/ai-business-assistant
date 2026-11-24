@@ -61,3 +61,8 @@ PR C implements PF20–PF26 on top of the provisional aggregate model in PR A an
 ## Final release gate
 
 Before considering this PR ready for independent review, confirm PR C is open against PR B, then inspect **all required CI checks on PR C’s exact current head SHA**. PRs #741 and #742 must remain the dependencies in the stated order. No PR is merged or deployed by this task.
+
+## Follow-up review fix — 2026-11-24
+
+- History-only actions now use one preservation path for timeline evidence fingerprints, the owner-confirmed conditional-profit basis, and saved-preview markers. This covers list, pagination, detail, comparison, cancel/back, and returning to the calculator. Non-history changes still invalidate dependent values.
+- Regression traverses that full path and keeps the conditional profit visible, then removes a selected report and proves a callback cannot append an estimate from stale evidence. Linked provisional/transition/repository profile: **72 passed**. Exact-head hosted CI must be confirmed after publishing the updated branch.

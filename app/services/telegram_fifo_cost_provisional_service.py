@@ -209,7 +209,7 @@ class TelegramFifoCostProvisionalService:
             flow.pop("history_compare_first_id", None)
             flow.pop("history_compare_second_id", None)
             flow.pop("history_preview_id", None)
-            self._advance(runtime, session)
+            self._advance_history(runtime, session)
             return self.show_history(runtime, owner, session)
         if action == "provisional_history_page":
             page = ticket.get("page")
@@ -217,7 +217,7 @@ class TelegramFifoCostProvisionalService:
                 return runtime._stale()
             flow["history_screen"] = "list"
             flow["history_page"] = page
-            self._advance(runtime, session)
+            self._advance_history(runtime, session)
             return self.show_history(runtime, owner, session)
         if action in {"provisional_history_view", "provisional_history_compare"}:
             preview_id = ticket.get("preview_id")
@@ -226,31 +226,31 @@ class TelegramFifoCostProvisionalService:
             if action == "provisional_history_view":
                 flow["history_screen"] = "detail"
                 flow["history_preview_id"] = preview_id
-                self._advance(runtime, session)
+                self._advance_history(runtime, session)
                 return self.show_history_detail(runtime, owner, session)
             first_id = flow.get("history_compare_first_id")
             if not first_id:
                 flow["history_compare_first_id"] = preview_id
                 flow["history_screen"] = "list"
                 flow["history_page"] = 0
-                self._advance(runtime, session)
+                self._advance_history(runtime, session)
                 return self.show_history(runtime, owner, session)
             if first_id == preview_id:
                 return runtime._result("Выберите другую оценку для сравнения.")
             flow["history_compare_second_id"] = preview_id
             flow["history_screen"] = "compare"
-            self._advance(runtime, session)
+            self._advance_history(runtime, session)
             return self.show_history_comparison(runtime, owner, session)
         if action == "provisional_history_compare_cancel":
             flow.pop("history_compare_first_id", None)
             flow.pop("history_compare_second_id", None)
             flow["history_screen"] = "list"
-            self._advance(runtime, session)
+            self._advance_history(runtime, session)
             return self.show_history(runtime, owner, session)
         if action == "provisional_history_detail_back":
             flow.pop("history_preview_id", None)
             flow["history_screen"] = "list"
-            self._advance(runtime, session)
+            self._advance_history(runtime, session)
             return self.show_history(runtime, owner, session)
         if action == "provisional_history_to_calculator":
             for key in (
@@ -258,7 +258,7 @@ class TelegramFifoCostProvisionalService:
                 "history_compare_second_id",
             ):
                 flow.pop(key, None)
-            self._advance(runtime, session)
+            self._advance_history(runtime, session)
             return self.show(runtime, owner, session)
         if action == "provisional_snapshot":
             return self._select_report(runtime, owner, session, ticket, flow, "snapshot")
@@ -2286,13 +2286,14 @@ class TelegramFifoCostProvisionalService:
     @staticmethod
     def _advance(
         runtime, session, *, preserve_model_evidence=False,
-        preserve_conditional_profit=False,
+        preserve_conditional_profit=False, preserve_saved_preview=False,
     ):
         session["flow_revision"] = session.get("flow_revision", 0) + 1
         flow = session.get("provisional_flow")
         if isinstance(flow, dict):
-            flow.pop("saved_input_fingerprint", None)
-            flow.pop("saved_preview_id", None)
+            if not preserve_saved_preview:
+                flow.pop("saved_input_fingerprint", None)
+                flow.pop("saved_preview_id", None)
             if not preserve_model_evidence:
                 flow.pop("timeline_evidence_fingerprints", None)
             if not preserve_conditional_profit:
@@ -2302,3 +2303,9 @@ class TelegramFifoCostProvisionalService:
                     "profit_pending_model_kind", "profit_pending_scenario_fingerprint",
                 ):
                     flow.pop(key, None)
+
+    def _advance_history(self, runtime, session):
+        self._advance(
+            runtime, session, preserve_model_evidence=True,
+            preserve_conditional_profit=True, preserve_saved_preview=True,
+        )

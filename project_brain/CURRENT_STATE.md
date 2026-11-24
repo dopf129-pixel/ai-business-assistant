@@ -1,3 +1,8 @@
+# 2026-11-24 — Provisional FIFO PR C review correction
+
+- Fixed the history-navigation finding: every history-only transition preserves timeline evidence, the confirmed conditional-profit basis and immutable saved-preview markers. Real calculation inputs retain the existing invalidation behavior.
+- Full synthetic history path now covers list, page, detail, back, comparison, cancel/navigation and calculator return, verifies the conditional profit remains available, and rejects an attempted save after the selected report disappears without appending another preview. Linked provisional/transition/repository profile: **72 passed**; exact-head hosted CI remains pending after publication.
+
 # 2026-11-23 — Provisional FIFO PF26 local release checkpoint
 
 - PR C code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` passed the isolated full Windows/Python 3.12 repository suite: **5,579 passed in 97.95s**. The disposable copy omitted `.env` and owner `data/`, using only a synthetic tax policy. `compileall -q app tests`, test database initialization, `git diff --check`, and tracked-data equality passed.

@@ -1,3 +1,8 @@
+# 2026-11-24 — Provisional FIFO history navigation review fix
+
+- History listing, pagination, detail, comparison, cancel/back, and return-to-calculator now preserve the current timeline evidence fingerprint, owner-confirmed profit basis and saved-preview markers. Scenario-changing inputs still invalidate them.
+- Added a Telegram regression that traverses the full history navigation path, verifies the conditional profit remains visible, and confirms a stale save callback is rejected without a new append. Linked profile: **72 passed**.
+
 # 2026-11-23 — Provisional FIFO PR C isolated release verification (PF26)
 
 - Fixed stale synthetic migration assertions for the additive FIFO schema v20 estimate table and teardown order. Focused checkpoint/schema profile: **29 passed**.
