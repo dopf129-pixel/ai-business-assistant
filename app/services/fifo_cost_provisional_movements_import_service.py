@@ -236,7 +236,9 @@ class FifoCostProvisionalMovementsImportService:
     @staticmethod
     def _valid_fields(kind, posting_key, stock_zone, resellable):
         if kind is ProvisionalTimelineEventKind.SUPPLY_RECEIVED:
-            return posting_key is None and stock_zone is not None and resellable is None
+            return (posting_key is None and stock_zone is not None
+                    and stock_zone is not ProvisionalStockZone.BUYER_DELIVERY
+                    and resellable is None)
         if kind is ProvisionalTimelineEventKind.OPENING_TRANSIT_LINK:
             return posting_key is not None and stock_zone is None and resellable is None
         if kind in {ProvisionalTimelineEventKind.NON_BUYOUT_RESTOCK,

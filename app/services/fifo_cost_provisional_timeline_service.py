@@ -97,6 +97,7 @@ class FifoCostProvisionalTimelineService:
             scope=scope,
             timezone_name=timezone_name,
             model_start=model_start,
+            model_end=period_to,
             fbo_document=fbo_document,
             movement_document=movement_document,
             confirmed_reports=confirmed_reports,
@@ -116,12 +117,13 @@ class FifoCostProvisionalTimelineService:
             event.quantity for event in normalized.events
             if event.event_kind is Kind.OPENING_TRANSIT_LINK
         )
-        if opening_delivery != linked_delivery:
+        if linked_delivery > opening_delivery:
             return self._outcome(
                 ProvisionalStatus.TIMELINE_GAP, "OPENING_DELIVERY_LINK_INCOMPLETE",
                 period_from=model_start.isoformat(), period_to=period_to.isoformat(),
                 supplied_events=len(normalized.events),
             )
+        unlinked_delivery = opening_delivery - linked_delivery
         expected_held = {
             ProvisionalStockZone(key): value for key, value in opening.items()
             if key not in {"available", "buyer_delivery"}
@@ -184,7 +186,7 @@ class FifoCostProvisionalTimelineService:
 
         model_closing = {key: 0 for key in closing}
         model_closing["available"] = replay.available_units
-        model_closing["buyer_delivery"] = replay.pending_reserve_units
+        model_closing["buyer_delivery"] = replay.pending_reserve_units + unlinked_delivery
         for key, value in replay.held_units_by_zone.items():
             bucket = "buyer_return_transit" if key == "non_resellable_customer_return" else key
             if bucket not in model_closing:
@@ -226,7 +228,7 @@ class FifoCostProvisionalTimelineService:
             non_sale_removed_cost_rub=replay.non_sale_removed_cost_rub,
             ending_available_units=replay.available_units,
             ending_held_units=sum(replay.held_units_by_zone.values()),
-            ending_buyer_delivery_units=replay.pending_reserve_units,
+            ending_buyer_delivery_units=replay.pending_reserve_units + unlinked_delivery,
         )
 
     @staticmethod

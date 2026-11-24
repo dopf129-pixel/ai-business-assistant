@@ -1,3 +1,10 @@
+# Provisional FIFO timeline review corrections (2026-11-24)
+
+- `tests/test_fifo_cost_provisional_movements_import_service.py`: `SUPPLY_RECEIVED` rejects `buyer_delivery` through both CSV and typed event construction.
+- `tests/test_fifo_cost_provisional_timeline_service.py`: an unlinked opening buyer-delivery residual is retained untouched and contributes only to closing reserve reconciliation; an in-window dispatch delivered after period end remains pending and cannot be counted as a buyout.
+- `tests/test_fifo_cost_report_import_worker_client.py`: a bounded 50,000-row owner-movement document passes the real subprocess boundary under the 32 MiB validated output cap.
+- Linked timeline/replay/import/Telegram profile: **111 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+
 # Provisional FIFO held stock and non-sale replay (PF17)
 
 - tests/test_fifo_cost_provisional_replay_service.py: opening held balances; exact release of known held layers; release quantity above bucket; release/removal from mixed-rate held stock fails closed; available non-sale removal consumes FIFO but stays outside buyout COGS; held write-off is separately valued; non-resellable customer returns can remain held and later return to availability at the original source rate; buyer-delivery is not released without posting linkage; duplicate posting lifecycle is preserved.

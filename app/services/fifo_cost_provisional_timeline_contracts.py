@@ -161,6 +161,9 @@ class ProvisionalTimelineEvent:
                     ProvisionalTimelineEventKind.NON_SALE_REMOVE,
                     ProvisionalTimelineEventKind.SUPPLY_RECEIVED} and self.stock_zone is None:
             raise ValueError("FIFO_PROVISIONAL_TIMELINE_ZONE_REQUIRED")
+        if (kind is ProvisionalTimelineEventKind.SUPPLY_RECEIVED
+                and self.stock_zone is ProvisionalStockZone.BUYER_DELIVERY):
+            raise ValueError("FIFO_PROVISIONAL_TIMELINE_ZONE_INVALID")
         if kind in {ProvisionalTimelineEventKind.NON_BUYOUT_RESTOCK,
                     ProvisionalTimelineEventKind.SALE_RETURN_RESTOCK}:
             if type(self.resellable) is not bool:

@@ -1,3 +1,9 @@
+# 2026-11-24 — Provisional FIFO timeline review fixes
+
+- Rejected `SUPPLY_RECEIVED` events in the `buyer_delivery` zone; opening buyer-delivery units without an exact posting link are retained as an untouched closing reserve and cannot fund a buyout.
+- Limited normalized owner/FBO/physical-sale events to the selected report end date. An in-window FBO dispatch delivered after that cutoff remains pending; future evidence cannot alter the selected window.
+- Raised the validated owner-movement worker output cap to 32 MiB for the existing 50,000-row bound. Regressions cover all four cases; linked timeline/replay/import/Telegram profile: **111 passed**.
+
 # 2026-11-23 — Provisional FIFO PR B local release verification (PF19)
 
 - Disposable Windows full-suite run on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy excluded repository `data/` and `.env`; only a synthetic `USN_INCOME` 6% tax file was added. `compileall -q app tests`, `git diff --check`, unchanged tracked `data/`, and equality of all five PF00 data blob IDs passed.

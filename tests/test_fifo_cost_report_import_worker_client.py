@@ -106,6 +106,17 @@ def _provisional_movements_payload():
     row = f"SUPPLY_RECEIVED;event-1;2026-11-06T09:00:00+03:00;{SCOPE.sku};1;;available;;source-1"
     return (";".join(parser.HEADER) + "\r\n" + row + "\r\n").encode("utf-8-sig")
 
+
+def _max_rows_provisional_movements_payload():
+    parser = FifoCostProvisionalMovementsImportService()
+    header = ";".join(parser.HEADER) + "\r\n"
+    rows = (
+        f"SALE_RETURN_RESTOCK;event-{index};2026-11-06T09:00:00+03:00;"
+        f"{SCOPE.sku};1;posting-1;;true;source-{index}\r\n"
+        for index in range(parser.MAX_ROWS)
+    )
+    return (header + "".join(rows)).encode("utf-8-sig")
+
 def test_worker_subprocess_parses_allowlisted_report_and_returns_normalized_evidence():
     result = FifoCostReportImportWorkerClient(
         extra_python_paths=(".fl12-deps",),
@@ -296,6 +307,20 @@ def test_provisional_movements_csv_subprocess_returns_redacted_events():
     assert result.document.events[0].event_kind.value == "SUPPLY_RECEIVED"
     assert "event-1" not in repr(result.document)
     assert "source-1" not in repr(result.document)
+
+
+def test_provisional_movements_worker_accepts_full_bounded_row_limit():
+    payload = _max_rows_provisional_movements_payload()
+    assert len(payload) <= FifoCostProvisionalMovementsImportService.MAX_FILE_BYTES
+
+    result = FifoCostReportImportWorkerClient().parse_provisional_movements_csv(
+        filename="movements.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == FifoCostProvisionalMovementsImportService.MAX_ROWS
+    assert result.document.total_units == FifoCostProvisionalMovementsImportService.MAX_ROWS
 
 
 def test_provisional_movements_worker_rejects_tampered_manifest_and_oversize():

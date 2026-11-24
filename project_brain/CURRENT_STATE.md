@@ -1,3 +1,8 @@
+# 2026-11-24 — Provisional FIFO timeline review corrections
+
+- Fixed the five confirmed PR B timeline/import findings: disallowed buyer-delivery receipts; bounded model events to the report end date while still validating owner movement fields/references; kept an in-window dispatch pending when delivery occurs after cutoff; retained unmatched opening delivery as an untouched reserve only when exact closing buckets reconcile; and raised the worker output cap for the supported maximum movement document.
+- Linked timeline/replay/import/Telegram profile: **111 passed**. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. No factual FIFO, finance, Period Profit, or saved estimate data was modified. Exact-head hosted CI remains to be checked after publication.
+
 # 2026-11-23 — Provisional FIFO PF19 full local verification
 
 - On implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`, the isolated full repository suite passed **5,565 tests in 95.75s** on Windows/Python 3.12. The copy excluded repository `data/` and `.env`, with only a synthetic tax policy. `compileall -q app tests`, `git diff --check`, and tracked `data/` blob equality to PF00 passed.

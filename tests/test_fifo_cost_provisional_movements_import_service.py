@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import reprlib
+
+import pytest
 
 from services.fifo_cost_provisional_movements_import_service import (
     FifoCostProvisionalMovementsImportService,
 )
-from services.fifo_cost_provisional_timeline_contracts import ProvisionalTimelineEventKind as Kind
+from services.fifo_cost_provisional_timeline_contracts import (
+    ProvisionalStockZone,
+    ProvisionalTimelineEventKind as Kind,
+)
 from services.fifo_cost_transition_contracts import ScopeIdentity
 
 
@@ -91,6 +97,7 @@ def test_timestamp_requires_instant_and_rejects_ambiguous_or_nonexistent_local_t
 def test_event_specific_fields_and_references_fail_closed_without_echoing_values():
     invalid_rows = (
         (_row("SUPPLY_RECEIVED", posting="posting-1"), "FIFO_PROVISIONAL_MOVEMENTS_FIELDS_INVALID"),
+        (_row("SUPPLY_RECEIVED", zone="buyer_delivery"), "FIFO_PROVISIONAL_MOVEMENTS_FIELDS_INVALID"),
         (_row("OPENING_TRANSIT_LINK", zone="available"), "FIFO_PROVISIONAL_MOVEMENTS_FIELDS_INVALID"),
         (_row("SALE_RETURN_RESTOCK", posting="posting-1"), "FIFO_PROVISIONAL_MOVEMENTS_FIELDS_INVALID"),
         (_row("RELEASE_HOLD", zone="unknown"), "FIFO_PROVISIONAL_MOVEMENTS_ZONE_INVALID"),
@@ -105,6 +112,13 @@ def test_event_specific_fields_and_references_fail_closed_without_echoing_values
         assert result.issue_codes == (expected,)
         assert result.document is None
         assert "private" not in repr(result)
+
+
+def test_supply_receipt_cannot_be_typed_into_buyer_delivery_reserve():
+    event = _parse(_csv(_row())).document.events[0]
+
+    with pytest.raises(ValueError, match="FIFO_PROVISIONAL_TIMELINE_ZONE_INVALID"):
+        replace(event, stock_zone=ProvisionalStockZone.BUYER_DELIVERY)
 
 
 def test_duplicate_event_reference_and_unknown_header_are_rejected():

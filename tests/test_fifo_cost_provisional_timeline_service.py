@@ -127,6 +127,28 @@ def _calculate(*, summary_override=None, coverage=True, fbo_window=("2026-11-06"
     )
 
 
+def _summary_for(snapshot, movement, *, closing_old=0):
+    return FifoCostProvisionalSummaryService().calculate(ProvisionalSummaryRequest(
+        scope=SCOPE, store_timezone=TZ, snapshot=snapshot, movement_report=movement,
+        old_unit_cost_rub=Decimal("21.00"), new_unit_cost_rub=Decimal("14.65"),
+        assumptions=ProvisionalRangeAssumptions(
+            opening_all_old=True, all_period_supply_receipts_new=True,
+            closing_old_min=closing_old, closing_old_max=closing_old,
+        ),
+    ))
+
+
+def _calculate_reports(snapshot, movement, summary, fbo, movements):
+    return FifoCostProvisionalTimelineService().calculate(
+        scope=SCOPE, timezone_name=TZ, case_id="case-1",
+        snapshot_report=snapshot, movement_report=movement,
+        summary_result=summary, fbo_document=fbo,
+        fbo_coverage_from="2026-11-06", fbo_coverage_to="2026-11-06",
+        movement_document=movements, confirmed_reports=(snapshot, movement),
+        physical_sales_status="MISSING", owner_confirmed_coverage=True,
+    )
+
+
 def test_complete_timeline_returns_model_only_after_event_and_bucket_reconciliation():
     result = _calculate()
     assert result.status is ProvisionalStatus.TIMELINE_MODEL
@@ -166,3 +188,79 @@ def test_fbo_csv_must_cover_exact_statement_window_for_timeline_model():
     assert result.status is ProvisionalStatus.NEED_INPUT
     assert "FBO_COVERAGE_WINDOW_MISMATCH" in result.issue_codes
     assert result.gross_cogs_rub is None
+
+
+def test_unlinked_opening_buyer_delivery_remainder_is_kept_untouched():
+    opening = {**EMPTY, "available": 2, "buyer_delivery": 1}
+    closing = {**EMPTY, "buyer_delivery": 1}
+    snapshot = _report(
+        start="2026-11-05", end="2026-11-05", opening=opening,
+        closing=opening, receipts={column: 0 for column in "LMNOPQR"},
+        redeemed=0, digest="c" * 64,
+    )
+    movement = _report(
+        start="2026-11-06", end="2026-11-06", opening=opening,
+        closing=closing,
+        receipts={"L": 1, "M": 0, "N": 0, "O": 0, "P": 0, "Q": 0, "R": 0},
+        redeemed=3, digest="d" * 64,
+    )
+    _snapshot, _movement, _old_summary, fbo, movements = _case()
+    summary = _summary_for(snapshot, movement, closing_old=1)
+
+    result = _calculate_reports(snapshot, movement, summary, fbo, movements)
+
+    assert result.status is ProvisionalStatus.TIMELINE_MODEL, (
+        result.issue_codes, result.supplied_events, result.processed_events,
+        result.redeemed_units,
+    )
+    assert result.ending_buyer_delivery_units == 1
+    assert result.ending_available_units == 0
+    assert result.redeemed_units == 3
+    assert result.gross_cogs_rub == Decimal("56.65")
+
+
+def test_delivery_after_report_cutoff_keeps_in_window_dispatch_pending():
+    opening = {**EMPTY, "available": 3}
+    closing = {**EMPTY, "available": 1, "buyer_delivery": 3}
+    snapshot = _report(
+        start="2026-11-05", end="2026-11-05", opening=opening,
+        closing=opening, receipts={column: 0 for column in "LMNOPQR"},
+        redeemed=0, digest="e" * 64,
+    )
+    movement = _report(
+        start="2026-11-06", end="2026-11-06", opening=opening,
+        closing=closing,
+        receipts={"L": 1, "M": 0, "N": 0, "O": 0, "P": 0, "Q": 0, "R": 0},
+        redeemed=0, digest="f" * 64,
+    )
+    fbo_csv = (
+        "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки\n"
+        "posting-future;3921245627;3;Доставлен;2026-11-06 12:00:00;2026-11-07 13:00:00\n"
+    ).encode()
+    fbo_parse = FifoCostProvisionalFboCsvImportService().parse_csv(
+        filename="orders.csv", payload=fbo_csv, scope=SCOPE, timezone_name=TZ,
+    )
+    assert fbo_parse.status == "COMPLETE", fbo_parse.issue_codes
+    fbo = fbo_parse.document
+    movement_parse = FifoCostProvisionalMovementsImportService().parse_csv(
+        filename="movements.csv", payload=(
+            ";".join(FifoCostProvisionalMovementsImportService.HEADER) + "\n"
+            "SUPPLY_RECEIVED;receipt-future;2026-11-06T10:00:00+03:00;"
+            "3921245627;1;;available;;source-2\n"
+        ).encode(),
+        scope=SCOPE, timezone_name=TZ,
+    )
+    assert movement_parse.status == "COMPLETE", movement_parse.issue_codes
+    movements = movement_parse.document
+    summary = _summary_for(snapshot, movement, closing_old=3)
+
+    result = _calculate_reports(snapshot, movement, summary, fbo, movements)
+
+    assert result.status is ProvisionalStatus.TIMELINE_MODEL, (
+        result.issue_codes, result.supplied_events, result.processed_events,
+        result.redeemed_units,
+    )
+    assert result.ending_buyer_delivery_units == 3
+    assert result.ending_available_units == 1
+    assert result.redeemed_units == 0
+    assert result.gross_cogs_rub == Decimal("0.00")
