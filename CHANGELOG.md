@@ -1,3 +1,9 @@
+# 2026-11-24 — Provisional FIFO report selection review fixes
+
+- Changing a report now invalidates the assumptions that depend on it: a new movement report clears the receipt-party and closing-old-stock assumptions; a new snapshot clears all assumptions and the previously selected movement report. Re-selecting the same report keeps the current scenario.
+- Report choices identify the turnover-report kind, period, UTC capture time and short file fingerprint so files for an identical period remain distinguishable.
+- Added Telegram regressions for movement/snapshot switching and duplicate-period report labels; choice labels stay within Telegram's 64-character limit while retaining UTC capture time and the short fingerprint. Linked provisional/transition verification: **59 passed**; `compileall`, whitespace and tracked-data checks passed.
+
 # 2026-11-23 — Add read-only provisional FIFO summary scenarios
 
 - Added an owner-only scenario screen to the existing FIFO transition card. It selects complete, owner-confirmed, exact-scope turnover reports for adjacent snapshot/movement periods, asks the two documented batch-composition assumptions, and calculates linked old/new sold-unit and gross-COGS ranges.
