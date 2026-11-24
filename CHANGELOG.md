@@ -1,3 +1,8 @@
+# 2026-11-24 — Provisional FIFO report-selection review fixes
+
+- Changing a report now invalidates only assumptions dependent on that report; selecting the same report is a no-op. Identical-period report choices show kind, date, UTC capture time and short fingerprint within Telegram's 64-character button limit.
+- Linked provisional/transition profile: **59 passed**; compileall, diff check and unchanged tracked data passed.
+
 # 2026-11-24 — Provisional FIFO timeline review fixes
 
 - Rejected `SUPPLY_RECEIVED` events in the `buyer_delivery` zone; opening buyer-delivery units without an exact posting link are retained as an untouched closing reserve and cannot fund a buyout.

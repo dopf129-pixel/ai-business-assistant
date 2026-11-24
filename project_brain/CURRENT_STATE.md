@@ -2,6 +2,7 @@
 
 - Fixed the five confirmed PR B timeline/import findings: disallowed buyer-delivery receipts; bounded model events to the report end date while still validating owner movement fields/references; kept an in-window dispatch pending when delivery occurs after cutoff; retained unmatched opening delivery as an untouched reserve only when exact closing buckets reconcile; and raised the worker output cap for the supported maximum movement document.
 - Linked timeline/replay/import/Telegram profile: **111 passed**. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. No factual FIFO, finance, Period Profit, or saved estimate data was modified. Exact-head hosted CI remains to be checked after publication.
+- After integrating updated PR A head `30e6d735a666d97fd670fae0b1b011a4f9c5950b`, the combined A+B linked profile passed **140 tests**; compileall, diff check and unchanged tracked `data/` passed again. This integrated stack is local until the merge commit is published and exact-head CI completes.
 
 # 2026-11-23 — Provisional FIFO PF19 full local verification
 
@@ -43,6 +44,7 @@
 # 2026-11-23 — Provisional FIFO: PR A green; PR B parser stage complete
 
 - PR B PF11 adds a separate synthetic-tested FBO CSV parser and owner guide; worker/upload integration and timeline remain pending. Parser profile: 6 passed; no real Ozon CSV was used.
+- PR A review correction: changing the selected movement report clears its dependent receipt/closing assumptions; changing the snapshot clears all assumptions and movement selection; re-selecting the same report preserves the scenario. Duplicate-period choices are distinguishable with compact UTC/fingerprint labels within the Telegram limit. Linked profile: **59 passed**; compileall, diff check and unchanged tracked data passed.
 - PR A has a read-only calculation and ordinary Telegram preview for a two-report aggregate scenario. The control case, broad unknown-closing range, strict report/window/bucket gates, timezone and compensation handling, and stale callback behavior are covered by synthetic tests. Linked profile: **113 passed**; full isolated suite: **5,491 passed** on implementation SHA `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`; compileall and unchanged `data/` passed.
 - The path has no durable estimate history yet and does not change factual FIFO, case cost, Period Profit or Return COGS. Timeline replay and saved estimates remain in dependent PR B/C; this feature is not ready for production until all three PRs and their CI/review are complete.
 - Decision 068 records the architectural boundary between provisional models and factual FIFO. Exact-head hosted CI for PR A passed on `6d54bf876c1f80977f32ecdbeb98a26faad787dd` (Windows, Linux, and Docker smoke).

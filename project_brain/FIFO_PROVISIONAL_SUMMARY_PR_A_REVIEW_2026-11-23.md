@@ -63,3 +63,9 @@ The test presses the normal `fifo_transition:*` buttons, supplies both owner ass
 - No durable scenario store, event replay, CSV comparison, conditional profit, live API, real owner data, bot launch, merge or deployment is part of PR A.
 - Independent review should focus on case/revision binding, the exact bucket and balance gates, the formula edge cases, and the invariant that provisional results never enter factual FIFO/COGS.
 
+# Follow-up review fixes — 2026-11-24
+
+- Selecting another movement report invalidates the receipt-party and closing-old-stock assumptions while retaining the opening composition tied to the unchanged snapshot. Selecting another snapshot clears all assumptions and the movement selection. Selecting the same report does not invalidate the scenario.
+- Report choice buttons include the turnover-report kind, period, capture time in UTC, and a short fingerprint while staying within Telegram's 64-character button limit. Synthetic regression confirms identical-period files remain distinguishable and the labels fit the UI contract.
+- Linked provisional/transition profile after these changes: **59 passed**. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. Hosted CI must be checked on the final PR head.
+

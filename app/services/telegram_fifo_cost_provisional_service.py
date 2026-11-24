@@ -1,7 +1,7 @@
 """Owner-only Telegram flow for non-authoritative FIFO summary scenarios."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
 from time import monotonic
@@ -209,9 +209,8 @@ class TelegramFifoCostProvisionalService:
         snapshot_page = min(flow.get("snapshot_page", 0), max(0, (len(snapshots) - 1) // self.PAGE_SIZE))
         flow["snapshot_page"] = snapshot_page
         snapshot_start = snapshot_page * self.PAGE_SIZE
-        for index, item in enumerate(snapshots[snapshot_start:snapshot_start + self.PAGE_SIZE], start=snapshot_start):
-            label = f"Снимок {item['period_from']} · {index + 1}"
-            buttons.append({"text": label, "callback": runtime._issue_ticket(
+        for item in snapshots[snapshot_start:snapshot_start + self.PAGE_SIZE]:
+            buttons.append({"text": self._report_choice_label(item, "snapshot"), "callback": runtime._issue_ticket(
                 owner, session, "provisional_snapshot", fingerprint=item["file_fingerprint"],
             )})
         snapshot_pages = max(1, (len(snapshots) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
@@ -231,8 +230,8 @@ class TelegramFifoCostProvisionalService:
             movement_page = min(flow.get("movement_page", 0), max(0, (len(eligible) - 1) // self.PAGE_SIZE))
             flow["movement_page"] = movement_page
             movement_start = movement_page * self.PAGE_SIZE
-            for index, item in enumerate(eligible[movement_start:movement_start + self.PAGE_SIZE], start=movement_start):
-                buttons.append({"text": f"Движения {item['period_from']} — {item['period_to']} · {index + 1}",
+            for item in eligible[movement_start:movement_start + self.PAGE_SIZE]:
+                buttons.append({"text": self._report_choice_label(item, "movement"),
                                 "callback": runtime._issue_ticket(owner, session, "provisional_movement", fingerprint=item["file_fingerprint"])})
             movement_pages = max(1, (len(eligible) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
             if movement_page > 0:
@@ -1142,10 +1141,21 @@ class TelegramFifoCostProvisionalService:
             selected = self._find(reports, flow.get("snapshot_fingerprint"))
             if not selected or item["period_from"] != self._next_day(selected["period_to"]):
                 return runtime._stale()
+            if fingerprint == flow.get("movement_fingerprint"):
+                return self.show(runtime, owner, session)
             flow["movement_fingerprint"] = fingerprint
+            flow["all_period_supply_receipts_new"] = None
+            flow["closing_old_min"] = None
+            flow["closing_old_max"] = None
         else:
+            if fingerprint == flow.get("snapshot_fingerprint"):
+                return self.show(runtime, owner, session)
             flow["snapshot_fingerprint"] = fingerprint
             flow["movement_fingerprint"] = None
+            flow["opening_all_old"] = None
+            flow["all_period_supply_receipts_new"] = None
+            flow["closing_old_min"] = None
+            flow["closing_old_max"] = None
         flow.pop("fbo_upload", None)
         flow.pop("movements_upload", None)
         flow["movement_document"] = None
@@ -1274,9 +1284,54 @@ class TelegramFifoCostProvisionalService:
         return next((known[code] for code in issue_codes if code in known),
                     "не хватает полного набора последовательных событий")
 
+    @classmethod
+    def _report_label(cls, item):
+        return (
+            f"Выбрана оборотная ведомость {item['period_from']} — {item['period_to']}; "
+            f"версия {cls._report_version_label(item)} "
+            "(период подтверждён; отчёт полный)."
+        )
+
+    @classmethod
+    def _report_choice_label(cls, item, kind):
+        kind_label = "Снимок" if kind == "snapshot" else "Движения"
+        period = item.get("period_from") or "дата неизвестна"
+        if kind == "movement":
+            period = f"{period}–{item.get('period_to') or 'дата неизвестна'}"
+        return (
+            f"{kind_label} {period} · {cls._report_capture_time_label(item)} · "
+            f"{cls._report_fingerprint_label(item)}"
+        )
+
+    @classmethod
+    def _report_version_label(cls, item):
+        return (
+            f"{cls._report_capture_time_label(item)} · "
+            f"{cls._report_fingerprint_label(item)}"
+        )
+
     @staticmethod
-    def _report_label(item):
-        return f"Выбран отчёт за {item['period_from']} — {item['period_to']} (период подтверждён; отчёт полный)."
+    def _report_capture_time_label(item):
+        captured_at = item.get("captured_at")
+        if not isinstance(captured_at, str):
+            report = item.get("report")
+            captured_at = getattr(report, "captured_at", None)
+        try:
+            captured_at = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+            if captured_at.tzinfo is None or captured_at.utcoffset() is None:
+                raise ValueError("timezone")
+            return captured_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+        except (AttributeError, TypeError, ValueError):
+            return "время неизвестно"
+
+    @staticmethod
+    def _report_fingerprint_label(item):
+        fingerprint = item.get("file_fingerprint")
+        return (
+            fingerprint[:8]
+            if isinstance(fingerprint, str) and len(fingerprint) >= 8
+            else "версия неизвестна"
+        )
 
     @staticmethod
     def _yes_no_label(value):
