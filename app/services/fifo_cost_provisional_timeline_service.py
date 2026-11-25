@@ -66,9 +66,14 @@ class FifoCostProvisionalTimelineService:
             return self._outcome(status, code)
         if fbo_document is None:
             return self._outcome(ProvisionalStatus.NEED_INPUT, "FBO_CSV_REQUIRED")
-        if (not isinstance(fbo_coverage_from, str) or not isinstance(fbo_coverage_to, str)
-                or fbo_coverage_from != summary_result.period_from
-                or fbo_coverage_to != summary_result.period_to):
+        try:
+            coverage_from = date.fromisoformat(fbo_coverage_from)
+            coverage_to = date.fromisoformat(fbo_coverage_to)
+            model_from = date.fromisoformat(summary_result.period_from)
+            model_to = date.fromisoformat(summary_result.period_to)
+        except (AttributeError, TypeError, ValueError):
+            return self._outcome(ProvisionalStatus.NEED_INPUT, "FBO_COVERAGE_WINDOW_MISMATCH")
+        if coverage_to < coverage_from or coverage_from > model_from or coverage_to < model_to:
             return self._outcome(ProvisionalStatus.NEED_INPUT, "FBO_COVERAGE_WINDOW_MISMATCH")
         try:
             period_from = date.fromisoformat(summary_result.period_from)
@@ -215,6 +220,20 @@ class FifoCostProvisionalTimelineService:
             return self._outcome(
                 ProvisionalStatus.TIMELINE_GAP, "SOLD_LAYER_COSTS_UNCLASSIFIED", **progress,
             )
+        if old_units is not None:
+            summary_old_min = getattr(summary_result, "old_sold_min", None)
+            summary_old_max = getattr(summary_result, "old_sold_max", None)
+            if (type(summary_old_min) is not int or type(summary_old_max) is not int
+                    or summary_old_min < 0 or summary_old_min > summary_old_max):
+                return self._outcome(
+                    ProvisionalStatus.SOURCE_CONFLICT,
+                    "SUMMARY_OLD_SOLD_RANGE_INVALID", **progress,
+                )
+            if not summary_old_min <= old_units <= summary_old_max:
+                return self._outcome(
+                    ProvisionalStatus.SOURCE_CONFLICT,
+                    "TIMELINE_SUMMARY_OLD_SOLD_CONFLICT", **progress,
+                )
         return ProvisionalTimelineOutcome(
             status=ProvisionalStatus.TIMELINE_MODEL,
             issue_codes=(),

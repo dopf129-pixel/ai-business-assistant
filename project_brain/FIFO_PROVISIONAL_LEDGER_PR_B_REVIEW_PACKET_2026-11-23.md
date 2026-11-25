@@ -47,3 +47,12 @@
 - The shared worker accepts up to 32 MiB for the already bounded 50,000-row owner-movement result; parser and parent validate the same limit.
 - Updated linked profile: **111 passed** across timeline, normalizer, replay, movement/FBO import, evidence reader, Telegram and worker. Compileall, diff check and unchanged tracked data passed. Hosted CI must be checked on the published current head.
 - With PR A's updated report-selection changes integrated, the combined A+B linked profile passed **140 tests**. `compileall`, `git diff --check`, and unchanged tracked `data/` passed on that integrated working tree. Exact-head hosted CI remains pending publication.
+
+
+## Follow-up review fixes — 2026-11-25
+
+- The old/new timeline sales split must fit the owner-confirmed aggregate old-sold range. A conflict withholds every timeline money result.
+- A wider owner-confirmed FBO CSV period is accepted only when it contains the full selected movement statement. Event replay is still cut off at the statement window.
+- An optional seller-article/offer_id CSV column is checked against the active case offer ID for selected-SKU rows; a mismatch fails closed.
+- The worker and parent both allow 32 MiB for the maximum 50,000-row FBO result; a regression asserts the valid manifest exceeds the previous 16 MiB cap.
+- Four focused regressions cover these rules; exact-head test and CI results are pending.

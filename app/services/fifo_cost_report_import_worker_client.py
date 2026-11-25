@@ -39,7 +39,9 @@ from services.fifo_cost_transition_contracts import (
 _WORKER_SLOTS = BoundedSemaphore(3)
 _MAX_OUTPUT_BYTES = 384 * 1024
 _MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
-_MAX_PROVISIONAL_FBO_OUTPUT_BYTES = 16 * 1024 * 1024
+# 50,000 validated FBO rows have a fixed-size redacted representation that can
+# exceed 16 MiB while remaining bounded by importer row and field limits.
+_MAX_PROVISIONAL_FBO_OUTPUT_BYTES = 32 * 1024 * 1024
 # 50,000 validated movement rows have a fixed-size redacted representation
 # (digests replace owner references) that can exceed 16 MiB while remaining
 # bounded by the importer row and field limits.

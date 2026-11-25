@@ -1,3 +1,10 @@
+# 2026-11-25 — Provisional FIFO timeline review fixes
+
+- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
+- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
+- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
+- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+
 # 2026-11-24 — Provisional FIFO timeline review corrections
 
 - Fixed the five confirmed PR B timeline/import findings: disallowed buyer-delivery receipts; bounded model events to the report end date while still validating owner movement fields/references; kept an in-window dispatch pending when delivery occurs after cutoff; retained unmatched opening delivery as an untouched reserve only when exact closing buckets reconcile; and raised the worker output cap for the supported maximum movement document.

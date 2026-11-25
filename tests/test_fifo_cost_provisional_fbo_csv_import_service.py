@@ -76,6 +76,31 @@ def test_utf8_bom_exact_sku_and_extra_columns_are_safe_and_scoped():
     assert other.scope_fingerprint != document.scope_fingerprint
 
 
+def test_optional_article_column_must_match_the_active_offer_id():
+    header = (
+        "Номер отправления;SKU;Артикул;Количество;Статус;"
+        "Дата передачи в доставку;Дата доставки"
+    )
+    matching = _parse(_csv(
+        ("posting-article", "3921245627", "hook-2", "2", "Доставлен",
+         "2026-11-06 10:00:00", "2026-11-07 12:00:00"),
+        header=header,
+    ))
+    assert matching.status == "COMPLETE", matching.issue_codes
+    assert matching.document.selected_units == 2
+
+    mismatch = _parse(_csv(
+        ("posting-article", "3921245627", "other-offer", "2", "Доставлен",
+         "2026-11-06 10:00:00", "2026-11-07 12:00:00"),
+        header=header,
+    ))
+    assert mismatch.issue_codes == (
+        "FIFO_PROVISIONAL_FBO_ARTICLE_SCOPE_MISMATCH",
+    )
+    assert mismatch.document is None
+    assert "other-offer" not in repr(mismatch)
+
+
 def test_identical_duplicate_is_idempotent_and_conflicting_same_identity_blocks():
     duplicate = _parse(_csv(_row(), _row()))
     assert duplicate.status == "COMPLETE", duplicate.issue_codes

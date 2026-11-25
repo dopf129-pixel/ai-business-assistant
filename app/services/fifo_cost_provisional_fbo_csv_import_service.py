@@ -112,6 +112,7 @@ class FifoCostProvisionalFboCsvImportService:
     _HEADER_ALIASES = {
         "posting_number": {"posting_number", "номер отправления"},
         "finance_sku": {"finance_sku", "sku"},
+        "seller_article": {"seller_article", "артикул", "артикул продавца", "offer_id"},
         "quantity": {"quantity", "количество"},
         "status": {"status", "статус"},
         "dispatch_at": {
@@ -191,6 +192,13 @@ class FifoCostProvisionalFboCsvImportService:
                 if sku != scope.sku:
                     excluded += 1
                     continue
+                if "seller_article" in indexes:
+                    article = self._cell(cells, indexes["seller_article"])
+                    expected_article = str(scope.offer_id or "").strip()
+                    if not expected_article or article != expected_article:
+                        return self._error(
+                            "FIFO_PROVISIONAL_FBO_ARTICLE_SCOPE_MISMATCH",
+                        )
                 posting_number = self._cell(cells, indexes["posting_number"])
                 if (
                     len(posting_number) > self.MAX_POSTING_CHARS

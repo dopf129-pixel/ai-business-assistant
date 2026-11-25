@@ -205,3 +205,12 @@
 - PR A #741: `codex/fifo-provisional-summary`, head `15894e4528db089d0d6e7969fd03b6a88d9206e2`; hosted exact-head Windows/Linux Verify and Linux Docker smoke passed.
 - PR B: `codex/fifo-provisional-timeline`, based on PR A head; PF14 implementation `502f376a` plus checkpoint `8e101fd4`; PF15 implementation `a94f818eb2290400ccec48212b5bdc30a90ac937`; PF16 implementation `59c5f674317fd4d940e87989515fa0535a95cd46`. Keep the branch local until PF19; PF17 implementation `4e9236be`. Keep the branch local until PF19.
 - PR C not started. Tracked `data/` unchanged. No live Ozon/Telegram calls and no production bot launch. Blocker none.
+
+
+## Review fixes — provisional FIFO timeline
+
+- Prevented a complete event replay from publishing a different old/new cost split than the owner-confirmed closing-old-stock assumption permits. The mismatch returns `SOURCE_CONFLICT` with no COGS.
+- Aligned FBO coverage validation with the uploader contract: the complete owner-confirmed CSV interval may be wider, but must contain the selected movement report. Replay remains bounded to the report's own dates.
+- Added exact active-offer validation when FBO CSV provides an optional seller-article column.
+- Raised both FBO worker and parent output limits to 32 MiB and added a 50,000-row serialized-manifest regression.
+- Exact test/CI results are pending the hosted workflow for the new PR head.

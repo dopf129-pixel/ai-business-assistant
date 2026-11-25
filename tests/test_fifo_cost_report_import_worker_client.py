@@ -101,6 +101,20 @@ def _provisional_fbo_payload():
     ).encode("utf-8-sig")
 
 
+def _max_rows_provisional_fbo_payload():
+    parser = FifoCostProvisionalFboCsvImportService()
+    header = (
+        "Номер отправления;SKU;Количество;Статус;"
+        "Дата передачи в доставку;Дата доставки"
+    ) + "\r\n"
+    rows = (
+        f"posting-{index};{SCOPE.sku};1;Доставлен;"
+        "2026-11-06 10:00:00.123456;2026-11-07 12:00:00.654321\r\n"
+        for index in range(parser.MAX_ROWS)
+    )
+    return (header + "".join(rows)).encode("utf-8-sig")
+
+
 def _provisional_movements_payload():
     parser = FifoCostProvisionalMovementsImportService()
     row = f"SUPPLY_RECEIVED;event-1;2026-11-06T09:00:00+03:00;{SCOPE.sku};1;;available;;source-1"
@@ -292,6 +306,32 @@ def test_provisional_fbo_csv_subprocess_returns_revalidated_redacted_manifest():
     assert result.document.rows[0].posting_key != "posting-1"
     assert result.document.period_from == "2026-11-06"
     assert result.document.period_to == "2026-11-07"
+
+
+def test_provisional_fbo_worker_accepts_full_bounded_rows_above_legacy_output_cap():
+    payload = _max_rows_provisional_fbo_payload()
+    assert len(payload) <= FifoCostProvisionalFboCsvImportService.MAX_FILE_BYTES
+    document = FifoCostProvisionalFboCsvImportService().parse_csv(
+        filename="orders.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    ).document
+    encoded = json.dumps(
+        {
+            "error": False, "document_kind": "PROVISIONAL_FBO_CSV",
+            "document": document.to_worker_summary_payload(),
+        },
+        ensure_ascii=True, separators=(",", ":"),
+    ).encode("ascii")
+    assert 16 * 1024 * 1024 < len(encoded) <= 32 * 1024 * 1024
+
+    result = FifoCostReportImportWorkerClient().parse_provisional_fbo_csv(
+        filename="orders.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == FifoCostProvisionalFboCsvImportService.MAX_ROWS
+    assert result.document.selected_units == FifoCostProvisionalFboCsvImportService.MAX_ROWS
 
 
 def test_provisional_movements_csv_subprocess_returns_redacted_events():

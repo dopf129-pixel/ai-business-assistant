@@ -1255,7 +1255,7 @@ class TelegramFifoCostProvisionalService:
         missing = {
             "OWNER_COVERAGE_CONFIRMATION_REQUIRED": "подтвердите полноту набора событий или оставьте хронологическую модель недоступной",
             "FBO_CSV_REQUIRED": "добавьте CSV отправлений FBO",
-            "FBO_COVERAGE_WINDOW_MISMATCH": "загрузите CSV FBO с периодом, точно совпадающим с выбранной ведомостью",
+            "FBO_COVERAGE_WINDOW_MISMATCH": "укажите полный период CSV FBO, который покрывает всю выбранную ведомость",
             "SUMMARY_INPUT_REQUIRED": "проверьте допущения по старому остатку и новой партии",
             "SUMMARY_SOURCE_CONFLICT": "исправьте противоречие сводных ведомостей",
             "REPORT_BOUNDARY_INVALID": "проверьте даты и категории на границе отчётов",

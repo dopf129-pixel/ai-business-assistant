@@ -158,6 +158,59 @@ def test_complete_timeline_returns_model_only_after_event_and_bucket_reconciliat
     assert result.read_only is True and result.factual_writes == 0
 
 
+def test_timeline_fifo_cost_split_must_fit_owner_confirmed_closing_old_range():
+    snapshot = _report(
+        start="2026-11-05", end="2026-11-05", opening=OPENING,
+        closing=OPENING, receipts={column: 0 for column in "LMNOPQR"},
+        redeemed=0, digest="c" * 64,
+    )
+    closing = {**EMPTY, "available": 3}
+    movement = _report(
+        start="2026-11-06", end="2026-11-06", opening=OPENING,
+        closing=closing,
+        receipts={"L": 2, "M": 0, "N": 0, "O": 0, "P": 0, "Q": 0, "R": 0},
+        redeemed=1, digest="d" * 64,
+    )
+    summary = FifoCostProvisionalSummaryService().calculate(ProvisionalSummaryRequest(
+        scope=SCOPE, store_timezone=TZ, snapshot=snapshot, movement_report=movement,
+        old_unit_cost_rub=Decimal("21.00"), new_unit_cost_rub=Decimal("14.65"),
+        assumptions=ProvisionalRangeAssumptions(
+            opening_all_old=True, all_period_supply_receipts_new=True,
+            closing_old_min=2, closing_old_max=2,
+        ),
+    ))
+    assert summary.status is ProvisionalStatus.SUMMARY_RANGE
+    assert (summary.old_sold_min, summary.old_sold_max) == (0, 0)
+    fbo_csv = (
+        "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки\n"
+        "posting-1;3921245627;1;Доставлен;2026-11-06 10:00:00;2026-11-06 11:00:00\n"
+    ).encode()
+    fbo = FifoCostProvisionalFboCsvImportService().parse_csv(
+        filename="orders.csv", payload=fbo_csv, scope=SCOPE, timezone_name=TZ,
+    ).document
+    parser = FifoCostProvisionalMovementsImportService()
+    movement_csv = (
+        ";".join(parser.HEADER) + "\n"
+        f"SUPPLY_RECEIVED;receipt-1;2026-11-06T09:00:00+03:00;{SCOPE.sku};2;;available;;source-1\n"
+    ).encode()
+    movements = parser.parse_csv(
+        filename="movements.csv", payload=movement_csv,
+        scope=SCOPE, timezone_name=TZ,
+    ).document
+    result = FifoCostProvisionalTimelineService().calculate(
+        scope=SCOPE, timezone_name=TZ, case_id="case-1",
+        snapshot_report=snapshot, movement_report=movement,
+        summary_result=summary, fbo_document=fbo,
+        fbo_coverage_from="2026-11-06", fbo_coverage_to="2026-11-06",
+        movement_document=movements, confirmed_reports=(snapshot, movement),
+        physical_sales_status="MISSING", owner_confirmed_coverage=True,
+    )
+    assert result.status is ProvisionalStatus.SOURCE_CONFLICT
+    assert result.issue_codes == ("TIMELINE_SUMMARY_OLD_SOLD_CONFLICT",)
+    assert result.old_sold_units is None
+    assert result.gross_cogs_rub is None
+
+
 def test_unconfirmed_coverage_never_exposes_partial_cogs_as_timeline_result():
     result = _calculate(coverage=False)
     assert result.status is ProvisionalStatus.NEED_INPUT
@@ -183,8 +236,14 @@ def test_closing_category_mismatch_blocks_timeline_money():
     assert result.gross_cogs_rub is None
 
 
-def test_fbo_csv_must_cover_exact_statement_window_for_timeline_model():
-    result = _calculate(fbo_window=("2026-11-05", "2026-11-06"))
+def test_fbo_csv_period_may_be_wider_when_it_contains_statement_window():
+    result = _calculate(fbo_window=("2026-10-01", "2026-12-31"))
+    assert result.status is ProvisionalStatus.TIMELINE_MODEL
+    assert result.gross_cogs_rub == Decimal("56.65")
+
+
+def test_fbo_csv_period_must_contain_the_complete_statement_window():
+    result = _calculate(fbo_window=("2026-11-07", "2026-11-07"))
     assert result.status is ProvisionalStatus.NEED_INPUT
     assert "FBO_COVERAGE_WINDOW_MISMATCH" in result.issue_codes
     assert result.gross_cogs_rub is None

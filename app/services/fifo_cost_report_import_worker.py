@@ -29,7 +29,9 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_HEADER_BYTES = 4096
 MAX_OUTPUT_BYTES = 384 * 1024
 MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
-MAX_PROVISIONAL_FBO_OUTPUT_BYTES = 16 * 1024 * 1024
+# The bounded 50,000-row FBO contract may serialize above 16 MiB; the parent
+# limit uses the same cap and revalidates the complete redacted manifest.
+MAX_PROVISIONAL_FBO_OUTPUT_BYTES = 32 * 1024 * 1024
 # The bounded 50,000-row movement contract may serialize above 16 MiB; the
 # corresponding parent limit uses the same cap and revalidates every row.
 MAX_PROVISIONAL_MOVEMENTS_OUTPUT_BYTES = 32 * 1024 * 1024
