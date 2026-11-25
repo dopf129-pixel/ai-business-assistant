@@ -94,6 +94,8 @@ class ProvisionalFifoReplayResult:
     non_sale_removal_allocations: Mapping[str, tuple[ProvisionalFifoAllocation, ...]]
     supplied_event_count: int
     unprocessed_event_count: int
+    old_batch_bought_out_units: int = 0
+    old_batch_closing_units: int = 0
     read_only: bool = True
     factual_writes: int = 0
 
@@ -282,6 +284,7 @@ class FifoCostProvisionalReplayService:
             )
             available.append(initial_layer)
         layer_origins = {layer.layer_id: layer for layer in available}
+        old_layer_ids = set(layer_origins)
         held = []
         for zone, quantity in opening_held.items():
             if quantity <= 0:
@@ -299,6 +302,7 @@ class FifoCostProvisionalReplayService:
                 source_event_key=layer_id,
             )
             layer_origins[layer_id] = origin
+            old_layer_ids.add(layer_id)
             held.append(ProvisionalHeldFifoLayer(
                 layer_id=origin.layer_id,
                 quantity=origin.quantity,
@@ -321,6 +325,7 @@ class FifoCostProvisionalReplayService:
                 effective_at_utc=event.effective_at_utc,
                 source_event_key=event.event_key,
             )
+            old_layer_ids.add(allocation.layer_id)
         dispatch_reserves = {}
         active_reserves = {key: list(value) for key, value in opening_by_posting.items()}
         bought_out = {}
@@ -584,6 +589,7 @@ class FifoCostProvisionalReplayService:
             non_sale_removed_units=non_sale_removed_units,
             non_sale_removed_cost=non_sale_removed_cost,
             non_sale_removal_allocations=non_sale_allocations,
+            old_layer_ids=old_layer_ids,
             supplied_event_count=len(ordered_events),
             unprocessed_event_count=max(0, len(ordered_events) - processed),
         )
@@ -833,6 +839,7 @@ class FifoCostProvisionalReplayService:
                 gross_buyout_cogs=ZERO,
                 sale_returned_units=0, non_buyout_restocked_units=0,
                 returned_cost_basis=ZERO, active_reserves=None, opening_postings=None,
+                 old_layer_ids=None,
                 released_hold_units=0, non_sale_removed_units=0,
                 non_sale_removed_cost=ZERO, non_sale_removal_allocations=None,
                 supplied_event_count=0, unprocessed_event_count=0):
@@ -872,6 +879,23 @@ class FifoCostProvisionalReplayService:
             ZERO,
         ).quantize(CENT)
         available_units = sum(layer.quantity for layer in available)
+        old_layer_ids = frozenset(old_layer_ids or ())
+        old_bought_out_units = sum(
+            item.quantity
+            for allocations in (bought_out_allocations or {}).values()
+            for item in allocations
+            if item.layer_id in old_layer_ids
+        )
+        old_closing_units = (
+            sum(layer.quantity for layer in available if layer.layer_id in old_layer_ids)
+            + sum(layer.quantity for layer in held if layer.layer_id in old_layer_ids)
+            + sum(
+                item.quantity
+                for allocations in active_reserves.values()
+                for item in allocations
+                if item.layer_id in old_layer_ids
+            )
+        )
         complete = not issue_codes
         return ProvisionalFifoReplayResult(
             status="REPLAY_OK" if complete else "REPLAY_GAP",
@@ -903,6 +927,8 @@ class FifoCostProvisionalReplayService:
             non_sale_removal_allocations=non_sale_removal_allocations or {},
             supplied_event_count=supplied_event_count,
             unprocessed_event_count=unprocessed_event_count,
+            old_batch_bought_out_units=old_bought_out_units,
+            old_batch_closing_units=old_closing_units,
             read_only=True,
             factual_writes=0,
         )

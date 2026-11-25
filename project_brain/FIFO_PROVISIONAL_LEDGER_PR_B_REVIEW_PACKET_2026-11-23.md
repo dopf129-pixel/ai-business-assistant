@@ -56,3 +56,11 @@
 - An optional seller-article/offer_id CSV column is checked against the active case offer ID for selected-SKU rows; a mismatch fails closed.
 - The worker and parent both allow 32 MiB for the maximum 50,000-row FBO result; a regression asserts the valid manifest exceeds the previous 16 MiB cap.
 - Four focused regressions cover these rules; exact-head test and CI results are pending.
+
+
+## Review corrections — 2026-11-25 (follow-up)
+
+- Old/new sold units now follow layer provenance IDs; identical unit costs do not collapse party identity.
+- The timeline compares actual old-layer closing units, including held stock and open dispatch reserves, with the same owner-confirmed closing range used by the summary model. A mismatch blocks result money.
+- Valid typed exact/range input invalidates prior timeline output, and invalid text preserves the prior assumptions/results.
+- Regressions cover a returned old unit where the summary sold range alone still passes, equal-price layers, and text-input invalidation. Exact-head hosted CI is authoritative for this PR update.

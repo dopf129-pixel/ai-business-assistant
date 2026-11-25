@@ -1,3 +1,10 @@
+# 2026-11-25 — Additional FIFO timeline review fixes
+
+- Classify old and new sold units by FIFO layer origin, not unit cost; equal old/new prices remain distinguishable.
+- Reconcile replayed old-layer closing units against the owner-confirmed exact value or range. A conflict returns SOURCE_CONFLICT and withholds all model money.
+- Clear a stale timeline result after valid typed exact/range input; invalid input leaves the previous scenario unchanged.
+- Added regressions for returned old-layer units, equal layer prices, conflicting closing-old assumptions, and typed input invalidation.
+
 # 2026-11-25 — Provisional FIFO timeline review fixes
 
 - The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.

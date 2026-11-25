@@ -323,3 +323,70 @@ def test_delivery_after_report_cutoff_keeps_in_window_dispatch_pending():
     assert result.ending_available_units == 1
     assert result.redeemed_units == 0
     assert result.gross_cogs_rub == Decimal("0.00")
+
+
+def _timeline_with_returned_old_unit(*, expected_old_closing, old_cost="21.00", new_cost="14.65"):
+    snapshot = _report(
+        start="2026-11-05", end="2026-11-05", opening=OPENING,
+        closing=OPENING, receipts={column: 0 for column in "LMNOPQR"},
+        redeemed=0, digest="e" * 64,
+    )
+    closing = {**EMPTY, "available": 4}
+    movement = _report(
+        start="2026-11-06", end="2026-11-06", opening=OPENING,
+        closing=closing,
+        receipts={"L": 2, "M": 1, "N": 0, "O": 0, "P": 0, "Q": 0, "R": 0},
+        redeemed=1, digest="f" * 64,
+    )
+    summary = FifoCostProvisionalSummaryService().calculate(ProvisionalSummaryRequest(
+        scope=SCOPE, store_timezone=TZ, snapshot=snapshot, movement_report=movement,
+        old_unit_cost_rub=Decimal(old_cost), new_unit_cost_rub=Decimal(new_cost),
+        assumptions=ProvisionalRangeAssumptions(
+            opening_all_old=True, all_period_supply_receipts_new=True,
+            closing_old_min=expected_old_closing, closing_old_max=expected_old_closing,
+        ),
+    ))
+    fbo_csv = (
+        "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки\n"
+        "posting-1;3921245627;1;Доставлен;2026-11-06 10:00:00;2026-11-06 11:00:00\n"
+    ).encode()
+    fbo = FifoCostProvisionalFboCsvImportService().parse_csv(
+        filename="orders.csv", payload=fbo_csv, scope=SCOPE, timezone_name=TZ,
+    ).document
+    parser = FifoCostProvisionalMovementsImportService()
+    movement_csv = (
+        ";".join(parser.HEADER) + "\n"
+        f"SUPPLY_RECEIVED;receipt-1;2026-11-06T09:00:00+03:00;{SCOPE.sku};2;;available;;source-1\n"
+        f"SALE_RETURN_RESTOCK;return-1;2026-11-06T12:00:00+03:00;{SCOPE.sku};1;posting-1;;true;source-2\n"
+    ).encode()
+    movements = parser.parse_csv(
+        filename="movements.csv", payload=movement_csv,
+        scope=SCOPE, timezone_name=TZ,
+    ).document
+    return FifoCostProvisionalTimelineService().calculate(
+        scope=SCOPE, timezone_name=TZ, case_id="case-return",
+        snapshot_report=snapshot, movement_report=movement, summary_result=summary,
+        fbo_document=fbo, fbo_coverage_from="2026-11-06", fbo_coverage_to="2026-11-06",
+        movement_document=movements, confirmed_reports=(snapshot, movement),
+        physical_sales_status="MISSING", owner_confirmed_coverage=True,
+        closing_old_min=expected_old_closing, closing_old_max=expected_old_closing,
+    )
+
+
+def test_timeline_checks_actual_closing_old_layers_when_sale_range_still_matches():
+    # One old unit is bought out and returned, so the aggregate gross-sale
+    # formula permits one old sale even though two old units remain at close.
+    result = _timeline_with_returned_old_unit(expected_old_closing=1)
+    assert result.status is ProvisionalStatus.SOURCE_CONFLICT
+    assert result.issue_codes == ("TIMELINE_SUMMARY_OLD_CLOSING_CONFLICT",)
+    assert result.old_sold_units is None
+    assert result.gross_cogs_rub is None
+
+
+def test_timeline_layer_classification_uses_origin_when_unit_costs_are_equal():
+    result = _timeline_with_returned_old_unit(
+        expected_old_closing=2, old_cost="21.00", new_cost="21.00",
+    )
+    assert result.status is ProvisionalStatus.TIMELINE_MODEL
+    assert (result.old_sold_units, result.new_sold_units) == (1, 0)
+    assert result.gross_cogs_rub == Decimal("21.00")

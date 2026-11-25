@@ -55,9 +55,21 @@ class FifoCostProvisionalTimelineService:
         summary_result, fbo_document, fbo_coverage_from, fbo_coverage_to,
         movement_document=None, confirmed_reports=(), confirmed_physical_sales=None,
         physical_sales_status=None, owner_confirmed_coverage=False,
+        closing_old_min=None, closing_old_max=None,
     ):
         if not isinstance(owner_confirmed_coverage, bool) or not owner_confirmed_coverage:
             return self._outcome(ProvisionalStatus.NEED_INPUT, "OWNER_COVERAGE_CONFIRMATION_REQUIRED")
+        if (closing_old_min is None) != (closing_old_max is None):
+            return self._outcome(
+                ProvisionalStatus.SOURCE_CONFLICT, "CLOSING_OLD_STOCK_RANGE_INVALID",
+            )
+        if closing_old_min is not None and (
+            type(closing_old_min) is not int or type(closing_old_max) is not int
+            or closing_old_min < 0 or closing_old_max < closing_old_min
+        ):
+            return self._outcome(
+                ProvisionalStatus.SOURCE_CONFLICT, "CLOSING_OLD_STOCK_RANGE_INVALID",
+            )
         if summary_result is None or summary_result.status is not ProvisionalStatus.SUMMARY_RANGE:
             status = getattr(summary_result, "status", ProvisionalStatus.NEED_INPUT)
             if status not in {ProvisionalStatus.NEED_INPUT, ProvisionalStatus.SOURCE_CONFLICT}:
@@ -204,35 +216,32 @@ class FifoCostProvisionalTimelineService:
                 ProvisionalStatus.SOURCE_CONFLICT, "CLOSING_BUCKETS_DO_NOT_MATCH", **progress,
             )
 
-        old_units = new_units = 0
-        for allocations in replay.bought_out_allocations.values():
-            for allocation in allocations:
-                if allocation.unit_cost_rub == old_cost and old_cost != new_cost:
-                    old_units += allocation.quantity
-                elif allocation.unit_cost_rub == new_cost and old_cost != new_cost:
-                    new_units += allocation.quantity
-                elif old_cost == new_cost:
-                    old_units = new_units = None
-                    break
-            if old_units is None:
-                break
-        if old_units is not None and old_units + new_units != redeemed:
+        old_units = replay.old_batch_bought_out_units
+        new_units = redeemed - old_units
+        if (type(old_units) is not int or old_units < 0 or old_units > redeemed
+                or old_units + new_units != redeemed):
             return self._outcome(
-                ProvisionalStatus.TIMELINE_GAP, "SOLD_LAYER_COSTS_UNCLASSIFIED", **progress,
+                ProvisionalStatus.TIMELINE_GAP, "SOLD_LAYER_ORIGIN_UNCLASSIFIED", **progress,
             )
-        if old_units is not None:
-            summary_old_min = getattr(summary_result, "old_sold_min", None)
-            summary_old_max = getattr(summary_result, "old_sold_max", None)
-            if (type(summary_old_min) is not int or type(summary_old_max) is not int
-                    or summary_old_min < 0 or summary_old_min > summary_old_max):
+        summary_old_min = getattr(summary_result, "old_sold_min", None)
+        summary_old_max = getattr(summary_result, "old_sold_max", None)
+        if (type(summary_old_min) is not int or type(summary_old_max) is not int
+                or summary_old_min < 0 or summary_old_min > summary_old_max):
+            return self._outcome(
+                ProvisionalStatus.SOURCE_CONFLICT,
+                "SUMMARY_OLD_SOLD_RANGE_INVALID", **progress,
+            )
+        if not summary_old_min <= old_units <= summary_old_max:
+            return self._outcome(
+                ProvisionalStatus.SOURCE_CONFLICT,
+                "TIMELINE_SUMMARY_OLD_SOLD_CONFLICT", **progress,
+            )
+        if closing_old_min is not None:
+            actual_old_closing = replay.old_batch_closing_units + unlinked_delivery
+            if not closing_old_min <= actual_old_closing <= closing_old_max:
                 return self._outcome(
                     ProvisionalStatus.SOURCE_CONFLICT,
-                    "SUMMARY_OLD_SOLD_RANGE_INVALID", **progress,
-                )
-            if not summary_old_min <= old_units <= summary_old_max:
-                return self._outcome(
-                    ProvisionalStatus.SOURCE_CONFLICT,
-                    "TIMELINE_SUMMARY_OLD_SOLD_CONFLICT", **progress,
+                    "TIMELINE_SUMMARY_OLD_CLOSING_CONFLICT", **progress,
                 )
         return ProvisionalTimelineOutcome(
             status=ProvisionalStatus.TIMELINE_MODEL,

@@ -95,6 +95,7 @@ class TelegramFifoCostProvisionalService:
             return runtime._stale()
         session.pop("step", None)
         flow["result"] = None
+        flow["timeline_result"] = None
         self._advance(runtime, session)
         return self.show(runtime, owner, session)
 
@@ -1094,6 +1095,8 @@ class TelegramFifoCostProvisionalService:
             confirmed_physical_sales=physical_sales,
             physical_sales_status=physical_status,
             owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+            closing_old_min=flow.get("closing_old_min"),
+            closing_old_max=flow.get("closing_old_max"),
         )
         return self.show(runtime, owner, session)
 

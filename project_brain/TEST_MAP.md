@@ -1,3 +1,8 @@
+# Regression map — 2026-11-25
+
+- `tests/test_fifo_cost_provisional_timeline_service.py`: verify old/new allocation by layer origin when rates are equal and reject timeline results whose actual old-layer closing balance conflicts with the owner-confirmed range.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: valid typed closing-old input clears stale summary/timeline output; invalid input preserves prior values.
+
 # 2026-11-25 — Provisional FIFO timeline review fixes
 
 - The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
