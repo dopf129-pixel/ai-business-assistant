@@ -1,5 +1,9 @@
 # Provisional FIFO review regressions — 2026-11-25
 
+# FIFO transition history pagination regression — 2026-11-25
+
+- `tests/test_telegram_fifo_cost_provisional_service.py::test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_cancelled_cases`: verifies 20 transitions on the first page, «Раньше» opens the 21st transition, and after session reset its saved estimate is reachable and readable without FIFO writes.
+
 - `tests/test_fifo_cost_provisional_timeline_service.py::test_timeline_checks_actual_closing_old_layers_when_sale_range_still_matches`: reject an actual closing old-layer count that conflicts with the owner's closing assumption even where the aggregate sold range alone passes.
 - `tests/test_fifo_cost_provisional_timeline_service.py::test_timeline_layer_classification_uses_origin_when_unit_costs_are_equal`: use layer origin rather than equal unit cost to distinguish old/new sales.
 - `tests/test_telegram_fifo_cost_provisional_service.py::test_report_switch_clears_only_dependent_assumptions_and_labels_fit_telegram`: invalid text preserves previous results; valid exact/range input clears stale timeline output.

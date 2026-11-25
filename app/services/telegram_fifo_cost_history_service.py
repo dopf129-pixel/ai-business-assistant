@@ -18,6 +18,8 @@ class TelegramFifoCostHistoryService:
     CALLBACK_PREFIX = "fifo_history"
     TTL_SECONDS = 15 * 60
     MAX_TICKETS = 1024
+    TRANSITION_CASE_PAGE_SIZE = 20
+    TRANSITION_CASE_LIMIT = 100
 
     def __init__(
         self, history_service=None, rate_cancellation_service=None,
@@ -80,7 +82,8 @@ class TelegramFifoCostHistoryService:
             "open", "history", "new", "late", "correct", "sku",
             "anchor", "zero_rate", "cancel_rate", "confirm_rate_cancel", "export",
             "drafts", "late_total", "late_components", "resume",
-            "transition_cases", "case_history", "case_history_page",
+            "transition_cases", "transition_cases_page",
+            "case_history", "case_history_page",
         }:
             return {"error": False, "handled": False, "read_only_ozon": True}
         if action == "resume":
@@ -184,7 +187,13 @@ class TelegramFifoCostHistoryService:
         if action == "drafts":
             return self._render_transition_drafts(ticket)
         if action == "transition_cases":
-            return self._render_transition_cases(ticket)
+            return self._render_transition_cases(ticket, page=0)
+        if action == "transition_cases_page":
+            page = ticket.get("page")
+            max_page = self.TRANSITION_CASE_LIMIT // self.TRANSITION_CASE_PAGE_SIZE
+            if type(page) is not int or not 0 <= page < max_page:
+                return self._stale_ticket()
+            return self._render_transition_cases(ticket, page=page)
         if action == "correct":
             return self._message_result(
                 "Исправление сохранённой записи пока недоступно. Старую запись нельзя заменить "
@@ -391,7 +400,33 @@ class TelegramFifoCostHistoryService:
             "read_only_ozon": True,
         }
 
-    def _render_transition_cases(self, ticket):
+    def _issue_transition_cases_page_callback(self, owner, ticket, page):
+        token = uuid4().hex[:12]
+        now = monotonic()
+        identity = ticket["identity"]
+        with self._lock:
+            self._purge_expired(now)
+            self._tickets[(owner, token)] = {
+                "owner_key": owner,
+                "tenant_scope": ticket["tenant_scope"],
+                "store_id": identity["store_id"],
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity["sku"],
+                "display_name": ticket["display_name"],
+                "revision": ticket["revision"],
+                "page": page,
+                "expires_at": now + self.TTL_SECONDS,
+            }
+            while len(self._tickets) > self.MAX_TICKETS:
+                oldest = min(
+                    self._tickets,
+                    key=lambda key: self._tickets[key]["expires_at"],
+                )
+                self._tickets.pop(oldest, None)
+        return f"{self.CALLBACK_PREFIX}:transition_cases_page:{token}"
+
+    def _render_transition_cases(self, ticket, *, page):
         if self.transition_service is None:
             return self._message_result(
                 "История переходов FIFO пока недоступна. Сохранённые данные не изменены.",
@@ -401,7 +436,7 @@ class TelegramFifoCostHistoryService:
             store_id=ticket["identity"]["store_id"],
             sku=ticket["identity"]["sku"],
             states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED"),
-            limit=100,
+            limit=self.TRANSITION_CASE_LIMIT,
         )
         if not isinstance(result, dict) or result.get("error") is not False:
             return self._message_result(
@@ -440,16 +475,33 @@ class TelegramFifoCostHistoryService:
             return self._message_result(
                 "Для этого SKU нет сохранённых переходов FIFO.", ticket["token"],
             )
+
+        page_count = max(
+            1, (len(cases) + self.TRANSITION_CASE_PAGE_SIZE - 1)
+            // self.TRANSITION_CASE_PAGE_SIZE,
+        )
+        page = min(page, page_count - 1)
+        first_index = page * self.TRANSITION_CASE_PAGE_SIZE
+        page_cases = cases[first_index:first_index + self.TRANSITION_CASE_PAGE_SIZE]
+        last_index = first_index + len(page_cases)
         lines = [
             f"📜 История изменений · {ticket['display_name']} · SKU {ticket['sku']}",
             "Каждая запись сохранена отдельно; применённые суммы не перезаписываются.",
         ]
+        if page_count > 1 or result.get("has_more"):
+            lines.append(
+                f"Показаны {first_index + 1}–{last_index} из {len(cases)} прочитанных изменений."
+            )
+        if result.get("has_more"):
+            lines.append(
+                "Показаны последние 100 изменений; более ранние записи не вошли в выборку."
+            )
         buttons = []
         owner = ticket.get("owner_key")
         if not owner:
             return self._stale_ticket()
         now = monotonic()
-        for index, item in enumerate(cases[:20], start=1):
+        for index, item in enumerate(page_cases, start=first_index + 1):
             payload = item.get("case") or {}
             lines.append(
                 f"{index}. {item.get('state')} · редакция {item.get('case_revision')} · "
@@ -484,12 +536,24 @@ class TelegramFifoCostHistoryService:
                     "text": f"📚 Оценки {index} · {item['state']}",
                     "callback": f"{self.CALLBACK_PREFIX}:resume:{case_token}",
                 })
-        if result.get("has_more") or len(cases) > 20:
-            lines.append(
-                f"Показаны последние 20 из {len(cases)} прочитанных переходов; "
-                "чтение ограничено 100 записями. ID поставок скрыты."
-            )
-        buttons.append({"text": "↩️ Назад", "callback": f"{self.CALLBACK_PREFIX}:drafts:{ticket['token']}"})
+        if page > 0:
+            buttons.append({
+                "text": "⬅️ Новее",
+                "callback": self._issue_transition_cases_page_callback(
+                    owner, ticket, page - 1,
+                ),
+            })
+        if page + 1 < page_count:
+            buttons.append({
+                "text": "➡️ Раньше",
+                "callback": self._issue_transition_cases_page_callback(
+                    owner, ticket, page + 1,
+                ),
+            })
+        buttons.append({
+            "text": "↩️ Назад",
+            "callback": f"{self.CALLBACK_PREFIX}:drafts:{ticket['token']}",
+        })
         return {
             "error": False, "handled": True, "message": "\n".join(lines),
             "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},

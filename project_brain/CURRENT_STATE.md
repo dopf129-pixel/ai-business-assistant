@@ -1,3 +1,8 @@
+# 2026-11-25 — FIFO transition history paging (PR C)
+
+- FIFO transition history on the normal SKU card is paginated at 20 records per screen; older/newer navigation retains scoped read-only access.
+- A regression covers opening the saved estimate for transition 21 after a new session through the ordinary SKU card.
+
 # 2026-11-25 — Provisional FIFO review fixes (PR B/C)
 
 - PR B now classifies old/new sales by source layer and compares the replayed old-layer closing balance with the owner's exact/range assumption; conflicting results withhold modeled money.

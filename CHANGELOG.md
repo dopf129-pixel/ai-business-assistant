@@ -1,3 +1,8 @@
+# 2026-11-25 — FIFO transition history paging (PR C)
+
+- The SKU FIFO change list now shows 20 transitions per page with «Новее» and «Раньше» navigation.
+- Added a post-session-reset regression proving that the saved estimate attached to transition 21 remains reachable from the normal SKU card.
+
 # 2026-11-25 — Provisional FIFO review fixes (PR B/C)
 
 - PR B now classifies old/new sales by source layer and compares the replayed old-layer closing balance with the owner's exact/range assumption; conflicting results withhold modeled money.

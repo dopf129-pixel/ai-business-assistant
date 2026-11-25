@@ -1,5 +1,11 @@
 # PR C independent review packet — saved provisional FIFO estimates
 
+## FIFO transition history paging — 2026-11-25
+
+- Added 20-record pages to the SKU transition history with «Новее» and «Раньше» controls. The service currently reads up to 100 recent transitions; the UI says when older records are outside that API window.
+- Regression covers 21 applied transitions and the full post-session-reset path from ordinary SKU card to page 2, transition 21, saved estimate list, and estimate detail; verifies no FIFO writes.
+- Exact-head hosted CI result and URL are recorded in the current PR description after the latest commit completes.
+
 ## PR dependency and revision
 
 - PR: **#743**, branch `codex/fifo-provisional-saved-estimates`.

@@ -682,6 +682,7 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
         state = "APPLIED"
         case_revision = 1
         case_id = "case-applied"
+        case_records = None
 
         def _payload(self):
             return {
@@ -694,15 +695,29 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
             }
 
         def list_cases(self, *, states, **_kwargs):
+            if self.case_records is not None:
+                return {
+                    "error": False,
+                    "cases": [item for item in self.case_records if item["state"] in states],
+                    "has_more": False,
+                }
             cases = []
             if self.state in states:
                 cases.append({
                     "case_id": self.case_id, "case_revision": self.case_revision,
                     "state": self.state, "case": self._payload(),
                 })
-            return {"error": False, "cases": cases}
+            return {"error": False, "cases": cases, "has_more": False}
 
         def get_case(self, *, case_id, **_kwargs):
+            if self.case_records is not None:
+                item = next((row for row in self.case_records if row["case_id"] == case_id), None)
+                if item is None:
+                    return {"error": True, "code": "CASE_NOT_FOUND"}
+                return {
+                    "error": False, "case_revision": item["case_revision"],
+                    "state": item["state"], "case": item["case"],
+                }
             if case_id != self.case_id:
                 return {"error": True, "code": "CASE_NOT_FOUND"}
             return {
@@ -724,16 +739,29 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
 
         def read_provisional_preview_history(self, **kwargs):
             self.reads.append(dict(kwargs))
+            case_id = kwargs.get("case_id") or transition.case_id
+            is_batch_case = case_id.startswith("case-batch-")
+            day = int(case_id.rsplit("-", 1)[-1]) if is_batch_case else 1
+            period_end = f"2026-11-{day:02d}" if is_batch_case else "2026-11-22"
             row = {
-                "preview_id": f"estimate-{transition.state}",
-                "created_at_utc": "2026-11-22T12:00:00Z",
+                "preview_id": f"estimate-{case_id}",
+                "created_at_utc": f"{period_end}T12:00:00Z",
                 "payload": {
                     "schema_version": 2, "model_kind": "SUMMARY_RANGE",
-                    "currency": "RUB", "period_from": "2026-11-01",
-                    "period_to": "2026-11-22", "method": "AGGREGATE_SUMMARY_V1",
+                    "currency": "RUB", "period_from": f"2026-11-{day:02d}",
+                    "period_to": period_end, "method": "AGGREGATE_SUMMARY_V1",
                     "policy_version": "fifo-provisional-summary-v1",
-                    "result": {"redeemed_units": 10}, "rates": {},
-                    "assumptions": {}, "evidence_fingerprints": ["a" * 64],
+                    "result": {
+                        "redeemed_units": 10, "gross_cogs_low_rub": "146.50",
+                        "gross_cogs_high_rub": "210.00", "old_sold_min": 0,
+                        "old_sold_max": 10, "new_sold_min": 0, "new_sold_max": 10,
+                    },
+                    "rates": {"old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65"},
+                    "assumptions": {
+                        "opening_all_old": True, "all_period_supply_receipts_new": True,
+                        "closing_old_min": 0, "closing_old_max": 0,
+                    },
+                    "evidence_fingerprints": ["a" * 64],
                 },
             }
             return {"error": False, "items": [row], "total": 1, "offset": 0, "limit": 8}
@@ -787,6 +815,74 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
         assert len(estimates.reads) == 2
         assert transition.writes == 0
 
+        transition.case_records = [
+            {
+                "case_id": f"case-batch-{index:02d}", "case_revision": 1,
+                "state": "APPLIED",
+                "case": {
+                    "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
+                    "dispatch_date": "2026-11-05",
+                    "metadata": {
+                        "scope": {"owner_id": "owner-test", **IDENTITY},
+                        "store_timezone": "Europe/Moscow",
+                    },
+                },
+            }
+            for index in range(21, 0, -1)
+        ]
+        transition.case_id = "case-batch-21"
+        transition.case_revision = 1
+        runtime.clear_pending("owner-test")
+        history = TelegramFifoCostHistoryService(
+            history_service=CostHistory(), transition_service=transition,
+        )
+        adapter.fifo_history_service = history
+
+        # A fresh ordinary SKU card after a new session must retain navigation to
+        # the saved estimate on the 21st (oldest) transition.
+        opened = history.create_sku_callback(
+            user_id="owner-test", **IDENTITY, display_name="Тестовый товар",
+        )
+        card = adapter.handle_button(opened["callback"], user_id="owner-test")
+        case_list = adapter.handle_button(
+            _ticket_for(runtime, card, "transition_cases"), user_id="owner-test",
+        )
+        assert len([button for button in case_list["keyboard"]["buttons"]
+                    if ":resume:" in button["callback"]]) == 20
+        assert any(button["text"] == "➡️ Раньше"
+                   for button in case_list["keyboard"]["buttons"])
+        assert not any(button["text"] == "⬅️ Новее"
+                       for button in case_list["keyboard"]["buttons"])
+        older_button = next(
+            button["callback"] for button in case_list["keyboard"]["buttons"]
+            if button["text"] == "➡️ Раньше"
+        )
+        older_page = adapter.handle_button(older_button, user_id="owner-test")
+        assert "Показаны 21–21 из 21 прочитанных изменений." in older_page["message"]
+        newer_button = next(
+            button["callback"] for button in older_page["keyboard"]["buttons"]
+            if button["text"] == "⬅️ Новее"
+        )
+        newer_page = adapter.handle_button(newer_button, user_id="owner-test")
+        assert "Показаны 1–20 из 21 прочитанных изменений." in newer_page["message"]
+        estimate_button = next(
+            button["callback"] for button in older_page["keyboard"]["buttons"]
+            if button["text"] == "📚 Оценки 21 · APPLIED"
+        )
+        summary = adapter.handle_button(estimate_button, user_id="owner-test")
+        saved_history_button = _ticket_for(runtime, summary, "provisional_history")
+        history_list = adapter.handle_button(saved_history_button, user_id="owner-test")
+        estimate_detail_button = _ticket_for(
+            runtime, history_list, "provisional_history_view",
+        )
+        estimate_detail = adapter.handle_button(
+            estimate_detail_button, user_id="owner-test",
+        )
+        assert estimates.reads[-1]["case_id"] == "case-batch-01"
+        assert "Период: 2026-11-01 — 2026-11-01" in estimate_detail["message"]
+        assert transition.writes == 0
+
+        transition.case_records = None
         transition.state = "APPLIED"
         transition.case_id = "case-stale"
         transition.case_revision += 1
