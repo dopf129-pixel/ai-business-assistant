@@ -1,5 +1,11 @@
 # Provisional FIFO review regressions — 2026-11-25
 
+# FIFO transition history pagination regressions — 2026-11-25
+
+- `tests/test_fifo_cost_transition_service.py::test_case_list_keyset_reaches_records_beyond_one_hundred`: reads 105 terminal cases through 20-row cursor pages.
+- `tests/test_fifo_cost_transition_service.py::test_case_list_cursor_keeps_draft_on_same_page_after_update`: updates the oldest draft after reading page one and verifies page two contains it exactly once.
+- `tests/test_telegram_fifo_cost_provisional_service.py::test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_cancelled_cases`: checks the 21st saved estimate after session reset, both page directions, and return to the same list page from revision history.
+
 # FIFO transition history pagination regression — 2026-11-25
 
 - `tests/test_telegram_fifo_cost_provisional_service.py::test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_cancelled_cases`: verifies 20 transitions on the first page, «Раньше» opens the 21st transition, and after session reset its saved estimate is reachable and readable without FIFO writes.

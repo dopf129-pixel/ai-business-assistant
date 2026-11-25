@@ -1,5 +1,13 @@
 # PR C independent review packet — saved provisional FIFO estimates
 
+## Review resolution — complete transition history paging (2026-11-25)
+
+- Replaced the 100-row recent-list cap with repository keyset pagination at 20 rows per request. Ordering uses immutable case creation time plus case ID so edits to a draft do not move it across page boundaries.
+- The first page records a snapshot cursor. Later pages use an opaque, tenant-scoped in-memory callback ticket and the same snapshot, and continue for the full history.
+- Case revision history keeps the originating list action and page token so «К списку» returns to the same page.
+- Regressions cover reading 105 records through the last page, updating an older draft between page reads without duplication or omission, opening transition 21's saved estimate after a fresh session, both navigation directions, and returning from revision history to page 2.
+- Exact PR head and hosted CI result will be recorded in the PR description after verification completes.
+
 ## FIFO transition history paging — 2026-11-25
 
 - Added 20-record pages to the SKU transition history with «Новее» and «Раньше» controls. The service currently reads up to 100 recent transitions; the UI says when older records are outside that API window.

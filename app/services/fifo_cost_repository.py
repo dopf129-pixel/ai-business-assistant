@@ -314,6 +314,7 @@ class FifoCostRepository:
     def list_transition_cases(
         self, *, store_id, sku=None,
         states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
+        after_cursor=None, snapshot_cursor=None,
     ):
         scope = self._tenant_scope(store_id)
         if scope.get("error"):
@@ -335,6 +336,7 @@ class FifoCostRepository:
             return FifoCostTransitionStore.list_cases(
                 connection, scope, store_id=normalized_store,
                 sku=normalized_sku, states=tuple(states), limit=limit,
+                after_cursor=after_cursor, snapshot_cursor=snapshot_cursor,
             )
         except (sqlite3.Error, OSError, ValueError):
             return self._error("FIFO_TRANSITION_STORAGE_UNAVAILABLE")
@@ -12298,6 +12300,11 @@ class FifoCostRepository:
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_case_scope
                 ON fifo_cost_transition_cases(
                     tenant_fingerprint, store_id, sku, updated_at, case_id
+                );
+            CREATE INDEX IF NOT EXISTS idx_fifo_cost_transition_case_created
+                ON fifo_cost_transition_cases(
+                    owner_fingerprint, tenant_fingerprint, store_id, sku,
+                    created_at DESC, case_id ASC
                 );
             CREATE INDEX IF NOT EXISTS idx_fifo_cost_provisional_previews_history
                 ON fifo_cost_provisional_previews(case_id, created_at_utc DESC, preview_id);

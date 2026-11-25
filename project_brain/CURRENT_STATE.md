@@ -1,3 +1,9 @@
+# 2026-11-25 — FIFO transition history pagination review fixes (PR C)
+
+- The SKU transition list reads the complete history with stable 20-record cursor pages.
+- Revision history returns to the list page that opened it.
+- Service and Telegram regressions cover records beyond 100, edits during pagination, and access to the saved estimate for transition 21.
+
 # 2026-11-25 — FIFO transition history paging (PR C)
 
 - FIFO transition history on the normal SKU card is paginated at 20 records per screen; older/newer navigation retains scoped read-only access.

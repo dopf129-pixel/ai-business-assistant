@@ -1065,14 +1065,33 @@ class FifoCostTransitionStore:
             "committed_at": committed_at, "replayed": False,
         }
 
+    @staticmethod
+    def _valid_case_list_cursor(cursor):
+        return (
+            isinstance(cursor, dict)
+            and set(cursor) == {"created_at", "case_id"}
+            and isinstance(cursor.get("created_at"), str)
+            and 0 < len(cursor["created_at"]) <= 64
+            and isinstance(cursor.get("case_id"), str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{1,96}", cursor["case_id"]) is not None
+        )
+
     @classmethod
     def list_cases(
         cls, connection, scope: dict, *, store_id: str, sku: str | None = None,
         states: tuple[str, ...] = ("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"),
-        limit: int = 100,
+        limit: int = 100, after_cursor: dict | None = None,
+        snapshot_cursor: dict | None = None,
     ) -> dict:
         if type(limit) is not int or not 1 <= limit <= 100:
             return {"error": True, "code": "FIFO_TRANSITION_LIMIT_INVALID"}
+        if (
+            after_cursor is not None and not cls._valid_case_list_cursor(after_cursor)
+        ) or (
+            snapshot_cursor is not None
+            and not cls._valid_case_list_cursor(snapshot_cursor)
+        ) or (after_cursor is not None and snapshot_cursor is None):
+            return {"error": True, "code": "FIFO_TRANSITION_CURSOR_INVALID"}
         allowed_states = {
             "DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED",
         }
@@ -1093,11 +1112,43 @@ class FifoCostTransitionStore:
         if sku is not None:
             where.append("sku=?")
             params.append(sku)
-        params.append(limit)
+
+        if snapshot_cursor is None:
+            first = connection.execute(
+                """SELECT created_at, case_id FROM fifo_cost_transition_cases
+                   WHERE """ + " AND ".join(where) +
+                " ORDER BY created_at DESC, case_id ASC LIMIT 1",
+                params,
+            ).fetchone()
+            if first is not None:
+                snapshot_cursor = {
+                    "created_at": first["created_at"], "case_id": first["case_id"],
+                }
+        if snapshot_cursor is not None:
+            where.append("(created_at < ? OR (created_at = ? AND case_id >= ?))")
+            params.extend((
+                snapshot_cursor["created_at"], snapshot_cursor["created_at"],
+                snapshot_cursor["case_id"],
+            ))
+
+        total_count = connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_transition_cases WHERE "
+            + " AND ".join(where),
+            params,
+        ).fetchone()[0]
+        page_where = list(where)
+        page_params = list(params)
+        if after_cursor is not None:
+            page_where.append("(created_at < ? OR (created_at = ? AND case_id > ?))")
+            page_params.extend((
+                after_cursor["created_at"], after_cursor["created_at"],
+                after_cursor["case_id"],
+            ))
         rows = connection.execute(
-            """SELECT case_id, product_id, offer_id, sku FROM fifo_cost_transition_cases
-               WHERE """ + " AND ".join(where) + " ORDER BY updated_at DESC, case_id LIMIT ?",
-            [*params[:-1], limit + 1],
+            """SELECT case_id, product_id, offer_id, sku, created_at
+               FROM fifo_cost_transition_cases WHERE """ + " AND ".join(page_where)
+            + " ORDER BY created_at DESC, case_id ASC LIMIT ?",
+            [*page_params, limit + 1],
         ).fetchall()
         has_more = len(rows) > limit
         rows = rows[:limit]
@@ -1115,14 +1166,22 @@ class FifoCostTransitionStore:
             if item.get("error"):
                 return item
             cases.append(item)
+        next_cursor = None
+        if has_more and rows:
+            last = rows[-1]
+            next_cursor = {
+                "created_at": last["created_at"], "case_id": last["case_id"],
+            }
         return {
             "error": False,
             "code": "FIFO_TRANSITION_CASES_FOUND",
             "store_id": store_id,
             "cases": cases,
-            "count": len(cases),
+            "count": total_count,
             "limit": limit,
             "has_more": has_more,
+            "snapshot_cursor": snapshot_cursor,
+            "next_cursor": next_cursor,
         }
 
     @classmethod

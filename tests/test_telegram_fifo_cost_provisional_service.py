@@ -694,20 +694,56 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
                 },
             }
 
-        def list_cases(self, *, states, **_kwargs):
+        @staticmethod
+        def _cursor(item):
+            return {"created_at": item["created_at"], "case_id": item["case_id"]}
+
+        def list_cases(
+            self, *, states, limit=20, after_cursor=None, snapshot_cursor=None,
+            **_kwargs,
+        ):
             if self.case_records is not None:
-                return {
-                    "error": False,
-                    "cases": [item for item in self.case_records if item["state"] in states],
-                    "has_more": False,
-                }
-            cases = []
-            if self.state in states:
-                cases.append({
-                    "case_id": self.case_id, "case_revision": self.case_revision,
-                    "state": self.state, "case": self._payload(),
-                })
-            return {"error": False, "cases": cases, "has_more": False}
+                cases = [
+                    item for item in self.case_records if item["state"] in states
+                ]
+            else:
+                cases = []
+                if self.state in states:
+                    cases.append({
+                        "case_id": self.case_id, "case_revision": self.case_revision,
+                        "state": self.state, "case": self._payload(),
+                        "created_at": "2026-11-05T00:00:00Z",
+                    })
+            cases.sort(key=lambda item: (-int(item["created_at"][8:10]),
+                                         item["case_id"]))
+            if snapshot_cursor is None and cases:
+                snapshot_cursor = self._cursor(cases[0])
+            if snapshot_cursor is not None:
+                cases = [
+                    item for item in cases
+                    if item["created_at"] < snapshot_cursor["created_at"]
+                    or (
+                        item["created_at"] == snapshot_cursor["created_at"]
+                        and item["case_id"] >= snapshot_cursor["case_id"]
+                    )
+                ]
+            count = len(cases)
+            if after_cursor is not None:
+                after_index = next(
+                    index for index, item in enumerate(cases)
+                    if self._cursor(item) == after_cursor
+                )
+                cases = cases[after_index + 1:]
+            page_cases = cases[:limit]
+            has_more = len(cases) > limit
+            next_cursor = (
+                self._cursor(page_cases[-1]) if has_more else None
+            )
+            return {
+                "error": False, "cases": page_cases, "count": count,
+                "has_more": has_more, "snapshot_cursor": snapshot_cursor,
+                "next_cursor": next_cursor,
+            }
 
         def get_case(self, *, case_id, **_kwargs):
             if self.case_records is not None:
@@ -819,6 +855,7 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
             {
                 "case_id": f"case-batch-{index:02d}", "case_revision": 1,
                 "state": "APPLIED",
+                "created_at": f"2026-11-{index:02d}T00:00:00Z",
                 "case": {
                     "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
                     "dispatch_date": "2026-11-05",
@@ -858,15 +895,28 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
             if button["text"] == "➡️ Раньше"
         )
         older_page = adapter.handle_button(older_button, user_id="owner-test")
-        assert "Показаны 21–21 из 21 прочитанных изменений." in older_page["message"]
+        assert "Показаны 21–21 из 21 изменений." in older_page["message"]
         newer_button = next(
             button["callback"] for button in older_page["keyboard"]["buttons"]
             if button["text"] == "⬅️ Новее"
         )
         newer_page = adapter.handle_button(newer_button, user_id="owner-test")
-        assert "Показаны 1–20 из 21 прочитанных изменений." in newer_page["message"]
-        estimate_button = next(
+        assert "Показаны 1–20 из 21 изменений." in newer_page["message"]
+        case_history_button = next(
             button["callback"] for button in older_page["keyboard"]["buttons"]
+            if button["text"] == "Открыть историю 21 · APPLIED"
+        )
+        case_history = adapter.handle_button(
+            case_history_button, user_id="owner-test",
+        )
+        back_to_page = next(
+            button["callback"] for button in case_history["keyboard"]["buttons"]
+            if button["text"] == "↩️ К списку"
+        )
+        returned_page = adapter.handle_button(back_to_page, user_id="owner-test")
+        assert "Показаны 21–21 из 21 изменений." in returned_page["message"]
+        estimate_button = next(
+            button["callback"] for button in returned_page["keyboard"]["buttons"]
             if button["text"] == "📚 Оценки 21 · APPLIED"
         )
         summary = adapter.handle_button(estimate_button, user_id="owner-test")

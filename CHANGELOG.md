@@ -1,3 +1,9 @@
+# 2026-11-25 — FIFO transition history pagination review fixes (PR C)
+
+- Transition history now pages through the full saved list in batches of 20, using a stable cursor so edits do not reorder an in-progress read.
+- Opening and closing a transition's revision history returns to the exact page it came from.
+- Added regression coverage for 105 transitions, an updated draft across a page boundary, and saved-estimate navigation for transition 21.
+
 # 2026-11-25 — FIFO transition history paging (PR C)
 
 - The SKU FIFO change list now shows 20 transitions per page with «Новее» and «Раньше» navigation.
