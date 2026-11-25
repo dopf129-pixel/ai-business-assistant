@@ -761,6 +761,22 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
                 "state": self.state, "case": self._payload(),
             }
 
+        def read_case_history(self, *, case_id, limit=20, before_revision=None, **_kwargs):
+            result = self.get_case(case_id=case_id)
+            if result.get("error") is not False:
+                return result
+            item = {
+                "case_revision": result["case_revision"],
+                "state": result["state"],
+                "created_at": "2026-11-05T00:00:00Z",
+                "updated_at": "2026-11-05T00:00:00Z",
+                "new_unit_cost_rub": result["case"]["new_unit_cost_rub"],
+            }
+            return {
+                "error": False, "items": [item],
+                "has_more": False, "next_before_revision": None,
+            }
+
     class AppliedReceipt:
         def read_commit(self, **_kwargs):
             return {
