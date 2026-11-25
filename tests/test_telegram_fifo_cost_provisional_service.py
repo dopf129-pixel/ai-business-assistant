@@ -804,7 +804,7 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
         )
         stale_button = next((
             button["callback"] for button in case_list["keyboard"]["buttons"]
-            if ":resume:" in button["callback"],
+            if ":resume:" in button["callback"]
         ))
         transition.case_revision += 1
         stale = adapter.handle_button(stale_button, user_id="owner-test")
