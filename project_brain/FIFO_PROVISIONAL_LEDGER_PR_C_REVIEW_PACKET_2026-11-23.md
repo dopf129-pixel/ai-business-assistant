@@ -73,3 +73,10 @@ Before considering this PR ready for independent review, confirm PR C is open ag
 - P2 — Saved estimate history was only reachable while the case was editable and a transient calculator flow existed. Fixed by adding a read-only history entry to READY_TO_CONFIRM, APPLIED and CANCELLED cards/previews; initializing a minimal case-scoped history session when no calculator flow exists; and returning from read-only history to the case card. The regression covers all three states, detail, back navigation, and a stale session revision refresh. No estimates or case data are written by this route.
 - PR B follow-up fixes are integrated as a parent in the C branch: timeline and aggregate old-sold contradiction, wider containing FBO coverage, optional article scope, and aligned 32 MiB FBO output cap.
 - PR B exact-head hosted Verify: https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45571794948 passed. PR C exact-head hosted Verify is pending on the new integrated commit; retain this PR as not ready to merge until that run is green.
+
+
+## Final review verification — 2026-11-25 (supersedes earlier pending notes)
+
+- PR B dependency head 1248617c70d95de92b37129157abae138153160e passed Verify run [45571794948](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45571794948), including Windows, Linux, Docker build and runtime smoke.
+- PR C implementation/test head 989f0520ae4d803e1ce628c72048742082df0603 passed Verify run [45575002866](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45575002866): Windows **5,588 passed in 281.55s**, Linux **5,588 passed in 62.66s**, Docker build and runtime smoke succeeded. An initial Windows attempt failed only because a random callback token coincidentally contained the test's checked digit string; the same-SHA retry passed.
+- This packet update is documentation-only and creates a new SHA. Require the fresh exact-head run to pass before merge. No merge, deployment, live API request, or bot start occurred.

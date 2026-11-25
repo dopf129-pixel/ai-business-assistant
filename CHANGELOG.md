@@ -2,7 +2,7 @@
 
 - PR B checks timeline old/new sales against the owner-confirmed aggregate range; rejects a conflicting timeline without exposing money; accepts an FBO CSV range wider than the selected movement statement only when it contains that statement; validates optional seller article; and raises both FBO worker/client output caps to 32 MiB.
 - PR C keeps saved estimate history available as a read-only view from READY_TO_CONFIRM, APPLIED, and CANCELLED case cards, including after the transient calculator flow is gone.
-- Focused regressions added; PR B exact-head hosted Verify passed. PR C exact-head CI is pending after publishing the integrated branch.
+- Focused regressions added. PR B exact-head hosted Verify passed. PR C code/test SHA 989f0520ae4d803e1ce628c72048742082df0603 passed exact-head Verify run 45575002866: 5,588 tests on Windows and Linux; Linux Docker build and runtime smoke passed. One unrelated Windows run initially hit a random-token assertion collision; the same SHA passed on retry. A documentation-only follow-up is rechecked on its own SHA.
 
 # 2026-11-24 — Provisional FIFO report-selection review fixes
 

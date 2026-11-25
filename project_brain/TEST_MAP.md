@@ -7276,4 +7276,4 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - tests/test_fifo_cost_provisional_fbo_csv_import_service.py: optional seller-article scope match/mismatch.
 - tests/test_fifo_cost_report_import_worker_client.py: valid maximum FBO manifest above the former 16 MiB cap completes through the worker/client at the aligned 32 MiB limit.
 - tests/test_telegram_fifo_cost_provisional_service.py: persisted history is reachable without the transient calculator flow from READY_TO_CONFIRM, APPLIED and CANCELLED cards; navigation remains read-only and scoped.
-- PR B exact-head hosted Verify passed; PR C exact-head CI pending.
+- PR B exact-head hosted Verify passed. PR C code/test SHA 989f0520ae4d803e1ce628c72048742082df0603: **5,588 passed** on Windows (run 45575002866, successful retry) and Linux (same run); Linux Docker build/runtime smoke passed. The first Windows attempt failed one unrelated random-token assertion; same-SHA retry passed. A documentation-only follow-up is rechecked separately.

@@ -2,7 +2,7 @@
 
 - PR B timeline now fails closed if replayed old-unit sales contradict the aggregate owner-confirmed range. A wider FBO CSV interval is permitted only when it fully contains the selected movement statement; replay remains clipped to the movement statement. Optional seller article/offer_id values are checked for the selected SKU without persisting or echoing them. FBO worker and parent caps are aligned at 32 MiB.
 - PR C exposes persisted estimates from READY_TO_CONFIRM, APPLIED and CANCELLED case cards without relying on an in-memory calculator flow. The history route remains read-only, hides the calculator continuation in terminal states, and returns to the relevant case card.
-- PR B exact-head Verify passed on 1248617c70d95de92b37129157abae138153160e; PR C needs hosted verification on its integrated exact head.
+- PR B exact-head Verify passed on 1248617c70d95de92b37129157abae138153160e. PR C code/test SHA 989f0520ae4d803e1ce628c72048742082df0603 passed exact-head Verify run 45575002866: 5,588 tests on Windows and Linux; Linux Docker build and runtime smoke passed. The first Windows attempt had one unrelated random-token assertion collision; the rerun on the same SHA passed. The subsequent docs-only status commit is being rechecked.
 
 # 2026-11-24 — Provisional FIFO PR A/B review corrections in the PR C stack
 

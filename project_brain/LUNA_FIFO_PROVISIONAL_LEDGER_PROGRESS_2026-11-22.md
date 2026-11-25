@@ -281,3 +281,10 @@
 - PR B review fixes are published at 1248617c70d95de92b37129157abae138153160e; hosted Verify run 45571794948 passed.
 - PR C follow-up makes saved history accessible from READY_TO_CONFIRM, APPLIED and CANCELLED case cards with no transient calculator flow. Read-only terminal navigation returns to the case card and cannot continue to calculation.
 - Integrated PR C exact-head CI remains pending until its merge commit is published. No merge into main, deployment, production bot launch or live Ozon/Telegram request was performed.
+
+
+## Exact-head review verification — 2026-11-25
+
+- PR B #742 head 1248617c70d95de92b37129157abae138153160e passed Verify run [45571794948](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45571794948): Windows and Linux full test jobs succeeded; the Linux job built the production Docker image and passed runtime smoke.
+- PR C code/test head 989f0520ae4d803e1ce628c72048742082df0603 passed Verify run [45575002866](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45575002866): **5,588 passed** on Windows (281.55s) and Linux (62.66s), and Linux Docker build/runtime smoke passed. The first Windows attempt had one unrelated collision in a randomized callback-token assertion (5,587 other tests passed); rerunning the same job and SHA passed.
+- This commit records verification facts only. It advances the PR C SHA; GitHub exact-head verification must pass again before declaring the branch ready. No data, live API, bot, merge, or deployment was used.
