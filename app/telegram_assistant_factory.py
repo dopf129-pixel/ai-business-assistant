@@ -317,6 +317,7 @@ def create_fifo_cost_transition_workflow(
     provisional_service = TelegramFifoCostProvisionalService(
         evidence_reader=provisional_evidence_reader,
         summary_service=FifoCostProvisionalSummaryService(),
+        estimate_repository=repository,
     )
     runtime_service = TelegramFifoCostTransitionRuntimeService(
         transition_service=transition_service,

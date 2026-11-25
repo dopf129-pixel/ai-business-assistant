@@ -19,6 +19,8 @@ PR A uses a short-lived Telegram session for editable scenario assumptions and a
 - Saved estimates preserve their original input assumptions and source fingerprints. A stale estimate can be read historically but cannot silently become the current scenario or factual COGS.
 - No path in this feature calls factual readiness, prepare, apply, canonical cost mutation, or a live Ozon/Telegram API.
 
+Implementation note (PF23–PF24): a conditional pre-tax profit range is allowed only after the owner enters and explicitly confirms a manual base for the exact SKU, period, redeemed-unit set, and stated finance perimeter. It is derived as `base - gross COGS`; it is stored only inside the provisional estimate payload, never auto-filled from store-wide profit, and never sent to tax, FIFO, return-cost or canonical Period Profit services. The bot cannot independently verify a manually entered base against a separate finance report; this limitation is disclosed before confirmation. History comparison withholds a profit delta when provenance or financial perimeter differs. Legacy saved payload v1 remains readable. The Telegram regression exercises confirmation, persistence, and reopening while asserting no factual writes.
+
 ## Rationale
 
 The owner's operational history has gaps in physical acceptance, returns, order chronology and old-stock composition. Forcing incomplete evidence into factual FIFO would risk attributing a wrong cost to past sales. A distinct scenario ledger provides useful, reviewable uncertainty while protecting existing factual calculations and owner data.

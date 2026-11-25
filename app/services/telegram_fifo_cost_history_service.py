@@ -241,14 +241,20 @@ class TelegramFifoCostHistoryService:
             f"SKU: {ticket['sku']}\n\n"
             + self._summary_lines(snapshot)
         )
+        keyboard = self._sku_keyboard(
+            ticket["token"],
+            queue_initialized=snapshot["queue_initialized"],
+        )
+        if self.transition_service is not None:
+            keyboard["buttons"].insert(-1, {
+                "text": "📜 История изменений",
+                "callback": f"{self.CALLBACK_PREFIX}:transition_cases:{ticket['token']}",
+            })
         return {
             "error": False,
             "handled": True,
             "message": message,
-            "keyboard": self._sku_keyboard(
-                ticket["token"],
-                queue_initialized=snapshot["queue_initialized"],
-            ),
+            "keyboard": keyboard,
             "read_only_ozon": True,
         }
 
@@ -458,6 +464,7 @@ class TelegramFifoCostHistoryService:
                     "identity": dict(ticket["identity"]),
                     "display_name": ticket["display_name"],
                     "case_id": item["case_id"],
+                    "case_revision": item["case_revision"],
                     "history_before_revision": None,
                     "parent_token": ticket["token"],
                     "expires_at": now + self.TTL_SECONDS,
@@ -472,6 +479,11 @@ class TelegramFifoCostHistoryService:
                 "text": f"Открыть историю {index} · {item.get('state')}",
                 "callback": f"{self.CALLBACK_PREFIX}:case_history:{case_token}",
             })
+            if item.get("state") in {"APPLIED", "CANCELLED"}:
+                buttons.append({
+                    "text": f"📚 Оценки {index} · {item['state']}",
+                    "callback": f"{self.CALLBACK_PREFIX}:resume:{case_token}",
+                })
         if result.get("has_more") or len(cases) > 20:
             lines.append(
                 f"Показаны последние 20 из {len(cases)} прочитанных переходов; "
@@ -569,7 +581,7 @@ class TelegramFifoCostHistoryService:
         if (
             not isinstance(result, dict) or result.get("error") is not False
             or result.get("case_revision") != ticket["case_revision"]
-            or result.get("state") not in {"DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"}
+            or result.get("state") not in {"DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED"}
         ):
             return self._stale_ticket()
         return {

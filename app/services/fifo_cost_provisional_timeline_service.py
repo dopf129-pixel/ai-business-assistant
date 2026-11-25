@@ -46,6 +46,8 @@ class ProvisionalTimelineOutcome:
 class FifoCostProvisionalTimelineService:
     """Turn selected, owner-scoped evidence into a gated non-authoritative model."""
 
+    POLICY_VERSION = "fifo-provisional-timeline-v1"
+
     def __init__(self, *, normalizer=None, replay_service=None):
         self.normalizer = normalizer or FifoCostProvisionalTimelineNormalizer()
         self.replay_service = replay_service or FifoCostProvisionalReplayService()

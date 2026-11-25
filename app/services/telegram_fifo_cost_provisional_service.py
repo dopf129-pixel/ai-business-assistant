@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import hashlib
+import json
 import re
 from time import monotonic
 from uuid import uuid4
@@ -29,7 +31,8 @@ class TelegramFifoCostProvisionalService:
     """Keep provisional inputs in the existing short-lived Telegram session.
 
     This service never writes transition cases, FIFO layers, Period Profit data,
-    or the saved-estimate ledger. Durable estimates are introduced separately.
+    or factual cost/profit ledgers. Saved scenarios go only to the isolated
+    append-only provisional-estimate ledger.
     """
 
     PAGE_SIZE = 8
@@ -39,12 +42,14 @@ class TelegramFifoCostProvisionalService:
 
     def __init__(
         self, *, evidence_reader, summary_service, fbo_worker=None,
-        timeline_service=None, monotonic_clock=monotonic,
+        timeline_service=None, estimate_repository=None,
+        monotonic_clock=monotonic,
     ):
         self.evidence_reader = evidence_reader
         self.summary_service = summary_service
         self.fbo_worker = fbo_worker or FifoCostReportImportWorkerClient()
         self.timeline_service = timeline_service or FifoCostProvisionalTimelineService()
+        self.estimate_repository = estimate_repository
         self._monotonic = monotonic_clock
 
     def start(self, runtime, owner, session):
@@ -78,6 +83,30 @@ class TelegramFifoCostProvisionalService:
         step = session.get("step")
         if step == "provisional_fbo_period":
             return self._set_fbo_period(runtime, owner, session, value)
+        if step == "provisional_profit_base":
+            amount = self._parse_money(value)
+            if amount is None:
+                return runtime._result(
+                    "Введите сумму в рублях, например 130000 или -1250,50. "
+                    "Допускаются копейки; смешивать разделители нельзя. Предыдущая оценка не изменена."
+                )
+            kind = flow.get("profit_pending_model_kind")
+            candidate = self._profit_scenario_candidate(session, flow, kind)
+            if (candidate is None
+                    or candidate["input_fingerprint"]
+                    != flow.get("profit_pending_scenario_fingerprint")):
+                session.pop("step", None)
+                return runtime._result(
+                    "Сценарий изменился. Базу прибыли не сохранил; рассчитайте модель заново.",
+                    code="FIFO_PROVISIONAL_PROFIT_BASE_STALE",
+                )
+            flow["profit_base_pending_rub"] = f"{amount:.2f}"
+            session.pop("step", None)
+            self._advance(
+                runtime, session, preserve_model_evidence=True,
+                preserve_conditional_profit=True,
+            )
+            return self._profit_base_confirmation(runtime, owner, session, flow)
         if step == "provisional_close_exact":
             parsed = self._parse_units(value)
             if parsed is None:
@@ -101,10 +130,16 @@ class TelegramFifoCostProvisionalService:
 
     def handle_callback(self, runtime, owner, session, ticket, action):
         if action == "provisional_start":
+            session.pop("provisional_history_readonly", None)
             return self.start(runtime, owner, session)
         flow = session.get("provisional_flow")
+        if action == "provisional_history" and not isinstance(flow, dict):
+            flow = {"history_screen": "list", "history_page": 0}
+            session["provisional_flow"] = flow
         if not isinstance(flow, dict):
             return runtime._stale()
+        if session.get("state") in runtime._PROVISIONAL_HISTORY_READ_STATES:
+            session["provisional_history_readonly"] = True
         if action == "provisional_fbo_upload":
             return self._start_fbo_upload(runtime, owner, session, flow)
         if action in {"provisional_fbo_confirm", "provisional_fbo_cancel"}:
@@ -119,9 +154,125 @@ class TelegramFifoCostProvisionalService:
             )
         if action == "provisional_back":
             session.pop("provisional_flow", None)
+            session.pop("provisional_history_readonly", None)
             session.pop("step", None)
             self._advance(runtime, session)
             return runtime._show_summary(owner)
+        if action == "provisional_profit_base":
+            kind = ticket.get("model_kind")
+            candidate = self._profit_scenario_candidate(session, flow, kind)
+            if candidate is None or candidate["input_fingerprint"] != ticket.get("scenario_fingerprint"):
+                return runtime._stale()
+            flow["profit_pending_model_kind"] = kind
+            flow["profit_pending_scenario_fingerprint"] = candidate["input_fingerprint"]
+            session["step"] = "provisional_profit_base"
+            self._advance(
+                runtime, session, preserve_model_evidence=True,
+                preserve_conditional_profit=True,
+            )
+            return runtime._result(
+                f"Введите базу прибыли для SKU {session['identity']['sku']} за "
+                f"{candidate['payload']['period_from']} — {candidate['payload']['period_to']} ₽.\n"
+                "Нужна сумма до вычета себестоимости этого товара и до налога, "
+                "за тот же набор выкупов, до сторно возвратов. Допускается отрицательное значение. "
+                "Не вводите общую прибыль магазина, сумму после себестоимости, налога, "
+                "за другой период или по несовпадающим датам начисления."
+            )
+        if action == "provisional_profit_base_confirm":
+            kind = ticket.get("model_kind")
+            candidate = self._profit_scenario_candidate(session, flow, kind)
+            pending = flow.get("profit_base_pending_rub")
+            if (candidate is None
+                    or candidate["input_fingerprint"] != ticket.get("scenario_fingerprint")
+                    or not isinstance(pending, str)
+                    or self._profit_base_confirmation_fingerprint(
+                        pending, candidate["input_fingerprint"],
+                    ) != ticket.get("confirmation_fingerprint")):
+                return runtime._stale()
+            flow["profit_base_rub"] = pending
+            flow["profit_base_confirmed"] = True
+            flow["profit_model_kind"] = kind
+            flow["profit_scenario_fingerprint"] = candidate["input_fingerprint"]
+            flow.pop("profit_base_pending_rub", None)
+            flow.pop("profit_pending_model_kind", None)
+            flow.pop("profit_pending_scenario_fingerprint", None)
+            self._advance(
+                runtime, session, preserve_model_evidence=True,
+                preserve_conditional_profit=True,
+            )
+            return self.show(runtime, owner, session)
+        if action == "provisional_profit_base_cancel":
+            flow.pop("profit_base_pending_rub", None)
+            flow.pop("profit_pending_model_kind", None)
+            flow.pop("profit_pending_scenario_fingerprint", None)
+            session.pop("step", None)
+            self._advance(
+                runtime, session, preserve_model_evidence=True,
+                preserve_conditional_profit=True,
+            )
+            return self.show(runtime, owner, session)
+        if action == "provisional_history":
+            flow["history_screen"] = "list"
+            flow["history_page"] = 0
+            flow.pop("history_compare_first_id", None)
+            flow.pop("history_compare_second_id", None)
+            flow.pop("history_preview_id", None)
+            self._advance_history(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action == "provisional_history_page":
+            page = ticket.get("page")
+            if type(page) is not int or not 0 <= page <= 99:
+                return runtime._stale()
+            flow["history_screen"] = "list"
+            flow["history_page"] = page
+            self._advance_history(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action in {"provisional_history_view", "provisional_history_compare"}:
+            preview_id = ticket.get("preview_id")
+            if self._load_saved_preview(session, preview_id) is None:
+                return runtime._result("Сохранённая оценка больше не найдена в этом деле.")
+            if action == "provisional_history_view":
+                flow["history_screen"] = "detail"
+                flow["history_preview_id"] = preview_id
+                self._advance_history(runtime, session)
+                return self.show_history_detail(runtime, owner, session)
+            first_id = flow.get("history_compare_first_id")
+            if not first_id:
+                flow["history_compare_first_id"] = preview_id
+                flow["history_screen"] = "list"
+                flow["history_page"] = 0
+                self._advance_history(runtime, session)
+                return self.show_history(runtime, owner, session)
+            if first_id == preview_id:
+                return runtime._result("Выберите другую оценку для сравнения.")
+            flow["history_compare_second_id"] = preview_id
+            flow["history_screen"] = "compare"
+            self._advance_history(runtime, session)
+            return self.show_history_comparison(runtime, owner, session)
+        if action == "provisional_history_compare_cancel":
+            flow.pop("history_compare_first_id", None)
+            flow.pop("history_compare_second_id", None)
+            flow["history_screen"] = "list"
+            self._advance_history(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action == "provisional_history_detail_back":
+            flow.pop("history_preview_id", None)
+            flow["history_screen"] = "list"
+            self._advance_history(runtime, session)
+            return self.show_history(runtime, owner, session)
+        if action == "provisional_history_to_calculator":
+            if session.get("provisional_history_readonly") is True:
+                session.pop("provisional_flow", None)
+                session.pop("provisional_history_readonly", None)
+                session.pop("step", None)
+                return runtime._show_summary(owner)
+            for key in (
+                "history_screen", "history_preview_id", "history_compare_first_id",
+                "history_compare_second_id",
+            ):
+                flow.pop(key, None)
+            self._advance_history(runtime, session)
+            return self.show(runtime, owner, session)
         if action == "provisional_snapshot":
             return self._select_report(runtime, owner, session, ticket, flow, "snapshot")
         if action == "provisional_movement":
@@ -148,6 +299,8 @@ class TelegramFifoCostProvisionalService:
             return self._calculate(runtime, owner, session, flow)
         elif action == "provisional_timeline_calculate":
             return self._calculate_timeline(runtime, owner, session, flow)
+        elif action == "provisional_save":
+            return self._save_estimate(runtime, owner, session, ticket, flow)
         elif action == "provisional_timeline_coverage_yes":
             flow["timeline_coverage_confirmed"] = True
         elif action == "provisional_timeline_coverage_no":
@@ -176,12 +329,19 @@ class TelegramFifoCostProvisionalService:
             return runtime._stale()
         candidates = self._reports(runtime, session)
         if candidates is None:
+            buttons = [{
+                "text": "⬅️ К карточке партии",
+                "callback": runtime._issue_ticket(owner, session, "provisional_back"),
+            }]
+            if callable(getattr(self.estimate_repository,
+                                "read_provisional_preview_history", None)):
+                buttons.insert(0, {
+                    "text": "📚 История оценок",
+                    "callback": runtime._issue_ticket(owner, session, "provisional_history"),
+                })
             return runtime._result(
                 "Не удалось безопасно прочитать сохранённые ведомости. Предварительный расчёт не выполнен.",
-                keyboard=runtime._keyboard([{
-                    "text": "⬅️ К карточке партии",
-                    "callback": runtime._issue_ticket(owner, session, "provisional_back"),
-                }]),
+                keyboard=runtime._keyboard(buttons),
             )
         snapshots = [item for item in candidates if item["period_from"] == item["period_to"]]
         snapshot = self._find(candidates, flow.get("snapshot_fingerprint"))
@@ -310,11 +470,549 @@ class TelegramFifoCostProvisionalService:
             {"text": "📄 Загрузить оборотную ведомость", "callback": runtime._issue_ticket(owner, session, "provisional_upload")},
             {"text": "⬅️ К карточке партии", "callback": runtime._issue_ticket(owner, session, "provisional_back")},
         ])
+        if callable(getattr(self.estimate_repository, "read_provisional_preview_history", None)):
+            buttons.insert(0, {
+                "text": "📚 История оценок",
+                "callback": runtime._issue_ticket(owner, session, "provisional_history"),
+            })
         if flow.get("result") is not None:
             lines.extend(["", self._format_result(flow["result"])])
         if flow.get("timeline_result") is not None:
             lines.extend(["", self._format_timeline_result(flow["timeline_result"], flow.get("result"))])
+        profit_candidate = self._profit_scenario_candidate(session, flow)
+        if profit_candidate is not None:
+            profit = None
+            if (flow.get("profit_base_confirmed") is True
+                    and flow.get("profit_model_kind") == profit_candidate["payload"]["model_kind"]
+                    and flow.get("profit_scenario_fingerprint")
+                    == profit_candidate["input_fingerprint"]):
+                profit = self._make_conditional_profit(
+                    flow.get("profit_base_rub"), profit_candidate["payload"],
+                )
+            if profit is not None:
+                lines.extend(["", self._format_conditional_profit(profit)])
+            elif flow.get("profit_base_confirmed") is True:
+                lines.extend([
+                    "",
+                    "Условная прибыль недоступна: ранее подтверждённая база не совпадает "
+                    "с текущими входами; введите и подтвердите её заново.",
+                ])
+            else:
+                lines.extend([
+                    "",
+                    "Условная прибыль недоступна: нет подтверждённой базы владельца "
+                    "для этого SKU, периода и числа выкупов.",
+                ])
+            buttons.append({
+                "text": (
+                    "💰 Изменить базу условной прибыли"
+                    if profit is not None
+                    else "💰 Рассчитать условную прибыль"
+                ),
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_profit_base",
+                    model_kind=profit_candidate["payload"]["model_kind"],
+                    scenario_fingerprint=profit_candidate["input_fingerprint"],
+                ),
+            })
+        candidate = self._saved_candidate(session, flow)
+        if candidate is not None and self.estimate_repository is not None:
+            if flow.get("saved_input_fingerprint") == candidate["input_fingerprint"]:
+                lines.extend(["", "Оценка сохранена отдельно как предварительная; фактический FIFO и прибыль не менялись."])
+            else:
+                buttons.append({
+                    "text": "💾 Сохранить оценку",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_save",
+                        input_fingerprint=candidate["input_fingerprint"],
+                        model_kind=candidate["payload"]["model_kind"],
+                    ),
+                })
         return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def show_history(self, runtime, owner, session):
+        flow = session.get("provisional_flow")
+        page = flow.get("history_page", 0) if isinstance(flow, dict) else 0
+        if (not isinstance(flow, dict) or type(page) is not int or not 0 <= page <= 99
+                or not callable(getattr(self.estimate_repository,
+                                        "read_provisional_preview_history", None))):
+            return runtime._result("История предварительных оценок временно недоступна.")
+        result = self.estimate_repository.read_provisional_preview_history(
+            case_id=session["case_id"],
+            store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"],
+            limit=self.PAGE_SIZE,
+            offset=page * self.PAGE_SIZE,
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return runtime._result("Не удалось безопасно прочитать историю оценок.")
+        items, total = result.get("items"), result.get("total")
+        if not isinstance(items, list) or type(total) is not int or not 0 <= total <= 100:
+            return runtime._result("Ответ истории оценок неполный; откройте её ещё раз.")
+        page_count = max(1, (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        if page >= page_count:
+            flow["history_page"] = max(0, page_count - 1)
+            return self.show_history(runtime, owner, session)
+        lines = [
+            "📚 Сохранённые предварительные оценки",
+            "Это сценарии по сохранённым входам, не активный FIFO и не фактическая прибыль.",
+            "Фактический статус и расчётная история остаются в карточке дела.",
+        ]
+        first_id = flow.get("history_compare_first_id")
+        if total == 0:
+            lines.extend(["", "Сохранённых оценок пока нет."])
+        elif first_id:
+            first = self._load_saved_preview(session, first_id)
+            lines.extend([
+                "",
+                "Первая оценка выбрана. Выберите вторую для сопоставления.",
+                self._history_item_label(first) if first is not None
+                else "Первая оценка недоступна.",
+            ])
+        buttons = []
+        for index, item in enumerate(items, start=page * self.PAGE_SIZE + 1):
+            if not isinstance(item, dict) or not self._valid_preview_row(item):
+                return runtime._result("В истории встретилась неполная запись. Безопасный просмотр остановлен.")
+            lines.append(f"\n{index}. {self._history_item_label(item)}")
+            buttons.append({
+                "text": f"Открыть {index}",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_view",
+                    preview_id=item["preview_id"],
+                ),
+            })
+            if first_id != item["preview_id"]:
+                buttons.append({
+                    "text": f"Сравнить {index}",
+                    "callback": runtime._issue_ticket(
+                        owner, session, "provisional_history_compare",
+                        preview_id=item["preview_id"],
+                    ),
+                })
+        if first_id:
+            buttons.append({
+                "text": "Отменить сравнение",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_compare_cancel",
+                ),
+            })
+        if page > 0:
+            buttons.append({
+                "text": "⬅️ Предыдущие",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_page", page=page - 1,
+                ),
+            })
+        if page + 1 < page_count:
+            buttons.append({
+                "text": "➡️ Следующие",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_page", page=page + 1,
+                ),
+            })
+        if session.get("provisional_history_readonly") is not True:
+            buttons.append({
+                "text": "🧮 К предварительной оценке",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_to_calculator",
+                ),
+            })
+        buttons.append({
+            "text": "⬅️ К карточке партии",
+            "callback": runtime._issue_ticket(owner, session, "provisional_back"),
+        })
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def show_history_detail(self, runtime, owner, session):
+        flow = session.get("provisional_flow", {})
+        item = self._load_saved_preview(session, flow.get("history_preview_id"))
+        if item is None:
+            return runtime._result("Сохранённая оценка не найдена в текущей карточке.")
+        payload = item["payload"]
+        rates, assumptions = payload["rates"], payload["assumptions"]
+        lines = [
+            "💾 Сохранённая предварительная оценка",
+            f"Период: {payload['period_from']} — {payload['period_to']}",
+            f"Метод: {payload['method']} · версия правил: {payload['policy_version']}",
+            f"Ставки: старая {rates['old_unit_cost_rub']} ₽ / новая {rates['new_unit_cost_rub']} ₽ за упаковку.",
+            f"Выкупы по ведомости: {payload['result']['redeemed_units']:,} шт.",
+            f"Источниковых отпечатков: {len(payload['evidence_fingerprints'])}; содержимое файлов не хранится.",
+            "Предпосылки владельца: начальный остаток старой партии — "
+            f"{self._yes_no_label(assumptions['opening_all_old'])}; поступления новой партии — "
+            f"{self._yes_no_label(assumptions['all_period_supply_receipts_new'])}; "
+            f"старый конечный остаток — {self._format_saved_range(assumptions['closing_old_min'], assumptions['closing_old_max'])}.",
+            self._format_saved_result(payload),
+            (self._format_conditional_profit(payload["conditional_profit"])
+             if isinstance(payload.get("conditional_profit"), dict)
+             else "Условная прибыль не сохранена: нет подтверждённой базы владельца."),
+            self._saved_freshness(runtime, session, payload),
+            "Оценка не подменяет текущий фактический FIFO и прибыль.",
+        ]
+        buttons = [
+            {"text": "⚖️ Сравнить с другой оценкой", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_compare", preview_id=item["preview_id"],
+            )},
+            {"text": "⬅️ К истории оценок", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_detail_back",
+            )},
+        ]
+        if session.get("provisional_history_readonly") is not True:
+            buttons.append({
+                "text": "🧮 К предварительной оценке",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_to_calculator",
+                ),
+            })
+        else:
+            buttons.append({
+                "text": "⬅️ К карточке партии",
+                "callback": runtime._issue_ticket(owner, session, "provisional_back"),
+            })
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def show_history_comparison(self, runtime, owner, session):
+        flow = session.get("provisional_flow", {})
+        first = self._load_saved_preview(session, flow.get("history_compare_first_id"))
+        second = self._load_saved_preview(session, flow.get("history_compare_second_id"))
+        if first is None or second is None:
+            return runtime._result("Одна из выбранных оценок больше недоступна. Выберите их заново.")
+        old_payload, new_payload = first["payload"], second["payload"]
+        lines = [
+            "⚖️ Сравнение предварительных оценок",
+            "Различие показывает диапазон сценариев и не доказывает причину изменения.",
+            "",
+            "Первая оценка:", self._format_saved_result(old_payload),
+            f"Период {old_payload['period_from']} — {old_payload['period_to']}; "
+            f"S={old_payload['result']['redeemed_units']} шт.; метод {old_payload['method']}.",
+            "",
+            "Вторая оценка:", self._format_saved_result(new_payload),
+            f"Период {new_payload['period_from']} — {new_payload['period_to']}; "
+            f"S={new_payload['result']['redeemed_units']} шт.; метод {new_payload['method']}.",
+        ]
+        comparable, same_coverage = self._saved_estimates_comparable(old_payload, new_payload)
+        if comparable:
+            old_low, old_high = self._saved_cost_interval(old_payload)
+            new_low, new_high = self._saved_cost_interval(new_payload)
+            if old_low is None or new_low is None:
+                lines.extend([
+                    "",
+                    "Общая дельта не рассчитана: у одной из оценок нет полной денежной суммы.",
+                ])
+            else:
+                difference_low = (new_low - old_high).quantize(Decimal("0.01"))
+                difference_high = (new_high - old_low).quantize(Decimal("0.01"))
+                lines.extend([
+                    "",
+                    f"Возможная разница себестоимости второй минус первой: "
+                    f"{difference_low:,.2f}–{difference_high:,.2f} ₽.",
+                ])
+                if not same_coverage:
+                    lines.append(
+                        "Покрытие источников различается: "
+                        f"{len(old_payload.get('evidence_fingerprints', ()))} и "
+                        f"{len(new_payload.get('evidence_fingerprints', ()))} отпечатков; "
+                        "учитывайте это при чтении диапазона."
+                    )
+        else:
+            lines.extend([
+                "",
+                "Общая дельта не рассчитана: периоды, метод, число выкупов или версия правил не совпадают.",
+                "Оценки показаны отдельно для безопасного сравнения.",
+            ])
+        profit_comparable, profit_reason = self._saved_profit_comparable(
+            old_payload, new_payload,
+        )
+        old_profit = old_payload.get("conditional_profit")
+        new_profit = new_payload.get("conditional_profit")
+        if profit_comparable:
+            profit_low = (
+                Decimal(new_profit["profit_low_rub"])
+                - Decimal(old_profit["profit_high_rub"])
+            ).quantize(Decimal("0.01"))
+            profit_high = (
+                Decimal(new_profit["profit_high_rub"])
+                - Decimal(old_profit["profit_low_rub"])
+            ).quantize(Decimal("0.01"))
+            lines.extend([
+                "",
+                "Возможная разница условной прибыли до налога (вторая минус первая): "
+                f"{profit_low:,.2f}–{profit_high:,.2f} ₽.",
+            ])
+        elif old_profit is not None or new_profit is not None:
+            lines.extend(["", f"Дельта условной прибыли не рассчитана: {profit_reason}."])
+        else:
+            lines.extend(["", "Условная прибыль не сравнивается: у оценок нет подтверждённой общей базы."])
+        lines.append("Обе оценки остаются предварительными и не меняют фактические расчёты.")
+        buttons = [
+            {"text": "📚 К истории оценок", "callback": runtime._issue_ticket(
+                owner, session, "provisional_history_detail_back",
+            )},
+        ]
+        if session.get("provisional_history_readonly") is not True:
+            buttons.append({
+                "text": "🧮 К предварительной оценке",
+                "callback": runtime._issue_ticket(
+                    owner, session, "provisional_history_to_calculator",
+                ),
+            })
+        else:
+            buttons.append({
+                "text": "⬅️ К карточке партии",
+                "callback": runtime._issue_ticket(owner, session, "provisional_back"),
+            })
+        return runtime._result("\n".join(lines), keyboard=runtime._keyboard(buttons))
+
+    def _profit_base_confirmation(self, runtime, owner, session, flow):
+        kind = flow.get("profit_pending_model_kind")
+        scenario_fingerprint = flow.get("profit_pending_scenario_fingerprint")
+        amount = flow.get("profit_base_pending_rub")
+        candidate = self._profit_scenario_candidate(session, flow, kind)
+        if (candidate is None or candidate["input_fingerprint"] != scenario_fingerprint
+                or self._parse_money(amount) is None):
+            return runtime._result(
+                "Не удалось подтвердить базу для текущей модели. Пересчитайте оценку.",
+                code="FIFO_PROVISIONAL_PROFIT_BASE_STALE",
+            )
+        payload = candidate["payload"]
+        confirmation_fingerprint = self._profit_base_confirmation_fingerprint(
+            amount, scenario_fingerprint,
+        )
+        return runtime._result(
+            "Проверьте базу условной прибыли:\n"
+            f"SKU {session['identity']['sku']}; период {payload['period_from']} — {payload['period_to']}; "
+            f"{amount} ₽; выкупы S={payload['result']['redeemed_units']} шт.\n"
+            f"{self._format_saved_result(payload)}\n"
+            "Подтвердите, что сумма относится к этому SKU и периоду, рассчитана до себестоимости "
+            "выкупленных единиц и до налога, включает тот же набор выкупов, и не включает сторно возвратов. "
+            "Это ручное подтверждение владельца, не данные Ozon; бот не сверяет сумму "
+            "с отдельным финансовым отчётом.",
+            keyboard=runtime._keyboard([
+                {"text": "✅ Подтверждаю базу", "callback": runtime._issue_ticket(
+                    owner, session, "provisional_profit_base_confirm",
+                    model_kind=kind, scenario_fingerprint=scenario_fingerprint,
+                    confirmation_fingerprint=confirmation_fingerprint,
+                )},
+                {"text": "↩️ Отменить ввод", "callback": runtime._issue_ticket(
+                    owner, session, "provisional_profit_base_cancel",
+                )},
+            ]),
+        )
+
+    def _profit_scenario_candidate(self, session, flow, model_kind=None):
+        summary = flow.get("result") if isinstance(flow, dict) else None
+        timeline = flow.get("timeline_result") if isinstance(flow, dict) else None
+        if model_kind is None:
+            if (timeline is not None
+                    and timeline.status is ProvisionalStatus.TIMELINE_MODEL
+                    and timeline.gross_cogs_rub is not None):
+                model_kind = "TIMELINE_MODEL"
+            else:
+                model_kind = "SUMMARY_RANGE"
+        if model_kind not in {"SUMMARY_RANGE", "TIMELINE_MODEL"}:
+            return None
+        candidate = self._candidate_from_results(
+            session, flow, summary, timeline,
+            timeline_fingerprints=flow.get("timeline_evidence_fingerprints", ()),
+            requested_kind=model_kind,
+            include_profit=False,
+        )
+        if candidate is None:
+            return None
+        low, high = self._saved_cost_interval(candidate["payload"])
+        if low is None or high is None:
+            return None
+        return candidate
+
+    @staticmethod
+    def _profit_base_confirmation_fingerprint(amount, scenario_fingerprint):
+        return hashlib.sha256(json.dumps({
+            "base_rub": amount,
+            "scenario_fingerprint": scenario_fingerprint,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _format_conditional_profit(profit):
+        return (
+            "Условная прибыль до налога (не факт): "
+            f"{Decimal(profit['profit_low_rub']):,.2f}–"
+            f"{Decimal(profit['profit_high_rub']):,.2f} ₽. "
+            f"База владельца: {Decimal(profit['base_rub']):,.2f} ₽; "
+            "до вычета себестоимости выкупов и налога, до сторно возвратов."
+        )
+
+    @staticmethod
+    def _parse_money(value):
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text.isascii() or re.fullmatch(r"-?(?:0|[1-9]\d{0,11})(?:[.,]\d{1,2})?", text) is None:
+            return None
+        try:
+            amount = Decimal(text.replace(",", "."))
+            if not amount.is_finite():
+                return None
+            return amount.quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            return None
+
+    def _load_saved_preview(self, session, preview_id):
+        if (not isinstance(preview_id, str)
+                or not callable(getattr(self.estimate_repository,
+                                        "read_provisional_preview_history", None))):
+            return None
+        result = self.estimate_repository.read_provisional_preview_history(
+            case_id=session["case_id"],
+            store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"],
+            limit=100,
+            offset=0,
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return None
+        return next((item for item in result.get("items", ())
+                     if isinstance(item, dict) and item.get("preview_id") == preview_id
+                     and self._valid_preview_row(item)), None)
+
+    @staticmethod
+    def _valid_preview_row(item):
+        payload = item.get("payload")
+        return (
+            isinstance(item.get("preview_id"), str)
+            and isinstance(item.get("created_at_utc"), str)
+            and isinstance(payload, dict)
+            and payload.get("schema_version") in {1, 2}
+            and payload.get("model_kind") in {"SUMMARY_RANGE", "TIMELINE_MODEL"}
+            and isinstance(payload.get("period_from"), str)
+            and isinstance(payload.get("period_to"), str)
+            and isinstance(payload.get("method"), str)
+            and isinstance(payload.get("policy_version"), str)
+            and isinstance(payload.get("result"), dict)
+            and type(payload["result"].get("redeemed_units")) is int
+            and isinstance(payload.get("rates"), dict)
+            and isinstance(payload.get("assumptions"), dict)
+            and isinstance(payload.get("evidence_fingerprints"), list)
+        )
+
+    @staticmethod
+    def _history_item_label(item, selected=False):
+        payload = item["payload"]
+        prefix = "Первая оценка" if selected else ""
+        model = "сводная" if payload.get("model_kind") == "SUMMARY_RANGE" else "хронологическая"
+        created_at = item.get("created_at_utc", "время не указано")
+        if isinstance(created_at, str) and len(created_at) >= 19:
+            created_at = created_at[:19].replace("T", " ") + " UTC"
+        return (
+            f"{prefix + ' · ' if prefix else ''}{payload.get('period_from')}–{payload.get('period_to')} · "
+            f"{model} · {created_at}"
+        )
+
+    @staticmethod
+    def _format_saved_range(low, high):
+        if low is None or high is None:
+            return "не задан"
+        if low == high:
+            return f"{low} шт. (сценарное допущение)"
+        return f"{low}–{high} шт. (сценарное допущение)"
+
+    @classmethod
+    def _format_saved_result(cls, payload):
+        result = payload["result"]
+        if payload["model_kind"] == "SUMMARY_RANGE":
+            return (
+                f"Себестоимость выкупов до сторно возвратов: "
+                f"{Decimal(result['gross_cogs_low_rub']):,.2f}–"
+                f"{Decimal(result['gross_cogs_high_rub']):,.2f} ₽; "
+                f"старых выкупов {result['old_sold_min']:,}–{result['old_sold_max']:,}, "
+                f"новых {result['new_sold_min']:,}–{result['new_sold_max']:,} шт."
+            )
+        cost = result.get("gross_cogs_rub")
+        cost_text = f"{Decimal(cost):,.2f} ₽" if cost is not None else "нет полной денежной суммы"
+        return (
+            f"Себестоимость выкупов до сторно возвратов: {cost_text}; "
+            f"старых выкупов {result.get('old_sold_units', 'не определено')}, "
+            f"новых {result.get('new_sold_units', 'не определено')} шт.; "
+            f"возвратов {result.get('returned_units', 0)} шт."
+        )
+
+    @classmethod
+    def _saved_cost_interval(cls, payload):
+        result = payload["result"]
+        if payload["model_kind"] == "SUMMARY_RANGE":
+            return Decimal(result["gross_cogs_low_rub"]), Decimal(result["gross_cogs_high_rub"])
+        value = result.get("gross_cogs_rub")
+        if value is None:
+            return None, None
+        amount = Decimal(value)
+        return amount, amount
+
+    @staticmethod
+    def _saved_estimates_comparable(first, second):
+        comparable_fields = (
+            "model_kind", "currency", "period_from", "period_to", "method", "policy_version",
+        )
+        compatible = (
+            all(first.get(key) == second.get(key) for key in comparable_fields)
+            and first.get("result", {}).get("redeemed_units")
+            == second.get("result", {}).get("redeemed_units")
+        )
+        same_coverage = set(first.get("evidence_fingerprints", ())) == set(
+            second.get("evidence_fingerprints", ()),
+        )
+        return compatible, same_coverage
+
+    @staticmethod
+    def _saved_profit_comparable(first, second):
+        model_comparable, _same_coverage = TelegramFifoCostProvisionalService._saved_estimates_comparable(
+            first, second,
+        )
+        if not model_comparable:
+            return False, "модели, периоды, правило FIFO или число выкупов различаются"
+        first_profit = first.get("conditional_profit")
+        second_profit = second.get("conditional_profit")
+        if not isinstance(first_profit, dict) or not isinstance(second_profit, dict):
+            return False, "одна из оценок не содержит подтверждённую базу владельца"
+        supported_provenance = {
+            "status": "CONDITIONAL_BEFORE_TAX",
+            "source": "OWNER_CONFIRMED_MANUAL",
+        }
+        if any(
+            profit.get(key) != expected
+            for profit in (first_profit, second_profit)
+            for key, expected in supported_provenance.items()
+        ):
+            return False, "подтверждённая база или статус прибыли не подтверждены"
+        same_basis = all(
+            first_profit.get(key) == second_profit.get(key)
+            for key in (
+                "status", "source",
+                "currency", "period_from", "period_to", "redeemed_units",
+                "perimeter", "profit_stage", "return_reversal",
+            )
+        )
+        if not same_basis:
+            return False, "денежный периметр, период, число выкупов, стадия налога или сторно различаются"
+        return True, ""
+
+    def _saved_freshness(self, runtime, session, payload):
+        flow = session.get("provisional_flow", {})
+        selected = {
+            flow.get("snapshot_fingerprint"), flow.get("movement_fingerprint"),
+        }
+        selected.discard(None)
+        if len(selected) != 2:
+            return "Актуальность источников не сверена в текущем сеансе; оценка сохраняет исходные отпечатки."
+        reports = self._reports(runtime, session)
+        if reports is None or any(self._find(reports, fingerprint) is None for fingerprint in selected):
+            return "Сохранённая оценка по прежним данным: текущие выбранные ведомости изменились или недоступны."
+        if selected <= set(payload.get("evidence_fingerprints", ())):
+            if payload.get("model_kind") == "TIMELINE_MODEL":
+                return "Выбранные ведомости совпадают; дополнительные источники хронологии после перезапуска не перепроверены."
+            return "Выбранные ведомости совпадают с сохранённой оценкой; результат остаётся предварительным."
+        return "Сохранённая оценка рассчитана по прежним данным. Пересчитайте её по выбранным ведомостям."
 
     def _start_fbo_upload(self, runtime, owner, session, flow):
         reports = self._reports(runtime, session)
@@ -1098,7 +1796,333 @@ class TelegramFifoCostProvisionalService:
             closing_old_min=flow.get("closing_old_min"),
             closing_old_max=flow.get("closing_old_max"),
         )
+        flow["timeline_evidence_fingerprints"] = self._timeline_evidence_fingerprints(
+            snapshot, movement,
+            accepted_fbo.get("document") if isinstance(accepted_fbo, dict) else None,
+            flow.get("movement_document"),
+            source_bundle.get("fingerprint") if isinstance(source_bundle, dict)
+            and source_bundle.get("physical_sales_status") == "CONFIRMED" else None,
+            physical_sales_status=physical_status,
+            owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+        )
+        self._advance(runtime, session, preserve_model_evidence=True)
         return self.show(runtime, owner, session)
+
+    def _save_estimate(self, runtime, owner, session, ticket, flow):
+        expected_fingerprint = ticket.get("input_fingerprint")
+        requested_kind = ticket.get("model_kind")
+        if (self.estimate_repository is None
+                or not self._is_sha256(expected_fingerprint)
+                or requested_kind not in {"SUMMARY_RANGE", "TIMELINE_MODEL"}):
+            return runtime._stale()
+        current = runtime._read_case(session["case_id"], session["identity"])
+        if not runtime._case_matches(current, session["identity"], session["case_revision"]):
+            return runtime._result(
+                "Дело изменилось после расчёта. Оценка не сохранена; пересчитайте её.",
+                code="FIFO_PROVISIONAL_CASE_STALE",
+            )
+        reports = self._reports(runtime, session)
+        if reports is None:
+            return runtime._result(
+                "Не удалось повторно проверить ведомости. Оценка не сохранена.",
+                code="FIFO_PROVISIONAL_EVIDENCE_UNAVAILABLE",
+            )
+        try:
+            request = self._build_summary_request(runtime, session, flow, reports)
+        except (KeyError, TypeError, ValueError, InvalidOperation):
+            request = None
+        if request is None:
+            return runtime._result(
+                "Исходные отчёты или допущения изменились. Оценка не сохранена; выполните расчёт заново.",
+                code="FIFO_PROVISIONAL_INPUT_STALE",
+            )
+        summary_result = self.summary_service.calculate(request)
+        if summary_result.status is not ProvisionalStatus.SUMMARY_RANGE:
+            return runtime._result(
+                "Повторная проверка источников не дала сопоставимую оценку. Сохранение отменено.",
+                code="FIFO_PROVISIONAL_INPUT_STALE",
+            )
+        timeline_result = None
+        timeline_fingerprints = ()
+        if requested_kind == "TIMELINE_MODEL":
+            timeline_result, timeline_fingerprints = self._fresh_timeline_result(
+                runtime, session, flow, reports, request, summary_result,
+            )
+            if (timeline_result is None
+                    or timeline_result.status is not ProvisionalStatus.TIMELINE_MODEL):
+                return runtime._result(
+                    "Хронологические источники устарели или неполны. Оценка не сохранена; проверьте модель заново.",
+                    code="FIFO_PROVISIONAL_TIMELINE_STALE",
+                )
+        candidate = self._candidate_from_results(
+            session, flow, summary_result, timeline_result,
+            timeline_fingerprints=timeline_fingerprints,
+            requested_kind=requested_kind,
+        )
+        if (candidate is None
+                or candidate["input_fingerprint"] != expected_fingerprint):
+            return runtime._result(
+                "Входные данные оценки изменились после показа. Ничего не сохранено; пересчитайте диапазон.",
+                code="FIFO_PROVISIONAL_INPUT_STALE",
+            )
+        result = self.estimate_repository.append_provisional_preview(
+            preview_id="prov_" + uuid4().hex,
+            case_id=session["case_id"],
+            case_revision=session["case_revision"],
+            store_id=session["identity"]["store_id"],
+            product_id=session["identity"].get("product_id"),
+            offer_id=session["identity"].get("offer_id"),
+            sku=session["identity"]["sku"],
+            input_fingerprint=candidate["input_fingerprint"],
+            idempotency_key="prov1_" + candidate["input_fingerprint"],
+            payload=candidate["payload"],
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            code = result.get("code") if isinstance(result, dict) else None
+            message = (
+                "Для этого дела достигнут предел сохранённых оценок. Старые оценки не удалены."
+                if code == "FIFO_PROVISIONAL_PREVIEW_LIMIT_REACHED"
+                else "Не удалось безопасно сохранить оценку. Предыдущие оценки и фактический FIFO не изменены."
+            )
+            return runtime._result(message, code=code or "FIFO_PROVISIONAL_SAVE_UNAVAILABLE")
+        flow["saved_input_fingerprint"] = candidate["input_fingerprint"]
+        flow["saved_preview_id"] = result.get("item", {}).get("preview_id")
+        return self.show(runtime, owner, session)
+
+    def _fresh_timeline_result(self, runtime, session, flow, reports, request, summary_result):
+        snapshot = self._find(reports, flow.get("snapshot_fingerprint"))
+        movement = self._find(reports, flow.get("movement_fingerprint"))
+        source_reader = self.evidence_reader
+        source_bundle = (
+            source_reader.read_timeline_sources(
+                case_id=session["case_id"], identity=session["identity"],
+                expected_case_revision=session["case_revision"],
+            )
+            if callable(getattr(source_reader, "read_timeline_sources", None))
+            else {"error": False, "physical_sales": None, "physical_sales_status": "NOT_CONFIGURED"}
+        )
+        if snapshot is None or movement is None:
+            return None, ()
+        if not isinstance(source_bundle, dict) or source_bundle.get("error") is not False:
+            physical_sales, physical_status, physical_fingerprint = None, "UNAVAILABLE", None
+        else:
+            physical_sales = source_bundle.get("physical_sales")
+            physical_status = source_bundle.get("physical_sales_status")
+            physical_fingerprint = (
+                source_bundle.get("fingerprint") if physical_status == "CONFIRMED" else None
+            )
+        fbo_upload = flow.get("fbo_upload")
+        accepted_fbo = (
+            fbo_upload.get("accepted") if isinstance(fbo_upload, dict)
+            and self._upload_matches_session(runtime, session, fbo_upload) else None
+        )
+        timeline = self.timeline_service.calculate(
+            scope=request.scope,
+            timezone_name=request.store_timezone,
+            case_id=session["case_id"],
+            snapshot_report=snapshot["report"],
+            movement_report=movement["report"],
+            summary_result=summary_result,
+            fbo_document=accepted_fbo.get("document") if isinstance(accepted_fbo, dict) else None,
+            fbo_coverage_from=fbo_upload.get("period_from") if isinstance(accepted_fbo, dict) else None,
+            fbo_coverage_to=fbo_upload.get("period_to") if isinstance(accepted_fbo, dict) else None,
+            movement_document=flow.get("movement_document"),
+            confirmed_reports=(snapshot["report"], movement["report"]),
+            confirmed_physical_sales=physical_sales,
+            physical_sales_status=physical_status,
+            owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+            closing_old_min=flow.get("closing_old_min"),
+            closing_old_max=flow.get("closing_old_max"),
+        )
+        fingerprints = self._timeline_evidence_fingerprints(
+            snapshot, movement,
+            accepted_fbo.get("document") if isinstance(accepted_fbo, dict) else None,
+            flow.get("movement_document"), physical_fingerprint,
+            physical_sales_status=physical_status,
+            owner_confirmed_coverage=flow.get("timeline_coverage_confirmed") is True,
+        )
+        return timeline, fingerprints
+
+    def _saved_candidate(self, session, flow):
+        summary = flow.get("result")
+        timeline = flow.get("timeline_result")
+        if timeline is not None and timeline.status is ProvisionalStatus.TIMELINE_MODEL:
+            requested_kind = "TIMELINE_MODEL"
+        else:
+            requested_kind = "SUMMARY_RANGE"
+        return self._candidate_from_results(
+            session, flow, summary, timeline,
+            timeline_fingerprints=flow.get("timeline_evidence_fingerprints", ()),
+            requested_kind=requested_kind,
+        )
+
+    def _candidate_from_results(
+        self, session, flow, summary_result, timeline_result, *,
+        timeline_fingerprints=(), requested_kind, include_profit=True,
+    ):
+        if (summary_result is None
+                or summary_result.status is not ProvisionalStatus.SUMMARY_RANGE):
+            return None
+        case = session.get("case")
+        identity = session.get("identity")
+        if not isinstance(case, dict) or not isinstance(identity, dict):
+            return None
+        if requested_kind == "SUMMARY_RANGE":
+            model_kind = "SUMMARY_RANGE"
+            method = "AGGREGATE_SUMMARY_V1"
+            policy_version = self.summary_service.POLICY_VERSION
+            evidence_fingerprints = [
+                summary_result.snapshot_fingerprint,
+                summary_result.movement_fingerprint,
+            ]
+            selected_result = {
+                "redeemed_units": summary_result.redeemed_units,
+                "old_sold_min": summary_result.old_sold_min,
+                "old_sold_max": summary_result.old_sold_max,
+                "new_sold_min": summary_result.new_sold_min,
+                "new_sold_max": summary_result.new_sold_max,
+                "gross_cogs_low_rub": str(summary_result.gross_cogs_low_rub),
+                "gross_cogs_high_rub": str(summary_result.gross_cogs_high_rub),
+            }
+        elif (requested_kind == "TIMELINE_MODEL" and timeline_result is not None
+              and timeline_result.status is ProvisionalStatus.TIMELINE_MODEL):
+            model_kind = "TIMELINE_MODEL"
+            method = "EVENT_TIMELINE_V1"
+            policy_version = getattr(
+                self.timeline_service, "POLICY_VERSION", "fifo-provisional-timeline-v1",
+            )
+            evidence_fingerprints = list(timeline_fingerprints)
+            selected_result = {
+                "redeemed_units": timeline_result.redeemed_units,
+                "old_sold_units": timeline_result.old_sold_units,
+                "new_sold_units": timeline_result.new_sold_units,
+                "gross_cogs_rub": str(timeline_result.gross_cogs_rub),
+                "returned_units": timeline_result.returned_units,
+                "non_sale_removed_units": timeline_result.non_sale_removed_units,
+                "non_sale_removed_cost_rub": str(timeline_result.non_sale_removed_cost_rub),
+                "ending_available_units": timeline_result.ending_available_units,
+                "ending_held_units": timeline_result.ending_held_units,
+                "ending_buyer_delivery_units": timeline_result.ending_buyer_delivery_units,
+            }
+        else:
+            return None
+        evidence_fingerprints = sorted({
+            value for value in evidence_fingerprints if self._is_sha256(value)
+        })
+        if not evidence_fingerprints:
+            return None
+        flow_assumptions = {
+            "opening_all_old": flow.get("opening_all_old"),
+            "all_period_supply_receipts_new": flow.get("all_period_supply_receipts_new"),
+            "closing_old_min": flow.get("closing_old_min"),
+            "closing_old_max": flow.get("closing_old_max"),
+            "timeline_coverage_confirmed": (
+                flow.get("timeline_coverage_confirmed")
+                if model_kind == "TIMELINE_MODEL" else None
+            ),
+        }
+        payload = {
+            "schema_version": 2,
+            "model_kind": model_kind,
+            "currency": "RUB",
+            "method": method,
+            "policy_version": policy_version,
+            "period_from": summary_result.period_from,
+            "period_to": summary_result.period_to,
+            "input_fingerprint": None,
+            "evidence_fingerprints": evidence_fingerprints,
+            "assumptions": flow_assumptions,
+            "rates": {
+                "old_unit_cost_rub": str(summary_result.old_cost_rub),
+                "new_unit_cost_rub": str(summary_result.new_cost_rub),
+            },
+            "result": selected_result,
+            "conditional_profit": None,
+        }
+        base_fingerprint = self._scenario_fingerprint(payload, session, identity)
+        if (include_profit and flow.get("profit_base_confirmed") is True
+                and flow.get("profit_model_kind") == model_kind
+                and flow.get("profit_scenario_fingerprint") == base_fingerprint):
+            payload["conditional_profit"] = self._make_conditional_profit(
+                flow.get("profit_base_rub"), payload,
+            )
+        fingerprint = self._scenario_fingerprint(payload, session, identity)
+        payload["input_fingerprint"] = fingerprint
+        return {"input_fingerprint": fingerprint, "payload": payload}
+
+    @classmethod
+    def _scenario_fingerprint(cls, payload, session, identity):
+        fingerprint_basis = {
+            **payload,
+            "input_fingerprint": None,
+            "case_id": session.get("case_id"),
+            "case_revision": session.get("case_revision"),
+            "identity": {
+                "store_id": identity.get("store_id"),
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity.get("sku"),
+            },
+        }
+        return hashlib.sha256(
+            json.dumps(
+                fingerprint_basis, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+    @classmethod
+    def _make_conditional_profit(cls, base_value, payload):
+        base = cls._parse_money(base_value)
+        if base is None:
+            return None
+        low_cogs, high_cogs = cls._saved_cost_interval(payload)
+        if low_cogs is None or high_cogs is None:
+            return None
+        low_profit = (base - high_cogs).quantize(Decimal("0.01"))
+        high_profit = (base - low_cogs).quantize(Decimal("0.01"))
+        return {
+            "status": "CONDITIONAL_BEFORE_TAX",
+            "source": "OWNER_CONFIRMED_MANUAL",
+            "perimeter": "SKU_PERIOD_REDEEMED_UNITS",
+            "profit_stage": "BEFORE_PRODUCT_COGS_AND_TAX",
+            "return_reversal": "EXCLUDED",
+            "currency": payload["currency"],
+            "period_from": payload["period_from"],
+            "period_to": payload["period_to"],
+            "redeemed_units": payload["result"]["redeemed_units"],
+            "base_rub": f"{base:.2f}",
+            "profit_low_rub": f"{low_profit:.2f}",
+            "profit_high_rub": f"{high_profit:.2f}",
+        }
+
+    @classmethod
+    def _timeline_evidence_fingerprints(
+        cls, snapshot, movement, fbo_document, movement_document,
+        physical_sales_fingerprint=None, *, physical_sales_status=None,
+        owner_confirmed_coverage=False,
+    ):
+        values = [
+            snapshot.get("file_fingerprint") if isinstance(snapshot, dict) else None,
+            movement.get("file_fingerprint") if isinstance(movement, dict) else None,
+            getattr(fbo_document, "file_sha256", None),
+            getattr(fbo_document, "document_fingerprint", None),
+            getattr(movement_document, "file_sha256", None),
+            getattr(movement_document, "document_fingerprint", None),
+            physical_sales_fingerprint,
+        ]
+        state_fingerprint = hashlib.sha256(json.dumps({
+            "fbo_present": fbo_document is not None,
+            "owner_movements_present": movement_document is not None,
+            "physical_sales_status": physical_sales_status,
+            "owner_confirmed_coverage": owner_confirmed_coverage,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        values.append(state_fingerprint)
+        return tuple(sorted({value for value in values if cls._is_sha256(value)}))
+
+    @staticmethod
+    def _is_sha256(value):
+        return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
 
     @staticmethod
     def _build_summary_request(runtime, session, flow, reports):
@@ -1353,5 +2377,28 @@ class TelegramFifoCostProvisionalService:
         return (date.fromisoformat(value) + timedelta(days=1)).isoformat()
 
     @staticmethod
-    def _advance(runtime, session):
+    def _advance(
+        runtime, session, *, preserve_model_evidence=False,
+        preserve_conditional_profit=False, preserve_saved_preview=False,
+    ):
         session["flow_revision"] = session.get("flow_revision", 0) + 1
+        flow = session.get("provisional_flow")
+        if isinstance(flow, dict):
+            if not preserve_saved_preview:
+                flow.pop("saved_input_fingerprint", None)
+                flow.pop("saved_preview_id", None)
+            if not preserve_model_evidence:
+                flow.pop("timeline_evidence_fingerprints", None)
+            if not preserve_conditional_profit:
+                for key in (
+                    "profit_base_rub", "profit_base_confirmed", "profit_model_kind",
+                    "profit_scenario_fingerprint", "profit_base_pending_rub",
+                    "profit_pending_model_kind", "profit_pending_scenario_fingerprint",
+                ):
+                    flow.pop(key, None)
+
+    def _advance_history(self, runtime, session):
+        self._advance(
+            runtime, session, preserve_model_evidence=True,
+            preserve_conditional_profit=True, preserve_saved_preview=True,
+        )

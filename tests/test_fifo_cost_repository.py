@@ -76,6 +76,48 @@ def _commit(repo, preview, *, key="fifo-confirm-0001"):
     )
 
 
+def _insert_provisional_preview(connection, *, preview_id="preview-0001",
+                                idempotency_key="preview-key-0001",
+                                case_id="case-preview-1", case_revision=1,
+                                owner_fingerprint="a" * 64,
+                                tenant_fingerprint="b" * 64,
+                                store_id="store-a", sku="sku-1",
+                                product_id="product-a", offer_id="offer-a",
+                                payload_json='{"result":"synthetic"}',
+                                insert_revision=True):
+    connection.execute(
+        """INSERT OR IGNORE INTO fifo_cost_transition_cases (
+            case_id, schema_version, owner_fingerprint, tenant_fingerprint,
+            store_id, product_id, offer_id, sku, current_revision,
+            current_state, supply_total_mode, created_at, updated_at
+        ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?,
+                  'AWAITING_EVIDENCE', 'LEGACY_OWNER_TOTAL', 'now', 'now')""",
+        (case_id, owner_fingerprint, tenant_fingerprint, store_id, product_id,
+         offer_id, sku, case_revision),
+    )
+    if insert_revision:
+        connection.execute(
+            """INSERT OR IGNORE INTO fifo_cost_transition_case_revisions (
+                revision_id, case_id, case_revision, schema_version, state,
+                payload_json, payload_fingerprint, idempotency_key, created_at, updated_at
+            ) VALUES (?, ?, ?, 1, 'AWAITING_EVIDENCE', '{}', ?, ?, 'now', 'now')""",
+            (f"revision-{case_id}-{case_revision}", case_id, case_revision,
+             "c" * 64, f"revision-key-{case_id}-{case_revision}"),
+        )
+    return connection.execute(
+        """INSERT INTO fifo_cost_provisional_previews (
+            preview_id, owner_fingerprint, tenant_fingerprint, store_id,
+            product_id, offer_id, sku, identity_fingerprint, case_id,
+            case_revision, created_at_utc, schema_version, input_fingerprint,
+            idempotency_key, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  '2026-11-23T12:00:00Z', 1, ?, ?, ?)""",
+        (preview_id, owner_fingerprint, tenant_fingerprint, store_id,
+         product_id, offer_id, sku,
+         "d" * 64, case_id, case_revision, "e" * 64, idempotency_key, payload_json),
+    )
+
+
 def test_additive_schema_preserves_legacy_cost_and_planning_data(tmp_path):
     db = tmp_path / "legacy.sqlite"
     connection = sqlite3.connect(db)
@@ -116,6 +158,147 @@ def test_additive_schema_preserves_legacy_cost_and_planning_data(tmp_path):
         assert connection.execute(
             "SELECT COUNT(*) FROM fifo_cost_streams"
         ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_pf20_v19_upgrade_adds_append_only_preview_table_without_touching_planning(tmp_path):
+    db = tmp_path / "fifo-v19.sqlite"
+    repo = FifoCostRepository(db_path=db)
+    connection = repo.get_connection()
+    try:
+        connection.execute("PRAGMA user_version=41")
+        connection.execute(
+            "CREATE TABLE planning_schema(singleton INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
+        )
+        connection.execute("INSERT INTO planning_schema VALUES (1, 12)")
+        _insert_provisional_preview(connection)
+        connection.execute("DROP TRIGGER trg_fifo_cost_provisional_previews_no_update")
+        connection.execute("DROP TRIGGER trg_fifo_cost_provisional_previews_no_delete")
+        connection.execute("DROP TRIGGER trg_fifo_cost_provisional_preview_case_quota")
+        connection.execute("DROP INDEX idx_fifo_cost_provisional_previews_history")
+        connection.execute("DROP TABLE fifo_cost_provisional_previews")
+        connection.execute("UPDATE fifo_cost_schema SET version=19 WHERE singleton=1")
+    finally:
+        connection.close()
+
+    upgraded = repo.get_connection()
+    try:
+        assert upgraded.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == 20
+        assert tuple(upgraded.execute(
+            "SELECT case_id, case_revision FROM fifo_cost_transition_case_revisions"
+        ).fetchone()) == ("case-preview-1", 1)
+        assert upgraded.execute(
+            "SELECT COUNT(*) FROM fifo_cost_provisional_previews"
+        ).fetchone()[0] == 0
+        assert upgraded.execute(
+            "SELECT version FROM planning_schema WHERE singleton=1"
+        ).fetchone()[0] == 12
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 41
+        assert upgraded.execute(
+            """SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN (
+                'trg_fifo_cost_provisional_previews_no_update',
+                'trg_fifo_cost_provisional_previews_no_delete',
+                'trg_fifo_cost_provisional_preview_scope',
+                'trg_fifo_cost_provisional_preview_case_quota'
+            )"""
+        ).fetchone()[0] == 4
+    finally:
+        upgraded.close()
+
+
+def test_pf20_saved_previews_enforce_scope_revision_idempotency_size_quota_and_immutability(
+    tmp_path,
+):
+    repo = FifoCostRepository(db_path=tmp_path / "preview-contract.sqlite")
+    connection = repo.get_connection()
+    try:
+        _insert_provisional_preview(connection)
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "UPDATE fifo_cost_provisional_previews SET payload_json='{}' "
+                "WHERE preview_id='preview-0001'"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "DELETE FROM fifo_cost_provisional_previews WHERE preview_id='preview-0001'"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-duplicate-key",
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-revision",
+                idempotency_key="preview-key-rev-2", case_revision=2,
+                insert_revision=False,
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-scope",
+                idempotency_key="preview-key-scope", tenant_fingerprint="f" * 64,
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-owner",
+                idempotency_key="preview-key-owner", owner_fingerprint="f" * 64,
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-store",
+                idempotency_key="preview-key-store", store_id="store-b",
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-sku",
+                idempotency_key="preview-key-sku", sku="sku-b",
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="SCOPE_MISMATCH"):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-product",
+                idempotency_key="preview-key-product", product_id="product-b",
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="SCOPE_MISMATCH"):
+            _insert_provisional_preview(
+                connection, preview_id="preview-wrong-offer",
+                idempotency_key="preview-key-offer", offer_id="offer-b",
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_provisional_preview(
+                connection, preview_id="preview-too-large",
+                idempotency_key="preview-key-large", payload_json="x" * 65537,
+            )
+        boundary_payload = '{"v":"' + ("x" * 65528) + '"}'
+        assert len(boundary_payload.encode("utf-8")) == 65536
+        _insert_provisional_preview(
+            connection, preview_id="preview-boundary",
+            idempotency_key="preview-key-boundary", case_id="case-boundary",
+            payload_json=boundary_payload,
+        )
+        assert connection.execute(
+            "SELECT length(CAST(payload_json AS BLOB)) "
+            "FROM fifo_cost_provisional_previews WHERE preview_id='preview-boundary'"
+        ).fetchone()[0] == 65536
+
+        for number in range(2, 101):
+            _insert_provisional_preview(
+                connection,
+                preview_id=f"preview-{number:04d}",
+                idempotency_key=f"preview-key-{number:04d}",
+            )
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="FIFO_PROVISIONAL_PREVIEW_LIMIT_REACHED",
+        ):
+            _insert_provisional_preview(
+                connection, preview_id="preview-0101",
+                idempotency_key="preview-key-0101",
+            )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM fifo_cost_provisional_previews WHERE case_id='case-preview-1'"
+        ).fetchone()[0] == 100
     finally:
         connection.close()
 

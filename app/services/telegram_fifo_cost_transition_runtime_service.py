@@ -41,6 +41,15 @@ class TelegramFifoCostTransitionRuntimeService:
         "finish", "check_readiness", "view_recalculation",
         "apply_transition", "confirm_apply",
     })
+    _PROVISIONAL_HISTORY_READ_STATES = frozenset({
+        "READY_TO_CONFIRM", "APPLIED", "CANCELLED",
+    })
+    _PROVISIONAL_HISTORY_READ_ACTIONS = frozenset({
+        "provisional_history", "provisional_history_page",
+        "provisional_history_view", "provisional_history_compare",
+        "provisional_history_compare_cancel", "provisional_history_detail_back",
+        "provisional_history_to_calculator", "provisional_back",
+    })
 
     def __init__(
         self, transition_service, history_service, report_import_service=None,
@@ -210,7 +219,7 @@ class TelegramFifoCostTransitionRuntimeService:
             not isinstance(case, dict) or case.get("error") is not False
             or case.get("case_revision") != expected_case_revision
             or case.get("state") not in self._EDITABLE_STATES | {
-                "READY_TO_CONFIRM", "APPLIED",
+                "READY_TO_CONFIRM", "APPLIED", "CANCELLED",
             }
             or not self._case_matches_identity(case.get("case"), identity)
         ):
@@ -226,7 +235,7 @@ class TelegramFifoCostTransitionRuntimeService:
             # Reopen the exact persisted seal; never rebuild a READY preview
             # after restart or resume the editable field wizard.
             return self._show_recalculation(owner)
-        if case.get("state") == "APPLIED":
+        if case.get("state") in {"APPLIED", "CANCELLED"}:
             return self._show_summary(owner)
         return self._prompt_next(owner)
 
@@ -322,24 +331,35 @@ class TelegramFifoCostTransitionRuntimeService:
         if not isinstance(session, dict) or not self._ticket_matches_session(ticket, session):
             return self._stale()
         case = self._read_case(session["case_id"], session["identity"])
+        case_state = case.get("state") if isinstance(case, dict) else None
+        history_read_action = (
+            action in self._PROVISIONAL_HISTORY_READ_ACTIONS
+            and case_state in self._PROVISIONAL_HISTORY_READ_STATES
+        )
         if (
             not isinstance(case, dict) or case.get("error") is not False
             or (
-                case.get("state") not in self._EDITABLE_STATES
+                case_state not in self._EDITABLE_STATES
                 and not (
-                    case.get("state") == "READY_TO_CONFIRM"
+                    case_state == "READY_TO_CONFIRM"
                     and action in self._READY_READ_ACTIONS
                 )
+                and not history_read_action
             )
         ):
             return self._stale()
         if case.get("case_revision") != session["case_revision"]:
-            if action not in {
+            if history_read_action:
+                # Saved previews are immutable, case-scoped reads. Refresh only
+                # this session's revision before showing history from a newer state.
+                self._refresh_session(session, case)
+            elif action in {
                 "finish", "supply", "skip_supplies", "report_turnover",
                 "report_stock", "reports", "supplier_receiving",
             }:
+                self._refresh_session(session, case)
+            else:
                 return self._stale()
-            self._refresh_session(session, case)
         if (
             self.batch_rule_telegram_service is not None
             and action.startswith("batch_")
@@ -1752,6 +1772,15 @@ class TelegramFifoCostTransitionRuntimeService:
             keyboard=self._keyboard(buttons),
         )
 
+    def _provisional_history_button(self, owner, session):
+        repository = getattr(self.provisional_service, "estimate_repository", None)
+        if not callable(getattr(repository, "read_provisional_preview_history", None)):
+            return None
+        return {
+            "text": "📚 Сохранённые оценки",
+            "callback": self._issue_ticket(owner, session, "provisional_history"),
+        }
+
     def _show_summary(self, owner):
         session = self._sessions.get(owner)
         if not isinstance(session, dict):
@@ -1769,7 +1798,16 @@ class TelegramFifoCostTransitionRuntimeService:
                         case_id=session["case_id"],
                         identity=dict(session["identity"]),
                     )
-            return self._show_applied_summary(owner, receipt)
+            return self._show_applied_summary(owner, receipt, session)
+        if case.get("state") == "CANCELLED":
+            buttons = []
+            history_button = self._provisional_history_button(owner, session)
+            if history_button is not None:
+                buttons.append(history_button)
+            return self._result(
+                "Изменение FIFO отменено. Сохранённые предварительные оценки доступны только для чтения; FIFO и прибыль не меняются.",
+                keyboard=self._keyboard(buttons),
+            )
         automatic_batch = (
             self.batch_rule_telegram_service is not None
             and case.get("case", {}).get("supply_total_mode")
@@ -1866,6 +1904,9 @@ class TelegramFifoCostTransitionRuntimeService:
                 {"text": "🔗 Собрать финансовые привязки", "callback": self._issue_ticket(owner, session, "collect_finance_identity")},
                 {"text": "📊 Собрать месячные итоги Period Profit", "callback": self._issue_ticket(owner, session, "collect_period_summaries")},
             ])
+        history_button = self._provisional_history_button(owner, session)
+        if history_button is not None:
+            buttons.append(history_button)
         buttons.extend([
             {"text": "🔍 Проверить готовность", "callback": self._issue_ticket(owner, session, "check_readiness")},
             {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
@@ -2206,15 +2247,18 @@ class TelegramFifoCostTransitionRuntimeService:
         else:
             lines.append("Это сохранённый exact seal. Применение ещё раз проверит его fingerprint, редакцию дела, источники, cutoff, налоги и FIFO.")
         if sealed.get("expired") is True:
+            buttons = [{
+                "text": "🔄 Пересобрать предпросмотр",
+                "callback": self._issue_ticket(owner, session, "view_recalculation"),
+            }, {
+                "text": "↩️ К делу",
+                "callback": self._issue_ticket(owner, session, "finish"),
+            }]
+            history_button = self._provisional_history_button(owner, session)
+            if history_button is not None:
+                buttons.append(history_button)
             return self._result(
-                "\n".join(lines),
-                keyboard=self._keyboard([{
-                    "text": "🔄 Пересобрать предпросмотр",
-                    "callback": self._issue_ticket(owner, session, "view_recalculation"),
-                }, {
-                    "text": "↩️ К делу",
-                    "callback": self._issue_ticket(owner, session, "finish"),
-                }]),
+                "\n".join(lines), keyboard=self._keyboard(buttons),
             )
         apply_ticket = self._issue_ticket(
             owner, session, "apply_transition",
@@ -2226,15 +2270,21 @@ class TelegramFifoCostTransitionRuntimeService:
                 sealed["preview_fingerprint"],
             ),
         )
-        return self._result(
-            "\n".join(lines),
-            keyboard=self._keyboard([
-                {"text": "Продолжить к подтверждению", "callback": apply_ticket},
-                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
-            ]),
-        )
+        buttons = [
+            {"text": "Продолжить к подтверждению", "callback": apply_ticket},
+            {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+        ]
+        history_button = self._provisional_history_button(owner, session)
+        if history_button is not None:
+            buttons.append(history_button)
+        return self._result("\n".join(lines), keyboard=self._keyboard(buttons))
 
-    def _show_applied_summary(self, owner, receipt):
+    def _show_applied_summary(self, owner, receipt, session=None):
+        history_button = (
+            self._provisional_history_button(owner, session)
+            if isinstance(session, dict) else None
+        )
+        keyboard = self._keyboard([history_button] if history_button else [])
         if (
             not isinstance(receipt, dict) or receipt.get("error") is not False
             or receipt.get("code") != "FIFO_TRANSITION_APPLIED"
@@ -2243,6 +2293,7 @@ class TelegramFifoCostTransitionRuntimeService:
         ):
             return self._result(
                 "Переход FIFO имеет состояние APPLIED, но квитанцию commit не удалось прочитать. Не повторяйте действие; откройте дело и проверьте сохранённый результат.",
+                keyboard=keyboard,
             )
         return self._result(
             "✅ Переход FIFO применён\n"
@@ -2250,6 +2301,7 @@ class TelegramFifoCostTransitionRuntimeService:
             f"Покрытие подтверждено до: {receipt['complete_through']}\n"
             f"Редакция дела: {receipt.get('case_revision')}\n"
             "Это подтверждение сохранённой операции; повторное нажатие не создаёт второй commit.",
+            keyboard=keyboard,
         )
 
     @staticmethod
