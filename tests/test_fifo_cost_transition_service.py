@@ -555,6 +555,8 @@ def test_case_list_keyset_reaches_records_beyond_one_hundred(tmp_path):
         expected = [f"case_cursor_{index:03d}" for index in range(105, 0, -1)]
         assert pages == expected
         assert page_sizes == [20, 20, 20, 20, 20, 5]
+    finally:
+        reset_current_tenant_user_id(tenant)
 
 
 def test_case_list_cursor_keeps_draft_on_same_page_after_update(tmp_path):

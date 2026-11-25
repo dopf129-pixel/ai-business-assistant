@@ -2,6 +2,8 @@
 
 ## Review resolution — complete transition history paging (2026-11-25)
 
+- Initial hosted Verify for the implementation commit failed during test collection because the 105-row regression omitted its tenant-context cleanup `finally`. The cleanup is added in the follow-up commit; the final SHA is reverified independently.
+
 - Replaced the 100-row recent-list cap with repository keyset pagination at 20 rows per request. Ordering uses immutable case creation time plus case ID so edits to a draft do not move it across page boundaries.
 - The first page records a snapshot cursor. Later pages use an opaque, tenant-scoped in-memory callback ticket and the same snapshot, and continue for the full history.
 - Case revision history keeps the originating list action and page token so «К списку» returns to the same page.
