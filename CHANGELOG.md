@@ -1,20 +1,45 @@
-# 2026-11-25 — Provisional FIFO timeline review fixes
+# 2026-11-25 — Provisional FIFO follow-up review corrections (PR B/C)
 
-- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
-- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
-- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
-- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+- PR B checks timeline old/new sales against the owner-confirmed aggregate range; rejects a conflicting timeline without exposing money; accepts an FBO CSV range wider than the selected movement statement only when it contains that statement; validates optional seller article; and raises both FBO worker/client output caps to 32 MiB.
+- PR C keeps saved estimate history available as a read-only view from READY_TO_CONFIRM, APPLIED, and CANCELLED case cards, including after the transient calculator flow is gone.
+- Focused regressions added; PR B exact-head hosted Verify passed. PR C exact-head CI is pending after publishing the integrated branch.
 
 # 2026-11-24 — Provisional FIFO report-selection review fixes
 
-- Changing a report now invalidates only assumptions dependent on that report; selecting the same report is a no-op. Identical-period report choices show kind, date, UTC capture time and short fingerprint within Telegram's 64-character button limit.
-- Linked provisional/transition profile: **59 passed**; compileall, diff check and unchanged tracked data passed.
+- Changing a report now invalidates only assumptions dependent on that report; selecting the same report is a no-op. Identical-period choices show kind, period, UTC capture time and short fingerprint within Telegram's 64-character button limit.
+- The merged A+B linked profile passed **140 tests**; compileall, diff check and unchanged tracked data passed.
 
 # 2026-11-24 — Provisional FIFO timeline review fixes
 
-- Rejected `SUPPLY_RECEIVED` events in the `buyer_delivery` zone; opening buyer-delivery units without an exact posting link are retained as an untouched closing reserve and cannot fund a buyout.
-- Limited normalized owner/FBO/physical-sale events to the selected report end date. An in-window FBO dispatch delivered after that cutoff remains pending; future evidence cannot alter the selected window.
-- Raised the validated owner-movement worker output cap to 32 MiB for the existing 50,000-row bound. Regressions cover all four cases; linked timeline/replay/import/Telegram profile: **111 passed**.
+- Rejected `SUPPLY_RECEIVED` events in `buyer_delivery`; preserved unlinked opening delivery only as an untouched reserve; bounded timeline events to report end; kept in-window deliveries pending at cutoff; raised the validated 50,000-row movement worker cap to 32 MiB.
+- Linked timeline/replay/import/Telegram profile: **111 passed**. The full merged A+B profile passed **140 tests**, and the final A+B+C linked profile passed **152 tests**; compileall, diff check and unchanged tracked data passed.
+
+# 2026-11-24 — Provisional FIFO history navigation review fix
+
+- History listing, pagination, detail, comparison, cancel/back, and return-to-calculator now preserve the current timeline evidence fingerprint, owner-confirmed profit basis and saved-preview markers. Scenario-changing inputs still invalidate them.
+- Added a Telegram regression that traverses the full history navigation path, verifies the conditional profit remains visible, and confirms a stale save callback is rejected without a new append. Linked profile: **72 passed**.
+
+# 2026-11-23 — Provisional FIFO PR C isolated release verification (PF26)
+
+- Fixed stale synthetic migration assertions for the additive FIFO schema v20 estimate table and teardown order. Focused checkpoint/schema profile: **29 passed**.
+- Re-ran the complete repository suite on code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` in a disposable Windows/Python 3.12 copy: **5,579 passed in 97.95s**. Compile, test DB initialization, diff checks and tracked data equality passed.
+- Prepared the independent PR C review packet. PR A/B remain unmerged; hosted PR C verification is recorded below.
+
+# 2026-11-23 — Provisional FIFO PR C hosted verification
+
+- Published PR #743 on branch `codex/fifo-provisional-saved-estimates`, targeting PR B #742. Exact package SHA `5ec77fa3e7c94535e288d5a6c04134688d6ce07c` passed hosted run [45193059919](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45193059919) on Windows and full verification; duplicate run [45192990093](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45192990093) also passed.
+- PR A #741 and PR B #742 were rechecked green on their exact current heads. This log update will produce a new PR C head that needs its own exact-head CI confirmation.
+
+# 2026-11-23 — Provisional FIFO confirmed conditional profit and full-flow guard (PF23–PF24)
+
+- Added owner-entered and explicitly confirmed financial base for a conditional per-SKU, per-period profit-before-tax range. The screen shows the estimated gross COGS range; the calculation is `base − COGS`, supports a negative base, and does not auto-fill store-wide profit or recalculate tax/return reversals.
+- Confirmed conditional profit is stored only inside the immutable provisional estimate payload; compatible comparisons require matching period, redeemed-unit count and financial perimeter. Legacy saved estimate payloads remain readable.
+- Strengthened the synthetic Telegram path through estimate, assumption, confirmation, save, and reopen. It proves profit is withheld before confirmation, no factual transition writes occur, no apply/Period Profit services are connected, and messages remain within Telegram's limit. Linked PF23/PF24 profile: **76 passed in 5.03s**; compile, diff check, and tracked data equality passed. Hosted exact-head PR C CI remains pending.
+
+# 2026-11-23 — Provisional FIFO saved estimate history (PF22)
+
+- Added exact-case, tenant/store/SKU-scoped reads for immutable provisional estimates, bounded Telegram history pages, detail view after a fresh session, and conservative comparison of compatible scenarios. Source coverage changes are shown without revealing file contents or fingerprints; incompatible periods/methods/bases/policies receive no combined delta.
+- Saved scenarios remain historical models and never become the current factual FIFO or profit result. PF22 linked history/repository/backup profile: **69 passed in 4.70s**; hosted exact-head PR C CI remains pending.
 
 # 2026-11-23 — Provisional FIFO PR B local release verification (PF19)
 
@@ -3294,3 +3319,11 @@ Summary Report теперь включает:
 - Added redacted typed event contracts and a strict owner-movement CSV parser/template for the six documented movement kinds. The parser bounds file, row and selected-unit counts, requires an exact numeric SKU and an unambiguous timestamp, validates per-kind fields, and hashes event/source/posting references before returning rows.
 - Added a read-only exact-case adapter for complete owner-confirmed TURNOVER/STOCK_MANAGEMENT reports and owner-confirmed physical-sales evidence. Aggregate reports remain anchors only; confirmed physical sale rows retain day precision. FBO joins use a scoped posting digest and exact quantity, and duplicate sale evidence does not double-count.
 - Added synthetic regressions for source scope, posting/quantity/status conflicts, event deduplication, privacy and DST. No real owner files or Ozon/Telegram requests were used; no factual FIFO records are written.
+# 2026-11-23 — Provisional FIFO PF20 saved-estimate storage
+
+- Added FIFO schema v20 append-only storage for provisional estimates, exactly scoped by owner/tenant/store/product/offer/SKU and saved case revision, with idempotency, 100-record and 64 KiB payload limits.
+- Added v19-to-v20 upgrade and backup/restore regressions. Planning schema version and SQLite `PRAGMA user_version` remain unchanged; Telegram save/history/comparison flows are not enabled until PF21–PF23.
+# 2026-11-23 — Provisional FIFO PF21 saved estimate action
+
+- Added the ordinary Telegram «Сохранить оценку» action for valid aggregate ranges and fully gated timeline models. The callback re-reads the selected evidence and recalculates before writing, then appends only the scoped provisional estimate with a deterministic idempotency key.
+- Stale case/evidence/fingerprint, expired timeline uploads, invalid payloads and quota limits fail closed. No transition prepare/apply, factual FIFO, COGS, or Period Profit write is used.

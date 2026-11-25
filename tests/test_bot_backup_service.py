@@ -15,6 +15,7 @@ from services.conversation_history_storage_service import ConversationHistorySto
 from services.store_report_storage_service import StoreReportStorageService
 from services.bot_backup_service import BotBackupService
 from services.bot_backup_service import _BackupFailure
+from services.fifo_cost_repository import FifoCostRepository
 from services.bot_instance_lifecycle_service import (
     BotInstanceLease,
     BotLifecycleError,
@@ -36,6 +37,48 @@ def _write_database(path, table_name):
         connection.execute(f"CREATE TABLE {table_name} (value TEXT NOT NULL)")
         connection.execute(f"INSERT INTO {table_name} VALUES (?)", ("synthetic",))
         connection.commit()
+    finally:
+        connection.close()
+
+
+def _write_provisional_preview_database(path):
+    repository = FifoCostRepository(db_path=path)
+    connection = repository.get_connection()
+    try:
+        owner, tenant = "a" * 64, "b" * 64
+        connection.execute(
+            """INSERT INTO fifo_cost_transition_cases (
+                case_id, schema_version, owner_fingerprint, tenant_fingerprint,
+                store_id, product_id, offer_id, sku, current_revision,
+                current_state, supply_total_mode, created_at, updated_at
+            ) VALUES ('case-backup', 1, ?, ?, 'store-a', 'product-a', 'offer-a',
+                      'sku-a', 1, 'AWAITING_EVIDENCE', 'LEGACY_OWNER_TOTAL', 'now', 'now')""",
+            (owner, tenant),
+        )
+        connection.execute(
+            """INSERT INTO fifo_cost_transition_case_revisions (
+                revision_id, case_id, case_revision, schema_version, state,
+                payload_json, payload_fingerprint, idempotency_key, created_at, updated_at
+            ) VALUES ('revision-backup', 'case-backup', 1, 1,
+                      'AWAITING_EVIDENCE', '{}', ?, 'revision-backup-key', 'now', 'now')""",
+            ("c" * 64,),
+        )
+        connection.execute(
+            """INSERT INTO fifo_cost_provisional_previews (
+                preview_id, owner_fingerprint, tenant_fingerprint, store_id,
+                product_id, offer_id, sku, identity_fingerprint, case_id,
+                case_revision, created_at_utc, schema_version, input_fingerprint,
+                idempotency_key, payload_json
+            ) VALUES ('preview-backup', ?, ?, 'store-a', 'product-a', 'offer-a',
+                      'sku-a', ?, 'case-backup', 1, '2026-11-23T12:00:00Z',
+                      1, ?, 'preview-backup-key', '{"estimate":"synthetic"}')""",
+            (owner, tenant, "d" * 64, "e" * 64),
+        )
+        connection.execute(
+            "CREATE TABLE planning_schema(singleton INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
+        )
+        connection.execute("INSERT INTO planning_schema VALUES (1, 12)")
+        connection.execute("PRAGMA user_version=41")
     finally:
         connection.close()
 
@@ -133,6 +176,45 @@ def test_sqlite_backup_uses_bounded_worker_and_preserves_valid_database(tmp_path
 
     assert metadata == {"integrity_check": "ok", "user_version": 0, "table_count": 1}
     assert payload
+
+
+def test_backup_archive_restore_preserves_fifo_provisional_preview_and_planning_versions(
+    tmp_path,
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    database = project / "ozon_assistant.db"
+    _write_provisional_preview_database(database)
+    service = _service(project, None)
+
+    backup = service.backup()
+    assert backup["error"] is False, backup
+    assert service.verify_archive(backup["backup_path"])["error"] is False
+
+    target = tmp_path / "restore-target"
+    plan = service.restore_archive(backup["backup_path"], target, dry_run=True)
+    assert plan["status"] == "BOT_RESTORE_PLAN_READY", plan
+    restored = service.restore_archive(backup["backup_path"], target)
+    assert restored["status"] == "BOT_RESTORE_COMPLETE", restored
+
+    restored_db = target / "project" / "ozon_assistant.db"
+    connection = sqlite3.connect(restored_db)
+    try:
+        assert tuple(connection.execute(
+            "SELECT preview_id, case_id, case_revision, payload_json "
+            "FROM fifo_cost_provisional_previews"
+        ).fetchone()) == (
+            "preview-backup", "case-backup", 1, '{"estimate":"synthetic"}'
+        )
+        assert connection.execute(
+            "SELECT version FROM fifo_cost_schema WHERE singleton=1"
+        ).fetchone()[0] == 20
+        assert connection.execute(
+            "SELECT version FROM planning_schema WHERE singleton=1"
+        ).fetchone()[0] == 12
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 41
+    finally:
+        connection.close()
 
 
 def test_backup_holds_startup_guard_for_the_entire_snapshot(tmp_path, monkeypatch):

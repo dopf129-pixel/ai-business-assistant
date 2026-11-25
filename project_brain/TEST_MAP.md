@@ -1,16 +1,22 @@
-# 2026-11-25 — Provisional FIFO timeline review fixes
+# Provisional FIFO report-selection review correction (PR A)
 
-- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
-- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
-- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
-- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+- `tests/test_telegram_fifo_cost_provisional_service.py::test_report_switch_clears_only_dependent_assumptions_and_labels_fit_telegram`: duplicate-period report choices remain distinct and within Telegram's 64-character limit; movement changes clear receipt/closing assumptions but preserve opening stock; snapshot changes clear all dependent assumptions; no factual FIFO write occurs.
+- PR A linked profile: **59 passed**; integrated A+B profile: **140 passed**.
 
-# Provisional FIFO timeline review corrections (2026-11-24)
+# Provisional FIFO timeline review corrections (PR B)
 
-- `tests/test_fifo_cost_provisional_movements_import_service.py`: `SUPPLY_RECEIVED` rejects `buyer_delivery` through both CSV and typed event construction.
-- `tests/test_fifo_cost_provisional_timeline_service.py`: an unlinked opening buyer-delivery residual is retained untouched and contributes only to closing reserve reconciliation; an in-window dispatch delivered after period end remains pending and cannot be counted as a buyout.
-- `tests/test_fifo_cost_report_import_worker_client.py`: a bounded 50,000-row owner-movement document passes the real subprocess boundary under the 32 MiB validated output cap.
-- Linked timeline/replay/import/Telegram profile: **111 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- `tests/test_fifo_cost_provisional_movements_import_service.py`: CSV and typed construction reject `SUPPLY_RECEIVED` in `buyer_delivery`.
+- `tests/test_fifo_cost_provisional_timeline_service.py`: reconciled unlinked opening delivery is carried untouched; post-cutoff delivery remains pending for an in-window dispatch.
+- `tests/test_fifo_cost_report_import_worker_client.py`: 50,000 owner movement rows pass the bounded 32 MiB subprocess output contract.
+- PR B linked profile: **111 passed**; integrated A+B profile: **140 passed**.
+- Final A+B+C linked profile: **152 passed** after including provisional estimate history/repository tests; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+
+# Provisional FIFO saved estimate history and conditional profit (PF22–PF24)
+
+- `tests/test_fifo_cost_provisional_preview_repository.py`: scoped list paging/order, cross-identity/tenant rejection, immutable append, legacy v1 payload compatibility, and v2 owner-confirmed profit scope/cents/formula validation with invalid-payload rejection and prior-row retention.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: reopening saved scenarios; explicit reason when no base is confirmed; withholding profit before confirmation; exact C04 interval and COGS shown before confirmation; disclosure that a manual base is not independently verified against a finance report; negative base; comparison blocked across source/provenance, return-reversal or tax-stage mismatch; message size and no-factual-write guards. History-only navigation through list, page, detail, compare, cancel/back and return to calculator preserves the active model evidence, confirmed profit base and saved markers; subsequent loss of source evidence still rejects an attempted save. The same test module verifies report switching and compact duplicate-period labels.
+- Review regression: linked provisional/transition/repository profile — **72 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- Linked PF22–PF24 profile (`test_telegram_fifo_cost_provisional_service.py`, `test_fifo_cost_provisional_fbo_telegram_flow.py`, `test_fifo_cost_provisional_preview_repository.py`, `test_fifo_cost_repository.py`, `test_bot_backup_service.py`, `test_fifo_cost_provisional_timeline_service.py`): **76 passed in 5.03s**. `compileall -q app tests`, `git diff --check`, and tracked `data/` equality passed. Full isolated PR C suite and exact-head hosted CI remain pending.
 
 # Provisional FIFO held stock and non-sale replay (PF17)
 
@@ -44,8 +50,7 @@
 
 - `tests/test_fifo_cost_provisional_summary_service.py`: synthetic §4.3 calculations, unknown closing stock, higher/equal costs, explicit unsupported movements, report scope/completeness/period, all eight bucket continuity, balance failure, and exhaustive small integer boundary matrix.
 - `tests/test_fifo_cost_provisional_evidence_reader.py`: only complete owner-confirmed TURNOVER reports in the exact case scope are returned; stale case and >100 saved reports fail closed.
-- `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary `fifo_transition` callback route, report selection, owner hypotheses, closing residual input and preview rendering; report changes clear dependent assumptions, identical-period reports remain distinguishable by capture time and fingerprint in labels within Telegram's 64-character button limit, and no FIFO write occurs. It also pins the optional-service compatibility route.
-- Review regression profile: linked provisional/transition profile — **59 passed** on the updated branch; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary `fifo_transition` callback route, report selection, owner hypotheses, closing residual input and preview rendering; replays a prior callback as stale and proves no FIFO write. It also pins the optional-service compatibility route.
 - `tests/test_fifo_cost_transition_production_workflow.py`: shared production workflow wires a separate provisional service without replacing the factual evidence/review/apply path.
 - Linked profile: **113 passed** across provisional summary/evidence/Telegram, production transition workflow, parent runtime/contracts, and both existing report importers. Full isolated suite on `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`: **5,491 passed in 110.55s**. `compileall -q app tests` and `git diff --exit-code -- data` passed. Exact-head hosted Windows/Linux full Verify passed for `6d54bf876c1f80977f32ecdbeb98a26faad787dd`; Linux Docker build and smoke passed.
 
@@ -7246,3 +7251,29 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_fifo_cost_report_import_worker_client.py`: movements CSV worker success, manifest tamper detection, and size limits.
 - Linked PF18 profile: **97 passed** across timeline service, replay, normalizer, movements/FBO parser, evidence reader, ordinary Telegram flows, worker client, and existing transition evidence/workflow. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Full suite and hosted exact-head PR B CI are pending PF19.
 - PF19 isolated full-suite verification on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy omitted repository `data/` and `.env`; a synthetic tax policy was added only inside that copy. The later PR B packaging checkpoint still requires hosted exact-head CI.
+# Provisional FIFO saved estimate persistence (PF20)
+
+- `tests/test_fifo_cost_repository.py`: v19→v20 additive migration preserves transition cases/revisions and Planning metadata; preview rows exactly bind owner/tenant/store/product/offer/SKU and case revision, are idempotent and append-only, and enforce 100 per case / 64 KiB per payload.
+- `tests/test_bot_backup_service.py`: backup verification, dry-run and restore preserve a synthetic estimate, FIFO schema v20, Planning schema version 12, and SQLite `user_version=41`.
+- PF20 focused profile: **54 passed**. Telegram save/history/comparison behavior remains disabled until PF21–PF23.
+# Provisional FIFO estimate save action (PF21)
+
+- `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary transition-card save button, exact model/evidence fingerprints, no raw identifiers, successful isolated append, and stale selected report blocking a stale callback.
+- `tests/test_fifo_cost_provisional_preview_repository.py`: scoped current-case writes, idempotent retry, conflicting idempotency payload rejection, stale revision, closed case, and disallowed raw/unrecognized payload fields.
+- Linked PF21 profile: **65 passed** across ordinary save, timeline/FBO flow, repository, FIFO schema and backup/restore tests. Save writes only `fifo_cost_provisional_previews`; full-suite and hosted exact-head CI remain pending.
+
+# Provisional FIFO PF26 release verification
+
+- `tests/test_fifo_cost_batch_scan_checkpoint_service.py`, `tests/test_fifo_cost_transition_schema_v13.py`, and `tests/test_fifo_cost_transition_schema_v16.py` cover schema-v20 compatibility after the new estimate table: **29 passed in 2.48s**. The v12 migration fixture drops the additive v20 table and triggers before removing their parent transition tables.
+- The isolated full repository suite at code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` passed **5,579 tests in 97.95s** on Windows/Python 3.12. Disposable copy had no `.env` or owner `data/`; only synthetic tax configuration was present. `compileall -q app tests`, test DB initialization, `git diff --check`, and tracked-data equality passed.
+- Full validation includes provisional aggregate summary and timeline tests plus saved-preview scope, payload v1/v2 compatibility, idempotency/quota/immutability, history pagination, conditional-profit perimeter/formula and synthetic Telegram save/reopen flow. Hosted CI remains required for the final PR C SHA.
+- PR C hosted exact-head run [45193059919](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45193059919) passed Windows and full verification on package SHA `5ec77fa3e7c94535e288d5a6c04134688d6ce07c`; duplicate exact-SHA run [45192990093](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45192990093) also passed. A later documentation update must be checked separately at its new SHA.
+
+
+# Provisional FIFO review follow-up regressions (2026-11-25)
+
+- tests/test_fifo_cost_provisional_timeline_service.py: timeline/summary old-sold range conflict fails closed; wider FBO CSV period is accepted only when it fully covers the selected movement statement.
+- tests/test_fifo_cost_provisional_fbo_csv_import_service.py: optional seller-article scope match/mismatch.
+- tests/test_fifo_cost_report_import_worker_client.py: valid maximum FBO manifest above the former 16 MiB cap completes through the worker/client at the aligned 32 MiB limit.
+- tests/test_telegram_fifo_cost_provisional_service.py: persisted history is reachable without the transient calculator flow from READY_TO_CONFIRM, APPLIED and CANCELLED cards; navigation remains read-only and scoped.
+- PR B exact-head hosted Verify passed; PR C exact-head CI pending.

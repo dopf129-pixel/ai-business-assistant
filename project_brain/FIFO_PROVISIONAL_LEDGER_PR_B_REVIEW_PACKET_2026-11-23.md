@@ -56,3 +56,9 @@
 - An optional seller-article/offer_id CSV column is checked against the active case offer ID for selected-SKU rows; a mismatch fails closed.
 - The worker and parent both allow 32 MiB for the maximum 50,000-row FBO result; a regression asserts the valid manifest exceeds the previous 16 MiB cap.
 - Four focused regressions cover these rules; exact-head test and CI results are pending.
+
+
+## Exact-head verification — 2026-11-25
+
+- Review correction head: 1248617c70d95de92b37129157abae138153160e.
+- GitHub Verify run 45571794948 completed with conclusion success for that exact SHA.
