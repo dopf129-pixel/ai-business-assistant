@@ -88,3 +88,8 @@ Before considering this PR ready for independent review, confirm PR C is open ag
 - Case callbacks carry and revalidate the listed case revision; stale cards are rejected. The route only reads the case and estimate ledger; the regression asserts zero transition writes.
 - PR B's actual old-layer closing check, layer-origin classification, and typed-input invalidation are included as dependencies and covered by C's focused regression profile.
 - Exact-head hosted CI for the C integration commit is required before merge; PR remains open.
+
+
+## CI correction note — 2026-11-25
+
+- Exact-head run 45589577824 на `f80757a57663beafc1d23a082aa0354b6539b20a` остановился на collection из-за синтаксиса генератора в новой интеграционной регрессии. Исправление добавляет явные скобки; повторный прогон нужен на следующем SHA.

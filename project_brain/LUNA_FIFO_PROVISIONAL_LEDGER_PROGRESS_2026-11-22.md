@@ -1,5 +1,10 @@
 # Журнал выполнения — предварительный FIFO
 
+## Проверка исправлений review — 2026-11-25
+
+- Первый exact-head CI PR C `f80757a57663beafc1d23a082aa0354b6539b20a` завершился ошибкой сбора тестов: в новой регрессии генератор `next(...)` требовал явных скобок. Исправлена только форма тестового выражения; функциональные тесты ещё не выполнялись на этом SHA. Новый CI запускается на следующем коммите.
+
+
 # 2026-11-25 — Provisional FIFO review fixes (PR B/C)
 
 - PR B now classifies old/new sales by source layer and compares the replayed old-layer closing balance with the owner's exact/range assumption; conflicting results withhold modeled money.

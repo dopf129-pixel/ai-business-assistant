@@ -773,10 +773,10 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
             assert card["error"] is False, card
             cases_button = _ticket_for(runtime, card, "transition_cases")
             case_list = adapter.handle_button(cases_button, user_id="owner-test")
-            saved_button = next(
+            saved_button = next((
                 button["callback"] for button in case_list["keyboard"]["buttons"]
                 if ":resume:" in button["callback"] and state in button["text"]
-            )
+            ))
             summary = adapter.handle_button(saved_button, user_id="owner-test")
             assert summary["error"] is False, summary
             saved_history_button = _ticket_for(runtime, summary, "provisional_history")
@@ -802,10 +802,10 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
         case_list = adapter.handle_button(
             _ticket_for(runtime, card, "transition_cases"), user_id="owner-test",
         )
-        stale_button = next(
+        stale_button = next((
             button["callback"] for button in case_list["keyboard"]["buttons"]
             if ":resume:" in button["callback"],
-        )
+        ))
         transition.case_revision += 1
         stale = adapter.handle_button(stale_button, user_id="owner-test")
         assert stale["error"] is True
