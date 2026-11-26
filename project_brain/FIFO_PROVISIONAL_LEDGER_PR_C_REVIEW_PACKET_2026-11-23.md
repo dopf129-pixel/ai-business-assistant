@@ -116,6 +116,8 @@ Before considering this PR ready for independent review, confirm PR C is open ag
 - Telegram supplies the exact identity and rejects any mismatched row as a repository contract violation instead of silently filtering after the page was fetched.
 - Every displayed page is persisted as an opaque page ticket with its complete cursor stack and original snapshot. «Новее» and case-revision back navigation return to that snapshot.
 - Added regressions for 21 interleaved exact-identity rows plus 25 other-identity rows, stable previous-page navigation after a new case arrives, and stable revision-history return.
-- Hosted exact-head verification: pending.
+- Implementation/test SHA 13a7455691ab7f422deaad478c4322373a409687 passed Verify run [45797638007](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45797638007): Linux 5,597 passed, Windows 5,597 passed, and Linux Docker build/runtime smoke passed. A documentation-only follow-up is rechecked on its resulting exact head.
 
 - Первый hosted Linux прогон для SHA 80b22ee63632c21f67390a4721bd3957d2c6d7b2 выполнил 5 597 тестов: 5 592 passed, 5 failed из-за служебного policy_version в нормализованном identity. Фильтр хранилища принимает только бизнес-ключи; policy_version теперь проверяется и удаляется до вызова store. Новый exact-head CI обязателен.
+
+- The initial regression caused by passing policy_version to the SQL store was fixed before this green run. No business data, FIFO facts, or live Ozon/Telegram calls were involved.

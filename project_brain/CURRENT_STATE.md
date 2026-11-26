@@ -6089,6 +6089,8 @@ Completed:
 - Scoped transition-case pagination now applies exact store/product/offer/SKU filters in the repository query before count and keyset pagination. The Telegram screen verifies returned rows match the requested identity and no longer filters records after paging.
 - Every rendered transition-history page now has a page ticket with its original snapshot cursor. Newer-page navigation and case-revision back navigation preserve that snapshot.
 - Regression coverage added for mixed products/offers with the same SKU, exact counts across two pages, arrival of a new case while browsing, and returning from revision history to the original snapshot.
-- Exact-head hosted Verify result is recorded below after CI completes.
+- Implementation/test SHA 13a7455691ab7f422deaad478c4322373a409687 passed hosted Verify [45797638007](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45797638007): Linux and Windows each passed 5,597 tests; Docker image build and runtime smoke passed on Linux. A documentation-only follow-up commit receives separate exact-head verification.
 
 - Первый hosted Linux запуск на SHA 80b22ee63632c21f67390a4721bd3957d2c6d7b2 обнаружил контрактную регрессию в передаче identity: после нормализации в аргумент оставался служебный policy_version. Поле теперь исключается из ключа хранилища; новый CI ещё не завершён.
+
+- Successful implementation verification is on SHA 13a7455691ab7f422deaad478c4322373a409687. Follow-up documentation records the result; its final SHA remains subject to hosted Verify.
