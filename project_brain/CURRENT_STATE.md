@@ -6083,3 +6083,10 @@ Completed:
 - The regular provisional FIFO Telegram result now offers **«Сохранить оценку»** for `SUMMARY_RANGE` or a fully gated `TIMELINE_MODEL`. Save re-reads the current case and selected evidence, recalculates against the ticket's exact fingerprint, and atomically appends to FIFO v20; retries use the same idempotency key.
 - Changed case/reports/assumptions, an expired or replaced timeline upload, invalid/over-quota payloads, or closed cases fail without saving. The flow never calls factual FIFO prepare/apply, Period Profit or Return COGS.
 - PF21 focused regression profile: **65 passed** across Telegram scenario/timeline, preview repository, FIFO schema and backup/restore. PF22 history/restart and PF23 comparable-profit extension remain pending.
+
+# 2026-11-26 — FIFO transition history review fixes
+
+- Scoped transition-case pagination now applies exact store/product/offer/SKU filters in the repository query before count and keyset pagination. The Telegram screen verifies returned rows match the requested identity and no longer filters records after paging.
+- Every rendered transition-history page now has a page ticket with its original snapshot cursor. Newer-page navigation and case-revision back navigation preserve that snapshot.
+- Regression coverage added for mixed products/offers with the same SKU, exact counts across two pages, arrival of a new case while browsing, and returning from revision history to the original snapshot.
+- Exact-head hosted Verify result is recorded below after CI completes.

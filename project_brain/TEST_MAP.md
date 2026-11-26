@@ -7294,3 +7294,7 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - tests/test_fifo_cost_report_import_worker_client.py: valid maximum FBO manifest above the former 16 MiB cap completes through the worker/client at the aligned 32 MiB limit.
 - tests/test_telegram_fifo_cost_provisional_service.py: persisted history is reachable without the transient calculator flow from READY_TO_CONFIRM, APPLIED and CANCELLED cards; navigation remains read-only and scoped.
 - PR B exact-head hosted Verify passed. PR C code/test SHA 989f0520ae4d803e1ce628c72048742082df0603: **5,588 passed** on Windows (run 45575002866, successful retry) and Linux (same run); Linux Docker build/runtime smoke passed. The first Windows attempt failed one unrelated random-token assertion; same-SHA retry passed. A documentation-only follow-up is rechecked separately.
+
+- tests/test_fifo_cost_transition_service.py::test_case_list_exact_identity_filters_before_keyset_pagination: repository-level exact product/offer/SKU scoping occurs before page sizing, count, and continuation.
+- tests/test_telegram_fifo_cost_history.py::test_transition_history_filters_exact_product_before_paging_and_newer_reuses_snapshot: same-SKU cases for another product do not affect the screen; a new case does not shift the original page when navigating «Новее».
+- tests/test_telegram_fifo_cost_history.py::test_transition_case_history_returns_to_original_first_page_snapshot: returning from a case revision uses the original page snapshot after a newer case appears.

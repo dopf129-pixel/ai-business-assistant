@@ -1079,6 +1079,7 @@ class FifoCostTransitionStore:
     @classmethod
     def list_cases(
         cls, connection, scope: dict, *, store_id: str, sku: str | None = None,
+        identity: dict | None = None,
         states: tuple[str, ...] = ("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"),
         limit: int = 100, after_cursor: dict | None = None,
         snapshot_cursor: dict | None = None,
@@ -1112,6 +1113,20 @@ class FifoCostTransitionStore:
         if sku is not None:
             where.append("sku=?")
             params.append(sku)
+        if identity is not None:
+            if (
+                not isinstance(identity, dict)
+                or set(identity) != {"store_id", "product_id", "offer_id", "sku"}
+                or identity.get("store_id") != store_id
+                or not isinstance(identity.get("sku"), str)
+                or (sku is not None and identity.get("sku") != sku)
+            ):
+                return {"error": True, "code": "FIFO_TRANSITION_SCOPE_INVALID"}
+            where.extend(("product_id IS ?", "offer_id IS ?", "sku IS ?"))
+            params.extend((
+                identity.get("product_id"), identity.get("offer_id"),
+                identity["sku"],
+            ))
 
         if snapshot_cursor is None:
             first = connection.execute(

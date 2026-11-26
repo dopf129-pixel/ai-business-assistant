@@ -312,7 +312,7 @@ class FifoCostRepository:
                 connection.close()
 
     def list_transition_cases(
-        self, *, store_id, sku=None,
+        self, *, store_id, sku=None, identity=None,
         states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
         after_cursor=None, snapshot_cursor=None,
     ):
@@ -324,7 +324,24 @@ class FifoCostRepository:
             normalized_sku = (
                 self._safe_identity_part(sku, "sku", 64) if sku is not None else None
             )
-        except ValueError:
+            normalized_identity = None
+            if identity is not None:
+                normalized_identity = self._normalize_transition_read_identity(
+                    identity.get("store_id"),
+                    product_id=identity.get("product_id"),
+                    offer_id=identity.get("offer_id"),
+                    sku=identity.get("sku"),
+                ) if isinstance(identity, dict) and set(identity) == {
+                    "store_id", "product_id", "offer_id", "sku",
+                } else self._error("FIFO_TRANSITION_SCOPE_INVALID")
+                if (
+                    normalized_identity.get("error")
+                    or normalized_identity["store_id"] != normalized_store
+                    or (normalized_sku is not None
+                        and normalized_identity["sku"] != normalized_sku)
+                ):
+                    return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+        except (TypeError, ValueError):
             return self._error("FIFO_TRANSITION_SCOPE_INVALID")
         if type(limit) is not int or not 1 <= limit <= 100:
             return self._error("FIFO_TRANSITION_LIMIT_INVALID")
@@ -335,7 +352,8 @@ class FifoCostRepository:
             connection = self.get_connection()
             return FifoCostTransitionStore.list_cases(
                 connection, scope, store_id=normalized_store,
-                sku=normalized_sku, states=tuple(states), limit=limit,
+                sku=normalized_sku, identity=normalized_identity,
+                states=tuple(states), limit=limit,
                 after_cursor=after_cursor, snapshot_cursor=snapshot_cursor,
             )
         except (sqlite3.Error, OSError, ValueError):

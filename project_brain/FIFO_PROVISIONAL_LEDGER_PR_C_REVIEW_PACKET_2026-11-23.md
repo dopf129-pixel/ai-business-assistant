@@ -109,3 +109,11 @@ Before considering this PR ready for independent review, confirm PR C is open ag
 ## CI correction note — 2026-11-25
 
 - Exact-head run 45589577824 на `f80757a57663beafc1d23a082aa0354b6539b20a` остановился на collection из-за синтаксиса генератора в новой интеграционной регрессии. Исправление добавляет явные скобки и удаляет лишнюю запятую в генераторе stale-кнопки; повторный прогон нужен на следующем SHA.
+
+## Review fixes — exact product identity and stable snapshots (2026-11-26)
+
+- The history query now accepts an optional normalized full identity and applies product, offer and SKU filters in SQLite before count and keyset pagination. This keeps page membership and totals exact when multiple product identities share one seller SKU.
+- Telegram supplies the exact identity and rejects any mismatched row as a repository contract violation instead of silently filtering after the page was fetched.
+- Every displayed page is persisted as an opaque page ticket with its complete cursor stack and original snapshot. «Новее» and case-revision back navigation return to that snapshot.
+- Added regressions for 21 interleaved exact-identity rows plus 25 other-identity rows, stable previous-page navigation after a new case arrives, and stable revision-history return.
+- Hosted exact-head verification: pending.

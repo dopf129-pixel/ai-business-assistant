@@ -43,14 +43,14 @@ OWNER_SCOPE = make_store_tenant_scope("owner-a", "store-a")
 
 
 def _case(
-    *, case_id="case_000001", sku=None, revision=1,
-    created_at="2026-11-08T10:00:00Z", updated_at=None,
+    *, case_id="case_000001", sku=None, product_id=None, offer_id=None,
+    revision=1, created_at="2026-11-08T10:00:00Z", updated_at=None,
 ):
     scope = ScopeIdentity(
         owner_id="owner-a",
         store_id=IDENTITY["store_id"],
-        product_id=IDENTITY["product_id"],
-        offer_id=IDENTITY["offer_id"],
+        product_id=product_id or IDENTITY["product_id"],
+        offer_id=offer_id or IDENTITY["offer_id"],
         sku=sku or IDENTITY["sku"],
     )
     metadata = TransitionMetadata(
@@ -695,5 +695,79 @@ def test_case_list_is_tenant_store_and_sku_scoped(tmp_path):
             }
         finally:
             reset_current_tenant_user_id(other_store)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_case_list_exact_identity_filters_before_keyset_pagination(tmp_path):
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        _repository, service = _service(tmp_path)
+        states = (
+            "DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED",
+        )
+        identities = [
+            (IDENTITY["product_id"], IDENTITY["offer_id"], "target", 21),
+            ("product-other", "offer-other", "other", 25),
+        ]
+        created_index = 0
+        for product_id, offer_id, prefix, count in identities:
+            for index in range(count):
+                created_index += 1
+                case_id = f"case_exact_{prefix}_{index:03d}"
+                created_at = f"2026-11-01T00:{created_index:02d}:00Z"
+                created = service.create_case(
+                    case=_case(
+                        case_id=case_id,
+                        product_id=product_id,
+                        offer_id=offer_id,
+                        created_at=created_at,
+                    ),
+                    idempotency_key=f"exact-create-{prefix}-{index:03d}",
+                )
+                assert created["error"] is False, created
+                cancelled = service.cancel_case(
+                    case_id=case_id,
+                    store_id=IDENTITY["store_id"],
+                    product_id=product_id,
+                    offer_id=offer_id,
+                    sku=IDENTITY["sku"],
+                    expected_revision=1,
+                    idempotency_key=f"exact-cancel-{prefix}-{index:03d}",
+                )
+                assert cancelled["error"] is False, cancelled
+
+        first = service.list_cases(
+            store_id=IDENTITY["store_id"],
+            sku=IDENTITY["sku"],
+            identity=IDENTITY,
+            states=states,
+            limit=20,
+        )
+        assert first["error"] is False, first
+        assert first["count"] == 21
+        assert first["has_more"] is True
+        assert len(first["cases"]) == 20
+        assert all(
+            item["case"]["metadata"]["scope"]["product_id"] == IDENTITY["product_id"]
+            and item["case"]["metadata"]["scope"]["offer_id"] == IDENTITY["offer_id"]
+            for item in first["cases"]
+        )
+
+        second = service.list_cases(
+            store_id=IDENTITY["store_id"],
+            sku=IDENTITY["sku"],
+            identity=IDENTITY,
+            states=states,
+            limit=20,
+            after_cursor=first["next_cursor"],
+            snapshot_cursor=first["snapshot_cursor"],
+        )
+        assert second["error"] is False, second
+        assert second["count"] == 21
+        assert second["has_more"] is False
+        assert len(second["cases"]) == 1
+        assert second["cases"][0]["case_id"] == "case_exact_target_000"
+        assert second["cases"][0]["case"]["metadata"]["scope"]["product_id"] == IDENTITY["product_id"]
     finally:
         reset_current_tenant_user_id(tenant)

@@ -3345,3 +3345,9 @@ Summary Report теперь включает:
 
 - Added the ordinary Telegram «Сохранить оценку» action for valid aggregate ranges and fully gated timeline models. The callback re-reads the selected evidence and recalculates before writing, then appends only the scoped provisional estimate with a deterministic idempotency key.
 - Stale case/evidence/fingerprint, expired timeline uploads, invalid payloads and quota limits fail closed. No transition prepare/apply, factual FIFO, COGS, or Period Profit write is used.
+
+# 2026-11-26 — Fix exact-scope FIFO transition history paging
+
+- Transition history now filters by the full store/product/offer/SKU identity in SQLite before calculating the count and keyset pages. Interleaved cases for other products sharing a SKU cannot hide the requested product or distort page totals.
+- Each rendered history page stores its snapshot cursor in an opaque page ticket. «Новее» and revision-history return links reuse the original snapshot, so newly created transitions do not shift the page being browsed.
+- Added service and Telegram regressions for interleaved identities, exact page counts, stable «Новее» navigation, and returning from a case revision to the same first page.
