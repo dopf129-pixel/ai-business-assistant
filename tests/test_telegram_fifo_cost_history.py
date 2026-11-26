@@ -1699,3 +1699,257 @@ def test_fifo_anchor_confirmation_shows_fifo_layers_in_entry_order():
     newest = message.index("2:3@10.00")
     assert "Слои (№: шт.@₽/шт.)" in message
     assert oldest < newest
+
+
+class _TransitionPagingHistoryStub:
+    def __init__(self):
+        self.rows = []
+        self.next_id = 1
+        self.list_calls = []
+
+    def add_case(
+        self, *, product_id, offer_id, created_at, unit_cost,
+        store_id="store-a", sku="3921245627",
+    ):
+        case_id = f"case_paging_{self.next_id:04d}"
+        self.next_id += 1
+        self.rows.append({
+            "case_id": case_id,
+            "case_revision": 1,
+            "state": "DRAFT",
+            "created_at": created_at,
+            "case": {
+                "metadata": {
+                    "scope": {
+                        "store_id": store_id,
+                        "product_id": product_id,
+                        "offer_id": offer_id,
+                        "sku": sku,
+                    },
+                },
+                "dispatch_date": "2026-11-05",
+                "new_unit_cost_rub": unit_cost,
+            },
+        })
+        return case_id
+
+    def list_cases(
+        self, *, store_id, sku, identity=None, states, limit,
+        after_cursor=None, snapshot_cursor=None,
+    ):
+        self.list_calls.append({
+            "store_id": store_id, "sku": sku,
+            "identity": dict(identity) if isinstance(identity, dict) else identity,
+            "limit": limit,
+        })
+        rows = [
+            row for row in self.rows
+            if row["case"]["metadata"]["scope"]["store_id"] == store_id
+            and row["case"]["metadata"]["scope"]["sku"] == sku
+            and row["state"] in states
+        ]
+        if identity is not None:
+            rows = [
+                row for row in rows
+                if all(
+                    row["case"]["metadata"]["scope"].get(key) == identity.get(key)
+                    for key in ("store_id", "product_id", "offer_id", "sku")
+                )
+            ]
+        rows.sort(key=lambda row: (row["created_at"], row["case_id"]), reverse=False)
+        # The production keyset order is created_at DESC, case_id ASC.
+        rows.sort(key=lambda row: row["case_id"])
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+
+        def cursor(row):
+            return {"created_at": row["created_at"], "case_id": row["case_id"]}
+
+        if snapshot_cursor is None and rows:
+            snapshot_cursor = cursor(rows[0])
+        if snapshot_cursor is not None:
+            rows = [
+                row for row in rows
+                if row["created_at"] < snapshot_cursor["created_at"]
+                or (
+                    row["created_at"] == snapshot_cursor["created_at"]
+                    and row["case_id"] >= snapshot_cursor["case_id"]
+                )
+            ]
+        count = len(rows)
+        if after_cursor is not None:
+            rows = [
+                row for row in rows
+                if row["created_at"] < after_cursor["created_at"]
+                or (
+                    row["created_at"] == after_cursor["created_at"]
+                    and row["case_id"] > after_cursor["case_id"]
+                )
+            ]
+        page = rows[:limit + 1]
+        has_more = len(page) > limit
+        page = page[:limit]
+        return {
+            "error": False,
+            "cases": page,
+            "count": count,
+            "has_more": has_more,
+            "snapshot_cursor": snapshot_cursor,
+            "next_cursor": cursor(page[-1]) if has_more and page else None,
+        }
+
+    def read_case_history(self, *, case_id, **_kwargs):
+        row = next(item for item in self.rows if item["case_id"] == case_id)
+        return {
+            "error": False,
+            "items": [{
+                "case_revision": row["case_revision"],
+                "state": row["state"],
+                "created_at": row["created_at"],
+                "updated_at": row["created_at"],
+                "new_unit_cost_rub": row["case"]["new_unit_cost_rub"],
+            }],
+            "has_more": False,
+            "next_before_revision": None,
+        }
+
+
+class _TransitionPagingSkuHistoryStub:
+    def get_sku_history(self, **_identity):
+        return {"error": False, "revision": 1, "queue_initialized": False}
+
+
+def _transition_paging_ui():
+    transitions = _TransitionPagingHistoryStub()
+    ui = TelegramFifoCostHistoryService(
+        _TransitionPagingSkuHistoryStub(), transition_service=transitions,
+    )
+    return ui, transitions
+
+
+def _transition_page_callback(result, label):
+    return next(
+        button["callback"] for button in result["keyboard"]["buttons"]
+        if button["text"] == label
+    )
+
+
+def _seed_transition_paging_rows(transitions):
+    # Same SKU, different product identities are deliberately newer and numerous.
+    for index in range(30):
+        transitions.add_case(
+            product_id="product-other",
+            offer_id="offer-other",
+            created_at=f"2026-11-20T00:{index:02d}:00Z",
+            unit_cost=f"90.{index:02d}",
+        )
+    for index in range(21):
+        transitions.add_case(
+            product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"],
+            created_at=f"2026-11-01T00:{index:02d}:00Z",
+            unit_cost=f"10.{index + 1:02d}",
+        )
+
+
+def test_transition_history_filters_exact_product_before_paging_and_newer_reuses_snapshot():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        ui, transitions = _transition_paging_ui()
+        _seed_transition_paging_rows(transitions)
+        sku_ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        first = ui.handle_callback(
+            101, sku_ticket["callback"].replace(":open:", ":transition_cases:"),
+        )
+        assert first["error"] is False, first
+        assert "Показаны 1–20 из 21 изменений." in first["message"]
+        assert "90." not in first["message"]
+
+        transitions.add_case(
+            product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"],
+            created_at="2026-11-30T00:00:00Z",
+            unit_cost="99.99",
+        )
+        older = ui.handle_callback(
+            101, _transition_page_callback(first, "➡️ Раньше"),
+        )
+        assert older["error"] is False, older
+        assert "Показаны 21–21 из 21 изменений." in older["message"]
+        newer = ui.handle_callback(
+            101, _transition_page_callback(older, "⬅️ Новее"),
+        )
+        assert newer["error"] is False, newer
+        assert "Показаны 1–20 из 21 изменений." in newer["message"]
+        assert "99.99 ₽/шт." not in newer["message"]
+        assert "10.21 ₽/шт." in newer["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_transition_case_history_returns_to_original_first_page_snapshot():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        ui, transitions = _transition_paging_ui()
+        _seed_transition_paging_rows(transitions)
+        sku_ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        first = ui.handle_callback(
+            101, sku_ticket["callback"].replace(":open:", ":transition_cases:"),
+        )
+        assert first["error"] is False, first
+        case_callback = next(
+            button["callback"] for button in first["keyboard"]["buttons"]
+            if button["text"].startswith("Открыть историю 1 ·")
+        )
+        detail = ui.handle_callback(101, case_callback)
+        assert detail["error"] is False, detail
+
+        transitions.add_case(
+            product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"],
+            created_at="2026-11-30T00:00:00Z",
+            unit_cost="99.99",
+        )
+        back = ui.handle_callback(
+            101, _transition_page_callback(detail, "↩️ К списку"),
+        )
+        assert back["error"] is False, back
+        assert "Показаны 1–20 из 21 изменений." in back["message"]
+        assert "99.99 ₽/шт." not in back["message"]
+        assert "10.21 ₽/шт." in back["message"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_active_transition_lookup_scopes_before_limit_for_exact_product():
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        ui, transitions = _transition_paging_ui()
+        for index in range(30):
+            transitions.add_case(
+                product_id="product-other",
+                offer_id="offer-other",
+                created_at=f"2026-11-20T00:{index:02d}:00Z",
+                unit_cost=f"90.{index:02d}",
+            )
+        transitions.add_case(
+            product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"],
+            created_at="2026-11-01T00:00:00Z",
+            unit_cost="10.00",
+        )
+        sku_ticket = ui.create_sku_callback(
+            user_id=101, **IDENTITY, display_name="Крючки",
+        )
+        ticket = ui._validated_ticket("101", sku_ticket["callback"].split(":")[-1])
+        cases = ui._active_transition_cases(ticket)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert cases is not None
+    assert len(cases) == 1
+    assert cases[0]["case"]["metadata"]["scope"]["product_id"] == IDENTITY["product_id"]
+    assert transitions.list_calls[-1]["identity"] == IDENTITY

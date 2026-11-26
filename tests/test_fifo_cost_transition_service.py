@@ -42,12 +42,15 @@ IDENTITY = {
 OWNER_SCOPE = make_store_tenant_scope("owner-a", "store-a")
 
 
-def _case(*, case_id="case_000001", sku=None, revision=1, updated_at=None):
+def _case(
+    *, case_id="case_000001", sku=None, product_id=None, offer_id=None,
+    revision=1, created_at="2026-11-08T10:00:00Z", updated_at=None,
+):
     scope = ScopeIdentity(
         owner_id="owner-a",
         store_id=IDENTITY["store_id"],
-        product_id=IDENTITY["product_id"],
-        offer_id=IDENTITY["offer_id"],
+        product_id=product_id or IDENTITY["product_id"],
+        offer_id=offer_id or IDENTITY["offer_id"],
         sku=sku or IDENTITY["sku"],
     )
     metadata = TransitionMetadata(
@@ -67,8 +70,8 @@ def _case(*, case_id="case_000001", sku=None, revision=1, updated_at=None):
         case_id=case_id,
         case_revision=revision,
         state=TransitionState.DRAFT,
-        created_at="2026-11-08T10:00:00Z",
-        updated_at=updated_at or "2026-11-08T10:00:00Z",
+        created_at=created_at,
+        updated_at=updated_at or created_at,
         dispatch_date="2026-11-05",
         old_unit_cost_rub="21.00",
         new_unit_cost_rub="14.65",
@@ -502,6 +505,130 @@ def test_only_one_active_case_per_store_sku_and_other_sku_is_independent(tmp_pat
         reset_current_tenant_user_id(tenant)
 
 
+def test_case_list_keyset_reaches_records_beyond_one_hundred(tmp_path):
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        _repository, service = _service(tmp_path)
+        for index in range(1, 106):
+            case_id = f"case_cursor_{index:03d}"
+            created_at = (
+                f"2026-11-01T00:{index // 60:02d}:{index % 60:02d}Z"
+            )
+            created = service.create_case(
+                case=_case(case_id=case_id, created_at=created_at),
+                idempotency_key=f"cursor-create-{index:03d}",
+            )
+            assert created["error"] is False, created
+            cancelled = service.cancel_case(
+                case_id=case_id,
+                store_id=IDENTITY["store_id"],
+                product_id=IDENTITY["product_id"],
+                offer_id=IDENTITY["offer_id"],
+                sku=IDENTITY["sku"],
+                expected_revision=1,
+                idempotency_key=f"cursor-cancel-{index:03d}",
+            )
+            assert cancelled["error"] is False, cancelled
+
+        states = ("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED")
+        snapshot_cursor = None
+        after_cursor = None
+        pages = []
+        page_sizes = []
+        while True:
+            result = service.list_cases(
+                store_id=IDENTITY["store_id"],
+                sku=IDENTITY["sku"],
+                states=states,
+                limit=20,
+                after_cursor=after_cursor,
+                snapshot_cursor=snapshot_cursor,
+            )
+            assert result["error"] is False, result
+            snapshot_cursor = result["snapshot_cursor"]
+            pages.extend(item["case_id"] for item in result["cases"])
+            page_sizes.append(len(result["cases"]))
+            if not result["has_more"]:
+                break
+            after_cursor = result["next_cursor"]
+
+        expected = [f"case_cursor_{index:03d}" for index in range(105, 0, -1)]
+        assert pages == expected
+        assert page_sizes == [20, 20, 20, 20, 20, 5]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_case_list_cursor_keeps_draft_on_same_page_after_update(tmp_path):
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        _repository, service = _service(tmp_path)
+        for index in range(1, 21):
+            case_id = f"case_stable_{index:03d}"
+            created = service.create_case(
+                case=_case(
+                    case_id=case_id,
+                    created_at=f"2026-11-02T00:{index:02d}:00Z",
+                ),
+                idempotency_key=f"stable-create-{index:03d}",
+            )
+            assert created["error"] is False, created
+            cancelled = service.cancel_case(
+                case_id=case_id,
+                store_id=IDENTITY["store_id"],
+                product_id=IDENTITY["product_id"],
+                offer_id=IDENTITY["offer_id"],
+                sku=IDENTITY["sku"],
+                expected_revision=1,
+                idempotency_key=f"stable-cancel-{index:03d}",
+            )
+            assert cancelled["error"] is False, cancelled
+
+        oldest_case_id = "case_stable_oldest"
+        created = service.create_case(
+            case=_case(
+                case_id=oldest_case_id,
+                created_at="2026-11-01T00:00:00Z",
+            ),
+            idempotency_key="stable-create-oldest-001",
+        )
+        assert created["error"] is False, created
+        first_page = service.list_cases(
+            store_id=IDENTITY["store_id"], sku=IDENTITY["sku"],
+            states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED"),
+            limit=20,
+        )
+        assert first_page["error"] is False, first_page
+        first_ids = [item["case_id"] for item in first_page["cases"]]
+        assert oldest_case_id not in first_ids
+        assert first_page["has_more"] is True
+
+        updated = service.update_owner_inputs(
+            case_id=oldest_case_id,
+            store_id=IDENTITY["store_id"],
+            product_id=IDENTITY["product_id"],
+            offer_id=IDENTITY["offer_id"],
+            sku=IDENTITY["sku"],
+            expected_revision=1,
+            updates={"new_home_quantity": 3},
+            idempotency_key="stable-update-oldest-01",
+        )
+        assert updated["error"] is False, updated
+        second_page = service.list_cases(
+            store_id=IDENTITY["store_id"], sku=IDENTITY["sku"],
+            states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED"),
+            limit=20,
+            after_cursor=first_page["next_cursor"],
+            snapshot_cursor=first_page["snapshot_cursor"],
+        )
+        assert second_page["error"] is False, second_page
+        second_ids = [item["case_id"] for item in second_page["cases"]]
+        assert second_ids == [oldest_case_id]
+        assert not set(first_ids).intersection(second_ids)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_concurrent_case_create_has_one_winner_per_sku(tmp_path):
     database = tmp_path / "fifo-transition-concurrent.sqlite"
     barrier = Barrier(2)
@@ -568,5 +695,79 @@ def test_case_list_is_tenant_store_and_sku_scoped(tmp_path):
             }
         finally:
             reset_current_tenant_user_id(other_store)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_case_list_exact_identity_filters_before_keyset_pagination(tmp_path):
+    tenant = set_current_tenant_user_id(OWNER_SCOPE)
+    try:
+        _repository, service = _service(tmp_path)
+        states = (
+            "DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM", "APPLIED", "CANCELLED",
+        )
+        identities = [
+            (IDENTITY["product_id"], IDENTITY["offer_id"], "target", 21),
+            ("product-other", "offer-other", "other", 25),
+        ]
+        created_index = 0
+        for product_id, offer_id, prefix, count in identities:
+            for index in range(count):
+                created_index += 1
+                case_id = f"case_exact_{prefix}_{index:03d}"
+                created_at = f"2026-11-01T00:{created_index:02d}:00Z"
+                created = service.create_case(
+                    case=_case(
+                        case_id=case_id,
+                        product_id=product_id,
+                        offer_id=offer_id,
+                        created_at=created_at,
+                    ),
+                    idempotency_key=f"exact-create-{prefix}-{index:03d}",
+                )
+                assert created["error"] is False, created
+                cancelled = service.cancel_case(
+                    case_id=case_id,
+                    store_id=IDENTITY["store_id"],
+                    product_id=product_id,
+                    offer_id=offer_id,
+                    sku=IDENTITY["sku"],
+                    expected_revision=1,
+                    idempotency_key=f"exact-cancel-{prefix}-{index:03d}",
+                )
+                assert cancelled["error"] is False, cancelled
+
+        first = service.list_cases(
+            store_id=IDENTITY["store_id"],
+            sku=IDENTITY["sku"],
+            identity=IDENTITY,
+            states=states,
+            limit=20,
+        )
+        assert first["error"] is False, first
+        assert first["count"] == 21
+        assert first["has_more"] is True
+        assert len(first["cases"]) == 20
+        assert all(
+            item["case"]["metadata"]["scope"]["product_id"] == IDENTITY["product_id"]
+            and item["case"]["metadata"]["scope"]["offer_id"] == IDENTITY["offer_id"]
+            for item in first["cases"]
+        )
+
+        second = service.list_cases(
+            store_id=IDENTITY["store_id"],
+            sku=IDENTITY["sku"],
+            identity=IDENTITY,
+            states=states,
+            limit=20,
+            after_cursor=first["next_cursor"],
+            snapshot_cursor=first["snapshot_cursor"],
+        )
+        assert second["error"] is False, second
+        assert second["count"] == 21
+        assert second["has_more"] is False
+        assert len(second["cases"]) == 1
+        assert second["cases"][0]["case_id"] == "case_exact_target_000"
+        assert second["cases"][0]["case"]["metadata"]["scope"]["product_id"] == IDENTITY["product_id"]
     finally:
         reset_current_tenant_user_id(tenant)

@@ -58,9 +58,14 @@
 - Four focused regressions cover these rules; exact-head test and CI results are pending.
 
 
-## Review corrections — 2026-11-25 (follow-up)
+## Exact-head verification — 2026-11-25
 
-- Old/new sold units now follow layer provenance IDs; identical unit costs do not collapse party identity.
-- The timeline compares actual old-layer closing units, including held stock and open dispatch reserves, with the same owner-confirmed closing range used by the summary model. A mismatch blocks result money.
-- Valid typed exact/range input invalidates prior timeline output, and invalid text preserves the prior assumptions/results.
-- Regressions cover a returned old unit where the summary sold range alone still passes, equal-price layers, and text-input invalidation. Exact-head hosted CI is authoritative for this PR update.
+- Review correction head: 1248617c70d95de92b37129157abae138153160e.
+- GitHub Verify run 45571794948 completed with conclusion success for that exact SHA.
+
+
+## Additional review corrections — 2026-11-25
+
+- Replayed layer provenance determines old/new sales, including equal cost layers. The timeline checks its actual old-layer closing inventory against the owner-confirmed closing-old exact/range assumption and fails closed on conflict.
+- Valid typed exact/range inputs now invalidate the previous timeline result; invalid input remains non-mutating.
+- Regression cases are listed in `project_brain/TEST_MAP.md`. PR B implementation and hosted verification are tracked on its exact head; this C stack integrates the B source and regression changes.

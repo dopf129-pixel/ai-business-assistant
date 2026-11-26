@@ -425,8 +425,16 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
                         result.get("expected_revision"),
                         result.get("cost_input_mode"),
                     )
-                if result.get("action") == "resume_transition_wizard" and self.fifo_transition_runtime_service is not None:
-                    return self.fifo_transition_runtime_service.resume_case(
+                if (
+                    result.get("action") in {"resume_transition_wizard", "open_transition_estimates"}
+                    and self.fifo_transition_runtime_service is not None
+                ):
+                    runtime = self.fifo_transition_runtime_service
+                    open_case = (
+                        runtime.open_saved_estimates
+                        if result["action"] == "open_transition_estimates" else runtime.resume_case
+                    )
+                    return open_case(
                         user_id,
                         identity=result.get("identity"),
                         display_name=result.get("display_name"),

@@ -1,22 +1,56 @@
-# 2026-11-25 — Additional FIFO timeline review fixes
+# 2026-11-25 — FIFO transition history pagination review fixes (PR C)
 
-- Classify old and new sold units by FIFO layer origin, not unit cost; equal old/new prices remain distinguishable.
-- Reconcile replayed old-layer closing units against the owner-confirmed exact value or range. A conflict returns SOURCE_CONFLICT and withholds all model money.
-- Clear a stale timeline result after valid typed exact/range input; invalid input leaves the previous scenario unchanged.
-- Added regressions for returned old-layer units, equal layer prices, conflicting closing-old assumptions, and typed input invalidation.
+- The SKU transition list reads the complete history with stable 20-record cursor pages.
+- Revision history returns to the list page that opened it.
+- Service and Telegram regressions cover records beyond 100, edits during pagination, and access to the saved estimate for transition 21.
 
-# 2026-11-25 — Provisional FIFO timeline review fixes
+# 2026-11-25 — FIFO transition history paging (PR C)
 
-- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
-- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
-- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
-- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+- FIFO transition history on the normal SKU card is paginated at 20 records per screen; older/newer navigation retains scoped read-only access.
+- A regression covers opening the saved estimate for transition 21 after a new session through the ordinary SKU card.
 
-# 2026-11-24 — Provisional FIFO timeline review corrections
+# 2026-11-25 — Provisional FIFO review fixes (PR B/C)
 
-- Fixed the five confirmed PR B timeline/import findings: disallowed buyer-delivery receipts; bounded model events to the report end date while still validating owner movement fields/references; kept an in-window dispatch pending when delivery occurs after cutoff; retained unmatched opening delivery as an untouched reserve only when exact closing buckets reconcile; and raised the worker output cap for the supported maximum movement document.
-- Linked timeline/replay/import/Telegram profile: **111 passed**. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. No factual FIFO, finance, Period Profit, or saved estimate data was modified. Exact-head hosted CI remains to be checked after publication.
-- After integrating updated PR A head `30e6d735a666d97fd670fae0b1b011a4f9c5950b`, the combined A+B linked profile passed **140 tests**; compileall, diff check and unchanged tracked `data/` passed again. This integrated stack is local until the merge commit is published and exact-head CI completes.
+- PR B now classifies old/new sales by source layer and compares the replayed old-layer closing balance with the owner's exact/range assumption; conflicting results withhold modeled money.
+- Valid typed closing-old input clears stale timeline output; invalid input preserves the current scenario.
+- PR C exposes the saved-estimate history entry from the regular FIFO SKU card. APPLIED/CANCELLED cases reopen read-only through the production SellerCostTelegramAdapter path; callback tickets bind to the listed case revision.
+- Regressions cover returned old layers, equal cost rates, typed input freshness, post-restart APPLIED/CANCELLED history access, stale case revisions, and zero writes.
+
+# 2026-11-25 — Provisional FIFO follow-up review fixes
+
+- PR B timeline now fails closed if replayed old-unit sales contradict the aggregate owner-confirmed range. A wider FBO CSV interval is permitted only when it fully contains the selected movement statement; replay remains clipped to the movement statement. Optional seller article/offer_id values are checked for the selected SKU without persisting or echoing them. FBO worker and parent caps are aligned at 32 MiB.
+- PR C exposes persisted estimates from READY_TO_CONFIRM, APPLIED and CANCELLED case cards without relying on an in-memory calculator flow. The history route remains read-only, hides the calculator continuation in terminal states, and returns to the relevant case card.
+- PR B exact-head Verify passed on 1248617c70d95de92b37129157abae138153160e. PR C code/test SHA 989f0520ae4d803e1ce628c72048742082df0603 passed exact-head Verify run 45575002866: 5,588 tests on Windows and Linux; Linux Docker build and runtime smoke passed. The first Windows attempt had one unrelated random-token assertion collision; the rerun on the same SHA passed. The subsequent docs-only status commit is being rechecked.
+
+# 2026-11-24 — Provisional FIFO PR A/B review corrections in the PR C stack
+
+- PR A report selection now clears only dependent assumptions, identifies duplicate-period reports with compact UTC/fingerprint button labels, and keeps button text within Telegram's limit. PR B rejects invalid buyer-delivery receipts, constrains model events to the selected report cutoff, preserves an in-window post-cutoff delivery as pending, retains reconciled unlinked opening reserve without funding buyout, and supports the bounded maximum movement output.
+- PR A-only linked profile: **59 passed**; PR B-only: **111 passed**; combined A+B profile: **140 passed**. Compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- The final linked A+B+C profile passed **152 tests** after integrating all three review fixes. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed; hosted exact-head verification remains pending.
+- PR C history-navigation correction is recorded below; exact hosted CI is pending publication of the integrated stack.
+
+# 2026-11-24 — Provisional FIFO PR C review correction
+
+- Fixed the history-navigation finding: every history-only transition preserves timeline evidence, the confirmed conditional-profit basis and immutable saved-preview markers. Real calculation inputs retain the existing invalidation behavior.
+- Full synthetic history path now covers list, page, detail, back, comparison, cancel/navigation and calculator return, verifies the conditional profit remains available, and rejects an attempted save after the selected report disappears without appending another preview. Linked provisional/transition/repository profile: **72 passed**; exact-head hosted CI remains pending after publication.
+
+# 2026-11-23 — Provisional FIFO PF26 local release checkpoint
+
+- PR C code/test SHA `61480ae48e75e3ffedce87c62d23bb0363b3ad5b` passed the isolated full Windows/Python 3.12 repository suite: **5,579 passed in 97.95s**. The disposable copy omitted `.env` and owner `data/`, using only a synthetic tax policy. `compileall -q app tests`, test database initialization, `git diff --check`, and tracked-data equality passed.
+- PR C review packet is prepared. PR A #741 and PR B #742 are exact-head green and remain open/unmerged; PR C still needs publication and hosted CI on its final SHA. The full suite was local; it is not a substitute for the final hosted checks.
+- No live service request, production bot launch, owner file use, merge or deployment occurred.
+
+# 2026-11-23 — Provisional FIFO PR C published and hosted checks green
+
+- Opened dependent PR #743 against PR B #742, with review packet `FIFO_PROVISIONAL_LEDGER_PR_C_REVIEW_PACKET_2026-11-23.md`.
+- Exact PR C package head `5ec77fa3e7c94535e288d5a6c04134688d6ce07c` passed hosted run [45193059919](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45193059919): Windows and full verification succeeded. Duplicate run [45192990093](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45192990093) also succeeded. PR A #741 and PR B #742 checks were re-read and green on their exact heads.
+- This journal/documentation follow-up triggers a new CI revision; verify the final PR C SHA before reporting the stack complete. PRs remain open/unmerged.
+
+# 2026-11-23 — Provisional FIFO PF24 full-flow verification
+
+- The PR C provisional calculator can show an owner-confirmed conditional profit-before-tax interval for one exact SKU, period and redeemed-unit scope. The manual base is never substituted from store-wide profit; the owner sees gross COGS and confirms the financial perimeter before any value appears.
+- The linked synthetic Telegram journey covers estimate, owner assumption, explicit profit confirmation, save, and reopen in a new session. It asserts the estimate is retained separately, the factual case revision is unchanged, and there are no FIFO/Period Profit write paths. PF23/PF24 profile: **76 passed in 5.03s**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- Full isolated PR C verification, review packet and exact-head hosted CI remain pending; PRs A/B are dependencies and remain unmerged. No bot launch, deployment, or live service request was made.
 
 # 2026-11-23 — Provisional FIFO PF19 full local verification
 
@@ -58,7 +92,6 @@
 # 2026-11-23 — Provisional FIFO: PR A green; PR B parser stage complete
 
 - PR B PF11 adds a separate synthetic-tested FBO CSV parser and owner guide; worker/upload integration and timeline remain pending. Parser profile: 6 passed; no real Ozon CSV was used.
-- PR A review correction: changing the selected movement report clears its dependent receipt/closing assumptions; changing the snapshot clears all assumptions and movement selection; re-selecting the same report preserves the scenario. Duplicate-period choices are distinguishable with compact UTC/fingerprint labels within the Telegram limit. Linked profile: **59 passed**; compileall, diff check and unchanged tracked data passed.
 - PR A has a read-only calculation and ordinary Telegram preview for a two-report aggregate scenario. The control case, broad unknown-closing range, strict report/window/bucket gates, timezone and compensation handling, and stale callback behavior are covered by synthetic tests. Linked profile: **113 passed**; full isolated suite: **5,491 passed** on implementation SHA `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`; compileall and unchanged `data/` passed.
 - The path has no durable estimate history yet and does not change factual FIFO, case cost, Period Profit or Return COGS. Timeline replay and saved estimates remain in dependent PR B/C; this feature is not ready for production until all three PRs and their CI/review are complete.
 - Decision 068 records the architectural boundary between provisional models and factual FIFO. Exact-head hosted CI for PR A passed on `6d54bf876c1f80977f32ecdbeb98a26faad787dd` (Windows, Linux, and Docker smoke).
@@ -6040,3 +6073,29 @@ Completed:
 - Confirmed removal/write-off from available stock consumes FIFO layers; removal from a held zone is costed only when the source-layer value is knowable. Non-sale removal value is separate from gross buyout COGS. Buyer-delivery changes still require an exact posting lifecycle.
 - Timeline errors now stop at the first failing/ambiguous event. The result contains only the safe replay prefix and reports the unprocessed suffix; tail events do not affect the prefix. This does not establish source completeness or TIMELINE_MODEL readiness.
 - PF17 replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full suite and PR B exact-head CI remain for PF19; the ordinary Telegram timeline presenter remains PF18. No tracked runtime data, factual FIFO, or production bot was changed.
+# 2026-11-23 — Provisional FIFO PF20 persistence foundation
+
+- FIFO-owned schema v20 now has append-only `fifo_cost_provisional_previews`, scoped to owner/tenant/store/product/offer/SKU and an exact saved case revision. It stores bounded JSON and opaque fingerprints; per-case count and payload byte limits fail closed.
+- Added v19 upgrade, constraints, immutability, and backup/restore tests. Planning schema version remains 12 and `PRAGMA user_version` remains unchanged. Durable saves are not exposed in Telegram until PF21–PF23.
+- PF20 profile: `tests/test_fifo_cost_repository.py` + `tests/test_bot_backup_service.py` — 54 passed. Exact full suite and hosted PR C CI remain pending.
+# 2026-11-23 — Provisional FIFO PF21 save action
+
+- The regular provisional FIFO Telegram result now offers **«Сохранить оценку»** for `SUMMARY_RANGE` or a fully gated `TIMELINE_MODEL`. Save re-reads the current case and selected evidence, recalculates against the ticket's exact fingerprint, and atomically appends to FIFO v20; retries use the same idempotency key.
+- Changed case/reports/assumptions, an expired or replaced timeline upload, invalid/over-quota payloads, or closed cases fail without saving. The flow never calls factual FIFO prepare/apply, Period Profit or Return COGS.
+- PF21 focused regression profile: **65 passed** across Telegram scenario/timeline, preview repository, FIFO schema and backup/restore. PF22 history/restart and PF23 comparable-profit extension remain pending.
+
+# 2026-11-26 — FIFO transition history review fixes
+
+- Scoped transition-case pagination now applies exact store/product/offer/SKU filters in the repository query before count and keyset pagination. The Telegram screen verifies returned rows match the requested identity and no longer filters records after paging.
+- Every rendered transition-history page now has a page ticket with its original snapshot cursor. Newer-page navigation and case-revision back navigation preserve that snapshot.
+- Regression coverage added for mixed products/offers with the same SKU, exact counts across two pages, arrival of a new case while browsing, and returning from revision history to the original snapshot.
+- Implementation/test SHA 13a7455691ab7f422deaad478c4322373a409687 passed hosted Verify [45797638007](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45797638007): Linux and Windows each passed 5,597 tests; Docker image build and runtime smoke passed on Linux. A documentation-only follow-up commit receives separate exact-head verification.
+
+- Первый hosted Linux запуск на SHA 80b22ee63632c21f67390a4721bd3957d2c6d7b2 обнаружил контрактную регрессию в передаче identity: после нормализации в аргумент оставался служебный policy_version. Поле теперь исключается из ключа хранилища; новый CI ещё не завершён.
+
+- Successful implementation verification is on SHA 13a7455691ab7f422deaad478c4322373a409687. Follow-up documentation records the result; its final SHA remains subject to hosted Verify.
+
+## 2026-11-26 — Saved FIFO estimate review fixes
+
+- The FIFO changes list opens saved estimates for READY_TO_CONFIRM through the scoped history read, independently of factual preview loading and expiration.
+- The provisional evidence reader forwards the confirmed physical sales fingerprint to the calculation and save recheck. Saved estimate details check the recorded turnover fingerprints against the same case after restart. A newer confirmed version is surfaced without choosing it automatically.

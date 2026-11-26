@@ -1310,11 +1310,14 @@ class FifoCostTransitionService:
         )
 
     def list_cases(
-        self, *, store_id, sku=None,
+        self, *, store_id, sku=None, identity=None,
         states=("DRAFT", "AWAITING_EVIDENCE", "READY_TO_CONFIRM"), limit=100,
+        after_cursor=None, snapshot_cursor=None,
     ):
         return self.repository.list_transition_cases(
-            store_id=store_id, sku=sku, states=states, limit=limit,
+            store_id=store_id, sku=sku, identity=identity,
+            states=states, limit=limit,
+            after_cursor=after_cursor, snapshot_cursor=snapshot_cursor,
         )
 
     def read_case_history(
