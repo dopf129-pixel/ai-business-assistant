@@ -1,3 +1,8 @@
+# 2026-11-26 — Saved case scope in preliminary FIFO
+
+- `tests/test_telegram_fifo_cost_provisional_service.py` and `tests/test_fifo_cost_provisional_fbo_telegram_flow.py` use case payloads that omit the owner, matching the repository. They cover range calculation and both CSV upload forms.
+- `tests/test_telegram_fifo_cost_report_import_service.py` checks that the workbook selection shows a user-facing prompt and a matching button.
+
 # Provisional FIFO review regressions — 2026-11-25
 
 # FIFO transition history pagination regressions — 2026-11-25

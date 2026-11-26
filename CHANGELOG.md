@@ -1,3 +1,8 @@
+# 2026-11-26 — Fix preliminary FIFO for saved cases
+
+- Fixed the range calculation and CSV uploads when a saved FIFO case omits the owner identifier. The bot uses the active store session and still checks the exact product identity.
+- Added a readable prompt for choosing the FIFO case before XLSX upload.
+
 # 2026-11-25 — FIFO transition history pagination review fixes (PR C)
 
 - Transition history now pages through the full saved list in batches of 20, using a stable cursor so edits do not reorder an in-progress read.

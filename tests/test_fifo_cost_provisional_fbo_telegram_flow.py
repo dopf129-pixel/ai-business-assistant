@@ -51,7 +51,7 @@ class _Transitions:
             "case": {
                 "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
                 "metadata": {
-                    "scope": {"owner_id": "owner-test", **IDENTITY},
+                    "scope": dict(IDENTITY),
                     "store_timezone": "Europe/Moscow",
                 },
             },
