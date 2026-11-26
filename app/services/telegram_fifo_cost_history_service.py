@@ -80,13 +80,15 @@ class TelegramFifoCostHistoryService:
         if action not in {
             "open", "history", "new", "late", "correct", "sku",
             "anchor", "zero_rate", "cancel_rate", "confirm_rate_cancel", "export",
-            "drafts", "late_total", "late_components", "resume",
+            "drafts", "late_total", "late_components", "resume", "case_estimates",
             "transition_cases", "transition_cases_page",
             "case_history", "case_history_page",
         }:
             return {"error": False, "handled": False, "read_only_ozon": True}
-        if action == "resume":
-            return self._resume_transition_case(owner, token)
+        if action in {"resume", "case_estimates"}:
+            return self._resume_transition_case(
+                owner, token, estimates_only=action == "case_estimates",
+            )
         if action == "case_history":
             return self._render_transition_case_history(owner, token)
         if action == "case_history_page":
@@ -605,10 +607,11 @@ class TelegramFifoCostHistoryService:
                 "text": f"Открыть историю {index} · {item.get('state')}",
                 "callback": f"{self.CALLBACK_PREFIX}:case_history:{case_token}",
             })
-            if item.get("state") in {"APPLIED", "CANCELLED"}:
+            if item["state"] in {"READY_TO_CONFIRM", "APPLIED", "CANCELLED"}:
+                action = "case_estimates" if item["state"] == "READY_TO_CONFIRM" else "resume"
                 buttons.append({
                     "text": f"📚 Оценки {index} · {item['state']}",
-                    "callback": f"{self.CALLBACK_PREFIX}:resume:{case_token}",
+                    "callback": f"{self.CALLBACK_PREFIX}:{action}:{case_token}",
                 })
         if page > 0:
             buttons.append({
@@ -715,7 +718,7 @@ class TelegramFifoCostHistoryService:
             "read_only_ozon": True,
         }
 
-    def _resume_transition_case(self, owner, token):
+    def _resume_transition_case(self, owner, token, *, estimates_only=False):
         if owner is None or not token or self.transition_service is None:
             return self._stale_ticket()
         now = monotonic()
@@ -736,7 +739,7 @@ class TelegramFifoCostHistoryService:
         return {
             "error": False,
             "handled": True,
-            "action": "resume_transition_wizard",
+            "action": "open_transition_estimates" if estimates_only else "resume_transition_wizard",
             "identity": dict(ticket["identity"]),
             "display_name": ticket.get("display_name") or "Товар",
             "case_id": ticket["case_id"],

@@ -1,7 +1,7 @@
 """Owner-only Telegram flow for non-authoritative FIFO summary scenarios."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -632,6 +632,7 @@ class TelegramFifoCostProvisionalService:
             return runtime._result("Сохранённая оценка не найдена в текущей карточке.")
         payload = item["payload"]
         rates, assumptions = payload["rates"], payload["assumptions"]
+        freshness, recalculate = self._saved_freshness(session, payload)
         lines = [
             "💾 Сохранённая предварительная оценка",
             f"Период: {payload['period_from']} — {payload['period_to']}",
@@ -647,7 +648,7 @@ class TelegramFifoCostProvisionalService:
             (self._format_conditional_profit(payload["conditional_profit"])
              if isinstance(payload.get("conditional_profit"), dict)
              else "Условная прибыль не сохранена: нет подтверждённой базы владельца."),
-            self._saved_freshness(runtime, session, payload),
+            freshness,
             "Оценка не подменяет текущий фактический FIFO и прибыль.",
         ]
         buttons = [
@@ -660,9 +661,10 @@ class TelegramFifoCostProvisionalService:
         ]
         if session.get("provisional_history_readonly") is not True:
             buttons.append({
-                "text": "🧮 К предварительной оценке",
+                "text": "🧮 Новый расчёт" if recalculate else "🧮 К предварительной оценке",
                 "callback": runtime._issue_ticket(
-                    owner, session, "provisional_history_to_calculator",
+                    owner, session,
+                    "provisional_start" if recalculate else "provisional_history_to_calculator",
                 ),
             })
         else:
@@ -997,22 +999,74 @@ class TelegramFifoCostProvisionalService:
             return False, "денежный периметр, период, число выкупов, стадия налога или сторно различаются"
         return True, ""
 
-    def _saved_freshness(self, runtime, session, payload):
+    def _saved_freshness(self, session, payload):
+        unknown = (
+            "Актуальность источников не сверена в текущем сеансе; "
+            "оценка сохраняет исходные отпечатки.",
+            False,
+        )
+        read = getattr(self.evidence_reader, "list_history_turnover_reports", None)
+        if not callable(read):
+            return unknown
+        current = read(
+            case_id=session["case_id"], identity=session["identity"],
+            expected_case_revision=session["case_revision"],
+        )
+        if not isinstance(current, dict) or current.get("error") is not False:
+            return unknown
+        reports = current.get("reports")
+        if not isinstance(reports, (tuple, list)):
+            return unknown
+        try:
+            snapshot_day = (
+                date.fromisoformat(payload["period_from"]) - timedelta(days=1)
+            ).isoformat()
+        except (ValueError, OverflowError):
+            return unknown
+        evidence = set(payload["evidence_fingerprints"])
         flow = session.get("provisional_flow", {})
         selected = {
             flow.get("snapshot_fingerprint"), flow.get("movement_fingerprint"),
-        }
-        selected.discard(None)
-        if len(selected) != 2:
-            return "Актуальность источников не сверена в текущем сеансе; оценка сохраняет исходные отпечатки."
-        reports = self._reports(runtime, session)
-        if reports is None or any(self._find(reports, fingerprint) is None for fingerprint in selected):
-            return "Сохранённая оценка по прежним данным: текущие выбранные ведомости изменились или недоступны."
-        if selected <= set(payload.get("evidence_fingerprints", ())):
-            if payload.get("model_kind") == "TIMELINE_MODEL":
-                return "Выбранные ведомости совпадают; дополнительные источники хронологии после перезапуска не перепроверены."
-            return "Выбранные ведомости совпадают с сохранённой оценкой; результат остаётся предварительным."
-        return "Сохранённая оценка рассчитана по прежним данным. Пересчитайте её по выбранным ведомостям."
+        } - {None}
+        if len(selected) == 2 and not selected <= evidence:
+            return "Сохранённая оценка по прежним данным: выбраны другие ведомости.", True
+
+        periods = (
+            (snapshot_day, snapshot_day),
+            (payload["period_from"], payload["period_to"]),
+        )
+        for period in periods:
+            versions = [
+                report for report in reports
+                if (report["period_from"], report["period_to"]) == period
+            ]
+            originals = [
+                report for report in versions if report["file_fingerprint"] in evidence
+            ]
+            if not originals:
+                return (
+                    "Сохранённая оценка по прежним данным: исходная ведомость "
+                    "для одного из периодов отсутствует среди текущих подтверждённых.",
+                    True,
+                )
+            original_time = max(report["captured_at"] for report in originals)
+            if any(
+                report["file_fingerprint"] not in evidence
+                and report["captured_at"] > original_time for report in versions
+            ):
+                return (
+                    "Сохранённая оценка по прежним данным: для этого периода "
+                    "есть более новая подтверждённая ведомость. Версию для расчёта выберите вручную.",
+                    True,
+                )
+
+        if payload["model_kind"] == "TIMELINE_MODEL":
+            return (
+                "Исходные ведомости найдены; дополнительные источники хронологии "
+                "не сверялись.",
+                False,
+            )
+        return "Исходные ведомости найдены среди подтверждённых для этого дела.", False
 
     def _start_fbo_upload(self, runtime, owner, session, flow):
         reports = self._reports(runtime, session)

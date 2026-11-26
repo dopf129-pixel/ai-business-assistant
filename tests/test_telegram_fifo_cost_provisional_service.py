@@ -208,6 +208,7 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
                 "reports": tuple({
                     "file_fingerprint": report.file_sha256,
                     "period_from": report.period_from, "period_to": report.period_to,
+                    "captured_at": report.captured_at,
                     "report": report,
                 } for report in reports),
             }
@@ -500,6 +501,61 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
         assert response["error"] is False, response
         assert session["case_revision"] == transition.case_revision
         assert runtime.period_profit_service is None
+        assert transition.writes == 0
+
+        class UpdatedReports(SavedReports):
+            def list_history_turnover_reports(self, **kwargs):
+                assert kwargs == {
+                    "case_id": "case-test", "identity": IDENTITY,
+                    "expected_case_revision": transition.case_revision,
+                }
+                return self.list_turnover_reports(**kwargs)
+
+        transition.state = "AWAITING_EVIDENCE"
+        transition.case_revision += 1
+        reports[:] = [request.snapshot, request.movement_report]
+        restarted = TelegramFifoCostTransitionRuntimeService(
+            transition, object(), provisional_service=TelegramFifoCostProvisionalService(
+                evidence_reader=UpdatedReports(),
+                summary_service=FifoCostProvisionalSummaryService(),
+                estimate_repository=estimate_repository,
+            ),
+        )
+        assert restarted._set_session(
+            "101", TENANT, IDENTITY, "Тестовый товар", "case-test",
+            transition.case_revision,
+        )
+        card = restarted._show_summary("101")
+        # Enter through the case's history button without any selected reports.
+        assert "provisional_flow" not in restarted._sessions["101"]
+        listing = restarted.handle_callback(
+            "101", _ticket_for(restarted, card, "provisional_history"),
+        )
+        detail = restarted.handle_callback(
+            "101", _ticket_for(restarted, listing, "provisional_history_view"),
+        )
+        assert "Исходные ведомости найдены" in detail["message"]
+        reports.append(replace(
+            request.movement_report,
+            file_sha256="9" * 64, captured_at="2026-11-27T00:00:00Z",
+        ))
+        listing = restarted.handle_callback(
+            "101", _ticket_for(restarted, detail, "provisional_history_detail_back"),
+        )
+        detail = restarted.handle_callback(
+            "101", _ticket_for(restarted, listing, "provisional_history_view"),
+        )
+        assert "Сохранённая оценка по прежним данным" in detail["message"]
+        assert "есть более новая подтверждённая ведомость" in detail["message"]
+        assert "110,187.30–110,403.20 ₽" in detail["message"]
+        recalculate = _ticket_for(restarted, detail, "provisional_start")
+        assert any(
+            button["text"] == "🧮 Новый расчёт" and button["callback"] == recalculate
+            for button in detail["keyboard"]["buttons"]
+        )
+        new_scenario = restarted.handle_callback("101", recalculate)
+        assert "Снимок не выбран" in new_scenario["message"]
+        assert len(estimate_repository.calls) == 1
         assert transition.writes == 0
     finally:
         reset_current_tenant_user_id(tenant)
@@ -866,6 +922,41 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
             assert runtime._sessions["owner-test"]["state"] == state
         assert len(estimates.reads) == 2
         assert transition.writes == 0
+
+        class NoFactualPreviewAccess:
+            def read_preview(self, **_kwargs):
+                raise AssertionError("Opening saved estimates must not load a factual preview")
+
+            def reopen_expired_preview(self, **_kwargs):
+                raise AssertionError("Opening saved estimates must not reopen a factual preview")
+
+            def prepare(self, **_kwargs):
+                raise AssertionError("Opening saved estimates must not prepare a factual preview")
+
+        applied_receipt = runtime.apply_service
+        runtime.apply_service = NoFactualPreviewAccess()
+        transition.state = "READY_TO_CONFIRM"
+        transition.case_id = "case-ready"
+        transition.case_revision = 3
+        runtime.clear_pending("owner-test")
+        opened = history.create_sku_callback(
+            user_id="owner-test", **IDENTITY, display_name="Тестовый товар",
+        )
+        card = adapter.handle_button(opened["callback"], user_id="owner-test")
+        changes = adapter.handle_button(
+            _ticket_for(runtime, card, "transition_cases"), user_id="owner-test",
+        )
+        listing = adapter.handle_button(
+            _ticket_for(runtime, changes, "case_estimates"), user_id="owner-test",
+        )
+        detail = adapter.handle_button(
+            _ticket_for(runtime, listing, "provisional_history_view"), user_id="owner-test",
+        )
+        assert "Сохранённая предварительная оценка" in detail["message"]
+        assert runtime._sessions["owner-test"]["provisional_history_readonly"] is True
+        assert transition.case_revision == 3
+        assert transition.writes == 0
+        runtime.apply_service = applied_receipt
 
         transition.case_records = [
             {

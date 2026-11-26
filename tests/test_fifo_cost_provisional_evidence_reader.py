@@ -106,7 +106,7 @@ def test_timeline_source_read_is_exact_revision_read_only_and_maps_missing_sales
 
     physical = _PhysicalReader({
         "error": False, "document": document, "confirmation": confirmation,
-        "read_only": True,
+        "fingerprint": "f" * 64, "read_only": True,
     })
     reader = FifoCostProvisionalEvidenceReader(
         transition_service=_Transition(rows, {valid.file_sha256: valid}),
@@ -118,8 +118,23 @@ def test_timeline_source_read_is_exact_revision_read_only_and_maps_missing_sales
     assert result["error"] is False
     assert result["physical_sales"] == (document, confirmation)
     assert result["physical_sales_status"] == "CONFIRMED"
+    assert result["fingerprint"] == "f" * 64
     assert result["read_only"] is True
     assert physical.calls == 1
+
+    physical.result["fingerprint"] = "e" * 64
+    replaced = reader.read_timeline_sources(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4,
+    )
+    assert replaced["fingerprint"] == "e" * 64
+
+    del physical.result["fingerprint"]
+    unverified = reader.read_timeline_sources(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4,
+    )
+    assert unverified["physical_sales_status"] == "UNAVAILABLE"
+    assert unverified["physical_sales"] is None
+    assert unverified["fingerprint"] is None
 
     missing = FifoCostProvisionalEvidenceReader(
         transition_service=_Transition(rows, {valid.file_sha256: valid}),
@@ -131,3 +146,21 @@ def test_timeline_source_read_is_exact_revision_read_only_and_maps_missing_sales
     )
     assert missing["physical_sales"] is None
     assert missing["physical_sales_status"] == "MISSING"
+
+
+def test_history_reads_turnover_on_closed_cases_without_opening_calculation():
+    report = _report("a" * 64)
+    transition = _Transition(
+        [{"file_sha256": report.file_sha256}],
+        {report.file_sha256: report},
+    )
+    service = FifoCostProvisionalEvidenceReader(transition_service=transition)
+    args = {"case_id": "case_opaque", "identity": IDENTITY, "expected_case_revision": 4}
+    for state in ("READY_TO_CONFIRM", "APPLIED", "CANCELLED"):
+        transition.state = state
+        history = service.list_history_turnover_reports(**args)
+        assert history["read_only"] is True
+        assert [item["file_fingerprint"] for item in history["reports"]] == [report.file_sha256]
+        assert service.list_turnover_reports(**args)["code"] == "FIFO_PROVISIONAL_CASE_NOT_EDITABLE"
+    transition.revision += 1
+    assert service.list_history_turnover_reports(**args)["code"] == "FIFO_PROVISIONAL_STALE"

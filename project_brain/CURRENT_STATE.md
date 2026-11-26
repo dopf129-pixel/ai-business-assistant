@@ -6094,3 +6094,8 @@ Completed:
 - Первый hosted Linux запуск на SHA 80b22ee63632c21f67390a4721bd3957d2c6d7b2 обнаружил контрактную регрессию в передаче identity: после нормализации в аргумент оставался служебный policy_version. Поле теперь исключается из ключа хранилища; новый CI ещё не завершён.
 
 - Successful implementation verification is on SHA 13a7455691ab7f422deaad478c4322373a409687. Follow-up documentation records the result; its final SHA remains subject to hosted Verify.
+
+## 2026-11-26 — Saved FIFO estimate review fixes
+
+- The FIFO changes list opens saved estimates for READY_TO_CONFIRM through the scoped history read, independently of factual preview loading and expiration.
+- The provisional evidence reader forwards the confirmed physical sales fingerprint to the calculation and save recheck. Saved estimate details check the recorded turnover fingerprints against the same case after restart. A newer confirmed version is surfaced without choosing it automatically.

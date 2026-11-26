@@ -207,9 +207,22 @@ class TelegramFifoCostTransitionRuntimeService:
             return self._failure("Черновик сохранён, но не удалось его перечитать. Откройте список изменений.")
         return self._prompt_next(owner)
 
+    def open_saved_estimates(
+        self, user_id, *, identity, display_name, case_id, expected_case_revision,
+    ):
+        if not callable(getattr(
+            getattr(self.provisional_service, "estimate_repository", None),
+            "read_provisional_preview_history", None,
+        )):
+            return self._result("История предварительных оценок временно недоступна.")
+        return self.resume_case(
+            user_id, identity=identity, display_name=display_name, case_id=case_id,
+            expected_case_revision=expected_case_revision, estimates_only=True,
+        )
+
     def resume_case(
         self, user_id, *, identity, display_name, case_id,
-        expected_case_revision,
+        expected_case_revision, estimates_only=False,
     ):
         owner, tenant = self._identity(user_id)
         if owner is None or not tenant or not isinstance(identity, dict):
@@ -231,6 +244,17 @@ class TelegramFifoCostTransitionRuntimeService:
             case["case_revision"],
         ):
             return self._failure("Черновик не удалось загрузить в мастер. Откройте список изменений заново.")
+        if estimates_only:
+            session = self._sessions.get(owner)
+            if not isinstance(session, dict) or (
+                session.get("case_id") != case_id or session.get("tenant") != tenant
+                or session.get("identity") != identity
+                or session.get("case_revision") != expected_case_revision
+            ):
+                return self._stale()
+            return self.provisional_service.handle_callback(
+                self, owner, session, {}, "provisional_history",
+            )
         if case.get("state") == "READY_TO_CONFIRM":
             # Reopen the exact persisted seal; never rebuild a READY preview
             # after restart or resume the editable field wizard.

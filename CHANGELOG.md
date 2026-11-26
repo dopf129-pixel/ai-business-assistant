@@ -3351,3 +3351,8 @@ Summary Report теперь включает:
 - Transition history now filters by the full store/product/offer/SKU identity in SQLite before calculating the count and keyset pages. Interleaved cases for other products sharing a SKU cannot hide the requested product or distort page totals.
 - Each rendered history page stores its snapshot cursor in an opaque page ticket. «Новее» and revision-history return links reuse the original snapshot, so newly created transitions do not shift the page being browsed.
 - Added service and Telegram regressions for interleaved identities, exact page counts, stable «Новее» navigation, and returning from a case revision to the same first page.
+
+## 2026-11-26 — Saved FIFO estimate review fixes
+
+- Added direct access to saved estimates for a party awaiting confirmation, independent of the factual preview and its expiration.
+- Saved timeline estimates record the confirmed physical sales fingerprint. On reopening an estimate, compare its source turnover reports with confirmed versions attached to the same case and offer a new calculation in editable cases when the reports have changed.

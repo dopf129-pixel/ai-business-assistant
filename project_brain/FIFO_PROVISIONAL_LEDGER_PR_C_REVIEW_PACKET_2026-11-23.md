@@ -121,3 +121,10 @@ Before considering this PR ready for independent review, confirm PR C is open ag
 - Первый hosted Linux прогон для SHA 80b22ee63632c21f67390a4721bd3957d2c6d7b2 выполнил 5 597 тестов: 5 592 passed, 5 failed из-за служебного policy_version в нормализованном identity. Фильтр хранилища принимает только бизнес-ключи; policy_version теперь проверяется и удаляется до вызова store. Новый exact-head CI обязателен.
 
 - The initial regression caused by passing policy_version to the SQL store was fixed before this green run. No business data, FIFO facts, or live Ozon/Telegram calls were involved.
+
+## Saved estimate review fixes (2026-11-26)
+
+- Check the `📚 Оценки` button for a READY_TO_CONFIRM party from the SKU changes list. The scoped history must open even with an expired or unavailable factual preview and leave the case revision intact.
+- Check that confirmed physical sales evidence contributes its SHA-256 fingerprint at calculation and save recheck. Missing fingerprints make the evidence unavailable for a timeline calculation.
+- Reopen an estimate in a new session and confirm the saved source versions can be read from the current case. After importing a newer confirmed turnover report for the same period, check the historical label and the fresh calculation button in an editable case. Matching turnover reports alone do not confirm all timeline evidence.
+- The PR description records the checked commit and hosted run.

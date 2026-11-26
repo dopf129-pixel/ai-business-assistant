@@ -7298,3 +7298,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - tests/test_fifo_cost_transition_service.py::test_case_list_exact_identity_filters_before_keyset_pagination: repository-level exact product/offer/SKU scoping occurs before page sizing, count, and continuation.
 - tests/test_telegram_fifo_cost_history.py::test_transition_history_filters_exact_product_before_paging_and_newer_reuses_snapshot: same-SKU cases for another product do not affect the screen; a new case does not shift the original page when navigating «Новее».
 - tests/test_telegram_fifo_cost_history.py::test_transition_case_history_returns_to_original_first_page_snapshot: returning from a case revision uses the original page snapshot after a newer case appears.
+
+## Saved FIFO estimate review fixes (2026-11-26)
+
+- `tests/test_fifo_cost_provisional_evidence_reader.py` checks physical sales fingerprint forwarding, missing fingerprint handling, and scoped turnover history reads across READY_TO_CONFIRM, APPLIED and CANCELLED.
+- `tests/test_telegram_fifo_cost_provisional_service.py` checks the normal SKU card route into READY_TO_CONFIRM estimates without factual preview access, and a restarted session that detects a newer confirmed turnover report and starts a fresh scenario.
