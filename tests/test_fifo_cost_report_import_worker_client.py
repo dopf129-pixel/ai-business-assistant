@@ -10,6 +10,12 @@ from openpyxl import Workbook
 
 from services.fifo_cost_report_import_service import FifoCostReportImportService
 from services.fifo_cost_physical_sales_import_service import FifoCostPhysicalSalesImportService
+from services.fifo_cost_provisional_fbo_csv_import_service import (
+    FifoCostProvisionalFboCsvImportService,
+)
+from services.fifo_cost_provisional_movements_import_service import (
+    FifoCostProvisionalMovementsImportService,
+)
 from services.fifo_cost_report_import_worker_client import (
     FifoCostReportImportWorkerClient,
 )
@@ -87,6 +93,43 @@ def _physical_payload():
         + "\r\nposting-1;3921245627;2;2026-11-05;row-1\r\n"
     ).encode("utf-8")
 
+
+def _provisional_fbo_payload():
+    return (
+        "Номер отправления;SKU;Количество;Статус;Дата передачи в доставку;Дата доставки;Адрес\r\n"
+        "posting-1;3921245627;2;Доставлен;2026-11-06 10:00:00;2026-11-07 12:00:00;private\r\n"
+    ).encode("utf-8-sig")
+
+
+def _max_rows_provisional_fbo_payload():
+    parser = FifoCostProvisionalFboCsvImportService()
+    header = (
+        "Номер отправления;SKU;Количество;Статус;"
+        "Дата передачи в доставку;Дата доставки"
+    ) + "\r\n"
+    rows = (
+        f"posting-{index};{SCOPE.sku};1;Доставлен;"
+        "2026-11-06 10:00:00.123456;2026-11-07 12:00:00.654321\r\n"
+        for index in range(parser.MAX_ROWS)
+    )
+    return (header + "".join(rows)).encode("utf-8-sig")
+
+
+def _provisional_movements_payload():
+    parser = FifoCostProvisionalMovementsImportService()
+    row = f"SUPPLY_RECEIVED;event-1;2026-11-06T09:00:00+03:00;{SCOPE.sku};1;;available;;source-1"
+    return (";".join(parser.HEADER) + "\r\n" + row + "\r\n").encode("utf-8-sig")
+
+
+def _max_rows_provisional_movements_payload():
+    parser = FifoCostProvisionalMovementsImportService()
+    header = ";".join(parser.HEADER) + "\r\n"
+    rows = (
+        f"SALE_RETURN_RESTOCK;event-{index};2026-11-06T09:00:00+03:00;"
+        f"{SCOPE.sku};1;posting-1;;true;source-{index}\r\n"
+        for index in range(parser.MAX_ROWS)
+    )
+    return (header + "".join(rows)).encode("utf-8-sig")
 
 def test_worker_subprocess_parses_allowlisted_report_and_returns_normalized_evidence():
     result = FifoCostReportImportWorkerClient(
@@ -248,3 +291,156 @@ def test_worker_rejects_evidence_larger_than_repository_payload_limit():
     ).parse(**_request())
     assert result.issue_codes == ("FIFO_TRANSITION_PAYLOAD_TOO_LARGE",)
     assert result.report_evidence is None
+
+
+def test_provisional_fbo_csv_subprocess_returns_revalidated_redacted_manifest():
+    result = FifoCostReportImportWorkerClient(
+        extra_python_paths=(".fl12-deps",),
+    ).parse_provisional_fbo_csv(
+        filename="orders.csv", payload=_provisional_fbo_payload(), scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == 1
+    assert result.document.selected_units == 2
+    assert result.document.rows[0].posting_key != "posting-1"
+    assert result.document.period_from == "2026-11-06"
+    assert result.document.period_to == "2026-11-07"
+
+
+def test_provisional_fbo_worker_accepts_full_bounded_rows_above_legacy_output_cap():
+    payload = _max_rows_provisional_fbo_payload()
+    assert len(payload) <= FifoCostProvisionalFboCsvImportService.MAX_FILE_BYTES
+    document = FifoCostProvisionalFboCsvImportService().parse_csv(
+        filename="orders.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    ).document
+    encoded = json.dumps(
+        {
+            "error": False, "document_kind": "PROVISIONAL_FBO_CSV",
+            "document": document.to_worker_summary_payload(),
+        },
+        ensure_ascii=True, separators=(",", ":"),
+    ).encode("ascii")
+    assert 16 * 1024 * 1024 < len(encoded) <= 32 * 1024 * 1024
+
+    result = FifoCostReportImportWorkerClient().parse_provisional_fbo_csv(
+        filename="orders.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == FifoCostProvisionalFboCsvImportService.MAX_ROWS
+    assert result.document.selected_units == FifoCostProvisionalFboCsvImportService.MAX_ROWS
+
+
+def test_provisional_movements_csv_subprocess_returns_redacted_events():
+    result = FifoCostReportImportWorkerClient(
+        extra_python_paths=(".fl12-deps",),
+    ).parse_provisional_movements_csv(
+        filename="movements.csv", payload=_provisional_movements_payload(), scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == 1
+    assert result.document.total_units == 1
+    assert result.document.events[0].event_kind.value == "SUPPLY_RECEIVED"
+    assert "event-1" not in repr(result.document)
+    assert "source-1" not in repr(result.document)
+
+
+def test_provisional_movements_worker_accepts_full_bounded_row_limit():
+    payload = _max_rows_provisional_movements_payload()
+    assert len(payload) <= FifoCostProvisionalMovementsImportService.MAX_FILE_BYTES
+
+    result = FifoCostReportImportWorkerClient().parse_provisional_movements_csv(
+        filename="movements.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+
+    assert result.status == "COMPLETE", result.issue_codes
+    assert result.document.row_count == FifoCostProvisionalMovementsImportService.MAX_ROWS
+    assert result.document.total_units == FifoCostProvisionalMovementsImportService.MAX_ROWS
+
+
+def test_provisional_movements_worker_rejects_tampered_manifest_and_oversize():
+    parser = FifoCostProvisionalMovementsImportService()
+    payload = _provisional_movements_payload()
+    document = parser.parse_csv(
+        payload=payload, filename="movements.csv", scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    ).document
+    value = {
+        "error": False, "document_kind": "PROVISIONAL_MOVEMENTS_CSV",
+        "document": document.to_worker_summary_payload(),
+    }
+    value["document"]["total_units"] = 999
+    process = _MalformedProcess(json.dumps(value).encode())
+    result = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: process,
+    ).parse_provisional_movements_csv(
+        filename="movements.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert result.issue_codes == ("FIFO_REPORT_WORKER_RESULT_INVALID",)
+
+    spawned = []
+    client = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: spawned.append(True),
+    )
+    oversize = client.parse_provisional_movements_csv(
+        filename="movements.csv", payload=b"x" * (client.MAX_FILE_BYTES + 1),
+        scope=SCOPE, timezone_name="Europe/Moscow",
+    )
+    assert oversize.issue_codes == ("FIFO_PROVISIONAL_MOVEMENTS_FILE_SIZE_INVALID",)
+    assert spawned == []
+
+
+def test_provisional_fbo_worker_rejects_tampered_manifest_and_times_out():
+    parser = FifoCostProvisionalFboCsvImportService()
+    payload = _provisional_fbo_payload()
+    document = parser.parse_csv(
+        payload=payload, filename="orders.csv", scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    ).document
+    value = {
+        "error": False, "document_kind": "PROVISIONAL_FBO_CSV",
+        "document": document.to_worker_summary_payload(),
+    }
+    value["document"]["selected_units"] = 999
+    process = _MalformedProcess(json.dumps(value).encode())
+    result = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: process,
+    ).parse_provisional_fbo_csv(
+        filename="orders.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert result.issue_codes == ("FIFO_REPORT_WORKER_RESULT_INVALID",)
+
+    class TimeoutProcess(_MalformedProcess):
+        def communicate(self, *, input, timeout):
+            assert timeout == 15
+            raise subprocess.TimeoutExpired("fifo-worker", timeout)
+
+    timeout_process = TimeoutProcess()
+    timeout = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: timeout_process,
+    ).parse_provisional_fbo_csv(
+        filename="orders.csv", payload=payload, scope=SCOPE,
+        timezone_name="Europe/Moscow",
+    )
+    assert timeout.issue_codes == ("FIFO_REPORT_WORKER_TIMEOUT",)
+    assert timeout_process.terminated is True
+
+
+def test_provisional_fbo_worker_rejects_oversize_before_starting_process():
+    spawned = []
+    client = FifoCostReportImportWorkerClient(
+        popen_factory=lambda *args, **kwargs: spawned.append(True),
+    )
+    result = client.parse_provisional_fbo_csv(
+        filename="orders.csv", payload=b"x" * (client.MAX_FILE_BYTES + 1),
+        scope=SCOPE, timezone_name="Europe/Moscow",
+    )
+    assert result.issue_codes == ("FIFO_PROVISIONAL_FBO_FILE_SIZE_INVALID",)
+    assert spawned == []

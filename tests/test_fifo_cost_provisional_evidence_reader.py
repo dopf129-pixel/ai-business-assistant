@@ -64,3 +64,70 @@ def test_reader_fails_closed_on_stale_case_or_report_quota():
     result = FifoCostProvisionalEvidenceReader(transition_service=transition).list_turnover_reports(
         case_id="case_opaque", identity=IDENTITY, expected_case_revision=4)
     assert result["code"] == "FIFO_PROVISIONAL_REPORT_LIMIT"
+
+def test_confirmed_reader_includes_stock_anchors_but_turnover_compatibility_stays_narrow():
+    turnover = _report("a" * 64)
+    stock = _report("b" * 64, kind=ReportType.STOCK_MANAGEMENT)
+    candidate = _report("c" * 64, kind=ReportType.STOCK_MANAGEMENT,
+                        provenance=PeriodProvenance.FILENAME_CANDIDATE)
+    rows = [{"file_sha256": value.file_sha256} for value in (turnover, stock, candidate)]
+    service = FifoCostProvisionalEvidenceReader(transition_service=_Transition(
+        rows, {value.file_sha256: value for value in (turnover, stock, candidate)},
+    ))
+    confirmed = service.list_confirmed_reports(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4,
+    )
+    assert confirmed["error"] is False
+    assert {item["report"].report_type for item in confirmed["reports"]} == {
+        ReportType.TURNOVER, ReportType.STOCK_MANAGEMENT,
+    }
+    assert service.list_turnover_reports(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4,
+    )["reports"] == tuple(
+        item for item in confirmed["reports"]
+        if item["report"].report_type is ReportType.TURNOVER
+    )
+
+def test_timeline_source_read_is_exact_revision_read_only_and_maps_missing_sales_safely():
+    valid = _report("a" * 64)
+    rows = [{"file_sha256": valid.file_sha256}]
+    document = object()
+    confirmation = object()
+
+    class _PhysicalReader:
+        def __init__(self, result): self.result = result; self.calls = 0
+        def read_confirmed_physical_sales(self, **kwargs):
+            self.calls += 1
+            assert kwargs == {
+                "case_id": "case_opaque", "identity": IDENTITY,
+                "expected_case_revision": 4,
+            }
+            return self.result
+
+    physical = _PhysicalReader({
+        "error": False, "document": document, "confirmation": confirmation,
+        "read_only": True,
+    })
+    reader = FifoCostProvisionalEvidenceReader(
+        transition_service=_Transition(rows, {valid.file_sha256: valid}),
+        transition_evidence_service=physical,
+    )
+    result = reader.read_timeline_sources(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4,
+    )
+    assert result["error"] is False
+    assert result["physical_sales"] == (document, confirmation)
+    assert result["physical_sales_status"] == "CONFIRMED"
+    assert result["read_only"] is True
+    assert physical.calls == 1
+
+    missing = FifoCostProvisionalEvidenceReader(
+        transition_service=_Transition(rows, {valid.file_sha256: valid}),
+        transition_evidence_service=_PhysicalReader({
+            "error": True, "code": "FIFO_PHYSICAL_SALES_DOCUMENT_MISSING",
+        }),
+    ).read_timeline_sources(
+        case_id="case_opaque", identity=IDENTITY, expected_case_revision=4,
+    )
+    assert missing["physical_sales"] is None
+    assert missing["physical_sales_status"] == "MISSING"

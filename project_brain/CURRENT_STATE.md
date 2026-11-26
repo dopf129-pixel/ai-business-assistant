@@ -1,6 +1,64 @@
-# 2026-11-23 — Provisional FIFO summary (PR A local verification complete)
+# 2026-11-25 — Additional FIFO timeline review fixes
 
-- Follow-up review corrections: report changes invalidate only dependent owner assumptions, and report options expose report kind, date, UTC capture time and an unambiguous short fingerprint in button labels no longer than Telegram's 64-character limit. Linked provisional/transition profile: **59 passed**; compileall, whitespace and tracked-data checks passed.
+- Classify old and new sold units by FIFO layer origin, not unit cost; equal old/new prices remain distinguishable.
+- Reconcile replayed old-layer closing units against the owner-confirmed exact value or range. A conflict returns SOURCE_CONFLICT and withholds all model money.
+- Clear a stale timeline result after valid typed exact/range input; invalid input leaves the previous scenario unchanged.
+- Added regressions for returned old-layer units, equal layer prices, conflicting closing-old assumptions, and typed input invalidation.
+
+# 2026-11-25 — Provisional FIFO timeline review fixes
+
+- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
+- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
+- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
+- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+
+# 2026-11-24 — Provisional FIFO timeline review corrections
+
+- Fixed the five confirmed PR B timeline/import findings: disallowed buyer-delivery receipts; bounded model events to the report end date while still validating owner movement fields/references; kept an in-window dispatch pending when delivery occurs after cutoff; retained unmatched opening delivery as an untouched reserve only when exact closing buckets reconcile; and raised the worker output cap for the supported maximum movement document.
+- Linked timeline/replay/import/Telegram profile: **111 passed**. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. No factual FIFO, finance, Period Profit, or saved estimate data was modified. Exact-head hosted CI remains to be checked after publication.
+- After integrating updated PR A head `30e6d735a666d97fd670fae0b1b011a4f9c5950b`, the combined A+B linked profile passed **140 tests**; compileall, diff check and unchanged tracked `data/` passed again. This integrated stack is local until the merge commit is published and exact-head CI completes.
+
+# 2026-11-23 — Provisional FIFO PF19 full local verification
+
+- On implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`, the isolated full repository suite passed **5,565 tests in 95.75s** on Windows/Python 3.12. The copy excluded repository `data/` and `.env`, with only a synthetic tax policy. `compileall -q app tests`, `git diff --check`, and tracked `data/` blob equality to PF00 passed.
+- PR A #741 predecessor SHA `15894e4528db089d0d6e7969fd03b6a88d9206e2` currently has exact-head GitHub Actions run [45142413339](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45142413339) green on Windows/Linux and Docker smoke. PR B review packet is prepared; publication and its exact-head CI remain pending.
+
+# 2026-11-23 — Provisional FIFO PF18 timeline presenter
+
+- PF18 is implemented locally on PR B branch `codex/fifo-provisional-timeline`: the ordinary scenario card can upload owner movements through the shared bounded worker, request explicit source-completeness confirmation, and render `TIMELINE_MODEL` only after full event replay, exact independent report totals, and all eight closing stock buckets reconcile.
+- `TIMELINE_GAP` hides partial money and sold-unit totals; an available `SUMMARY_RANGE` is rendered as a separate estimate. Replacing/reconfirming either CSV clears the previous timeline result and coverage confirmation. The flow remains in-memory and read-only with respect to factual FIFO/COGS/Period Profit and tracked `data/`.
+- PF18 linked profile: **97 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed. Full suite and hosted exact-head CI are pending PF19. PR B is not yet published; no production bot or live Ozon/Telegram request was used.
+
+# 2026-11-23 — Provisional FIFO PF16 buyout and returns
+
+- Extended the pure replay with exact reserve-to-buyout transition, gross COGS once per posting, non-buyout cancellation restock, and partial sale-return restoration from the last consumed layer first. Gross COGS remains before any financial reversal; financial reversal stays `0` absent an exact financial event.
+- Returned but non-resellable units remain in a separate held category. Partial non-buyout restock from a mixed-layer reserve fails closed because the owner input cannot identify which units came from which layer; full restock and partial single-layer restock are supported.
+- Fixed the normalized opening requirement for a pre-window posting whose final status is cancelled but whose owner-confirmed return happens during the model window. The exact starting transit link remains required.
+- PF16 linked profile: **40 passed** across replay, timeline normalizer, and owner movement parser; compileall, diff check, and unchanged `data/` passed. Full suite and exact-head CI remain pending.
+
+# 2026-11-23 — Provisional FIFO PF15 replay kernel complete locally
+
+- Added the pure finite-layer replay for opening available stock, accepted receipts, exact opening-transit reserves, and buyer-dispatch allocations. Dispatch may span multiple cost layers; its reserved cost is separate from COGS, which remains zero before buyout.
+- Repeated identical events are idempotent. Posting capacities are passed from normalized FBO rows using hashed keys. Insufficient available stock, unmatched/oversized opening links, scope conflicts, unsupported event kinds, and ambiguous ordering fail closed. Non-available receipts remain in held buckets.
+- The internal replay status is `REPLAY_OK`/`REPLAY_GAP`; it deliberately does not claim final `TIMELINE_MODEL` before source-coverage and movement-balance gates in PF16–PF18. Read-only; no `data/` or factual FIFO writes.
+- PF15 targeted profile: **30 passed** across replay, timeline normalizer, and owner movement parser. Full suite, exact-head CI, and timeline completeness remain pending.
+
+# 2026-11-23 — Provisional FIFO PF13 reconciliation complete locally
+
+- FBO CSV preview distinguishes deliveries in the selected movement window from older pre-snapshot dispatches delivered later. It shows T and the independent delta; it never overwrites turnover evidence. Unknown statuses and missing dates are reported while the diagnostic remains readable.
+- Synthetic control: 5,932 delivered in-window vs T=5,931 (+1); 1,319 of those came from pre-snapshot dispatches, plus 2 older dispatches delivered after the movement window and 19 still in transit at export. Summary control and zero factual FIFO writes remain intact.
+- PR B remains local. Next dependency: PF14 event normalization and optional owner movement-template contract.
+
+# 2026-11-23 — Provisional FIFO PR B PF12 complete locally
+
+- FBO CSV now flows through the shared bounded worker and a case/tenant-bound Telegram upload with preflight before download, a 15-minute in-memory lifetime, a confirmation preview, and explicit privacy filtering. It remains scenario-only and does not write factual FIFO or saved estimate data.
+- The linked worker/parser/Telegram/runtime and physical-sales regression profile passes **56 tests**. A synthetic +1 delivered-versus-turnover control confirms the displayed delta does not replace T in the summary calculation.
+- PR B remains local and unpublished. Next dependency: PF13, apply the specified CSV-to-turnover diagnostic without changing aggregate turnover evidence.
+
+# 2026-11-23 — Provisional FIFO: PR A green; PR B parser stage complete
+
+- PR B PF11 adds a separate synthetic-tested FBO CSV parser and owner guide; worker/upload integration and timeline remain pending. Parser profile: 6 passed; no real Ozon CSV was used.
+- PR A review correction: changing the selected movement report clears its dependent receipt/closing assumptions; changing the snapshot clears all assumptions and movement selection; re-selecting the same report preserves the scenario. Duplicate-period choices are distinguishable with compact UTC/fingerprint labels within the Telegram limit. Linked profile: **59 passed**; compileall, diff check and unchanged tracked data passed.
 - PR A has a read-only calculation and ordinary Telegram preview for a two-report aggregate scenario. The control case, broad unknown-closing range, strict report/window/bucket gates, timezone and compensation handling, and stale callback behavior are covered by synthetic tests. Linked profile: **113 passed**; full isolated suite: **5,491 passed** on implementation SHA `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`; compileall and unchanged `data/` passed.
 - The path has no durable estimate history yet and does not change factual FIFO, case cost, Period Profit or Return COGS. Timeline replay and saved estimates remain in dependent PR B/C; this feature is not ready for production until all three PRs and their CI/review are complete.
 - Decision 068 records the architectural boundary between provisional models and factual FIFO. Exact-head hosted CI for PR A passed on `6d54bf876c1f80977f32ecdbeb98a26faad787dd` (Windows, Linux, and Docker smoke).
@@ -5969,3 +6027,16 @@ Completed:
 - Added `FIFO_AUTO_BATCH_PR_B_REVIEW_HANDOFF_2026-11-14.md` with the source capability matrix, B-matrix coverage, privacy/migration notes, local verification, and limitations. The source matrix distinguishes tested local wrappers from the unverified raw bundle/state/cursor contract.
 - FB19 local profile: **233 passed** across batch source/normalizer/acceptance/checkpoint/dedup/manifest/schema and existing cross-docking/planning tests. Isolated disposable-copy full suite: **5,405 passed in 99.02s**; `compileall`, `git diff --check`, and tracked `data/` equality passed.
 - This remains an incomplete, non-deployable source feature. PR B publication and exact-SHA hosted CI are pending; raw Ozon schema/coverage and R1 remain open. No live call, bot launch, apply, merge, or deployment occurred.
+# 2026-11-23 — Provisional FIFO PF14 contracts complete locally
+
+- PR B now has a redacted normalized event contract, a bounded optional owner-movements CSV parser/template, exact scope and exact posting/quantity checks, and an adapter for saved owner-confirmed physical sales. Complete owner-confirmed turnover and stock reports are exposed as aggregate anchors only; import/capture/act dates are not promoted to movement times.
+- Synthetic PF14 and linked FBO/evidence regressions: **36 passed** on the latest local implementation. `compileall`, `git diff --check` and unchanged tracked `data/` passed. PR B remains local and unpublished; full-suite and exact-head hosted CI remain for PF19. No `data/` changes, live calls or factual FIFO writes.
+- Next: PF15 pure receipt/dispatch replay.
+
+
+# 2026-11-23 — Provisional FIFO PF17 held stock and non-sale movements
+
+- The scenario-only replay now accepts separately confirmed opening held balances by zone, preserves their old-cost layer, and releases units into availability only from a known held layer. New held receipts and non-resellable customer returns retain their source layer and can be released later.
+- Confirmed removal/write-off from available stock consumes FIFO layers; removal from a held zone is costed only when the source-layer value is knowable. Non-sale removal value is separate from gross buyout COGS. Buyer-delivery changes still require an exact posting lifecycle.
+- Timeline errors now stop at the first failing/ambiguous event. The result contains only the safe replay prefix and reports the unprocessed suffix; tail events do not affect the prefix. This does not establish source completeness or TIMELINE_MODEL readiness.
+- PF17 replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full suite and PR B exact-head CI remain for PF19; the ordinary Telegram timeline presenter remains PF18. No tracked runtime data, factual FIFO, or production bot was changed.

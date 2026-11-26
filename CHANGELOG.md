@@ -1,8 +1,72 @@
-# 2026-11-24 — Provisional FIFO report selection review fixes
+# 2026-11-25 — Additional FIFO timeline review fixes
 
-- Changing a report now invalidates the assumptions that depend on it: a new movement report clears the receipt-party and closing-old-stock assumptions; a new snapshot clears all assumptions and the previously selected movement report. Re-selecting the same report keeps the current scenario.
-- Report choices identify the turnover-report kind, period, UTC capture time and short file fingerprint so files for an identical period remain distinguishable.
-- Added Telegram regressions for movement/snapshot switching and duplicate-period report labels; choice labels stay within Telegram's 64-character limit while retaining UTC capture time and the short fingerprint. Linked provisional/transition verification: **59 passed**; `compileall`, whitespace and tracked-data checks passed.
+- Classify old and new sold units by FIFO layer origin, not unit cost; equal old/new prices remain distinguishable.
+- Reconcile replayed old-layer closing units against the owner-confirmed exact value or range. A conflict returns SOURCE_CONFLICT and withholds all model money.
+- Clear a stale timeline result after valid typed exact/range input; invalid input leaves the previous scenario unchanged.
+- Added regressions for returned old-layer units, equal layer prices, conflicting closing-old assumptions, and typed input invalidation.
+
+# 2026-11-25 — Provisional FIFO timeline review fixes
+
+- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
+- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
+- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
+- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+
+# 2026-11-24 — Provisional FIFO report-selection review fixes
+
+- Changing a report now invalidates only assumptions dependent on that report; selecting the same report is a no-op. Identical-period report choices show kind, date, UTC capture time and short fingerprint within Telegram's 64-character button limit.
+- Linked provisional/transition profile: **59 passed**; compileall, diff check and unchanged tracked data passed.
+
+# 2026-11-24 — Provisional FIFO timeline review fixes
+
+- Rejected `SUPPLY_RECEIVED` events in the `buyer_delivery` zone; opening buyer-delivery units without an exact posting link are retained as an untouched closing reserve and cannot fund a buyout.
+- Limited normalized owner/FBO/physical-sale events to the selected report end date. An in-window FBO dispatch delivered after that cutoff remains pending; future evidence cannot alter the selected window.
+- Raised the validated owner-movement worker output cap to 32 MiB for the existing 50,000-row bound. Regressions cover all four cases; linked timeline/replay/import/Telegram profile: **111 passed**.
+
+# 2026-11-23 — Provisional FIFO PR B local release verification (PF19)
+
+- Disposable Windows full-suite run on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy excluded repository `data/` and `.env`; only a synthetic `USN_INCOME` 6% tax file was added. `compileall -q app tests`, `git diff --check`, unchanged tracked `data/`, and equality of all five PF00 data blob IDs passed.
+- PR A predecessor SHA `15894e4528db089d0d6e7969fd03b6a88d9206e2` was rechecked through GitHub Actions run [45142413339](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/45142413339): Windows verification and Linux full verification/Docker build/runtime smoke succeeded.
+- PR B review packet is prepared. Hosted PR B CI is pending publication; no production bot, live Ozon/Telegram requests, or owner documents were used.
+
+# 2026-11-23 — Provisional FIFO PF18 timeline presenter
+
+- Connected the read-only timeline readiness gate and `TIMELINE_MODEL` / `TIMELINE_GAP` presenters to the ordinary FIFO Telegram screen. A successful model requires owner source-coverage confirmation, exact FBO coverage, complete replay, independent event/report totals, and all eight closing stock buckets to reconcile.
+- Timeline gaps expose only safe progress counts and show an available turnover-summary range as a separate model; no partial timeline COGS or factual FIFO/finance writes are exposed. Replacing or reconfirming either CSV invalidates old timeline confirmation/results.
+- Added a bounded owner-movements CSV worker route and ordinary adapter regression. PF18 linked profile: **97 passed** across timeline, replay, normalizer, movement/FBO parsing, evidence, Telegram, and transition workflow suites. `compileall -q app tests`, `git diff --check`, and unchanged tracked `data/` passed. Full suite and exact-head hosted CI remain pending.
+
+# 2026-11-23 — Provisional FIFO held stock and non-sale movements (PR B PF17)
+
+- The read-only timeline replay now carries finite source-cost layers through held zones, releases only confirmed quantities back to availability, and records non-sale withdrawal/write-off cost separately from buyout COGS.
+- Partial release or removal from a mixed-cost held zone fails closed when the source does not identify which cost layer moved. Buyer-delivery stock still requires its exact posting transition.
+- A timeline gap stops replay at the first invalid or ambiguous event. The result exposes only the successfully replayed prefix and counts the unprocessed suffix; later events cannot repair or inflate the prefix.
+- Replay module: 39 passed; linked replay/normalizer/importer/evidence/workflow profile: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. Full-suite/hosted PR B CI remain pending.
+
+# 2026-11-23 — Provisional FIFO buyout and return replay (PR B PF16)
+
+- Extended the scenario-only replay to recognize a buyout only against its exact open posting reserve, book gross COGS once, and keep dispatch COGS at zero. Non-buyout restocks and sale returns restore source layers; partial sale returns restore the latest FIFO allocations first. Non-resellable returns remain held, excess/duplicate or unlinked events fail closed, and financial COGS reversal remains zero without a financial confirmation.
+- A pre-window cancelled posting with a post-window return now still requires an exact opening transit link, preventing the return from creating stock without its opening reserve.
+
+# 2026-11-23 — Provisional FIFO finite-layer replay (PR B PF15)
+
+- Added a deterministic provisional FIFO replay kernel for finite opening stock, received lots, pre-window transit links, and buyer dispatch reservations. Dispatch allocations can span old/new cost layers but remain zero COGS until buyout; unavailable receipts stay held, and insufficient stock or ambiguous ordering returns a replay gap. The kernel does not write factual FIFO data.
+
+# 2026-11-23 — Provisional FIFO FBO reconciliation (PR B PF13)
+
+- The FBO scenario now reports the delivered-in-movement-window count beside turnover redeemed-unit total T and an explicit CSV-minus-T delta. It separately identifies pre-snapshot dispatches delivered after the snapshot, splits those inside/after the movement window, and shows matching in-transit units at export time.
+- Incomplete rows remain visible with bounded counts for unknown statuses and missing dates; they do not change the aggregate summary or make the timeline complete. The synthetic control remains 5,932 versus T=5,931 (+1), including 1,319 pre-snapshot dispatches delivered in-window, 2 later deliveries, and 19 still in transit at export.
+- Verification uses synthetic FBO CSV only; it proves statement T and factual FIFO writes remain unchanged.
+
+# 2026-11-23 — Provisional FBO CSV upload path (PR B PF12)
+
+- Added FBO CSV routing through the existing bounded import worker and owner/case-scoped Telegram scenario. Upload preflight runs before Telegram downloads the file; the import is kept in a 15-minute in-memory session only.
+- Repeated files cannot fall through to the legacy cost-table or physical-sales CSV handlers while FBO period/file/preview selection is active. Switching to the physical-sales import clears only the transient FBO selection. The accepted FBO comparison remains diagnostic and never substitutes its delivered count for turnover statement T.
+- Added end-to-end synthetic tests for upload, redaction, the +1 control delta, unchanged T/FIFO writes, stale/expired selection, wrong-phase upload, and coexistence with the existing import routes. Linked verification: **56 passed**.
+
+# 2026-11-23 — Provisional FBO CSV contract (PR B PF11)
+
+- Added a separate bounded parser for owner-imported FBO posting CSV, with exact-SKU filtering, UTF-8/BOM, explicit date precision and store-timezone handling. Non-target columns and raw posting IDs are not retained.
+- Added synthetic coverage for privacy, duplicates/conflicts, DST ambiguity/nonexistence, malformed input and resource limits. Telegram upload, worker execution and timeline integration are still pending PF12+.
 
 # 2026-11-23 — Add read-only provisional FIFO summary scenarios
 
@@ -3232,3 +3296,8 @@ Summary Report теперь включает:
 - PR B publication and exact-head hosted CI are pending; no live Ozon/Telegram call, FIFO apply, bot launch, merge, or deployment occurred.
 
 # 2026-11-15 — FIFO auto-batch PR C review follow-up
+# 2026-11-23 — Provisional FIFO timeline source contracts (PR B PF14)
+
+- Added redacted typed event contracts and a strict owner-movement CSV parser/template for the six documented movement kinds. The parser bounds file, row and selected-unit counts, requires an exact numeric SKU and an unambiguous timestamp, validates per-kind fields, and hashes event/source/posting references before returning rows.
+- Added a read-only exact-case adapter for complete owner-confirmed TURNOVER/STOCK_MANAGEMENT reports and owner-confirmed physical-sales evidence. Aggregate reports remain anchors only; confirmed physical sale rows retain day precision. FBO joins use a scoped posting digest and exact quantity, and duplicate sale evidence does not double-count.
+- Added synthetic regressions for source scope, posting/quantity/status conflicts, event deduplication, privacy and DST. No real owner files or Ozon/Telegram requests were used; no factual FIFO records are written.

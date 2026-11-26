@@ -108,7 +108,18 @@ def test_regular_transition_callback_runs_summary_preview_without_persisting_fif
         for action in ("provisional_opening_yes", "provisional_receipts_yes"):
             response = runtime.handle_callback("101", _ticket_for(runtime, response, action))
         response = runtime.handle_callback("101", _ticket_for(runtime, response, "provisional_closing_exact"))
+        flow = session["provisional_flow"]
+        stale_summary = object()
+        stale_timeline = object()
+        flow["result"] = stale_summary
+        flow["timeline_result"] = stale_timeline
+        invalid = runtime.handle_text("101", "not-an-integer")
+        assert invalid["error"] is False
+        assert flow["result"] is stale_summary
+        assert flow["timeline_result"] is stale_timeline
         response = runtime.handle_text("101", "21")
+        assert flow["result"] is None
+        assert flow["timeline_result"] is None
         response = runtime.handle_callback("101", _ticket_for(runtime, response, "provisional_calculate"))
 
         assert response["error"] is False, response

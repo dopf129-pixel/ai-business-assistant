@@ -98,6 +98,36 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
     def handle_document(self, content, user_id=None, filename=None):
         if (
             self.fifo_transition_runtime_service is not None
+            and callable(getattr(
+                self.fifo_transition_runtime_service,
+                "has_provisional_fbo_document_selection", None,
+            ))
+            and self.fifo_transition_runtime_service.has_provisional_fbo_document_selection(user_id)
+        ):
+            profile_failure = self._admit_user_profile(user_id)
+            if profile_failure:
+                return profile_failure
+            try:
+                result = self.fifo_transition_runtime_service.handle_provisional_fbo_document(
+                    user_id, content, filename,
+                )
+            except Exception:
+                return {
+                    "error": True,
+                    "message": "Не удалось проверить CSV предварительного FIFO. Оценка не изменена.",
+                    "code": "FIFO_PROVISIONAL_CSV_IMPORT_FAILED",
+                    "read_only_ozon": True,
+                }
+            if not isinstance(result, dict) or type(result.get("error")) is not bool:
+                return {
+                    "error": True,
+                    "message": "Не удалось проверить CSV предварительного FIFO. Оценка не изменена.",
+                    "code": "INVALID_FIFO_PROVISIONAL_CSV_RESULT",
+                    "read_only_ozon": True,
+                }
+            return result
+        if (
+            self.fifo_transition_runtime_service is not None
             and self.fifo_transition_runtime_service.has_physical_sales_document_selection(user_id)
         ):
             profile_failure = self._admit_user_profile(user_id)
@@ -162,6 +192,33 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
 
     def preflight_document_upload(self, user_id, filename, file_size):
         runtime = self.fifo_transition_runtime_service
+        if (
+            runtime is not None
+            and callable(getattr(runtime, "has_provisional_fbo_document_selection", None))
+            and runtime.has_provisional_fbo_document_selection(user_id)
+        ):
+            profile_failure = self._admit_user_profile(user_id)
+            if profile_failure:
+                return {**profile_failure, "selected": True, "accepted": False}
+            try:
+                result = runtime.preflight_provisional_fbo_document(
+                    user_id, filename, file_size,
+                )
+            except Exception:
+                return {
+                    "error": True, "selected": True, "accepted": False,
+                    "code": "FIFO_PROVISIONAL_CSV_PREFLIGHT_FAILED",
+                    "message": "Не удалось проверить файл до загрузки. Предварительная оценка не изменена.",
+                    "read_only_ozon": True,
+                }
+            if not isinstance(result, dict) or type(result.get("error")) is not bool:
+                return {
+                    "error": True, "selected": True, "accepted": False,
+                    "code": "INVALID_FIFO_PROVISIONAL_CSV_PREFLIGHT",
+                    "message": "Не удалось проверить файл до загрузки. Предварительная оценка не изменена.",
+                    "read_only_ozon": True,
+                }
+            return result
         if runtime is None or not runtime.has_physical_sales_document_selection(user_id):
             return {"error": False, "selected": False, "read_only_ozon": True}
         profile_failure = self._admit_user_profile(user_id)

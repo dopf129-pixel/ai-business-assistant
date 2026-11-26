@@ -16,6 +16,12 @@ from services.fifo_cost_stock_management_import_service import (
 from services.fifo_cost_physical_sales_import_service import (
     FifoCostPhysicalSalesImportService,
 )
+from services.fifo_cost_provisional_fbo_csv_import_service import (
+    FifoCostProvisionalFboCsvImportService,
+)
+from services.fifo_cost_provisional_movements_import_service import (
+    FifoCostProvisionalMovementsImportService,
+)
 from services.fifo_cost_transition_contracts import ScopeIdentity
 
 
@@ -23,6 +29,12 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_HEADER_BYTES = 4096
 MAX_OUTPUT_BYTES = 384 * 1024
 MAX_PHYSICAL_OUTPUT_BYTES = 64 * 1024
+# The bounded 50,000-row FBO contract may serialize above 16 MiB; the parent
+# limit uses the same cap and revalidates the complete redacted manifest.
+MAX_PROVISIONAL_FBO_OUTPUT_BYTES = 32 * 1024 * 1024
+# The bounded 50,000-row movement contract may serialize above 16 MiB; the
+# corresponding parent limit uses the same cap and revalidates every row.
+MAX_PROVISIONAL_MOVEMENTS_OUTPUT_BYTES = 32 * 1024 * 1024
 _ALLOWED_REPORTS = {
     "TURNOVER": "parse_turnover_workbook",
     "STOCK_MANAGEMENT": "parse_stock_management_workbook",
@@ -68,9 +80,19 @@ def _read_request(stream):
         raise ValueError("FIFO_REPORT_FILENAME_INVALID")
     document_kind = header.get("document_kind")
     if document_kind is not None:
-        if document_kind != "PHYSICAL_SALES_CSV":
-            raise ValueError("FIFO_REPORT_FORMAT_UNSUPPORTED")
-        return document_kind, None, filename, payload, scope
+        if document_kind == "PHYSICAL_SALES_CSV":
+            return document_kind, None, filename, payload, scope
+        if document_kind == "PROVISIONAL_FBO_CSV":
+            timezone_name = header.get("timezone_name")
+            if not isinstance(timezone_name, str) or not timezone_name or len(timezone_name) > 64:
+                raise ValueError("FIFO_PROVISIONAL_FBO_TIMEZONE_INVALID")
+            return document_kind, timezone_name, filename, payload, scope
+        if document_kind == "PROVISIONAL_MOVEMENTS_CSV":
+            timezone_name = header.get("timezone_name")
+            if not isinstance(timezone_name, str) or not timezone_name or len(timezone_name) > 64:
+                raise ValueError("FIFO_PROVISIONAL_MOVEMENTS_TIMEZONE_INVALID")
+            return document_kind, timezone_name, filename, payload, scope
+        raise ValueError("FIFO_REPORT_FORMAT_UNSUPPORTED")
     report_type = header.get("report_type")
     method_name = _ALLOWED_REPORTS.get(report_type)
     if method_name is None:
@@ -103,6 +125,58 @@ def _run():
             ).encode("utf-8")
             if len(encoded) > MAX_PHYSICAL_OUTPUT_BYTES:
                 raise ValueError("FIFO_PHYSICAL_SALES_WORKER_RESULT_TOO_LARGE")
+            sys.stdout.buffer.write(encoded)
+            sys.stdout.buffer.flush()
+            return 0
+        if parser_kind == "PROVISIONAL_FBO_CSV":
+            parsed = FifoCostProvisionalFboCsvImportService().parse_csv(
+                payload=payload, filename=filename, scope=scope,
+                timezone_name=method_name,
+            )
+            if parsed.document is None:
+                code = parsed.issue_codes[0] if parsed.issue_codes else "FIFO_PROVISIONAL_FBO_PARSE_FAILED"
+                encoded = json.dumps(
+                    {"error": True, "code": code}, separators=(",", ":"),
+                ).encode("utf-8")
+                sys.stdout.buffer.write(encoded)
+                sys.stdout.buffer.flush()
+                return 0
+            response = {
+                "error": False,
+                "document_kind": parser_kind,
+                "document": parsed.document.to_worker_summary_payload(),
+            }
+            encoded = json.dumps(
+                response, ensure_ascii=True, separators=(",", ":"),
+            ).encode("ascii")
+            if len(encoded) > MAX_PROVISIONAL_FBO_OUTPUT_BYTES:
+                raise ValueError("FIFO_PROVISIONAL_FBO_WORKER_RESULT_TOO_LARGE")
+            sys.stdout.buffer.write(encoded)
+            sys.stdout.buffer.flush()
+            return 0
+        if parser_kind == "PROVISIONAL_MOVEMENTS_CSV":
+            parsed = FifoCostProvisionalMovementsImportService().parse_csv(
+                filename=filename, payload=payload, scope=scope,
+                timezone_name=method_name,
+            )
+            if parsed.document is None:
+                code = parsed.issue_codes[0] if parsed.issue_codes else "FIFO_PROVISIONAL_MOVEMENTS_PARSE_FAILED"
+                encoded = json.dumps(
+                    {"error": True, "code": code}, separators=(",", ":"),
+                ).encode("utf-8")
+                sys.stdout.buffer.write(encoded)
+                sys.stdout.buffer.flush()
+                return 0
+            response = {
+                "error": False,
+                "document_kind": parser_kind,
+                "document": parsed.document.to_worker_summary_payload(),
+            }
+            encoded = json.dumps(
+                response, ensure_ascii=True, separators=(",", ":"),
+            ).encode("ascii")
+            if len(encoded) > MAX_PROVISIONAL_MOVEMENTS_OUTPUT_BYTES:
+                raise ValueError("FIFO_PROVISIONAL_MOVEMENTS_WORKER_RESULT_TOO_LARGE")
             sys.stdout.buffer.write(encoded)
             sys.stdout.buffer.flush()
             return 0

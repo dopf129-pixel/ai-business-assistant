@@ -393,6 +393,8 @@ class TelegramFifoCostTransitionRuntimeService:
         if action in {"report_turnover", "report_stock"}:
             return self._start_report_import(user_id, session, action)
         if action == "physical_sales":
+            if self.provisional_service is not None:
+                self.provisional_service.clear_fbo_upload(session)
             if self.physical_sales_import_service is None:
                 return self._failure("Загрузка физических продаж временно недоступна. Дело не изменено.")
             session["step"] = "physical_sales"
@@ -572,6 +574,62 @@ class TelegramFifoCostTransitionRuntimeService:
             expected_scope=scope,
             expected_case_revision=session["case_revision"],
         )
+
+    def has_provisional_fbo_document_selection(self, user_id):
+        if self.provisional_service is None:
+            return False
+        owner, _tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        flow = session.get("provisional_flow") if isinstance(session, dict) else None
+        upload = flow.get("fbo_upload") if isinstance(flow, dict) else None
+        movements_upload = flow.get("movements_upload") if isinstance(flow, dict) else None
+        return (
+            isinstance(upload, dict)
+            and session.get("step") in {
+                "provisional_fbo_period", "provisional_fbo_file", "provisional_fbo_preview",
+            }
+        ) or (
+            isinstance(movements_upload, dict)
+            and session.get("step") in {
+                "provisional_movements_file", "provisional_movements_preview",
+            }
+        )
+
+    def preflight_provisional_fbo_document(self, user_id, filename, file_size):
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if not self.has_provisional_fbo_document_selection(user_id):
+            return {"error": False, "selected": False, "read_only_ozon": True}
+        if not isinstance(session, dict) or session.get("tenant") != tenant:
+            return {
+                "error": False, "handled": True, "selected": True,
+                "accepted": False, "code": "FIFO_PROVISIONAL_FBO_SELECTION_STALE",
+                "message": "Выбор FBO CSV устарел или относится к другому магазину. Файл не загружен.",
+                "read_only_ozon": True,
+            }
+        if session.get("step") in {"provisional_movements_file", "provisional_movements_preview"}:
+            return self.provisional_service.preflight_movements_document(
+                self, owner, session, filename, file_size,
+            )
+        return self.provisional_service.preflight_fbo_document(self, owner, session, filename, file_size)
+
+    def handle_provisional_fbo_document(self, user_id, content, filename=None):
+        owner, tenant = self._identity(user_id)
+        session = self._sessions.get(owner) if owner else None
+        if not self.has_provisional_fbo_document_selection(user_id):
+            return {"error": False, "handled": False, "read_only_ozon": True}
+        if not isinstance(session, dict) or session.get("tenant") != tenant:
+            return {
+                "error": False, "handled": True,
+                "code": "FIFO_PROVISIONAL_FBO_SELECTION_STALE",
+                "message": "Выбор FBO CSV устарел или относится к другому магазину. Файл не обработан.",
+                "read_only_ozon": True,
+            }
+        if session.get("step") in {"provisional_movements_file", "provisional_movements_preview"}:
+            return self.provisional_service.handle_movements_document(
+                self, owner, session, content, filename,
+            )
+        return self.provisional_service.handle_fbo_document(self, owner, session, content, filename)
 
     def handle_physical_sales_callback(self, user_id, callback):
         service = self.physical_sales_import_service
@@ -2427,6 +2485,16 @@ class TelegramFifoCostTransitionRuntimeService:
     def _read_case(self, case_id, identity):
         return self.transition_service.get_case(case_id=case_id, **identity)
 
+    @classmethod
+    def _case_matches(cls, result, identity, revision):
+        if (
+            not isinstance(result, dict)
+            or result.get("error") is not False
+            or result.get("case_revision") != revision
+        ):
+            return False
+        return cls._case_matches_identity(result.get("case"), identity)
+
     @staticmethod
     def _case_matches_identity(payload, identity):
         if not isinstance(payload, dict):
@@ -2552,7 +2620,7 @@ class TelegramFifoCostTransitionRuntimeService:
     def _keyboard(buttons):
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
-    def _result(self, message, *, keyboard=None):
+    def _result(self, message, *, keyboard=None, code=None):
         result = {
             "error": False,
             "handled": True,
@@ -2561,6 +2629,8 @@ class TelegramFifoCostTransitionRuntimeService:
         }
         if keyboard is not None:
             result["keyboard"] = keyboard
+        if isinstance(code, str) and code:
+            result["code"] = code
         return result
 
     def _failure(self, message):

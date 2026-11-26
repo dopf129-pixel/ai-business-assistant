@@ -1,3 +1,50 @@
+# Regression map — 2026-11-25
+
+- `tests/test_fifo_cost_provisional_timeline_service.py`: verify old/new allocation by layer origin when rates are equal and reject timeline results whose actual old-layer closing balance conflicts with the owner-confirmed range.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: valid typed closing-old input clears stale summary/timeline output; invalid input preserves prior values.
+
+# 2026-11-25 — Provisional FIFO timeline review fixes
+
+- The timeline now withholds its FIFO money split when the replayed old-layer sales fall outside the owner-confirmed aggregate closing-old-stock range.
+- FBO coverage may include a wider, owner-confirmed CSV period as long as it contains the entire selected movement statement; replay remains clipped to the statement window.
+- The FBO CSV parser validates an optional seller article against the active offer ID. The bounded 50,000-row FBO subprocess result now uses a matching 32 MiB cap in both worker and parent.
+- Added regressions for contradictory old-stock assumptions, wider/narrower coverage, article mismatch and the full-size FBO worker payload. Local tests are unavailable in this restricted worktree; exact-head hosted CI is required before this stack is ready for merge.
+
+# Provisional FIFO timeline review corrections (2026-11-24)
+
+- `tests/test_fifo_cost_provisional_movements_import_service.py`: `SUPPLY_RECEIVED` rejects `buyer_delivery` through both CSV and typed event construction.
+- `tests/test_fifo_cost_provisional_timeline_service.py`: an unlinked opening buyer-delivery residual is retained untouched and contributes only to closing reserve reconciliation; an in-window dispatch delivered after period end remains pending and cannot be counted as a buyout.
+- `tests/test_fifo_cost_report_import_worker_client.py`: a bounded 50,000-row owner-movement document passes the real subprocess boundary under the 32 MiB validated output cap.
+- Linked timeline/replay/import/Telegram profile: **111 passed**; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+
+# Provisional FIFO held stock and non-sale replay (PF17)
+
+- tests/test_fifo_cost_provisional_replay_service.py: opening held balances; exact release of known held layers; release quantity above bucket; release/removal from mixed-rate held stock fails closed; available non-sale removal consumes FIFO but stays outside buyout COGS; held write-off is separately valued; non-resellable customer returns can remain held and later return to availability at the original source rate; buyer-delivery is not released without posting linkage; duplicate posting lifecycle is preserved.
+- Prefix behavior: later negative stock, same-time ambiguity, or lifecycle conflict stops the replay; only prior confirmed events remain in the result and unprocessed_event_count exposes the untouched suffix.
+- Replay module: 39 passed; linked PF17 profile across replay, normalizer, movement/FBO importers, evidence reader and existing workflow: 76 passed in 10.62s. Compileall, diff check and tracked data equality passed. These tests establish only deterministic replay of supplied synthetic inputs, not source coverage, closing-balance reconciliation or final TIMELINE_MODEL readiness.
+
+# Provisional FIFO buyout and return replay (PF16)
+
+- `tests/test_fifo_cost_provisional_replay_service.py`: buyout consumes the exact reserve once and creates gross COGS; dispatch remains zero COGS; returns before buyout or above confirmed quantity fail; duplicate event IDs are idempotent; partial sale returns restore the last consumed layer first and retain gross COGS; non-buyout cancellation restores its original source layer; non-resellable units remain held; mixed-layer partial cancellation is not guessed; and old opening transit buyout does not reduce opening available stock a second time.
+- `tests/test_fifo_cost_provisional_timeline_normalizer.py`: pre-window cancelled posting with a later owner restock requires the exact opening link; a linked posting produces both the reserve and restock events.
+- Linked PF16 profile: **40 passed** across replay, normalizer, and movement parser. Source completeness and final timeline readiness are not asserted by these tests.
+
+# Provisional FIFO replay (PF15)
+
+- `tests/test_fifo_cost_provisional_replay_service.py`: finite initial and received layers; partial posting allocation across FIFO rates; zero dispatch COGS; separate opening-transit old-cost reserve bounded by exact hashed posting capacity; duplicate idempotency; negative-available guard; held receipt isolation; equal-day ambiguity; exact-instant order; unsupported buyout deferral; and invalid monetary values.
+- `tests/test_fifo_cost_provisional_timeline_normalizer.py::test_exact_opening_transit_link_matches_posting_quantity_and_avoids_second_dispatch`: normalized FBO posting capacities expose only hashed keys and exact quantities to the replay caller.
+- Targeted PF15 profile: **30 passed**. These checks validate stream replay only; they do not establish source completeness, period balance, or final `TIMELINE_MODEL` eligibility.
+
+# Provisional FIFO timeline sources (PF14)
+
+- `tests/test_fifo_cost_provisional_movements_import_service.py`: exact template/header, UTF-8 BOM, six allowed owner events, event-specific fields, exact SKU, positive bounded quantities, safe hashed references, store-timezone timestamps and DST guards.
+- `tests/test_fifo_cost_provisional_timeline_normalizer.py`: FBO and confirmed owner evidence scoped to exact store/SKU/case, opening links checked against exact posting and quantity, no repeated opening dispatch, return status/quantity conflicts, day precision, duplicate sale collapse and aggregate reports kept as anchors.
+- `tests/test_fifo_cost_provisional_evidence_reader.py`: complete owner-confirmed TURNOVER/STOCK_MANAGEMENT evidence is read at one exact case revision; compatibility TURNOVER selection remains narrow; physical-sales source status is redacted and read-only.
+
+# Provisional FBO CSV
+
+- tests/test_fifo_cost_provisional_fbo_csv_import_service.py: exact selected SKU, BOM, ignored additional fields, no raw posting/status echo, duplicate idempotency/conflict, strict finite-unit/row/file limits, timezone normalization, day vs instant precision, DST ambiguous/nonexistent rejection, and impossible timestamp ordering.
+
 # Provisional FIFO report-based summary
 
 - `tests/test_fifo_cost_provisional_summary_service.py`: synthetic §4.3 calculations, unknown closing stock, higher/equal costs, explicit unsupported movements, report scope/completeness/period, all eight bucket continuity, balance failure, and exhaustive small integer boundary matrix.
@@ -7178,3 +7225,29 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Linked source, normalizer, acceptance, checkpoint, deduplication, manifest, v13/v16 migration, and existing cross-docking/planning cross-docking regressions: **233 passed in 9.62s**. `compileall` on changed batch modules/repository and linked tests, `git diff --check`, and `git diff --exit-code -- data` passed.
 - Disposable Windows/Python 3.12 full suite in a clean copy without `.git`, `.venv`, real `data/`, or secret `.env`: **5,405 passed in 99.02s**; `compileall app` passed. The copy used a synthetic USN_INCOME 6% policy and safe `.env.example`; all test writes stayed inside that temporary copy.
 - Source matrix and remaining source gaps are documented in `FIFO_BATCH_SUPPLY_SOURCE_CONTRACT_2026-11-13.md` and the PR B handoff. Hosted current-SHA CI is pending publication.
+# 2026-11-23 — Provisional FBO CSV upload tests (PF12)
+
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: bounded scenario upload end-to-end through normal FIFO callbacks, exact numeric SKU filtering, preview/accept, diagnostic +1 comparison, unchanged statement T and zero factual FIFO writes; stale/expired and wrong-phase file guards; no fall-through to physical-sales or legacy cost import.
+- `tests/test_fifo_cost_report_import_worker_client.py`: isolated FBO parsing in the shared bounded worker, worker-result manifest revalidation, timeout and output-size rejection.
+- Linked profile including parser, worker, adapter, provisional runtime, transition runtime, and physical-sales evidence/import suites: **56 passed**.
+
+
+# 2026-11-23 — Provisional FBO CSV upload tests (PF12)
+
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: bounded scenario upload end-to-end through normal FIFO callbacks, exact numeric SKU filtering, preview/accept, diagnostic +1 comparison, unchanged statement T and zero factual FIFO writes; stale/expired and wrong-phase file guards; no fall-through to physical-sales or legacy cost import.
+- `tests/test_fifo_cost_report_import_worker_client.py`: isolated FBO parsing in the shared bounded worker, worker-result manifest revalidation, timeout and output-size rejection.
+- Linked profile including parser, worker, adapter, provisional runtime, transition runtime, and physical-sales evidence/import suites: **56 passed**.
+
+# 2026-11-23 — Provisional FBO/turnover reconciliation tests (PF13)
+
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py::test_fbo_csv_dialog_preflights_parses_and_keeps_statement_T_for_calculation` pins delivered-in-window `5932`, turnover `T=5931`, delta `+1`, `1319` pre-snapshot dispatches delivered in-window, `2` later deliveries, `19` in transit at export, one missing dispatch timestamp, one unknown-status row, and the unchanged summary T/FIFO write count.
+- The regression verifies partial status/time evidence is still shown as a diagnostic and does not turn the CSV comparison into a complete timeline.
+- Linked PF13 profile: **72 passed in 9.90s** across FBO parser/worker/adapter/Telegram, summary model, transition runtime, and physical-sales import/evidence suites.
+
+# 2026-11-23 — Provisional timeline presenter and final balance gate (PF18)
+
+- `tests/test_fifo_cost_provisional_timeline_service.py`: owner completeness is mandatory; exact FBO/selected report window, report boundaries, event totals, full replay, opening transit links, and eight ending stock buckets gate `TIMELINE_MODEL`; conflicting closing buckets or missing controls withhold money.
+- `tests/test_fifo_cost_provisional_fbo_telegram_flow.py`: owner-movements CSV is processed through the ordinary Telegram adapter/worker; a synthetic incomplete event set renders `TIMELINE_GAP` and a separate summary range without raw identifiers, internal status codes, partial money, or factual writes. Replacing/reconfirming FBO or movements CSV resets old completeness confirmation and timeline result.
+- `tests/test_fifo_cost_report_import_worker_client.py`: movements CSV worker success, manifest tamper detection, and size limits.
+- Linked PF18 profile: **97 passed** across timeline service, replay, normalizer, movements/FBO parser, evidence reader, ordinary Telegram flows, worker client, and existing transition evidence/workflow. `compileall -q app tests`, `git diff --check`, and `git diff --exit-code -- data` passed. Full suite and hosted exact-head PR B CI are pending PF19.
+- PF19 isolated full-suite verification on implementation/docs SHA `520eed936328793bd62fda3df621ad06b965cea4`: **5,565 passed in 95.75s**. The disposable copy omitted repository `data/` and `.env`; a synthetic tax policy was added only inside that copy. The later PR B packaging checkpoint still requires hosted exact-head CI.
