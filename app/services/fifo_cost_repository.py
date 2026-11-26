@@ -341,6 +341,10 @@ class FifoCostRepository:
                         and normalized_identity["sku"] != normalized_sku)
                 ):
                     return self._error("FIFO_TRANSITION_SCOPE_INVALID")
+                normalized_identity = {
+                    key: normalized_identity[key]
+                    for key in ("store_id", "product_id", "offer_id", "sku")
+                }
         except (TypeError, ValueError):
             return self._error("FIFO_TRANSITION_SCOPE_INVALID")
         if type(limit) is not int or not 1 <= limit <= 100:

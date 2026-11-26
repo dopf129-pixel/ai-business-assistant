@@ -117,3 +117,5 @@ Before considering this PR ready for independent review, confirm PR C is open ag
 - Every displayed page is persisted as an opaque page ticket with its complete cursor stack and original snapshot. «Новее» and case-revision back navigation return to that snapshot.
 - Added regressions for 21 interleaved exact-identity rows plus 25 other-identity rows, stable previous-page navigation after a new case arrives, and stable revision-history return.
 - Hosted exact-head verification: pending.
+
+- Первый hosted Linux прогон для SHA 80b22ee63632c21f67390a4721bd3957d2c6d7b2 выполнил 5 597 тестов: 5 592 passed, 5 failed из-за служебного policy_version в нормализованном identity. Фильтр хранилища принимает только бизнес-ключи; policy_version теперь проверяется и удаляется до вызова store. Новый exact-head CI обязателен.
