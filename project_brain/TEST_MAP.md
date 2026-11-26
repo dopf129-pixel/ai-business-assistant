@@ -1,3 +1,12 @@
+# Provisional FIFO report-based summary
+
+- `tests/test_fifo_cost_provisional_summary_service.py`: synthetic §4.3 calculations, unknown closing stock, higher/equal costs, explicit unsupported movements, report scope/completeness/period, all eight bucket continuity, balance failure, and exhaustive small integer boundary matrix.
+- `tests/test_fifo_cost_provisional_evidence_reader.py`: only complete owner-confirmed TURNOVER reports in the exact case scope are returned; stale case and >100 saved reports fail closed.
+- `tests/test_telegram_fifo_cost_provisional_service.py`: ordinary `fifo_transition` callback route, report selection, owner hypotheses, closing residual input and preview rendering; report changes clear dependent assumptions, identical-period reports remain distinguishable by capture time and fingerprint in labels within Telegram's 64-character button limit, and no FIFO write occurs. It also pins the optional-service compatibility route.
+- Review regression profile: linked provisional/transition profile — **59 passed** on the updated branch; compileall, `git diff --check`, and unchanged tracked `data/` passed.
+- `tests/test_fifo_cost_transition_production_workflow.py`: shared production workflow wires a separate provisional service without replacing the factual evidence/review/apply path.
+- Linked profile: **113 passed** across provisional summary/evidence/Telegram, production transition workflow, parent runtime/contracts, and both existing report importers. Full isolated suite on `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`: **5,491 passed in 110.55s**. `compileall -q app tests` and `git diff --exit-code -- data` passed. Exact-head hosted Windows/Linux full Verify passed for `6d54bf876c1f80977f32ecdbeb98a26faad787dd`; Linux Docker build and smoke passed.
+
 # 2026-11-19 — assistant_session backup contract
 
 - `tests/test_bot_backup_service.py::test_backup_accepts_list_json_written_by_supported_app_storages` now creates `assistant_session.json` with `AssistantSessionStorageService` and verifies backup, archive validation, dry-run restore, and full restore. `::test_backup_holds_startup_guard_for_the_entire_snapshot` now uses the same list-shaped contract for its session fixture.

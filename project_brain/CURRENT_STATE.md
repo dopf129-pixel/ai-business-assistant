@@ -1,3 +1,10 @@
+# 2026-11-23 — Provisional FIFO summary (PR A local verification complete)
+
+- Follow-up review corrections: report changes invalidate only dependent owner assumptions, and report options expose report kind, date, UTC capture time and an unambiguous short fingerprint in button labels no longer than Telegram's 64-character limit. Linked provisional/transition profile: **59 passed**; compileall, whitespace and tracked-data checks passed.
+- PR A has a read-only calculation and ordinary Telegram preview for a two-report aggregate scenario. The control case, broad unknown-closing range, strict report/window/bucket gates, timezone and compensation handling, and stale callback behavior are covered by synthetic tests. Linked profile: **113 passed**; full isolated suite: **5,491 passed** on implementation SHA `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`; compileall and unchanged `data/` passed.
+- The path has no durable estimate history yet and does not change factual FIFO, case cost, Period Profit or Return COGS. Timeline replay and saved estimates remain in dependent PR B/C; this feature is not ready for production until all three PRs and their CI/review are complete.
+- Decision 068 records the architectural boundary between provisional models and factual FIFO. Exact-head hosted CI for PR A passed on `6d54bf876c1f80977f32ecdbeb98a26faad787dd` (Windows, Linux, and Docker smoke).
+
 # 2026-11-19 — assistant_session backup JSON contract
 
 - `BotBackupService` now validates `assistant_session.json` as a list, matching `AssistantSessionStorageService`. The fix removes the verified-backup failure `BOT_BACKUP_JSON_CONTRACT_INVALID` without changing the session file, stored records, restore paths, or updater flow.

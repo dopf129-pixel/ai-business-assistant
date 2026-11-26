@@ -1,3 +1,16 @@
+# 2026-11-24 — Provisional FIFO report selection review fixes
+
+- Changing a report now invalidates the assumptions that depend on it: a new movement report clears the receipt-party and closing-old-stock assumptions; a new snapshot clears all assumptions and the previously selected movement report. Re-selecting the same report keeps the current scenario.
+- Report choices identify the turnover-report kind, period, UTC capture time and short file fingerprint so files for an identical period remain distinguishable.
+- Added Telegram regressions for movement/snapshot switching and duplicate-period report labels; choice labels stay within Telegram's 64-character limit while retaining UTC capture time and the short fingerprint. Linked provisional/transition verification: **59 passed**; `compileall`, whitespace and tracked-data checks passed.
+
+# 2026-11-23 — Add read-only provisional FIFO summary scenarios
+
+- Added an owner-only scenario screen to the existing FIFO transition card. It selects complete, owner-confirmed, exact-scope turnover reports for adjacent snapshot/movement periods, asks the two documented batch-composition assumptions, and calculates linked old/new sold-unit and gross-COGS ranges.
+- The default closing old-stock assumption is explicitly unknown and produces the documented wide range. An exact value/range is labelled as a scenario hypothesis. Source conflicts and unsupported movement columns withhold money.
+- This PR A path is in-memory and read-only with respect to factual FIFO, case costs, Period Profit and Return COGS. It does not call readiness/prepare/apply or save a scenario. See `docs/fifo-provisional-summary-owner-guide.md`.
+- Local linked verification: **113 passed** across provisional summary/evidence/Telegram, production transition workflow, parent Telegram runtime/contracts and both existing report importers. Current tested implementation SHA `63f60c2a3fe3b00268be1be8a124d7e90cb7f893`: full isolated pytest passed **5,491**; compileall and unchanged `data/` passed. Hosted exact-head PR CI passed on SHA `6d54bf876c1f80977f32ecdbeb98a26faad787dd`: Linux full verification and Docker smoke, plus Windows full verification.
+
 # 2026-11-19 — Accept assistant session list in verified bot backups
 
 - Added `assistant_session.json` to the backup service's list-shaped JSON contract. The production storage writes a history list; backups that previously failed with `BOT_BACKUP_JSON_CONTRACT_INVALID` can now be verified and restored.

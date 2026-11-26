@@ -134,6 +134,10 @@ def test_production_workflow_builder_wires_durable_evidence_review_apply_and_run
     assert workflow["runtime_service"].period_summary_collection_service is workflow[
         "period_summary_collection_service"
     ]
+    assert workflow["runtime_service"].provisional_service is not None
+    assert workflow["provisional_service"].summary_service.__class__.__name__ == (
+        "FifoCostProvisionalSummaryService"
+    )
     assert workflow["runtime_service"].period_profit_service is period_profit_service
     assert workflow["review_service"].evidence_service is workflow["evidence_service"]
     assert workflow["review_service"].automatic_batch_manifest_service is workflow[

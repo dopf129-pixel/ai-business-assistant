@@ -51,6 +51,7 @@ class TelegramFifoCostTransitionRuntimeService:
         period_summary_collection_service=None,
         period_profit_service=None,
         batch_rule_telegram_service=None,
+        provisional_service=None,
         monotonic_clock=monotonic, now_provider=None,
     ):
         self.transition_service = transition_service
@@ -66,6 +67,7 @@ class TelegramFifoCostTransitionRuntimeService:
         self.period_summary_collection_service = period_summary_collection_service
         self.period_profit_service = period_profit_service
         self.batch_rule_telegram_service = batch_rule_telegram_service
+        self.provisional_service = provisional_service
         self._monotonic = monotonic_clock
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._sessions = {}
@@ -256,6 +258,12 @@ class TelegramFifoCostTransitionRuntimeService:
                 self, owner, text,
             )
         if (
+            self.provisional_service is not None
+            and isinstance(session.get("step"), str)
+            and session["step"].startswith("provisional_")
+        ):
+            return self.provisional_service.handle_text(self, owner, session, text)
+        if (
             isinstance(session.get("step"), str)
             and session["step"].startswith("batch_control_")
         ):
@@ -337,6 +345,13 @@ class TelegramFifoCostTransitionRuntimeService:
             and action.startswith("batch_")
         ):
             return self.batch_rule_telegram_service.handle_callback(
+                self, owner, session, ticket, action,
+            )
+        if (
+            self.provisional_service is not None
+            and action.startswith("provisional_")
+        ):
+            return self.provisional_service.handle_callback(
                 self, owner, session, ticket, action,
             )
         if action == "confirm_field":
@@ -1783,6 +1798,10 @@ class TelegramFifoCostTransitionRuntimeService:
                     {"text": "🔄 Обновить данные поставок", "callback": self._issue_ticket(owner, session, "refresh_supplies")},
                 ])
             buttons.extend([
+                *([{
+                    "text": "🧮 Предварительная оценка FIFO",
+                    "callback": self._issue_ticket(owner, session, "provisional_start"),
+                }] if self.provisional_service is not None else []),
                 {"text": "📄 Добавить отчёт", "callback": self._issue_ticket(owner, session, "reports")},
                 {"text": "📦 Указать число на приёмке", "callback": self._issue_ticket(owner, session, "supplier_receiving")},
                 {"text": "🧾 Задать начальный состав FIFO", "callback": self._issue_ticket(owner, session, "opening_composition")},
