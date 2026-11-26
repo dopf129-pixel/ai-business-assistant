@@ -25,6 +25,7 @@ from services.fifo_cost_provisional_timeline_service import (
 )
 from services.fifo_cost_transition_contracts import ScopeIdentity
 from services.fifo_cost_report_import_worker_client import FifoCostReportImportWorkerClient
+from services.ozon_account_repository import split_store_tenant_scope
 
 
 class TelegramFifoCostProvisionalService:
@@ -1086,14 +1087,7 @@ class TelegramFifoCostProvisionalService:
         case = session.get("case")
         try:
             timezone_name = case["metadata"]["store_timezone"]
-            scope_data = case["metadata"]["scope"]
-            scope = ScopeIdentity(
-                owner_id=scope_data["owner_id"],
-                store_id=session["identity"]["store_id"],
-                product_id=session["identity"].get("product_id"),
-                offer_id=session["identity"].get("offer_id"),
-                sku=session["identity"]["sku"],
-            )
+            scope = self._scope_from_session(session)
         except (KeyError, TypeError, ValueError):
             return runtime._result(
                 "Не удалось проверить магазин и SKU. CSV не выбран.",
@@ -1419,13 +1413,7 @@ class TelegramFifoCostProvisionalService:
         case = session.get("case")
         try:
             metadata = case["metadata"]
-            scope_data = metadata["scope"]
-            identity = session["identity"]
-            scope = ScopeIdentity(
-                owner_id=scope_data["owner_id"], store_id=identity["store_id"],
-                product_id=identity.get("product_id"), offer_id=identity.get("offer_id"),
-                sku=identity["sku"],
-            )
+            scope = self._scope_from_session(session)
             timezone_name = metadata["store_timezone"]
         except (KeyError, TypeError, ValueError):
             return runtime._result(
@@ -2179,7 +2167,24 @@ class TelegramFifoCostProvisionalService:
         return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
 
     @staticmethod
-    def _build_summary_request(runtime, session, flow, reports):
+    def _scope_from_session(session):
+        """Restore the owner omitted from persisted case payloads."""
+        owner_id, store_id = split_store_tenant_scope(session["tenant"])
+        identity = session["identity"]
+        stored_scope = session["case"]["metadata"]["scope"]
+        if not owner_id or store_id != identity["store_id"] or any(
+            stored_scope.get(key) != identity.get(key)
+            for key in ("store_id", "product_id", "offer_id", "sku")
+        ):
+            raise ValueError("FIFO_PROVISIONAL_SCOPE_INVALID")
+        return ScopeIdentity(
+            owner_id=owner_id, store_id=store_id,
+            product_id=identity.get("product_id"), offer_id=identity.get("offer_id"),
+            sku=identity["sku"],
+        )
+
+    @classmethod
+    def _build_summary_request(cls, runtime, session, flow, reports):
         snapshot = TelegramFifoCostProvisionalService._find(
             reports, flow.get("snapshot_fingerprint"),
         )
@@ -2190,13 +2195,7 @@ class TelegramFifoCostProvisionalService:
         if not snapshot or not movement or not isinstance(case, dict):
             return None
         metadata = case["metadata"]
-        scope_data = metadata["scope"]
-        identity = session["identity"]
-        scope = ScopeIdentity(
-            owner_id=scope_data["owner_id"], store_id=identity["store_id"],
-            product_id=identity.get("product_id"), offer_id=identity.get("offer_id"),
-            sku=identity["sku"],
-        )
+        scope = cls._scope_from_session(session)
         return ProvisionalSummaryRequest(
             scope=scope, store_timezone=metadata["store_timezone"],
             snapshot=snapshot["report"], movement_report=movement["report"],

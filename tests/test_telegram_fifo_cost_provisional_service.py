@@ -61,7 +61,7 @@ def test_report_switch_clears_only_dependent_assumptions_and_labels_fit_telegram
                 "case": {
                     "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
                     "metadata": {
-                        "scope": {"owner_id": "owner-test", **IDENTITY},
+                        "scope": dict(IDENTITY),
                         "store_timezone": "Europe/Moscow",
                     },
                 },
@@ -181,7 +181,7 @@ def test_regular_transition_flow_saves_only_fresh_provisional_preview(tmp_path):
                 "case": {
                     "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
                     "metadata": {
-                        "scope": {"owner_id": "owner-test", **IDENTITY},
+                        "scope": dict(IDENTITY),
                         "store_timezone": "Europe/Moscow",
                     },
                 },
@@ -745,7 +745,7 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
                 "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
                 "dispatch_date": "2026-11-05",
                 "metadata": {
-                    "scope": {"owner_id": "owner-test", **IDENTITY},
+                    "scope": dict(IDENTITY),
                     "store_timezone": "Europe/Moscow",
                 },
             }
@@ -967,7 +967,7 @@ def test_saved_estimates_are_reachable_from_fresh_fifo_card_for_applied_and_canc
                     "old_unit_cost_rub": "21.00", "new_unit_cost_rub": "14.65",
                     "dispatch_date": "2026-11-05",
                     "metadata": {
-                        "scope": {"owner_id": "owner-test", **IDENTITY},
+                        "scope": dict(IDENTITY),
                         "store_timezone": "Europe/Moscow",
                     },
                 },

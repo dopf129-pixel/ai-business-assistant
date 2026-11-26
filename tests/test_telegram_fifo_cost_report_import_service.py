@@ -153,6 +153,8 @@ def _select(service, case, *, user=OWNER):
         report_type=ReportType.TURNOVER,
     )
     assert ticket["error"] is False
+    assert "Выбрать дело для отчёта" in ticket["message"]
+    assert ticket["keyboard"]["buttons"][0]["callback"] == ticket["callback"]
     assert len(ticket["callback"].encode("utf-8")) <= 64
     assert case.case_id not in ticket["callback"]
     assert scope.sku not in ticket["callback"]

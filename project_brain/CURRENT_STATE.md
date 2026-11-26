@@ -1,3 +1,8 @@
+# 2026-11-26 — Preliminary FIFO in the Telegram bot
+
+- The calculator and both CSV upload forms derive the owner from the active store session. Saved case payloads omit this field, so all three entry points now accept the same saved case shape checked by the repository.
+- The XLSX loader shows a prompt next to the case selection button.
+
 # 2026-11-25 — FIFO transition history pagination review fixes (PR C)
 
 - The SKU transition list reads the complete history with stable 20-record cursor pages.

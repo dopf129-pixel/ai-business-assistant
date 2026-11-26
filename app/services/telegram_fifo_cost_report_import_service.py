@@ -76,6 +76,7 @@ class TelegramFifoCostReportImportService:
             "error": False,
             "handled": True,
             "callback": callback,
+            "message": "Нажмите «Выбрать дело для отчёта», чтобы загрузить XLSX.",
             "keyboard": self._keyboard(("Выбрать дело для отчёта", callback)),
             "read_only_ozon": True,
         }
