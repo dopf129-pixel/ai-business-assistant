@@ -1,3 +1,7 @@
+# 2026-11-27 — Preserve confirmed FIFO cost in the SKU profit report
+
+- The product profit report and its period comparison keep the confirmed cost of sold units from the period calculation when the result includes FIFO, including a period spanning the start of FIFO accounting.
+
 # 2026-11-26 — Fix preliminary FIFO for saved cases
 
 - Fixed the range calculation and CSV uploads when a saved FIFO case omits the owner identifier. The bot uses the active store session and still checks the exact product identity.

@@ -138,6 +138,38 @@ def test_selected_sku_aggregates_proven_legacy_and_current_identity():
     assert query.calls == [{"period_code": "7D", "compare_previous": True, "today": None}]
 
 
+def test_sku_report_and_comparison_preserve_confirmed_fifo_cost():
+    class Costs:
+        def __init__(self):
+            self.lookups = []
+
+        def get_effective_cost_evidence(self, *, at_date, **identity):
+            self.lookups.append(at_date)
+            return {"error": False, "effective_cost_confirmed": True, "cost_price": 14.65}
+
+    current = _row("3921245627", cost=50.30, units=3)
+    current.update(cost_source="FIFO_ALLOCATION_REVISION", fifo_cutoff_date="2026-10-28")
+    previous = _row("3921245627", cost=63.0, units=3)
+    previous.update(
+        cost_source="CUTOFF_PARTITIONED_FIFO_AND_LEGACY", fifo_cutoff_date="2026-10-28",
+    )
+    query = Query({
+        "error": False,
+        "summary": _summary([current], "2026-11-02", "2026-11-08"),
+        "previous_summary": _summary([previous], "2026-10-26", "2026-11-01"),
+    })
+    costs = Costs()
+    service = PeriodProfitSkuRuntimeService(query, cost_service=costs)
+
+    result = service.handle_callback("period_profit_sku:3921245627:7D")
+
+    assert result["error"] is False
+    assert result["summary"]["product_cost"] == 50.30
+    assert round(result["summary"]["profit"], 2) == 23.70
+    assert "К прошлому периоду: +12.7 ₽" in result["text"]
+    assert costs.lookups == []
+
+
 def test_selected_sku_report_shows_revenue_share_for_each_money_line():
     query = Query({
         "error": False,
