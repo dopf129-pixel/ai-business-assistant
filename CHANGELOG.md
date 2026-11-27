@@ -1,3 +1,8 @@
+# 2026-11-27 — Guide the owner through a confirmed FIFO cutoff
+
+- The readiness screen reuses an unambiguous saved daily turnover report and links directly to the missing report or cutoff confirmation.
+- Daily stock reports with a stated receiving count, including zero, can confirm the cutoff without an extra manual quantity entry. The confirmed report retains its provenance.
+
 # 2026-11-27 — Preserve confirmed FIFO cost in the SKU profit report
 
 - The product profit report and its period comparison keep the confirmed cost of sold units from the period calculation when the result includes FIFO, including a period spanning the start of FIFO accounting.
