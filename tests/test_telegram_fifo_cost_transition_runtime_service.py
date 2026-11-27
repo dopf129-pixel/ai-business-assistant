@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
 from cryptography.fernet import Fernet
 
 from services.fifo_cost_history_service import FifoCostHistoryService
@@ -185,8 +186,9 @@ def test_components_mode_saves_exact_total_without_inventing_components(tmp_path
         reset_current_tenant_user_id(tenant)
 
 
+@pytest.mark.parametrize("reported_receiving", [None, 0, 148])
 def test_owner_can_confirm_cutoff_receiving_quantity_without_adding_fifo_units(
-    tmp_path, monkeypatch,
+    tmp_path, monkeypatch, reported_receiving,
 ):
     monkeypatch.setenv(
         "OZON_CREDENTIAL_MASTER_KEY", Fernet.generate_key().decode("ascii"),
@@ -204,7 +206,7 @@ def test_owner_can_confirm_cutoff_receiving_quantity_without_adding_fifo_units(
         stock_buckets.update({
             "available": 100,
             "reserved": 0,
-            "supplier_receiving": None,
+            "supplier_receiving": reported_receiving,
         })
         stock_report = ReportEvidence(
             metadata=TransitionMetadata(
@@ -246,23 +248,31 @@ def test_owner_can_confirm_cutoff_receiving_quantity_without_adding_fifo_units(
             if item["text"].startswith("📅 2026-11-06")
         )
         quantity_prompt = runtime.handle_callback(101, report_choice)
-        assert "ручное подтверждение владельца" in quantity_prompt["message"].lower()
-        assert "не добавится к fifo-слоям" in quantity_prompt["message"].lower()
-
-        invalid = runtime.handle_text(101, "не знаю")
-        assert "введите точное целое число" in invalid["message"].lower()
+        if reported_receiving is None:
+            assert "ручное подтверждение владельца" in quantity_prompt["message"].lower()
+            assert "не добавится к fifo-слоям" in quantity_prompt["message"].lower()
+            invalid = runtime.handle_text(101, "не знаю")
+            assert "введите точное целое число" in invalid["message"].lower()
+            preview = runtime.handle_text(101, "148")
+            assert "не значение, полученное от ozon" in preview["message"].lower()
+            assert "не войдёт в принятое fifo-наличие" in preview["message"].lower()
+        else:
+            preview = quantity_prompt
+            assert f"в отчёте Ozon на приёмке: {reported_receiving} шт." in preview["message"]
+            assert preview["keyboard"]["buttons"][0]["text"] == "✅ Подтвердить дату среза"
+            assert runtime.handle_text(101, "999")["error"] is False
         assert transitions.get_case(case_id=case.case_id, **IDENTITY)["case_revision"] == (
             saved_report["case_revision"]
         )
-        preview = runtime.handle_text(101, "148")
-        assert "не значение, полученное от ozon" in preview["message"].lower()
-        assert "не войдёт в принятое fifo-наличие" in preview["message"].lower()
         confirmed = runtime.handle_callback(
             101, preview["keyboard"]["buttons"][0]["callback"],
         )
         assert confirmed.get("error") is False, confirmed
-        assert "ручное подтверждение владельца" in confirmed["message"].lower()
-        assert "148 шт." in confirmed["message"]
+        if reported_receiving is None:
+            assert "ручное подтверждение владельца" in confirmed["message"].lower()
+            assert "148 шт." in confirmed["message"]
+        else:
+            assert "источник — подтверждённый дневной отчёт" in confirmed["message"]
 
         cutoff = transitions.read_confirmed_cutoff_selection(
             case_id=case.case_id, **IDENTITY,
@@ -270,7 +280,9 @@ def test_owner_can_confirm_cutoff_receiving_quantity_without_adding_fifo_units(
         assert cutoff.get("error") is False, cutoff
         assert cutoff["descriptor"]["cutoff_date"] == "2026-11-06"
         assert cutoff["stock_report_fingerprint"] == stock_report.file_sha256
-        assert cutoff["owner_confirmed_supplier_receiving_units"] == 148
+        assert cutoff["owner_confirmed_supplier_receiving_units"] == (
+            148 if reported_receiving is None else None
+        )
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
     finally:
         reset_current_tenant_user_id(tenant)
@@ -786,6 +798,74 @@ def test_distinct_review_actions_fail_closed_before_ready_and_do_not_write(tmp_p
         assert after["case_revision"] == before["case_revision"] == 8
         assert after["state"] == "AWAITING_EVIDENCE"
         assert history.get_sku_history(**IDENTITY)["queue_initialized"] is False
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_readiness_reuses_saved_daily_turnover_and_routes_to_exact_stock_report(tmp_path):
+    tenant = set_current_tenant_user_id(make_store_tenant_scope("owner-a", "store-a"))
+    try:
+        repository, history, transitions, _, runtime = _services(tmp_path)
+        runtime.review_service = FifoCostTransitionReviewService(transitions, history)
+        runtime.start_new_case(101, IDENTITY, "Крючки", 0, "TOTAL_LANDED")
+        _complete_owner_inputs(runtime)
+        case_id = runtime._sessions["101"]["case_id"]
+        saved = transitions.get_case(case_id=case_id, **IDENTITY)
+        case = transitions._case_from_payload(saved["case"])
+        report = ReportEvidence(
+            metadata=TransitionMetadata(
+                scope=case.metadata.scope,
+                source_kind=EvidenceSourceKind.OWNER_IMPORTED,
+                completeness=EvidenceCompleteness.COMPLETE,
+                source_fingerprint=source_fingerprint("readiness-turnover"),
+                store_timezone="Europe/Moscow",
+            ),
+            report_type=ReportType.TURNOVER,
+            period_from="2026-11-05",
+            period_to="2026-11-05",
+            period_provenance=PeriodProvenance.OWNER_CONFIRMED,
+            captured_at="2026-11-07T18:00:00Z",
+            file_sha256=source_fingerprint("readiness-turnover-file"),
+            parser_version="turnover-test-v1",
+            cell_references=("AB4", "AI4", "AM4"),
+            normalized_fields={
+                "opening_total": 193,
+                "receipts_total": 0,
+                "expenses_total": 33,
+                "closing_total": 160,
+                "reported_balance_difference": 0,
+                "computed_balance_difference": 0,
+                "balance_status": "BALANCED",
+                "closing_buckets": {"available": 130, "buyer_delivery": 26},
+            },
+        )
+        attached = repository.append_report_evidence(
+            case_id=case_id, report=report, expected_case_revision=saved["case_revision"],
+            idempotency_key="readiness-turnover-test-1",
+        )
+        assert attached["error"] is False, attached
+        reopened = runtime.resume_case(
+            101, identity=IDENTITY, display_name="Крючки", case_id=case_id,
+            expected_case_revision=attached["case_revision"],
+        )
+        buttons = {b["text"]: b["callback"] for b in reopened["keyboard"]["buttons"]}
+        documents = runtime.handle_callback(101, buttons["Продолжить без списка поставок"])
+        buttons = {b["text"]: b["callback"] for b in documents["keyboard"]["buttons"]}
+        card = runtime.handle_callback(101, buttons["Продолжить без отчётов"])
+        buttons = {b["text"]: b["callback"] for b in card["keyboard"]["buttons"]}
+        readiness = runtime.handle_callback(101, buttons["🔍 Проверить готовность"])
+        assert "Оборотная ведомость на конец 2026-11-05: 160 шт." in readiness["message"]
+        assert "В продаже — 130; в доставке — 26; в других статусах — 4" in readiness["message"]
+        assert "Можно применить: нет" in readiness["message"]
+        buttons = {b["text"]: b["callback"] for b in readiness["keyboard"]["buttons"]}
+        assert "✅ Применить подтверждённую историю" not in buttons
+        next_step = runtime.handle_callback(101, buttons["📅 Подтвердить дату среза"])
+        assert "Управление остатками" in next_step["message"]
+        assert any(
+            b["text"] == "📦 Добавить отчёт по остаткам" and ":report_stock:" in b["callback"]
+            for b in next_step["keyboard"]["buttons"]
+        )
+        assert transitions.get_case(case_id=case_id, **IDENTITY)["case_revision"] == attached["case_revision"]
     finally:
         reset_current_tenant_user_id(tenant)
 

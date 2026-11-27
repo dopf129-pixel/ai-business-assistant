@@ -1092,11 +1092,20 @@ class PeriodProfitSkuRuntimeService:
             if units is None:
                 return self._error("PERIOD_PROFIT_SKU_QUANTITY_INVALID")
             output["units_sold"] += units
-        cost_override = self._seller_cost_total(identity, summary, output["units_sold"])
-        if isinstance(cost_override, dict) and cost_override.get("error") is True:
-            return cost_override
-        if cost_override is not None:
-            output["product_cost"] = cost_override
+        # A period containing FIFO allocations can include multiple rates,
+        # including the dated legacy portion of a cutoff-spanning period.
+        has_fifo_cost = any(
+            row.get("cost_source") in (
+                "FIFO_ALLOCATION_REVISION", "CUTOFF_PARTITIONED_FIFO_AND_LEGACY",
+            )
+            for row in rows
+        )
+        if not has_fifo_cost:
+            cost_override = self._seller_cost_total(identity, summary, output["units_sold"])
+            if isinstance(cost_override, dict) and cost_override.get("error") is True:
+                return cost_override
+            if cost_override is not None:
+                output["product_cost"] = cost_override
         tax_calculation = self._tax(
             summary,
             output["revenue"],

@@ -1,3 +1,15 @@
+# 2026-11-27 — FIFO readiness and cutoff in Telegram
+
+- Readiness now displays the available, buyer-delivery and other units from a single balanced, confirmed daily turnover report for the confirmed cutoff date or the first dispatch date. Multiple eligible revisions are called out. The display does not establish the inventory cutoff or movement coverage.
+- Readiness links to the scoped missing-document flow. The owner can confirm the exact date and stock report when the receiving count is already present. If the count is absent, the existing manual quantity and confirmation remain available.
+- Production owner state was checked using a read-only connection. Both turnover documents remain saved; the case has no stock-management report for the cutoff or bridge evidence. The linked factual workflow covers the complete synthetic path, while owner-case apply remains source-blocked.
+
+# 2026-11-27 — Confirmed FIFO cost in SKU profit
+
+- The product report now uses the cost of sold units already calculated by Period Profit for FIFO and mixed legacy/FIFO periods. The same path handles both sides of a comparison.
+- The regression reproduces a 50.30 ₽ confirmed cost being replaced by 43.95 ₽ before the fix. The linked profile passed 43 checks.
+- The owner case still needs historical movement and supply evidence before the existing factual apply path can be used. The follow-up plan is in [Confirmed FIFO cost and profit reports](FIFO_CONFIRMED_COST_REPORTS_PLAN_2026-11-27.md).
+
 # 2026-11-26 — Preliminary FIFO in the Telegram bot
 
 - The calculator and both CSV upload forms derive the owner from the active store session. Saved case payloads omit this field, so all three entry points now accept the same saved case shape checked by the repository.

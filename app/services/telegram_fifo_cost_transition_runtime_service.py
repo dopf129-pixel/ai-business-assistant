@@ -15,6 +15,7 @@ from services.fifo_cost_transition_contracts import (
     CostInputMode,
     EvidenceCompleteness,
     EvidenceSourceKind,
+    PeriodProvenance,
     ReportType,
     ScopeIdentity,
     SupplyTotalMode,
@@ -280,7 +281,7 @@ class TelegramFifoCostTransitionRuntimeService:
         if session.get("candidate_pending"):
             if session.get("supplier_receiving_token"):
                 return self._result(
-                    "Проверьте число на приёмке и используйте кнопки подтверждения или отмены в предыдущем сообщении."
+                    "Проверьте дату и число на приёмке, затем используйте кнопки подтверждения или отмены."
                 )
             return self._result(
                 "Проверьте введённое значение и подтвердите его кнопкой. Другой текст не сохранён.",
@@ -762,14 +763,18 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Не удалось прочитать сохранённые отчёты. Данные дела не изменены."
             )
         if not reports:
+            buttons = []
+            if self.report_import_service is not None:
+                buttons.append({
+                    "text": "📦 Добавить отчёт по остаткам",
+                    "callback": self._issue_ticket(owner, session, "report_stock"),
+                })
+            buttons.append({"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")})
             return self._result(
-                "Для ручного подтверждения нужен сохранённый полный отчёт по остаткам "
-                "за один день с подтверждённым периодом. Сначала добавьте такой отчёт; "
-                "значение приёмки из отсутствующего поля не будет считаться нулём.",
-                keyboard=self._keyboard([{
-                    "text": "📄 Добавить отчёт",
-                    "callback": self._issue_ticket(owner, session, "reports"),
-                }]),
+                "Для подтверждения даты среза загрузите полный отчёт «Управление остатками» "
+                "за выбранный день и подтвердите период. Пропущенное в отчёте число на приёмке "
+                "можно будет подтвердить вручную.",
+                keyboard=self._keyboard(buttons),
             )
         page_count = max(
             1, (len(reports) + self.RECEIVING_REPORT_PAGE_SIZE - 1)
@@ -808,9 +813,9 @@ class TelegramFifoCostTransitionRuntimeService:
             "callback": self._issue_ticket(owner, session, "finish"),
         })
         return self._result(
-            "Выберите точный дневной отчёт: его дата станет cutoff FIFO. "
-            "Показываются только полные отчёты с подтверждённым периодом, "
-            "где Ozon не указал supplier_receiving.",
+            "Выберите полный дневной отчёт с подтверждённым периодом. Дата станет "
+            "датой среза FIFO после отдельного подтверждения. Если число на приёмке "
+            "есть в отчёте, бот подставит его.",
             keyboard=self._keyboard(buttons),
         )
 
@@ -826,6 +831,7 @@ class TelegramFifoCostTransitionRuntimeService:
         ):
             return None
         reports = []
+        first_dispatch = session["case"].get("dispatch_date")
         for item in result["items"]:
             payload = item.get("payload")
             fields = payload.get("normalized_fields") if isinstance(payload, dict) else None
@@ -839,14 +845,22 @@ class TelegramFifoCostTransitionRuntimeService:
                 or item.get("period_provenance") != "OWNER_CONFIRMED"
                 or not isinstance(period_from, str)
                 or item.get("period_to") != period_from
+                or (first_dispatch is not None and period_from < first_dispatch)
                 or not isinstance(buckets, dict)
-                or buckets.get("supplier_receiving") is not None
                 or not isinstance(fingerprint, str)
                 or len(fingerprint) != 64
                 or any(char not in "0123456789abcdef" for char in fingerprint.lower())
             ):
                 continue
-            reports.append({"date": period_from, "fingerprint": fingerprint})
+            quantity = buckets.get("supplier_receiving")
+            if quantity is not None and (
+                type(quantity) is not int or not 0 <= quantity <= 1_000_000
+            ):
+                continue
+            reports.append({
+                "date": period_from, "fingerprint": fingerprint,
+                "reported_receiving_units": quantity,
+            })
         reports.sort(key=lambda value: (value["date"], value["fingerprint"]))
         return reports
 
@@ -854,15 +868,13 @@ class TelegramFifoCostTransitionRuntimeService:
         cutoff_date = ticket.get("cutoff_date")
         fingerprint = ticket.get("stock_report_fingerprint")
         reports = self._eligible_supplier_receiving_reports(session)
-        if reports is None or not any(
-            report["date"] == cutoff_date and report["fingerprint"] == fingerprint
-            for report in reports
-        ):
+        report = self._match_receiving_report(reports, cutoff_date, fingerprint)
+        if report is None:
             return self._stale()
-        session["supplier_receiving_report"] = {
-            "cutoff_date": cutoff_date,
-            "stock_report_fingerprint": fingerprint,
-        }
+        self._clear_supplier_receiving_pending(session)
+        if report["reported_receiving_units"] is not None:
+            return self._preview_supplier_receiving(owner, session, report)
+        session["supplier_receiving_report"] = report
         session["step"] = "supplier_receiving_units"
         return self._result(
             f"Введите точное число упаковок SKU {session['identity']['sku']}, "
@@ -871,6 +883,13 @@ class TelegramFifoCostTransitionRuntimeService:
             "введите 0; неизвестное количество не вводите наугад. Значение останется "
             "отдельным складским bucket и не добавится к FIFO-слоям принятого товара."
         )
+
+    @staticmethod
+    def _match_receiving_report(reports, cutoff_date, fingerprint):
+        return next((
+            item for item in (reports or ())
+            if item["date"] == cutoff_date and item["fingerprint"] == fingerprint
+        ), None)
 
     def _start_opening_composition(self, owner, session):
         case = self._read_case(session["case_id"], session["identity"])
@@ -1356,23 +1375,36 @@ class TelegramFifoCostTransitionRuntimeService:
                 "Введите точное целое число упаковок от 0 до 1 000 000. "
                 "Если количество неизвестно, отмените ввод."
             )
-        callback = self._issue_ticket(owner, session, "confirm_supplier_receiving")
-        token = callback.rsplit(":", 1)[-1]
-        ticket = self._ticket(owner, token)
-        ticket.update({
-            "cutoff_date": report["cutoff_date"],
-            "stock_report_fingerprint": report["stock_report_fingerprint"],
-            "supplier_receiving_units": quantity,
-        })
+        return self._preview_supplier_receiving(owner, session, report, manual_units=quantity)
+
+    def _preview_supplier_receiving(self, owner, session, report, *, manual_units=None):
+        reported_units = report["reported_receiving_units"]
+        callback = self._issue_ticket(
+            owner, session, "confirm_supplier_receiving",
+            cutoff_date=report["date"],
+            stock_report_fingerprint=report["fingerprint"],
+            supplier_receiving_units=manual_units,
+            reported_receiving_units=reported_units,
+        )
         session["candidate_pending"] = True
-        session["supplier_receiving_token"] = token
+        session["supplier_receiving_token"] = callback.rsplit(":", 1)[-1]
+        if reported_units is None:
+            message = (
+                f"Проверьте ввод: {manual_units} упаковок этого SKU находились на приёмке "
+                f"на конец {report['date']} согласно вашему подтверждению. "
+                "Это не значение, полученное от Ozon. Оно не войдёт в принятое FIFO-наличие."
+            )
+            label = "✅ Подтвердить количество"
+        else:
+            message = (
+                f"На конец {report['date']} в отчёте Ozon на приёмке: {reported_units} шт. "
+                "Приёмка учитывается отдельно от принятого остатка."
+            )
+            label = "✅ Подтвердить дату среза"
         return self._result(
-            f"Проверьте ввод: {quantity} упаковок этого SKU находились на приёмке "
-            f"на конец {report['cutoff_date']} согласно вашему подтверждению. "
-            "Это не значение, полученное от Ozon. Оно не войдёт в принятое FIFO-наличие. "
-            "Подтверждение заменит выбранный cutoff текущего дела.",
+            message + " Подтверждение сохранит выбранную дату среза в карточке партии.",
             keyboard=self._keyboard([
-                {"text": "✅ Подтвердить количество", "callback": callback},
+                {"text": label, "callback": callback},
                 {
                     "text": "↩️ Отмена",
                     "callback": self._issue_ticket(
@@ -1389,15 +1421,16 @@ class TelegramFifoCostTransitionRuntimeService:
         report_fingerprint = ticket.get("stock_report_fingerprint")
         units = ticket.get("supplier_receiving_units")
         reports = self._eligible_supplier_receiving_reports(session)
-        if (
-            reports is None
-            or not any(
-                item["date"] == cutoff_date
-                and item["fingerprint"] == report_fingerprint
-                for item in reports
-            )
-            or type(units) is not int or not 0 <= units <= 1_000_000
-        ):
+        report = self._match_receiving_report(reports, cutoff_date, report_fingerprint)
+        if report is None:
+            return self._stale()
+        reported_units = report["reported_receiving_units"]
+        if reported_units != ticket.get("reported_receiving_units"):
+            return self._stale()
+        if reported_units is None:
+            if type(units) is not int or not 0 <= units <= 1_000_000:
+                return self._stale()
+        elif units is not None:
             return self._stale()
         saved = self.transition_service.record_cutoff_selection(
             case_id=session["case_id"], **session["identity"],
@@ -1861,7 +1894,7 @@ class TelegramFifoCostTransitionRuntimeService:
             if receiving_units is None:
                 cutoff_summary = (
                     f"Cutoff: {cutoff['descriptor']['cutoff_date']}; "
-                    "количество на приёмке в отчёте отсутствует"
+                    "источник — подтверждённый дневной отчёт по остаткам"
                 )
             else:
                 cutoff_summary = (
@@ -1978,15 +2011,73 @@ class TelegramFifoCostTransitionRuntimeService:
             f"Кандидатные данные до: {readiness.candidate_data_through or 'нет данных'}",
             f"Покрытие до: {readiness.complete_through or 'не подтверждено'}",
         ]
+        proposal = review.get("proposal")
+        lines.extend(self._opening_turnover_lines(proposal, case["case"].get("dispatch_date")))
         self._append_readiness_requirements(lines, readiness, limit=8)
         lines.append("Проверка только читает сохранённые доказательства; FIFO и прибыль не меняются.")
-        return self._result(
-            "\n".join(lines),
-            keyboard=self._keyboard([
-                {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
-                {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
-            ]),
+        buttons = self._readiness_action_buttons(owner, session, readiness)
+        buttons.extend([
+            {"text": "📊 Посмотреть пересчёт", "callback": self._issue_ticket(owner, session, "view_recalculation")},
+            {"text": "↩️ К делу", "callback": self._issue_ticket(owner, session, "finish")},
+        ])
+        return self._result("\n".join(lines), keyboard=self._keyboard(buttons))
+
+    @staticmethod
+    def _opening_turnover_lines(proposal, dispatch_date):
+        if proposal is None:
+            return []
+        day = proposal.confirmed_cutoff_date or dispatch_date
+        if not day:
+            return []
+        reports = [
+            item for item in proposal.turnover_controls
+            if item.period_from == day == item.period_to
+            and item.period_provenance is PeriodProvenance.OWNER_CONFIRMED
+            and item.completeness is EvidenceCompleteness.COMPLETE
+        ]
+        if len(reports) > 1:
+            return [f"На {day} найдено несколько подтверждённых ведомостей. Сверьте их версии."]
+        if not reports:
+            return []
+        report = reports[0]
+        counts = (
+            report.closing_total, report.closing_available_units,
+            report.closing_buyer_delivery_units,
         )
+        if (
+            report.reported_control_difference != 0
+            or report.computed_control_difference != 0
+            or any(type(value) is not int or value < 0 for value in counts)
+        ):
+            return []
+        total, available, delivery = counts
+        if available + delivery > total:
+            return []
+        return [
+            f"Оборотная ведомость на конец {day}: {total} шт.",
+            f"• В продаже — {available}; в доставке — {delivery}; "
+            f"в других статусах — {total - available - delivery} шт.",
+            "Это контроль остатков. Для применения нужны подтверждения ниже.",
+        ]
+
+    def _readiness_action_buttons(self, owner, session, readiness):
+        codes = {item.code for item in readiness.requirements}
+        actions = []
+        if "STOCK_RESERVED_OR_OVERLAP_UNKNOWN" in codes and self.report_import_service is not None:
+            actions.append(("📦 Добавить отчёт по остаткам", "report_stock"))
+        if "OWNER_CUTOFF_CONFIRMATION_REQUIRED" in codes:
+            actions.append(("📅 Подтвердить дату среза", "supplier_receiving"))
+        if codes.intersection({
+            "TURNOVER_REPORT_REQUIRED", "TURNOVER_PERIOD_CONFIRMATION_REQUIRED",
+            "TURNOVER_COVERAGE_GAP",
+        }) and self.report_import_service is not None:
+            actions.append(("📄 Добавить оборотную ведомость", "report_turnover"))
+        if "SALE_CUTOFF_BRIDGE_REQUIRED" in codes and self.physical_sales_import_service is not None:
+            actions.append(("🧾 Добавить подтверждение физических продаж", "physical_sales"))
+        return [
+            {"text": label, "callback": self._issue_ticket(owner, session, action)}
+            for label, action in actions
+        ]
 
     def _show_recalculation(self, owner):
         session = self._sessions.get(owner)

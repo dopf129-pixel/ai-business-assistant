@@ -1,3 +1,13 @@
+# 2026-11-27 — FIFO readiness and stock report confirmation
+
+- tests/test_telegram_fifo_cost_transition_runtime_service.py covers receiving count absent, explicitly zero, and positive. The reported count is never recorded as a manual replacement. It also covers the saved turnover summary and direct route to the missing stock report without changing the case.
+- The linked profile includes the existing factual production workflow and the opening inventory proposal. Linked profile: **39 passed**. Full isolated Windows pytest: **5,602 passed in 113.75 s**.
+
+# 2026-11-27 — FIFO cost in product profit
+
+- `tests/test_period_profit_sku_telegram_flow.py::test_sku_report_and_comparison_preserve_confirmed_fifo_cost` verifies the user-facing SKU callback with a FIFO current period and a previous period spanning the cutoff. The original implementation changed 50.30 ₽ to 43.95 ₽. After the fix, both allocations are reflected in the report and the +12.70 ₽ period change.
+- The linked profile covers SKU callback and scope, the zero-quantity guard, the existing dated cost flow, and core FIFO Period Profit. **43 passed**. Full isolated Windows pytest: **5,599 passed in 112.20 s**.
+
 # 2026-11-26 — Saved case scope in preliminary FIFO
 
 - `tests/test_telegram_fifo_cost_provisional_service.py` and `tests/test_fifo_cost_provisional_fbo_telegram_flow.py` use case payloads that omit the owner, matching the repository. They cover range calculation and both CSV upload forms.

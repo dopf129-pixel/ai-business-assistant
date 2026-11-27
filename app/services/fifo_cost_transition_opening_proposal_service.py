@@ -69,6 +69,7 @@ class FifoTurnoverControlView:
     reported_control_difference: int | None
     computed_control_difference: int | None
     balance_status: str
+    closing_available_units: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +358,9 @@ class FifoCostTransitionOpeningProposalService:
                 non_sale_expense_units=quantities["non_sale_expense_units"],
                 withdrawal_units=quantities["withdrawal_units"],
                 closing_total=quantities["closing_total"],
+                closing_available_units=self._optional_quantity(
+                    closing_buckets.get("available"),
+                ),
                 closing_buyer_delivery_units=self._optional_quantity(
                     closing_buckets.get("buyer_delivery"),
                 ),
